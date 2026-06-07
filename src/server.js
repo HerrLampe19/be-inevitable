@@ -204,10 +204,14 @@ app.post('/api/onboarding/complete', auth, (req, res) => {
 /* ---------------- PROFIL ---------------- */
 app.put('/api/profile', auth, (req, res) => {
   const f = req.body;
-  // Pattern: wenn nicht explizit gesetzt, aus days_per_week ableiten
+  const current = db.get('SELECT days_per_week FROM users WHERE id=?', [req.user.id]);
   let pattern = f.pattern;
-  if (!pattern && f.days_per_week) pattern = JSON.stringify(buildPattern(Number(f.days_per_week)));
-  else if (pattern && typeof pattern !== 'string') pattern = JSON.stringify(pattern);
+  if (pattern && typeof pattern !== 'string') pattern = JSON.stringify(pattern);
+  // Pattern NUR neu ableiten, wenn sich die Frequenz wirklich ändert (sonst bleiben
+  // manuell geplante Kalendertage erhalten). Ohne explizites Pattern und ohne Änderung: null -> COALESCE behält Bestehendes.
+  if (!pattern && f.days_per_week && Number(f.days_per_week) !== current?.days_per_week) {
+    pattern = JSON.stringify(buildPattern(Number(f.days_per_week)));
+  }
   db.run(`UPDATE users SET name=?,dob=?,gender=?,height_cm=?,start_weight=?,goal=?,days_per_week=?,
     pattern=COALESCE(?,pattern),phase=COALESCE(?,phase),kcal_target_train=?,kcal_target_rest=?,experience=COALESCE(?,experience) WHERE id=?`,
     [f.name, f.dob, f.gender, f.height_cm, f.start_weight, f.goal, f.days_per_week,
@@ -398,6 +402,18 @@ app.delete('/api/admin/users/:id', auth, requireAdmin, (req, res) => {
   // Athleten dieses Coaches lösen (nicht mitlöschen)
   db.run('UPDATE users SET coach_id=NULL WHERE coach_id=?', [req.params.id]);
   db.run('DELETE FROM users WHERE id=?', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// Admin: Passwort eines beliebigen Nutzers zurücksetzen
+app.post('/api/admin/users/:id/resetpw', auth, requireAdmin, (req, res) => {
+  const target = db.get('SELECT id FROM users WHERE id=?', [req.params.id]);
+  if (!target) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
+  const next = req.body.next;
+  if (!next || next.length < 6) return res.status(400).json({ error: 'Passwort min. 6 Zeichen' });
+  db.run('UPDATE users SET password_hash=? WHERE id=?', [hashPassword(next), req.params.id]);
+  db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+    [req.params.id, req.user.id, 'system', 'Passwort zurückgesetzt', 'Ein Administrator hat dir ein neues Passwort vergeben. Ändere es nach dem Login im Profil.']);
   res.json({ ok: true });
 });
 

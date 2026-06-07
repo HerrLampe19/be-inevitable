@@ -132,20 +132,20 @@ async function startApp(){
   await loadMessages();
   startMsgPolling();
   buildNav();
-  if(ME.role==='coach'||ME.role==='admin'){VIEW_USER=null;go('athletes');}
+  if(ME.role==='admin'){go('admin');}
+  else if(ME.role==='coach'){VIEW_USER=null;go('athletes');}
   else{VIEW_USER=ME.id;await loadPlan();go('home');}
 }
 // Wenn ein Coach gerade einen Athleten "betreten" hat, steht hier dessen Name
 let COACH_CONTEXT=null;
 function buildNav(){const nav=document.getElementById('navBar');
   let items;
-  const isStaff=ME.role==='coach'||ME.role==='admin';
-  if(isStaff&&COACH_CONTEXT){
-    // Coach/Admin hat einen Athleten betreten: dessen Daten ansehen + zurück
+  if(ME.role==='admin'){
+    // Admin: AUSSCHLIESSLICH Verwaltung (kein Training/Ernährung/Coaching)
+    items=[['admin','🛡️','Verwaltung'],['more','•••','Mehr']];
+  } else if(ME.role==='coach'&&COACH_CONTEXT){
+    // Coach hat einen Athleten betreten: dessen Daten ansehen + zurück
     items=[['athletes','‹','Zurück'],['home','◎','Übersicht'],['workout','🏋️','Plan'],['diet','🍽️','Ernährung'],['tracker','📈','Verlauf']];
-  } else if(ME.role==='admin'){
-    // Admin-Grundansicht: Athleten-Übersicht + Verwaltung + Mehr
-    items=[['athletes','📊','Athleten'],['admin','🛡️','Verwaltung'],['more','•••','Mehr']];
   } else if(ME.role==='coach'){
     // Coach-Grundansicht: nur Athletenverwaltung + Mehr
     items=[['athletes','📊','Übersicht'],['more','•••','Mehr']];
@@ -236,14 +236,14 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
     const wd=['So','Mo','Di','Mi','Do','Fr','Sa'];
     html+=`<div class="chart-card" style="padding:16px" onclick="openCalendar()">
       <div class="ch-h" style="margin-bottom:12px"><div class="t">Dein Plan</div><div class="v">Kalender öffnen ›</div></div>
-      <div style="display:flex;gap:6px">`;
+      <div style="display:flex;gap:5px">`;
     TODAY.preview.slice(0,7).forEach((d,i)=>{
       const dt=new Date();dt.setDate(dt.getDate()+i);
       const isTrain=d.type==='train';
       const lbl=isTrain?(d.dayName||'Training'):'Rest';
-      html+=`<div style="flex:1;text-align:center">
-        <div style="font-size:11px;color:var(--ink3);margin-bottom:5px">${i===0?'Heute':wd[dt.getDay()]}</div>
-        <div style="aspect-ratio:1;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;background:${isTrain?'var(--red)':'var(--surface2)'};color:${isTrain?'#fff':'var(--ink3)'};border:${i===0?'2px solid var(--ink)':'none'}">${isTrain?'🏋️':'😴'}</div>
+      html+=`<div style="flex:1 1 0;min-width:0;text-align:center">
+        <div style="font-size:10px;color:var(--ink3);margin-bottom:5px">${i===0?'Heute':wd[dt.getDay()]}</div>
+        <div style="aspect-ratio:1;box-sizing:border-box;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:clamp(13px,4.2vw,18px);line-height:1;background:${isTrain?'var(--red)':'var(--surface2)'};color:${isTrain?'#fff':'var(--ink3)'};box-shadow:${i===0?'inset 0 0 0 2px var(--ink)':'none'}">${isTrain?'🏋️':'😴'}</div>
         <div style="font-size:9px;color:var(--ink2);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lbl}</div>
       </div>`;});
     html+='</div></div>';
@@ -568,6 +568,11 @@ function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const su
   else{h+='<div class="section-label">Heute gegessen</div><div class="rows">';
     items.forEach(it=>{h+=`<div class="row"><div class="rl">${it.food}<small>${it.amount} g/ml${it.meal_slot?' · '+it.meal_slot:''}</small></div><div class="rr">${Math.round(it.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="delFood(${it.id})">Entfernen</button></div></div>`;});
     h+='</div>';}
+  // Ernährungs-Tools
+  h+=`<div class="section-label">Hilfsmittel</div><div class="quick">
+    <button class="qcard" onclick="openCalc()"><span class="ic">🧮</span><div class="t">Makro-Rechner</div><div class="d">Aus Lebensmitteln</div></button>
+    <button class="qcard" onclick="openSupp()"><span class="ic">💊</span><div class="t">Supplements</div><div class="d">Dein Protokoll</div></button>
+  </div>`;
   el.innerHTML=h;}
 
 async function delFood(id){await API.del('/foodlog/'+id);const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;drawTrack();toast('Entfernt');}
@@ -862,8 +867,14 @@ function adminEditUser(id){const u=ADMIN_USERS.find(x=>x.id===id);if(!u)return;
     <button class="btn" onclick="adminSaveRole(${id})">Rolle speichern</button>`;
   if(u.role==='athlete'){h+=`<div class="field" style="margin-top:14px"><label>Coach zuordnen</label><select id="eu_coach"><option value="">– kein Coach –</option>${ADMIN_COACHES.map(c=>`<option value="${c.id}"${u.coach_id===c.id?' selected':''}>${esc2(c.name)}</option>`).join('')}</select></div>
     <button class="btn sec" onclick="adminSaveCoach(${id})">Zuordnung speichern</button>`;}
+  h+=`<div class="section-label">Passwort</div>
+    <div class="field"><input id="eu_pw" placeholder="Neues Passwort (min. 6 Zeichen)"></div>
+    <button class="btn sec" onclick="adminResetPw(${id})">🔒 Passwort zurücksetzen</button>`;
   if(id!==ME.id)h+=`<button class="btn sec" style="margin-top:18px;color:var(--red)" onclick="adminDeleteUser(${id},'${esc(u.name)}')">🗑 Nutzer löschen</button>`;
   openSheet('Nutzer: '+esc2(u.name),h);}
+async function adminResetPw(id){const next=val('eu_pw');if(!next||next.length<6)return toast('Mindestens 6 Zeichen');
+  const r=await API.post('/admin/users/'+id+'/resetpw',{next});
+  if(r.status===200){closeModal();toast('Passwort zurückgesetzt ✓');}else toast(r.data?.error||'Fehler');}
 async function adminSaveRole(id){const r=await API.put('/admin/users/'+id+'/role',{role:val('eu_role')});
   if(r.status===200){closeModal();toast('Rolle geändert ✓');go('admin');}else toast(r.data?.error||'Fehler');}
 async function adminSaveCoach(id){const r=await API.put('/admin/users/'+id+'/coach',{coach_id:val('eu_coach')||null});
@@ -1019,15 +1030,14 @@ async function sendReplyCoach(){const r=await API.post('/messages/tocoach',{titl
   if(r.status===200){closeModal();toast('An Coach gesendet ✓');}else toast(r.data?.error||'Fehler');}
 
 // ===== MORE =====
-function renderMore(v){v.innerHTML=`<div class="page on"><div class="h1">Mehr</div><div class="sub">Tools &amp; Einstellungen</div>
+function renderMore(v){
+  // "Mehr" ist bewusst schlank: nur Konto/allgemeine Dinge.
+  // Tools sind jetzt in ihren passenden Kategorien (Kalender/Rhythmus auf Home,
+  // Makro-/Hantelrechner & Supplements in Ernährung/Training, Technik in den Übungen).
+  v.innerHTML=`<div class="page on"><div class="h1">Mehr</div><div class="sub">Konto &amp; Einstellungen</div>
   <div class="quick">
-    <button class="qcard" onclick="openCalendar()"><span class="ic">📅</span><div class="t">Kalender</div><div class="d">Tage vorausplanen</div></button>
-    <button class="qcard" onclick="openRhythmus()"><span class="ic">🗓️</span><div class="t">Trainingsrhythmus</div><div class="d">Tage &amp; Pausen ordnen</div></button>
-    <button class="qcard" onclick="openCalc()"><span class="ic">🧮</span><div class="t">Makro-Rechner</div><div class="d">Aus Lebensmitteln</div></button>
-    <button class="qcard" onclick="openPlateCalc()"><span class="ic">🏋️</span><div class="t">Hantelrechner</div><div class="d">Scheiben pro Seite</div></button>
-    <button class="qcard" onclick="openDefs()"><span class="ic">📖</span><div class="t">Technik-Lexikon</div><div class="d">Begriffe erklärt</div></button>
-    <button class="qcard" onclick="openSupp()"><span class="ic">💊</span><div class="t">Supplements</div><div class="d">Dein Protokoll</div></button>
-    <button class="qcard" onclick="openProfile()"><span class="ic">👤</span><div class="t">Profil</div><div class="d">Ziele &amp; Daten</div></button>
+    <button class="qcard" onclick="openProfile()"><span class="ic">👤</span><div class="t">Profil</div><div class="d">${ME.role==='athlete'?'Ziele &amp; Daten':'Deine Daten'}</div></button>
+    <button class="qcard" onclick="openChangePw()"><span class="ic">🔒</span><div class="t">Passwort</div><div class="d">Ändern</div></button>
   </div>
   <div class="section-label">Konto</div>
   <div class="rows"><div class="row" onclick="logout()"><div class="rl" style="color:var(--red)">Abmelden</div><div class="rr">›</div></div></div>
@@ -1071,7 +1081,12 @@ async function saveNewPw(){const cur=val('pw_cur'),n1=val('pw_new'),n2=val('pw_n
   if(n1.length<6)return toast('Mindestens 6 Zeichen');
   const r=await API.post('/password',{current:cur,next:n1});
   if(r.status===200){closeModal();toast('Passwort geändert ✓');}else toast(r.data?.error||'Fehler');}
-async function saveProfile(){const body={name:val('p_name'),height_cm:num('p_height'),goal:val('p_goal'),phase:val('p_phase'),experience:val('p_exp'),days_per_week:num('p_days'),kcal_target_train:num('p_kt'),kcal_target_rest:num('p_kr'),dob:ME.dob,gender:ME.gender,start_weight:ME.start_weight};
+async function saveProfile(){const newDays=num('p_days');
+  // Warnung: Ändern der Frequenz baut den Rhythmus neu und überschreibt manuelle Kalenderplanung
+  if(newDays&&newDays!==ME.days_per_week){
+    if(!window.confirm('Du änderst die Trainingstage pro Woche von '+(ME.days_per_week||'?')+' auf '+newDays+'.\n\nDadurch wird dein Trainingsrhythmus neu berechnet – manuell im Kalender geplante Tage gehen dabei verloren.\n\nFortfahren?'))return;
+  }
+  const body={name:val('p_name'),height_cm:num('p_height'),goal:val('p_goal'),phase:val('p_phase'),experience:val('p_exp'),days_per_week:newDays,kcal_target_train:num('p_kt'),kcal_target_rest:num('p_kr'),dob:ME.dob,gender:ME.gender,start_weight:ME.start_weight};
   const r=await API.put('/profile',body);if(r.status===200){Object.assign(ME,body);
     document.getElementById('avatar').textContent=(ME.name||'?').charAt(0).toUpperCase();
     TODAY=null;closeModal();toast('Profil gespeichert ✓');go('home');}}
@@ -1105,9 +1120,9 @@ async function drawCalendar(){
     let bg=isTrain?'var(--red)':(e?.type==='rest'||isSick)?'var(--surface2)':'transparent';
     let fg=isTrain?'#fff':'var(--ink2)';
     const icon=isTrain?'🏋️':isSick?'🤒':'😴';
-    grid+=`<button onclick="calDay('${iso}')" ${isPast?'disabled':''} style="aspect-ratio:1;border:none;border-radius:10px;background:${bg};color:${fg};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer;opacity:${isPast?0.4:1};${isToday?'box-shadow:inset 0 0 0 2px var(--ink)':''};position:relative">
-      <span style="font-size:13px;font-weight:600">${day}</span>
-      <span style="font-size:12px">${icon}</span>
+    grid+=`<button onclick="calDay('${iso}')" ${isPast?'disabled':''} style="aspect-ratio:1;box-sizing:border-box;border:none;border-radius:10px;background:${bg};color:${fg};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer;opacity:${isPast?0.4:1};${isToday?'box-shadow:inset 0 0 0 2px var(--ink)':''};position:relative;overflow:hidden">
+      <span style="font-size:clamp(11px,3.2vw,13px);font-weight:600;line-height:1">${day}</span>
+      <span style="font-size:clamp(10px,3vw,13px);line-height:1">${icon}</span>
       ${e?.planned?`<span style="position:absolute;top:3px;right:3px;width:6px;height:6px;background:var(--blue);border-radius:50%"></span>`:''}
     </button>`;
   }
@@ -1122,7 +1137,8 @@ async function drawCalendar(){
     <div style="display:flex;gap:14px;justify-content:center;margin-top:14px;font-size:12px;color:var(--ink2)">
       <span>🏋️ Training</span><span>😴 Ruhetag</span><span>🤒 Krank</span><span style="display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;background:var(--blue);border-radius:50%;display:inline-block"></span> geplant</span>
     </div>
-    <div class="info" style="margin-top:14px">Tippe auf einen Tag, um ihn zu planen – z.B. einen Ruhetag, wenn du unterwegs bist. Dein Rhythmus rechnet automatisch weiter.</div>`;
+    <div class="info" style="margin-top:14px">Tippe auf einen Tag, um ihn zu planen – z.B. einen Ruhetag, wenn du unterwegs bist. Dein Rhythmus rechnet automatisch weiter.</div>
+    <button class="btn sec" style="margin-top:10px" onclick="openRhythmus()">🗓️ Trainingsrhythmus anpassen</button>`;
   openSheet('Kalender',body);
 }
 function calNav(dir){CAL_MONTH.setMonth(CAL_MONTH.getMonth()+dir);drawCalendar();}
