@@ -1,0 +1,233 @@
+# BE INEVITABLE — Coaching App
+
+Eine Web-App mit Backend und Datenbank: Athleten-Profile, Coach-Zugang, Trainingspläne,
+Satz-Tracking, Meal Plan und täglicher Check-In. Läuft lokal auf deinem Windows-PC,
+ist später 1:1 auf einen echten Server umziehbar.
+
+---
+
+## 1. Voraussetzung: Node.js installieren (einmalig)
+
+1. Gehe auf **https://nodejs.org**
+2. Lade die **LTS-Version** herunter (großer grüner Button, "LTS").
+   Wichtig: mindestens **Node 18+**, empfohlen **Node 20 oder 22**.
+3. Installer ausführen, alles auf "Next" / Standard lassen, fertig.
+4. Prüfen: Öffne die **Eingabeaufforderung** (Windows-Taste → "cmd" tippen → Enter)
+   und gib ein:
+   ```
+   node -v
+   ```
+   Es sollte eine Version wie `v22.x.x` erscheinen. Klappt das, bist du startklar.
+
+---
+
+## 2. Projekt vorbereiten
+
+1. Entpacke die ZIP-Datei (z.B. nach `C:\be-inevitable`).
+2. Öffne die Eingabeaufforderung **in diesem Ordner**:
+   - Im Datei-Explorer in den entpackten Ordner gehen.
+   - Oben in die Adressleiste klicken, `cmd` tippen, Enter.
+   (Dann ist die Eingabeaufforderung direkt im richtigen Ordner.)
+3. Pakete installieren (einmalig, dauert ~1 Min.):
+   ```
+   npm install
+   ```
+
+   Hinweis: Falls `npm install` eine Fehlermeldung zu **better-sqlite3** zeigt
+   (das braucht Build-Tools), ist das **kein Problem** — die App nutzt dann
+   automatisch die in Node 22 eingebaute Datenbank. Du kannst dann einfach mit
+   Schritt 3 weitermachen. (Für die robustere Variante siehe ganz unten: "Optional".)
+
+---
+
+## 3. Datenbank füllen (einmalig)
+
+```
+npm run seed
+```
+
+Das legt die Datenbank an und füllt sie mit deinen echten Daten (Plan, Meal Plan,
+187 Lebensmittel) plus zwei Demo-Accounts:
+
+- **Coach:**  `coach@be-inevitable.at`  /  Passwort `coach123`
+- **Athlet:** `marco@be-inevitable.at`  /  Passwort `marco123`
+
+> Falls du später nochmal komplett neu starten willst: Datei `data.db` im Projektordner
+> löschen und `npm run seed` erneut ausführen.
+
+---
+
+## 4. App starten
+
+```
+npm start
+```
+
+Du siehst:
+```
+  BE INEVITABLE läuft auf http://localhost:3000
+```
+
+Öffne im Browser **http://localhost:3000** und logge dich mit einem der Accounts oben ein.
+
+Zum Stoppen: in der Eingabeaufforderung **Strg + C** drücken.
+
+---
+
+## 5. Auf dem Handy testen (im selben WLAN)
+
+Solange dein PC die App laufen hat, kannst du sie auch am Handy öffnen:
+
+1. PC und Handy müssen im **gleichen WLAN** sein.
+2. Finde die lokale IP deines PCs: Eingabeaufforderung → `ipconfig` → such die
+   "IPv4-Adresse", z.B. `192.168.1.42`.
+3. Am Handy im Browser öffnen: `http://192.168.1.42:3000`
+4. In Safari (iPhone): Teilen-Symbol → **"Zum Home-Bildschirm"**.
+   Dann hast du ein App-Icon, das im Vollbild startet — dein "Gateway" zur App.
+
+> Hinweis: Falls das Handy den PC nicht erreicht, liegt es meist an der
+> **Windows-Firewall**. Beim ersten `npm start` fragt Windows, ob Node.js im Netzwerk
+> kommunizieren darf — hier "Zugriff zulassen" wählen (privates Netzwerk).
+
+---
+
+## Was kann die App?
+
+**Als Athlet:**
+- **Heute-Ansicht:** zeigt automatisch, welcher Trainingstag heute dran ist (nach deinem Rhythmus), dein Kalorienziel, Gewichtsverlauf als Kurve und einen Schnell-Check-in.
+- **Trainingsrhythmus statt Wochentage:** Du legst fest, wie oft pro Woche du trainierst (z.B. 4×). Die App bildet daraus ein Muster wie „2 Tage Training, 1 Ruhetag" und rotiert die Trainingstage automatisch. Bist du krank, meldest du das – die App macht danach nahtlos weiter, ohne einen Tag zu verlieren.
+- **Progressions-Coach:** Bei jeder Übung siehst du deine letzten Werte (grau) und eine Empfehlung: Hast du die obere Reps-Grenze übertroffen, schlägt die App mehr Gewicht vor. Kamst du unter die untere Grenze, schlägt sie weniger vor. Dazwischen: Gewicht halten, mehr Reps anstreben.
+- **Übungs-Videos:** Pro Übung ein Button „Ausführung ansehen" (YouTube-Suche oder vom Coach hinterlegter Link).
+- **Ernährung:** wählt automatisch Trainings-/Ruhetag passend zum heutigen Tag, mit Makro-Übersicht.
+- **Nachrichten:** Ändert dein Coach etwas an deinem Plan, bekommst du eine Nachricht („Coach hat deinen Plan angepasst: Reps 8-12 → 6-10").
+- **Coach-Schutz:** Änderst du eine vom Coach erstellte Übung, kommt erst eine Warnung.
+- Makro-Rechner, Technik-Lexikon, Supplements, Profil mit Zielen, Phase (Offseason/Prep) und Kalorienzielen.
+
+**Als Coach:**
+- **Athleten-Übersicht mit Ampel:** grün = diese Woche trainiert, gelb = noch nicht, rot = seit über 4 Tagen inaktiv ("Achtung"). Auf einen Blick siehst du, wer durchhängt.
+- **Dashboard pro Athlet:** Gewichtsverlauf als Kurve, Trainingsvolumen als Balken, letzte Trainingseinheiten (Übungen/Sätze/Top-Gewicht), Cardio und Schlaf/Schritte.
+- **Direkt eingreifen:** Plan bearbeiten, Nachricht schicken, Phase & Kalorienziele setzen – jede Änderung löst automatisch eine Nachricht an den Athleten aus.
+- Athleten per E-Mail zuordnen.
+
+## Login zum Testen
+- **Athlet:** `marco@be-inevitable.at` / `marco123`
+- **Coach:** `coach@be-inevitable.at` / `coach123`
+
+## Alles-in-einem (neu)
+- **Kalorien-Tracking:** Im Reiter „Ernährung → Heute" trackst du, was du gegessen hast – einzeln oder per „Aus Plan übernehmen". Der Ring auf der Startseite füllt sich, du siehst „so viel gegessen, so viel übrig" gegen dein Tagesziel.
+- **Cardio als eigene Trainingsart:** Im Verlauf erfasst du Läufe, Rad, Rudern usw. Die Kalorien werden automatisch geschätzt (MET-basiert).
+- **Recovery-Verbindung:** Hartes Cardio und Krafttraining gestern + dein Schlaf ergeben einen Erholungs-Score auf der Startseite mit konkreter Empfehlung („Volle Leistung möglich" / „Erwäge einen leichten Tag"). So weiß die App, ob dein Lauf am Dienstag dein Beintraining am Mittwoch beeinflusst.
+- **Adaptive Oberfläche:** Im Profil stellst du dein Level ein. Anfänger bekommen Erklärungen und eine geführte Oberfläche; Profis schalten Details frei. Eine App für beide.
+
+## Roadmap (was noch kommt)
+- **Phase 2:** Rezept-Datenbank mit Makro-Filter, Übungen per Drag tauschen, ausgebautes Coach-Dashboard, echtes Messaging, Online-Deployment.
+- **Phase 3 (braucht native App):** Apple-Health-Sync, Foto-Kalorienscan, KI-Formcheck per Video, KI-Coach-Chat, App Store.
+
+---
+
+## Datenspeicherung
+
+Alle Daten liegen in der Datei **`data.db`** im Projektordner (SQLite).
+Das ist deine komplette Datenbank — einfach mitkopieren = Backup.
+
+---
+
+## Optional: better-sqlite3 (robustere Datenbank)
+
+Die App läuft mit der eingebauten Node-Datenbank völlig problemlos. Wenn du die
+(etwas schnellere, ausgereiftere) `better-sqlite3`-Variante willst und `npm install`
+dabei meckert, installiere einmalig die Windows-Build-Tools:
+
+```
+npm install --global windows-build-tools
+```
+oder installiere "Visual Studio Build Tools" mit der Workload "Desktop development with C++".
+Danach `npm install` erneut. Nötig ist das aber **nicht**.
+
+---
+
+## Häufige Fragen
+
+**Muss der PC immer laufen?**
+Zum Testen ja — die App läuft, solange `npm start` aktiv ist. Für echten Dauerbetrieb
+(andere Leute, von überall erreichbar) zieht man das Projekt später auf einen kleinen
+Server um (z.B. für ein paar Euro im Monat). Der Code bleibt derselbe.
+
+**Wie ändere ich den Port (falls 3000 belegt ist)?**
+Vor dem Start: `set PORT=4000` und dann `npm start`. App läuft dann auf Port 4000.
+
+**Wo sind meine echten Excel-Daten?**
+Plan, Meal Plan und Lebensmittel sind beim `npm run seed` in die Datenbank gewandert.
+Die Original-Tabellen brauchst du nicht mehr — alles ist jetzt in der App.
+
+## Bedienung & Komfort (neu)
+- **Onboarding:** Neue Nutzer werden nach der Registrierung durch einen geführten Wizard geleitet (Ziel, Erfahrung, Körperdaten, Frequenz) und bekommen automatisch Kalorienziele + einen passenden Trainingsplan.
+- **Trainingsrhythmus-Editor:** Unter „Mehr → Trainingsrhythmus" baust du deine Wochen-Sequenz frei zusammen (Trainingstage/Ruhetage hoch/runter schieben, hinzufügen, entfernen, umschalten). Das Kalender-Widget auf der Startseite passt sich sofort an.
+- **Kalender-Widget:** Auf der Startseite siehst du die kommenden 7 Tage mit Trainings-/Ruhetagen. Antippen öffnet den Rhythmus-Editor.
+- **Speicher-Feedback:** Beim Eintragen von Sätzen erscheint „speichert… / ✓ gespeichert" direkt an der Übung – du weißt immer, dass deine Werte sicher sind.
+- **Lösch-Schutz:** Gelöschte Übungen lassen sich 5 Sekunden lang per „Rückgängig" wiederherstellen.
+- **Passwort:** Im Profil änderbar; der Coach kann das Passwort eines Athleten zurücksetzen.
+- **Sicherheit:** Set-Eingaben auf 1–10 begrenzt, Brute-Force-Schutz beim Login, sichere Cookies im Online-Betrieb.
+
+## Gym-Features (neu, auf Augenhöhe mit Top-Apps)
+- **Rest-Timer:** Startet automatisch nach dem Eintragen der Reps (90 s) oder per Knopf. Mit +15s, Ton und Vibration am Ende – damit du die Pause nicht vergisst.
+- **Persönliche Rekorde (PRs):** Jede Übung zeigt deinen Bestwert (🏆). Unter „Verlauf & PRs" siehst du bestes Gewicht, geschätztes 1RM (Epley-Formel) und meiste Reps.
+- **Fortschritts-Charts pro Übung:** Deine 1RM-Entwicklung über alle Trainingseinheiten als Kurve.
+
+## Sicherheit (Audit-Fixes)
+- Selbst-Registrierung erstellt immer einen Athleten – niemand kann sich unbefugt Coach-Rechte geben.
+- E-Mail-Validierung und Normalisierung (Groß-/Kleinschreibung egal beim Login).
+- Eingabelängen begrenzt, alle datenverändernden Routen mit Zugriffsprüfung.
+
+## Weitere Gym-Features (neu)
+- **Hantelrechner:** Zielgewicht eingeben → zeigt, welche Scheiben pro Seite auf die Stange müssen (verschiedene Stangengewichte wählbar). Unter „Mehr".
+- **Körpermaße:** Taille, Brust, Arm, Bein, Hüfte, Schultern, Nacken, Körperfett tracken – mit Verlaufskurve. Im Reiter „Verlauf".
+- **Fortschrittsfotos:** Physik-Fotos aufnehmen (Vorne/Seite/Hinten), werden automatisch verkleinert und privat gespeichert; Galerie zum Vergleichen. Im Reiter „Verlauf".
+
+## Admin-Bereich (stark ausgebaut)
+- **Übersichts-Dashboard:** Beim Login sieht der Coach sofort Kennzahlen – Anzahl Athleten, wie viele diese Woche aktiv sind, wer Aufmerksamkeit braucht, Trainings/Woche.
+- **Trainings-Aktivität:** Balkendiagramm der letzten 8 Wochen über alle Athleten.
+- **Ziel-Verteilung:** Wie viele Athleten auf Muskelaufbau / Definition / Gesundheit trainieren.
+- **Jüngste Aktivität:** Live-Feed, wer wann was trainiert hat.
+- **Athleten-Suche:** Schnell-Filter bei vielen Athleten.
+
+## Noch einfachere Bedienung
+- **Begrüßung mit Namen** und Tageszeit auf der Startseite.
+- **Trainings-Fortschrittsbalken:** Zeigt live „X von Y Sätzen gemacht" mit Erfolgsmeldung bei 100 %.
+
+## Feedback-Runde (neu)
+- **Nachrichten-Badge:** Prägnanter roter Zähler an der Glocke, pulsierend; neue Coach-Nachrichten erscheinen automatisch (Abruf alle 30 s).
+- **Trainingstage verwalten:** Über das ⚙️-Symbol neben den Tag-Chips umbenennen oder löschen.
+- **Startgewicht** ist jetzt ein fester Wert (nicht mehr änderbar).
+- **Vorwerte vorausgefüllt:** Letztes Gewicht/Reps stehen grau im Feld – antippen übernimmt, sonst überschreiben. Weniger Tipparbeit.
+- **Essen flexibler:** Aus Liste, Schnell-Eintrag (nur Kalorien), oder eigenes Lebensmittel anlegen (wird gespeichert). Häufig genutzte zuerst.
+- **Notizen/Beschwerden pro Übung:** z.B. „Schulter knackt" – beim Coach rot hervorgehoben, mit „erledigt"-Funktion.
+- **Fortschritts-Karte auf Home:** Startgewicht → heute, mit Bewertung passend zum Ziel.
+- **Erklär-Tooltips:** Erholungs-Score und Streak antippen erklärt, was dahintersteckt.
+- **Adaptiv:** Profis sehen Körpermaße & Fotos direkt auf der Startseite.
+
+## Interaktiver Kalender (neu)
+- **Monatsansicht:** Das Plan-Widget auf der Startseite (oder „Mehr → Kalender") öffnet einen vollen Monatskalender. Zwischen Monaten blättern.
+- **Tage vorausplanen:** Tippe einen beliebigen zukünftigen Tag an und lege fest, was ansteht – Ruhetag (z.B. wenn du unterwegs bist), ein bestimmter Trainingstag oder Krank/Pause.
+- **Rhythmus rechnet automatisch weiter:** Schiebst du einen Ruhetag ein, geht dein Trainingsrhythmus danach nahtlos weiter – kein Trainingstag geht verloren, er wird nachgeholt.
+- **Geplante Tage** sind mit einem blauen Punkt markiert; „Automatisch" entfernt eine Planung wieder.
+
+## Rollensystem (neu): Athlet · Coach · Admin
+Drei Rollen mit klarer Hierarchie (Admin > Coach > Athlet). Höhere Rollen schließen die Fähigkeiten der niedrigeren ein.
+
+**Athlet** – trainiert. Sieht nur die eigenen Daten (Home, Training, Ernährung, Verlauf). Keine Verwaltung.
+
+**Coach** – betreut seine zugeordneten Athleten. Übersichts-Dashboard, Pläne/Ernährung bearbeiten, Beschwerden sehen, Athleten anlegen/zuordnen. Sieht NICHT alle Systemnutzer und kann keine Coaches/Admins erstellen.
+
+**Admin** – verwaltet das System. Eigener „Verwaltung"-Reiter: alle Nutzer sehen, neue Nutzer mit beliebiger Rolle anlegen, Rollen ändern, Athleten Coaches zuordnen, Nutzer löschen. Kann zusätzlich alle Coach- und Athleten-Ansichten nutzen (sieht z.B. alle Athleten in der Übersicht). Schutzmechanismen: der letzte Admin kann sich nicht selbst degradieren oder löschen.
+
+Selbst-Registrierung erzeugt weiterhin immer einen Athleten. Coaches/Admins werden vom Admin in der App oder per Script angelegt.
+
+## Rezept-Datenbank (neu)
+Löst den größten Ernährungs-Schmerz: kein lästiges Tracken einzelner Zutaten mehr.
+- **Fertige Mahlzeiten** mit kompletten Nährwerten (Kalorien + Makros), vorgeladen mit zielgerechten Rezepten für Aufbau, Definition und Gesundheit – je Mahlzeit (Frühstück/Mittag/Abend/Snack).
+- **Mit einem Tipp loggen:** Rezept öffnen → „Als gegessen eintragen" → landet direkt im Tagesprotokoll. Fertig.
+- **Smarte Filter:** nach Ziel, nach Mahlzeit, und „passt noch in mein heutiges Kalorienbudget" (nutzt die Restkalorien des Tages).
+- **Zutaten & Zubereitung** in der Detailansicht, plus optionaler Link zu einem externen Rezept/Video (wie die Übungsvideos).
+- **Eigene Rezepte** anlegen (z.B. die Standard-Mahlzeit, die man oft isst) – werden gespeichert und zuerst angezeigt.
+- Rezepte werden online beim ersten Start automatisch geladen (idempotent).

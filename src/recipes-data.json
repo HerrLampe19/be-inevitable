@@ -1,0 +1,106 @@
+[
+  {
+    "name": "Protein-Haferflocken mit Banane",
+    "goal": "muscle", "meal_type": "Frühstück",
+    "kcal": 620, "protein": 42, "carbs": 78, "fat": 14,
+    "ingredients": "80 g Haferflocken\n300 ml Milch\n1 Banane\n1 Scoop Proteinpulver (Vanille)\n1 EL Erdnussbutter\nZimt",
+    "steps": "1. Haferflocken mit Milch 3 Min. köcheln.\n2. Banane in Scheiben dazugeben.\n3. Vom Herd nehmen, Proteinpulver einrühren.\n4. Mit Erdnussbutter und Zimt toppen.",
+    "link": ""
+  },
+  {
+    "name": "Rührei mit Vollkorntoast",
+    "goal": "muscle", "meal_type": "Frühstück",
+    "kcal": 480, "protein": 34, "carbs": 32, "fat": 22,
+    "ingredients": "4 Eier\n2 Scheiben Vollkorntoast\n1 TL Butter\nSalz, Pfeffer, Schnittlauch",
+    "steps": "1. Eier verquirlen, würzen.\n2. In Butter bei mittlerer Hitze stocken lassen, rühren.\n3. Toast rösten, dazu servieren.",
+    "link": ""
+  },
+  {
+    "name": "Magerquark mit Beeren",
+    "goal": "fatloss", "meal_type": "Frühstück",
+    "kcal": 250, "protein": 30, "carbs": 22, "fat": 3,
+    "ingredients": "250 g Magerquark\n100 g gemischte Beeren\n1 TL Honig\netwas Wasser zum Cremigrühren",
+    "steps": "1. Quark mit etwas Wasser cremig rühren.\n2. Beeren unterheben.\n3. Mit Honig süßen.",
+    "link": ""
+  },
+  {
+    "name": "Overnight Oats mit Apfel",
+    "goal": "health", "meal_type": "Frühstück",
+    "kcal": 390, "protein": 16, "carbs": 58, "fat": 10,
+    "ingredients": "60 g Haferflocken\n150 ml Milch\n100 g Joghurt\n1 Apfel\n1 TL Honig\nZimt",
+    "steps": "1. Haferflocken, Milch und Joghurt mischen.\n2. Über Nacht in den Kühlschrank.\n3. Morgens mit geraspeltem Apfel, Honig und Zimt toppen.",
+    "link": ""
+  },
+  {
+    "name": "Hähnchen-Reis-Bowl",
+    "goal": "muscle", "meal_type": "Mittag",
+    "kcal": 720, "protein": 55, "carbs": 80, "fat": 16,
+    "ingredients": "180 g Hähnchenbrust\n90 g Reis (roh)\n200 g Brokkoli\n1 EL Olivenöl\nSojasauce, Gewürze",
+    "steps": "1. Reis nach Packung kochen.\n2. Hähnchen würfeln, in Öl anbraten, würzen.\n3. Brokkoli dämpfen.\n4. Alles in eine Bowl, mit Sojasauce.",
+    "link": ""
+  },
+  {
+    "name": "Putenpfanne mit Gemüse",
+    "goal": "fatloss", "meal_type": "Mittag",
+    "kcal": 410, "protein": 48, "carbs": 24, "fat": 12,
+    "ingredients": "200 g Putenbrust\n300 g buntes Gemüse (Paprika, Zucchini)\n1 EL Olivenöl\nGewürze, Kräuter",
+    "steps": "1. Pute in Streifen schneiden, anbraten.\n2. Gemüse dazugeben, 6-8 Min. braten.\n3. Würzen, fertig.",
+    "link": ""
+  },
+  {
+    "name": "Linsen-Dal mit Reis",
+    "goal": "health", "meal_type": "Mittag",
+    "kcal": 540, "protein": 24, "carbs": 82, "fat": 12,
+    "ingredients": "120 g rote Linsen\n80 g Reis (roh)\n200 ml Kokosmilch (light)\n1 Zwiebel\nCurry, Ingwer, Knoblauch",
+    "steps": "1. Zwiebel anbraten, Gewürze dazu.\n2. Linsen + Kokosmilch + Wasser 15 Min. köcheln.\n3. Reis separat kochen, zusammen servieren.",
+    "link": ""
+  },
+  {
+    "name": "Lachs mit Süßkartoffel",
+    "goal": "health", "meal_type": "Abend",
+    "kcal": 560, "protein": 38, "carbs": 42, "fat": 24,
+    "ingredients": "150 g Lachsfilet\n250 g Süßkartoffel\n1 EL Olivenöl\nZitrone, Dill, Salz",
+    "steps": "1. Süßkartoffel in Spalten, mit Öl 25 Min. bei 200°C backen.\n2. Lachs würzen, letzte 12 Min. mitbacken.\n3. Mit Zitrone servieren.",
+    "link": ""
+  },
+  {
+    "name": "Magerquark-Wrap mit Pute",
+    "goal": "muscle", "meal_type": "Abend",
+    "kcal": 450, "protein": 44, "carbs": 38, "fat": 12,
+    "ingredients": "1 Vollkorn-Wrap\n100 g Putenaufschnitt\n100 g Magerquark\nSalat, Tomate, Gurke",
+    "steps": "1. Quark auf dem Wrap verstreichen.\n2. Pute und Gemüse belegen.\n3. Einrollen, halbieren.",
+    "link": ""
+  },
+  {
+    "name": "Gemüse-Omelett",
+    "goal": "fatloss", "meal_type": "Abend",
+    "kcal": 320, "protein": 28, "carbs": 10, "fat": 18,
+    "ingredients": "3 Eier\n100 g Champignons\n1/2 Paprika\nHandvoll Spinat\nSalz, Pfeffer",
+    "steps": "1. Gemüse klein schneiden, kurz anbraten.\n2. Eier verquirlen, darübergeben.\n3. Stocken lassen, einmal wenden.",
+    "link": ""
+  },
+  {
+    "name": "Proteinshake nach dem Training",
+    "goal": "muscle", "meal_type": "Snack",
+    "kcal": 280, "protein": 38, "carbs": 28, "fat": 3,
+    "ingredients": "1.5 Scoops Proteinpulver\n300 ml Wasser oder Magermilch\n1 Banane",
+    "steps": "1. Alles in den Shaker oder Mixer.\n2. Gut schütteln/mixen.\n3. Direkt nach dem Training trinken.",
+    "link": ""
+  },
+  {
+    "name": "Griechischer Joghurt mit Nüssen",
+    "goal": "health", "meal_type": "Snack",
+    "kcal": 230, "protein": 18, "carbs": 14, "fat": 12,
+    "ingredients": "200 g griechischer Joghurt\n20 g Walnüsse\n1 TL Honig",
+    "steps": "1. Joghurt in eine Schale.\n2. Nüsse hacken, darüber.\n3. Mit Honig beträufeln.",
+    "link": ""
+  },
+  {
+    "name": "Reiswaffeln mit Hüttenkäse",
+    "goal": "fatloss", "meal_type": "Snack",
+    "kcal": 180, "protein": 16, "carbs": 22, "fat": 3,
+    "ingredients": "2 Reiswaffeln\n100 g Hüttenkäse\nSalz, Pfeffer, Schnittlauch",
+    "steps": "1. Hüttenkäse auf die Reiswaffeln.\n2. Würzen, fertig.",
+    "link": ""
+  }
+]
