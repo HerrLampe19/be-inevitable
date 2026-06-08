@@ -125,20 +125,22 @@ export function calendarRange({ pattern, trainingDays, history, startDate, days 
       // manuell festgelegt -> respektieren
       const p = planned[iso];
       entry = { date: iso, type: p.type, dayName: p.dayName || null, planned: true };
-      if (p.type === 'rest') {
-        // Was hätte der Rhythmus für heute vorgesehen?
-        const wouldBe = suggestForToday({ pattern: pat, trainingDays, history: sim });
-        // Ein eingeschobener Ruhetag an einem eigentlichen TRAININGStag verschiebt
-        // den Rhythmus (wie 'sick'): der Trainingstag geht nicht verloren, sondern
-        // wird nachgeholt. Fällt der Ruhetag ohnehin auf einen Ruhetag, zählt er normal.
-        simType = wouldBe.type === 'train' ? 'sick' : 'rest';
-      } else {
+      if (p.type === 'train') {
         simType = 'train';
-      }
-      // bei geplantem Training den rotierenden Tagesnamen ergänzen, falls nicht gesetzt
-      if (p.type === 'train' && !entry.dayName) {
-        const s = suggestForToday({ pattern: pat, trainingDays, history: sim });
-        entry.dayName = s.dayName;
+        // bei geplantem Training den rotierenden Tagesnamen ergänzen, falls nicht gesetzt
+        if (!entry.dayName) {
+          const s = suggestForToday({ pattern: pat, trainingDays, history: sim });
+          entry.dayName = s.dayName;
+        }
+      } else if (p.type === 'sick') {
+        // Krankheit ist IMMER ein eingeschobener Tag -> verschiebt den Rhythmus,
+        // verbraucht keinen Trainings-Slot (das geplante Training wird nachgeholt).
+        simType = 'sick';
+      } else { // 'rest'
+        // Ein eingeschobener Ruhetag an einem eigentlichen TRAININGStag verschiebt
+        // den Rhythmus (wie 'sick'). Fällt er ohnehin auf einen Ruhetag, zählt er normal.
+        const wouldBe = suggestForToday({ pattern: pat, trainingDays, history: sim });
+        simType = wouldBe.type === 'train' ? 'sick' : 'rest';
       }
     } else {
       const s = suggestForToday({ pattern: pat, trainingDays, history: sim });
@@ -181,11 +183,18 @@ export function estimateCardioKcal({ kind, minutes, intensity, weightKg }) {
   const w = weightKg || 75;
   const metTable = {
     'Laufen': { leicht: 7, moderat: 9.8, hart: 12.5 },
+    'Joggen': { leicht: 6, moderat: 8, hart: 10 },
     'Rad': { leicht: 4, moderat: 7, hart: 10 },
+    'Spinning': { leicht: 5.5, moderat: 8.5, hart: 12 },
     'Rudern': { leicht: 4.8, moderat: 7, hart: 9.5 },
     'Gehen': { leicht: 2.8, moderat: 3.8, hart: 5 },
+    'Wandern': { leicht: 4, moderat: 6, hart: 7.5 },
     'Schwimmen': { leicht: 5.3, moderat: 7, hart: 9.8 },
+    'Crosstrainer': { leicht: 4.5, moderat: 6.5, hart: 9 },
+    'Stepper': { leicht: 5, moderat: 7, hart: 9 },
+    'Seilspringen': { leicht: 8, moderat: 10, hart: 12.3 },
     'HIIT': { leicht: 6, moderat: 8.5, hart: 11 },
+    'Crossfit': { leicht: 6, moderat: 9, hart: 12 },
   };
   const row = metTable[kind] || { leicht: 4, moderat: 6, hart: 8 };
   const met = row[intensity] || row.moderat;

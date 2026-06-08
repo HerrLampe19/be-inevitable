@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Kreatin Monohydrat", "category": "Täglich", "dose": "5 g", "timing": "jederzeit täglich (Uhrzeit egal, Hauptsache konstant)",
+    "with_water": 1, "how_to": "In Wasser, Saft oder Shake auflösen. Wirkt über die Sättigung der Speicher – tägliche Einnahme ist wichtiger als der Zeitpunkt. Auch an trainingsfreien Tagen nehmen.",
+    "sort": 1
+  },
+  {
+    "name": "Whey Protein", "category": "Nach dem Training", "dose": "30 g", "timing": "direkt nach dem Training oder als Mahlzeitergänzung",
+    "with_water": 1, "how_to": "Mit Wasser oder Milch shaken. Dient dem Erreichen des täglichen Proteinziels. Nach dem Training praktisch, aber die Gesamtmenge am Tag zählt am meisten.",
+    "sort": 2
+  },
+  {
+    "name": "Multivitamin", "category": "Morgens", "dose": "1 Portion", "timing": "morgens zum Frühstück",
+    "with_water": 1, "how_to": "Zu einer fetthaltigen Mahlzeit, damit fettlösliche Vitamine aufgenommen werden. Deckt mögliche Lücken in der Ernährung ab.",
+    "sort": 3
+  },
+  {
+    "name": "Vitamin D3 + K2", "category": "Morgens", "dose": "1000–2000 IE", "timing": "morgens zu einer Mahlzeit mit Fett",
+    "with_water": 1, "how_to": "Fettlöslich – am besten zu einer Mahlzeit mit etwas Fett. Besonders im Winter sinnvoll. K2 unterstützt die Verwertung.",
+    "sort": 4
+  },
+  {
+    "name": "Omega 3 (Fischöl)", "category": "Zu einer Mahlzeit", "dose": "2–3 g EPA/DHA", "timing": "zu einer Hauptmahlzeit",
+    "with_water": 1, "how_to": "Zu einer fetthaltigen Mahlzeit für beste Aufnahme. Unterstützt Herz, Gelenke und Regeneration.",
+    "sort": 5
+  },
+  {
+    "name": "Magnesium", "category": "Abends", "dose": "300–400 mg", "timing": "abends vor dem Schlafen",
+    "with_water": 1, "how_to": "Am Abend, kann die Schlafqualität und Muskelentspannung unterstützen. Magnesiumcitrat oder -bisglycinat sind gut verträglich.",
+    "sort": 6
+  },
+  {
+    "name": "Koffein / Pre-Workout", "category": "Pre-Workout", "dose": "200 mg Koffein", "timing": "20–30 Min. vor dem Training",
+    "with_water": 1, "how_to": "Mit Wasser. Nicht zu spät am Tag, um den Schlaf nicht zu stören. Steigert Fokus und Leistung. Mit Dosierung vorsichtig herantasten.",
+    "sort": 7
+  },
+  {
+    "name": "EAAs / BCAAs", "category": "Intra-Workout", "dose": "10–15 g", "timing": "während des Trainings",
+    "with_water": 1, "how_to": "In Wasser gelöst während des Trainings trinken. Vor allem sinnvoll, wenn nüchtern trainiert wird. Bei ausreichend Protein am Tag optional.",
+    "sort": 8
+  },
+  {
+    "name": "Beta-Alanin", "category": "Täglich", "dose": "3–5 g", "timing": "jederzeit täglich (oft pre-workout)",
+    "with_water": 1, "how_to": "Wirkt über Sättigung wie Kreatin – tägliche Einnahme zählt. Ein Kribbeln auf der Haut ist normal und harmlos.",
+    "sort": 9
+  },
+  {
+    "name": "Ashwagandha", "category": "Abends", "dose": "300–600 mg", "timing": "abends",
+    "with_water": 1, "how_to": "Adaptogen, kann Stress und Schlaf unterstützen. Abends mit Wasser.",
+    "sort": 10
+  },
+  {
+    "name": "Zink", "category": "Abends", "dose": "10–15 mg", "timing": "abends, nicht zusammen mit Kalzium",
+    "with_water": 1, "how_to": "Unterstützt Immunsystem und Hormonhaushalt. Nicht direkt mit kalziumreichen Lebensmitteln kombinieren.",
+    "sort": 11
+  },
+  {
+    "name": "Elektrolyte", "category": "Bei Bedarf", "dose": "1 Portion", "timing": "an heißen Tagen oder bei langem/intensivem Training",
+    "with_water": 1, "how_to": "In Wasser. Ersetzt über Schweiß verlorene Mineralien. Besonders bei Ausdauer oder Hitze sinnvoll.",
+    "sort": 12
+  }
+]

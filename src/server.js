@@ -24,20 +24,38 @@ try {
   }
 } catch (e) { console.error('[init] Stammdaten-Laden übersprungen:', e.message); }
 
-// Rezept-Stammdaten automatisch laden, falls leer (idempotent).
+// Rezept-Stammdaten: fehlende globale Rezepte nachtragen (per Name-Abgleich).
+// So bekommen auch bestehende Installationen neue Rezepte, ohne eigene zu berühren.
 try {
-  const recipeCount = db.get('SELECT COUNT(*) c FROM recipes').c;
-  if (recipeCount === 0) {
-    const { readFileSync } = await import('node:fs');
-    const recipes = JSON.parse(readFileSync(path.join(__dirname, 'recipes-data.json'), 'utf8'));
-    for (const r of recipes) {
-      db.run(`INSERT INTO recipes(name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,owner_id)
-        VALUES(?,?,?,?,?,?,?,?,?,?,NULL)`,
-        [r.name, r.goal || null, r.meal_type || null, r.kcal, r.protein, r.carbs, r.fat, r.ingredients || '', r.steps || '', r.link || '']);
-    }
-    console.log('[init] Rezept-Stammdaten geladen:', recipes.length);
+  const { readFileSync } = await import('node:fs');
+  const recipes = JSON.parse(readFileSync(path.join(__dirname, 'recipes-data.json'), 'utf8'));
+  const existing = new Set(db.all('SELECT name FROM recipes WHERE owner_id IS NULL').map(r => r.name));
+  let added = 0;
+  for (const r of recipes) {
+    if (existing.has(r.name)) continue;
+    db.run(`INSERT INTO recipes(name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,owner_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,NULL)`,
+      [r.name, r.goal || null, r.meal_type || null, r.kcal, r.protein, r.carbs, r.fat, r.ingredients || '', r.steps || '', r.link || '']);
+    added++;
   }
+  if (added) console.log('[init] Rezepte nachgetragen:', added);
 } catch (e) { console.error('[init] Rezept-Laden übersprungen:', e.message); }
+
+// Supplement-Stammdaten: fehlende nachtragen (per Name-Abgleich, idempotent).
+try {
+  const { readFileSync } = await import('node:fs');
+  const supps = JSON.parse(readFileSync(path.join(__dirname, 'supplements-data.json'), 'utf8'));
+  const existing = new Set(db.all('SELECT name FROM supplements').map(s => s.name));
+  let added = 0;
+  for (const s of supps) {
+    if (existing.has(s.name)) continue;
+    db.run(`INSERT INTO supplements(name,category,dose,timing,with_water,how_to,sort)
+      VALUES(?,?,?,?,?,?,?)`,
+      [s.name, s.category || null, s.dose || null, s.timing || null, s.with_water === 0 ? 0 : 1, s.how_to || null, s.sort || 0]);
+    added++;
+  }
+  if (added) console.log('[init] Supplements nachgetragen:', added);
+} catch (e) { console.error('[init] Supplement-Laden übersprungen:', e.message); }
 
 const app = express();
 app.set('trust proxy', 1); // korrekte Client-IP hinter Reverse-Proxy (Hosting/HTTPS)
@@ -599,19 +617,65 @@ app.get('/api/checkins/:userId', auth, (req, res) => {
 app.post('/api/checkins', auth, (req, res) => {
   const c = req.body;
   if (!canAccess(req.user, c.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  // Hilfsfunktion: undefined -> null, damit COALESCE den Bestandswert behält
+  const v = x => (x === undefined ? null : x);
   const ex = db.get('SELECT id FROM checkins WHERE user_id=? AND date=?', [c.user_id, c.date]);
   if (ex) {
-    db.run(`UPDATE checkins SET weight=?,sleep=?,sleep_quality=?,steps=?,cardio=?,water=?,training=?,notes=? WHERE id=?`,
-      [c.weight, c.sleep, c.sleep_quality, c.steps, c.cardio, c.water, c.training, c.notes, ex.id]);
+    // Nur tatsächlich übergebene Felder ändern – fehlende behalten ihren Wert (kein Datenverlust
+    // bei Teil-Check-ins, z.B. morgens Gewicht, abends Wasser).
+    db.run(`UPDATE checkins SET
+      weight=COALESCE(?,weight), sleep=COALESCE(?,sleep), sleep_quality=COALESCE(?,sleep_quality),
+      steps=COALESCE(?,steps), cardio=COALESCE(?,cardio), water=COALESCE(?,water),
+      training=COALESCE(?,training), notes=COALESCE(?,notes) WHERE id=?`,
+      [v(c.weight), v(c.sleep), v(c.sleep_quality), v(c.steps), v(c.cardio), v(c.water), v(c.training), v(c.notes), ex.id]);
   } else {
     db.run(`INSERT INTO checkins(user_id,date,weight,sleep,sleep_quality,steps,cardio,water,training,notes)
       VALUES(?,?,?,?,?,?,?,?,?,?)`,
-      [c.user_id, c.date, c.weight, c.sleep, c.sleep_quality, c.steps, c.cardio, c.water, c.training, c.notes]);
+      [c.user_id, c.date, v(c.weight), v(c.sleep), v(c.sleep_quality), v(c.steps), v(c.cardio), v(c.water), v(c.training), v(c.notes)]);
   }
   res.json({ ok: true });
 });
 
-// Coach-Notiz zu einem Check-In (nur Coach)
+// Apple-Health-Import: nimmt bereits im Browser aggregierte Tageswerte entgegen
+// ({ days: { 'YYYY-MM-DD': {weight,steps,sleep} }, overwrite }) und schreibt sie in die Check-ins.
+// Standardmäßig werden nur LEERE Felder gefüllt (manuelle Einträge bleiben erhalten);
+// mit overwrite=true überschreiben die Health-Werte vorhandene.
+app.post('/api/health-import/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const days = req.body.days || {};
+  const overwrite = !!req.body.overwrite;
+  let created = 0, updated = 0;
+  const setOrKeep = (cur, val) => {
+    if (val == null) return cur;            // kein neuer Wert
+    if (overwrite) return val;              // überschreiben gewünscht
+    return cur == null ? val : cur;         // sonst nur füllen, wenn leer
+  };
+  for (const [date, vals] of Object.entries(days)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const ex = db.get('SELECT * FROM checkins WHERE user_id=? AND date=?', [uid, date]);
+    if (ex) {
+      const w = setOrKeep(ex.weight, vals.weight);
+      const s = setOrKeep(ex.sleep, vals.sleep);
+      const st = setOrKeep(ex.steps, vals.steps);
+      db.run('UPDATE checkins SET weight=?, sleep=?, steps=? WHERE id=?', [w, s, st, ex.id]);
+      updated++;
+    } else {
+      db.run('INSERT INTO checkins(user_id,date,weight,sleep,steps) VALUES(?,?,?,?,?)',
+        [uid, date, vals.weight ?? null, vals.sleep ?? null, vals.steps ?? null]);
+      created++;
+    }
+  }
+  // Zeitpunkt des letzten Imports am Nutzer vermerken (für Reminder)
+  db.run("UPDATE users SET last_health_import=datetime('now') WHERE id=?", [uid]);
+  res.json({ ok: true, created, updated, days: Object.keys(days).length });
+});
+
+// Wöchentliche Health-Erinnerung an-/abschalten
+app.post('/api/health-reminder', auth, (req, res) => {
+  db.run('UPDATE users SET health_reminder=? WHERE id=?', [req.body.enabled ? 1 : 0, req.user.id]);
+  res.json({ ok: true });
+});
 app.put('/api/checkins/:id/coachnote', auth, requireCoach, (req, res) => {
   const c = db.get('SELECT c.*, u.coach_id FROM checkins c JOIN users u ON u.id=c.user_id WHERE c.id=?', [req.params.id]);
   if (!c || !coachOwns(req.user, c.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
@@ -778,6 +842,66 @@ app.post('/api/recipes/:id/log', auth, (req, res) => {
     VALUES(?,?,?,?,?,?,?,?,?)`,
     [uid, req.body.date || new Date().toISOString().slice(0, 10), rec.meal_type || 'Mahlzeit',
      rec.name, 1, rec.kcal, rec.fat, rec.carbs, rec.protein]);
+  res.json({ ok: true });
+});
+
+/* ---------------- SUPPLEMENTS ---------------- */
+// Katalog aller globalen Supplements (für Coach zum Zuweisen)
+app.get('/api/supplements-catalog', auth, requireCoach, (req, res) => {
+  res.json({ supplements: db.all('SELECT * FROM supplements ORDER BY sort, name') });
+});
+
+// Supplements eines Athleten: global gemerged mit seinen Zuweisungen.
+// Liefert nur ZUGEWIESENE (mind. wenn der Coach welche gesetzt hat). Hat der Athlet
+// noch keine Zuweisung, liefern wir den Katalog als "optional" zur Orientierung.
+app.get('/api/supplements/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const assigned = db.all(`SELECT s.*, a.mandatory, a.custom_dose, a.custom_timing, a.note,
+      1 AS assigned
+    FROM athlete_supplements a JOIN supplements s ON s.id=a.supplement_id
+    WHERE a.user_id=? ORDER BY a.mandatory DESC, s.sort, s.name`, [uid]);
+  if (assigned.length) {
+    // angepasste Werte anwenden
+    const out = assigned.map(s => ({
+      id: s.id, name: s.name, category: s.category,
+      dose: s.custom_dose || s.dose, timing: s.custom_timing || s.timing,
+      with_water: s.with_water, how_to: s.how_to,
+      mandatory: !!s.mandatory, note: s.note, assigned: true
+    }));
+    return res.json({ supplements: out, personalized: true });
+  }
+  // Fallback: noch nichts zugewiesen -> Katalog als Orientierung (alles optional)
+  const cat = db.all('SELECT * FROM supplements ORDER BY sort, name')
+    .map(s => ({ ...s, with_water: s.with_water, mandatory: false, assigned: false }));
+  res.json({ supplements: cat, personalized: false });
+});
+
+// Coach: Supplement zuweisen / Pflicht setzen / anpassen (upsert)
+app.put('/api/supplements/:userId/:suppId', auth, requireCoach, (req, res) => {
+  const uid = Number(req.params.userId), sid = Number(req.params.suppId);
+  const a = db.get('SELECT coach_id FROM users WHERE id=?', [uid]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  if (!db.get('SELECT id FROM supplements WHERE id=?', [sid])) return res.status(404).json({ error: 'Supplement unbekannt' });
+  const mandatory = req.body.mandatory ? 1 : 0;
+  const cd = req.body.custom_dose || null, ct = req.body.custom_timing || null, note = req.body.note || null;
+  const existing = db.get('SELECT id FROM athlete_supplements WHERE user_id=? AND supplement_id=?', [uid, sid]);
+  if (existing) {
+    db.run('UPDATE athlete_supplements SET mandatory=?, custom_dose=?, custom_timing=?, note=? WHERE id=?',
+      [mandatory, cd, ct, note, existing.id]);
+  } else {
+    db.run('INSERT INTO athlete_supplements(user_id,supplement_id,mandatory,custom_dose,custom_timing,note) VALUES(?,?,?,?,?,?)',
+      [uid, sid, mandatory, cd, ct, note]);
+  }
+  res.json({ ok: true });
+});
+
+// Coach: Zuweisung entfernen
+app.delete('/api/supplements/:userId/:suppId', auth, requireCoach, (req, res) => {
+  const uid = Number(req.params.userId), sid = Number(req.params.suppId);
+  const a = db.get('SELECT coach_id FROM users WHERE id=?', [uid]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  db.run('DELETE FROM athlete_supplements WHERE user_id=? AND supplement_id=?', [uid, sid]);
   res.json({ ok: true });
 });
 

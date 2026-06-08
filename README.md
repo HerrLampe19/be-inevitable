@@ -231,3 +231,48 @@ Löst den größten Ernährungs-Schmerz: kein lästiges Tracken einzelner Zutate
 - **Zutaten & Zubereitung** in der Detailansicht, plus optionaler Link zu einem externen Rezept/Video (wie die Übungsvideos).
 - **Eigene Rezepte** anlegen (z.B. die Standard-Mahlzeit, die man oft isst) – werden gespeichert und zuerst angezeigt.
 - Rezepte werden online beim ersten Start automatisch geladen (idempotent).
+
+## Verbesserungen aus Live-Feedback (neu)
+- **Krankheitstag verschiebt jetzt aktiv:** Ein als „krank" markierter Tag wird eingeschoben, das geplante Training geht nicht verloren, sondern wird nachgeholt (wie ein eingeschobener Ruhetag). Bug behoben.
+- **Rezepte filtern automatisch:** Beim Öffnen werden Ziel (aus dem Profil) und Mahlzeit (aus der Uhrzeit) vorausgewählt – manuell weiter änderbar. Rezept-Auswahl auf 29 erweitert.
+- **Technik-Lexikon in den Übungen:** Beim Bearbeiten einer Übung lassen sich Technik-Begriffe per „📖 Begriffe" aus dem Lexikon übernehmen. An der Übung selbst sieht der Athlet die gesetzte Technik und kann sie antippen, um die Erklärung zu lesen.
+- **Rollen aufgeräumt:** Coaches und Admins haben kein Athleten-Profil mehr (kein Größe/Gewicht/Kalorien) – nur noch Name/Passwort. Das volle Profil gibt es nur für Athleten.
+- **Kalender-Icons** auf dem Smartphone sauber zentriert und ohne Überlauf (responsive Schriftgröße).
+
+## Supplements ausgebaut (neu)
+Aus der simplen Liste ist ein echtes, vom Coach steuerbares Protokoll geworden.
+- **Vollständige Infos je Supplement:** Dosierung, Wann (Timing), mit/ohne Wasser, und ein Einnahme-/Wirkungshinweis. 12 gängige Supplements vorbefüllt (Kreatin, Whey, Omega 3, Magnesium, Pre-Workout …).
+- **Coach legt pro Athlet Pflicht fest:** Im Athleten-Dashboard → „💊 Supplements" weist der Coach Supplements zu, markiert sie als Pflicht oder optional und kann Dosierung/Timing individuell anpassen oder einen persönlichen Hinweis hinterlegen (z.B. „abends wegen Schlaf").
+- **Athlet sieht sein Protokoll:** Pflicht-Supplements oben hervorgehoben, dann optionale. Tippen zeigt alle Details. Solange der Coach nichts zugewiesen hat, dienen die Standard-Empfehlungen zur Orientierung.
+- Supplements werden online beim Start automatisch nachgetragen (idempotent, bestehende Daten bleiben).
+
+## Cardio ausgebaut (neu)
+Cardio ist jetzt vollwertig im Training-Reiter (eigener Tab „Cardio" neben „Kraft") – auch für Ausdauer-fokussierte Nutzer.
+- **13 Sportarten:** Laufen, Joggen, Rad, Spinning, Rudern, Gehen, Wandern, Schwimmen, Crosstrainer, Stepper, Seilspringen, HIIT, Crossfit.
+- **Automatische Kalorienschätzung** (MET-basiert, nach Körpergewicht und Intensität).
+- **Tempo-Anzeige** (min/km und km/h) bei distanzbasierten Sportarten, live beim Eingeben.
+- **Optional Puls** erfassbar; Distanzfeld erscheint nur bei sinnvollen Sportarten.
+- **Wochenübersicht** im Cardio-Tab: Minuten, verbrannte kcal und Distanz der letzten 7 Tage, plus voller Verlauf.
+- Moderates/hartes Cardio fließt weiterhin in die Erholungs-Anzeige ein (beeinflusst die Kraft-Empfehlung am Folgetag).
+- Cardio aus dem Verlauf-Reiter entfernt – lebt jetzt sinnvoll unter Training.
+
+## Home & Verlauf neu geordnet (neu)
+Klare Trennung: Home = tägliche Übersicht + Eingabe, Verlauf = Auswertung.
+- **Home – Schneller Check-in erweitert:** Gewicht, Schlaf, Schritte und Wasser an einem Ort, direkt auf der Startseite. Teil-Eingaben über den Tag verteilt sind möglich, ohne dass vorherige Werte verloren gehen (Bug behoben).
+- **Verlauf ist jetzt reine Analyse:** Trend-Charts für Gewicht, Schlaf, Schritte und Wasser (mit Durchschnitten) statt Eingabefeldern. Plus kompakte Check-in-Historie.
+- **Körper & Physik als eigener Bereich:** Körpermaße und Fortschrittsfotos sind aus dem Eingabe-Wust herausgelöst. Adaptiv: Profis sehen sie zusätzlich direkt auf der Home, Anfänger bekommen im Verlauf einen erklärenden Hinweis statt Überforderung.
+
+## Lebensmittel-Suche (neu)
+Das lange Dropdown ist weg – stattdessen eine schnelle Textsuche.
+- **Suchfeld:** Einfach tippen (z.B. „hafer", „reis", „quark") – die Liste filtert live mit. Häufig genutzte Lebensmittel erscheinen oben.
+- **Antippen statt scrollen:** Treffer als Liste mit kcal/100g auf einen Blick; ein Tipp wählt aus, dann Menge + Live-Makrovorschau.
+- „Ändern" springt zurück zur Suche. Findet man nichts, führt der Weg direkt zu „Schnell" (freie Kalorien) oder „Neu anlegen" (eigenes Lebensmittel).
+
+## Apple Health Import (neu)
+Da eine Web-App technisch nicht direkt auf Apple Health zugreifen kann (das erlaubt Apple nur nativen iOS-Apps), läuft die Anbindung über den offiziellen Health-Export – ohne teuren Entwickler-Account.
+- **Viele Tage auf einmal:** Apple Health exportiert die komplette Historie. Einmal die „Export.xml" hochladen, und Wochen/Monate an Gewicht, Schritten und Schlaf landen automatisch in den Check-ins.
+- **Im Browser geparst:** Die (oft große) Datei wird lokal im Browser ausgewertet – nur die kompakten Tageswerte gehen an den Server. Das schont Upload und Datenbank (nur 1 Wert pro Tag und Kennzahl).
+- **Keine Überschreibung:** Manuell eingetragene Werte bleiben erhalten; der Import füllt nur leere Felder (optional per overwrite erzwingbar).
+- **Schritt-für-Schritt-Anleitung** direkt in der App (Health → Profil → „Alle Gesundheitsdaten exportieren").
+- **Wöchentliche Erinnerung (opt-in):** Häkchen setzen, und die Startseite weist freundlich darauf hin, wenn länger nichts importiert wurde.
+- Wer kein Apple Health nutzt, trägt alles wie gewohnt auf der Startseite ein.

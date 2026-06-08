@@ -63,3 +63,12 @@ So kannst du im unwahrscheinlichen Problemfall jederzeit zurück.
 - Die App ist so gebaut, dass ein fehlendes neues Feld den Start nicht verhindert –
   im Zweifel läuft die alte Funktion weiter.
 - Schick mir die Log-Zeile, dann finde ich die Ursache.
+
+## Hinweis zu diesem Update (Apple Health Import)
+Dieses Update fügt der `users`-Tabelle zwei neue Spalten hinzu (`last_health_import`,
+`health_reminder`) und zwei neue Tabellen für frühere Features. Das geschieht
+**automatisch und datenschonend** beim ersten Start nach dem Deploy:
+- Neue Spalten werden per `ALTER TABLE` ergänzt, falls sie fehlen – bestehende Zeilen behalten ihre Werte.
+- Es werden keine Spalten entfernt oder umbenannt.
+Du musst nichts manuell tun. Wie immer gilt: vorher ein kurzes Backup schadet nicht
+(`cp /var/data/data.db /var/data/backup-$(date +%F).db`).

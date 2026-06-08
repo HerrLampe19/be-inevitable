@@ -17,6 +17,8 @@ export function initSchema() {
     kcal_target_train INTEGER,
     kcal_target_rest INTEGER,
     experience TEXT DEFAULT 'beginner',      -- 'beginner' | 'intermediate' | 'advanced'
+    last_health_import TEXT,                 -- Zeitpunkt des letzten Apple-Health-Imports
+    health_reminder INTEGER DEFAULT 0,       -- 1 = wöchentliche Erinnerung gewünscht
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (coach_id) REFERENCES users(id)
   );
@@ -161,6 +163,32 @@ export function initSchema() {
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  -- Globale Supplement-Stammdaten (Standard-Empfehlungen)
+  CREATE TABLE IF NOT EXISTS supplements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT,                           -- z.B. 'Morgens','Pre-Workout','Intra','Abends'
+    dose TEXT,                               -- z.B. '5 g', '3 Kapseln'
+    timing TEXT,                             -- wann genau, z.B. 'morgens zum Frühstück'
+    with_water INTEGER DEFAULT 1,            -- 1 = mit Wasser, 0 = ohne
+    how_to TEXT,                             -- Einnahmehinweis / Wirkung
+    sort INTEGER DEFAULT 0
+  );
+
+  -- Zuweisung pro Athlet: welche Supplements, Pflicht/optional, optional angepasste Werte
+  CREATE TABLE IF NOT EXISTS athlete_supplements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    supplement_id INTEGER NOT NULL,
+    mandatory INTEGER DEFAULT 0,             -- 1 = Pflicht (vom Coach)
+    custom_dose TEXT,                        -- überschreibt dose, falls gesetzt
+    custom_timing TEXT,                      -- überschreibt timing, falls gesetzt
+    note TEXT,                               -- individueller Coach-Hinweis
+    UNIQUE(user_id, supplement_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (supplement_id) REFERENCES supplements(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS recipes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -210,5 +238,13 @@ export function initSchema() {
   CREATE INDEX IF NOT EXISTS idx_foodlog ON food_log(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_cardiolog ON cardio_log(user_id, date);
   `);
+
+  // Idempotente Migrationen: fehlende Spalten zu bestehenden Tabellen ergänzen,
+  // damit Online-Datenbanken mit alten Daten beim Update nicht brechen.
+  const cols = db.all("PRAGMA table_info(users)").map(c => c.name);
+  const addCol = (name, def) => { if (!cols.includes(name)) { try { db.run(`ALTER TABLE users ADD COLUMN ${name} ${def}`); } catch (e) {} } };
+  addCol('last_health_import', 'TEXT');
+  addCol('health_reminder', 'INTEGER DEFAULT 0');
+
   console.log('[db] Schema bereit');
 }

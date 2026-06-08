@@ -138,6 +138,7 @@ async function startApp(){
 }
 // Wenn ein Coach gerade einen Athleten "betreten" hat, steht hier dessen Name
 let COACH_CONTEXT=null;
+let VIEW_USER_PROFILE=null; // Profil des aktuell betrachteten Nutzers (für Coach-Kontext)
 function buildNav(){const nav=document.getElementById('navBar');
   let items;
   if(ME.role==='admin'){
@@ -221,7 +222,20 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   const hour=new Date().getHours();
   const greet=hour<11?'Guten Morgen':hour<17?'Hallo':'Guten Abend';
   const greetLine=(VIEW_USER===ME.id)?`<div style="font-size:15px;color:var(--ink2);margin-bottom:14px">${greet}, ${ME.name.split(' ')[0]} 👋</div>`:'';
-  html+=greetLine+`<div class="today">
+  html+=greetLine;
+  // Sanfter Health-Import-Hinweis: nur fürs eigene Konto, wenn Erinnerung aktiv und >7 Tage her (oder nie)
+  if(VIEW_USER===ME.id && ME.health_reminder){
+    const li=ME.last_health_import?Date.parse(ME.last_health_import):0;
+    const days=li?Math.floor((Date.now()-li)/864e5):999;
+    if(days>=7){
+      html+=`<div class="surface pad" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;border-left:3px solid var(--red)">
+        <div style="font-size:22px">🍏</div>
+        <div style="flex:1"><div style="font-weight:600;font-size:14px">Health-Daten aktualisieren</div><div style="color:var(--ink2);font-size:13px">${li?'Letzter Import vor '+days+' Tagen.':'Noch keine Health-Daten importiert.'} Tippe zum Importieren.</div></div>
+        <button class="minibtn" onclick="openHealthImport()">Import</button>
+      </div>`;
+    }
+  }
+  html+=`<div class="today">
     <div class="eyebrow">◎ ${cap(dateStr)}</div>
     <div class="daytype">${dayName}</div>
     <div class="meta">${eyebrow}${phaseTxt?' · '+phaseTxt:''}</div>
@@ -298,11 +312,17 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   if(cis.filter(c=>c.weight).length>=2){
     html+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewichtsverlauf</div><div class="v">letzte ${Math.min(cis.length,30)} Einträge</div></div>${sparkline(cis.filter(c=>c.weight).slice(0,30).reverse().map(c=>c.weight))}</div>`;
   }
-  // SCHNELL-CHECKIN
+  // SCHNELL-CHECKIN (Gewicht, Schlaf, Schritte, Wasser – das Tägliche an einem Ort)
   html+=`<div class="section-label">Schneller Check-in</div>
     <div class="surface pad">
-      <div class="field" style="margin-bottom:12px"><label>Gewicht heute (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" placeholder="${last?.weight||'z.B. 63.5'}"></div>
-      <button class="btn" onclick="quickCheckin()">Speichern</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" placeholder="${last?.weight||'63.5'}"></div>
+        <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" placeholder="${last?.sleep||'8'}"></div>
+        <div class="field"><label>Schritte</label><input id="qc_steps" type="number" inputmode="numeric" placeholder="${last?.steps||'8000'}"></div>
+        <div class="field"><label>Wasser (L)</label><input id="qc_water" type="number" step="0.1" inputmode="decimal" placeholder="${last?.water||'3'}"></div>
+      </div>
+      <button class="btn" onclick="quickCheckin()">Check-in speichern</button>
+      <div style="font-size:12px;color:var(--ink3);text-align:center;margin-top:8px">Leer lassen ist okay – trag ein, was du hast.</div>
     </div>`;
   // ADAPTIV: Profis bekommen Maße + Fotos direkt griffbereit auf der Home
   if(isAdvanced()&&VIEW_USER===ME.id){
@@ -336,15 +356,18 @@ function sparkline(vals){if(vals.length<2)return'';const w=480,h=120,pad=10;
 function weightTrend(cis){const w=cis.filter(c=>c.weight).map(c=>c.weight);if(w.length<2)return'';
   const diff=w[0]-w[1];if(Math.abs(diff)<0.05)return'';
   return `<div class="trend ${diff>0?'up':'down'}">${diff>0?'↑':'↓'} ${Math.abs(diff).toFixed(1)} kg</div>`;}
-async function quickCheckin(){const w=num('qc_weight');if(w==null)return toast('Bitte Gewicht eingeben');
-  await API.post('/checkins',{user_id:VIEW_USER,date:today(),weight:w});toast('Gespeichert ✓');go('home');}
+async function quickCheckin(){const w=num('qc_weight'),sl=num('qc_sleep'),st=num('qc_steps'),wa=num('qc_water');
+  if(w==null&&sl==null&&st==null&&wa==null)return toast('Bitte mindestens einen Wert eingeben');
+  const body={user_id:VIEW_USER,date:today()};
+  if(w!=null)body.weight=w;if(sl!=null)body.sleep=sl;if(st!=null)body.steps=st;if(wa!=null)body.water=wa;
+  await API.post('/checkins',body);toast('Check-in gespeichert ✓');go('home');}
 
 // ===== TAG-PICKER =====
 function openDayPicker(){const days=(PLAN?.days||[]);
   let h='<div class="info">Wähle, was du heute machst. Trainings-Tage rotieren automatisch weiter – du kannst aber jederzeit abweichen.</div>';
   days.forEach(d=>{h+=`<button class="btn sec" style="margin-bottom:8px" onclick="setDay('train','${esc(d.name)}')">🏋️ ${d.name}</button>`;});
   h+=`<button class="btn sec" style="margin-bottom:8px" onclick="setDay('rest')">😴 Ruhetag</button>`;
-  h+=`<button class="btn sec" style="color:var(--amber)" onclick="setDay('sick')">🤒 Krank / Pause (nahtlos weiter)</button>`;
+  h+=`<button class="btn sec" style="color:var(--amber)" onclick="setDay('sick')">🤒 Krank / Pause (Rhythmus verschiebt sich)</button>`;
   openSheet('Was machst du heute?',h);}
 async function setDay(type,dayName){await API.post('/today/'+VIEW_USER,{date:today(),type,day_name:dayName});
   closeModal();await loadToday();toast(type==='sick'?'Gute Besserung! 🤒':'Aktualisiert ✓');go('home');}
@@ -357,12 +380,23 @@ async function renderWorkout(v){if(!PLAN)await loadPlan();if(!TODAY)await loadTo
   const dateStr=new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
   v.innerHTML=`<div class="page on">
     <div class="h1">Training</div><div class="sub">${cap(dateStr)}</div>
-    ${isBeginner()?`<div class="info" style="margin-bottom:16px">👋 Tippe eine Übung an, um sie zu öffnen. Trag bei jedem Satz dein Gewicht und die Wiederholungen ein. Der grüne, gelbe oder graue Hinweis sagt dir, ob du nächstes Mal mehr Gewicht nehmen solltest. Unsicher bei der Ausführung? Tippe „Ausführung ansehen".</div>`:''}
+    <div class="seg" style="margin-bottom:16px">
+      <button id="wt_strength" class="on" onclick="workoutTab('strength')">Kraft</button>
+      <button id="wt_cardio" onclick="workoutTab('cardio')">Cardio</button>
+    </div>
+    <div id="workoutBody"></div>
+  </div>`;
+  workoutTab(renderWorkout.tab||'strength');}
+function workoutTab(t){renderWorkout.tab=t;
+  document.getElementById('wt_strength').classList.toggle('on',t==='strength');
+  document.getElementById('wt_cardio').classList.toggle('on',t==='cardio');
+  if(t==='strength')drawStrength();else drawCardioTab();}
+function drawStrength(){const b=document.getElementById('workoutBody');
+  b.innerHTML=`${isBeginner()?`<div class="info" style="margin-bottom:16px">👋 Tippe eine Übung an, um sie zu öffnen. Trag bei jedem Satz dein Gewicht und die Wiederholungen ein. Der grüne, gelbe oder graue Hinweis sagt dir, ob du nächstes Mal mehr Gewicht nehmen solltest.</div>`:''}
     <div class="chip-row" id="daysel" style="margin-bottom:18px"></div>
     <div id="exlist"></div>
-    <button class="btn sec" id="addExBtn" style="margin-top:4px" onclick="addExercise()">+ Übung hinzufügen</button>
-  </div>`;
-  renderDaySel();await renderEx();}
+    <button class="btn sec" id="addExBtn" style="margin-top:4px" onclick="addExercise()">+ Übung hinzufügen</button>`;
+  renderDaySel();renderEx();}
 function renderDaySel(){const el=document.getElementById('daysel');
   el.innerHTML=PLAN.days.map(d=>`<button class="daychip ${d.id===CUR_DAY?'now':''}" onclick="selDay(${d.id})">${d.name}</button>`).join('')
     +`<button class="daychip" onclick="addDay()">+ Tag</button>`
@@ -400,6 +434,7 @@ async function renderEx(){const day=curDayObj();const el=document.getElementById
       </div>
       <div class="ex-body"><div class="ex-inner">
         <div class="rec ${rec.type}"><span class="ric">${recIcon}</span><span>${rec.text||''}</span></div>
+        ${ex.technique?`<div class="surface" style="padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="explainTechnique('${esc(ex.technique)}')"><span style="font-size:15px">📖</span><div style="flex:1"><div style="font-weight:600;font-size:14px">Technik: ${ex.technique}</div><div style="font-size:12px;color:var(--ink3)">Antippen für Erklärung</div></div></div>`:''}
         <div class="setgrid"><div class="hd">Satz</div><div class="hd">Gewicht</div><div class="hd">Reps</div></div>
         ${Array.from({length:sets},(_,s)=>{const lg=logFor(ex.id,s+1);const ps=(pr.lastSets||[]).find(x=>x.set_no===s+1);
           const hasToday=(lg.weight!=null||lg.reps!=null);
@@ -502,15 +537,19 @@ function exForm(ex){return `
     <div class="field"><label>Sätze (1–10)</label><input id="ex_sets" type="number" min="1" max="10" value="${ex?.target_sets||3}"></div>
     <div class="field"><label>Reps (z.B. 8-12)</label><input id="ex_reps" value="${ex?.target_reps||''}" placeholder="8-12"></div>
   </div>
-  <div class="field"><label>Technik (optional)</label><input id="ex_tech" value="${ex?.technique||''}" placeholder="z.B. Continuous Reps"></div>
+  <div class="field"><label>Technik (optional)</label>
+    <div style="display:flex;gap:8px"><input id="ex_tech" value="${ex?.technique||''}" placeholder="z.B. Continuous Reps" style="flex:1">
+    <button type="button" class="btn sec" style="width:auto;padding:0 14px;white-space:nowrap" onclick="pickTechnique()">📖 Begriffe</button></div></div>
   <div class="field"><label>Video-Link (optional)</label><input id="ex_video" value="${ex?.video_url||''}" placeholder="YouTube-Link"></div>
   <div class="field"><label>Notizen (optional)</label><textarea id="ex_notes" rows="2">${ex?.notes||''}</textarea></div>`;}
 function addExercise(){if(!curDayObj())return toast('Erstelle zuerst einen Tag');
+  EX_FORM_CTX={id:null,draft:null};
   openSheet('Übung hinzufügen',exForm(null)+`<button class="btn" onclick="confirmAddExercise()">Hinzufügen</button>`);}
 async function confirmAddExercise(){const body={day_id:CUR_DAY,muscle:val('ex_muscle'),name:val('ex_name'),technique:val('ex_tech'),video_url:val('ex_video'),target_sets:clampSets(val('ex_sets')),target_reps:val('ex_reps'),notes:val('ex_notes')};
   if(!body.name)return toast('Name fehlt');const r=await API.post('/exercises',body);
   if(r.status===200){closeModal();await loadPlan();renderEx();toast('Hinzugefügt ✓');}}
 function editExercise(id){const ex=curDayObj().exercises.find(e=>e.id===id);
+  EX_FORM_CTX={id:id,draft:null};
   openSheet('Übung bearbeiten',(ex.coach_locked&&ME.role!=='coach'?`<div class="warn">⚠️ Diese Übung stammt von deinem Coach. Änderst du sie, weicht dein Plan von der Vorgabe ab.</div>`:'')+exForm(ex)+`<button class="btn" onclick="confirmEditExercise(${id})">Speichern</button>`);}
 async function confirmEditExercise(id,confirm){const body={muscle:val('ex_muscle'),name:val('ex_name'),technique:val('ex_tech'),video_url:val('ex_video'),target_sets:clampSets(val('ex_sets')),target_reps:val('ex_reps'),notes:val('ex_notes')};
   if(confirm)body.confirm=true;const r=await API.put('/exercises/'+id,body);
@@ -578,8 +617,17 @@ function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const su
 async function delFood(id){await API.del('/foodlog/'+id);const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;drawTrack();toast('Entfernt');}
 
 // ===== REZEPTE =====
-let RECIPE_FILTER={goal:'all',meal:'all',fit:false};
+let RECIPE_FILTER=null; // wird beim ersten Öffnen aus Profil + Uhrzeit vorbelegt
+function defaultRecipeFilter(){
+  // Ziel aus dem Profil des angesehenen Nutzers (Athlet bzw. vom Coach betreuter)
+  const goal=(VIEW_USER===ME.id?ME.goal:(VIEW_USER_PROFILE?.goal))||'all';
+  // Mahlzeit aus der Tageszeit
+  const h=new Date().getHours();
+  const meal=h<10?'Frühstück':h<15?'Mittag':h<21?'Abend':'Snack';
+  return {goal:goal||'all',meal,fit:false};
+}
 async function drawRecipes(){const el=document.getElementById('dietBody');el.innerHTML='<div class="spinner"></div>';
+  if(!RECIPE_FILTER)RECIPE_FILTER=defaultRecipeFilter();
   const sum=renderDiet.foodlog?.summary||{};const remaining=sum.remaining;
   const f=RECIPE_FILTER;
   let q='/recipes?';
@@ -653,10 +701,12 @@ function openLogFood(){
 function lfTab(t){[1,2,3].forEach(i=>document.getElementById('lf_t'+i).classList.toggle('on',i===t));
   const b=document.getElementById('lfBody');const slot=`<div class="field"><label>Mahlzeit</label><select id="lf_slot"><option>Frühstück</option><option>Mittag</option><option>Abend</option><option>Snack</option><option>Pre/Post Workout</option></select></div>`;
   if(t===1){if(!FOODS.length){b.innerHTML='<div class="empty">Lädt…</div>';return;}
-    b.innerHTML=`<div class="field"><label>Lebensmittel (häufige zuerst)</label><select id="lf_food" onchange="lfCalc()">${FOODS.map((f,i)=>`<option value="${i}">${f.name}${f.owner_id?' ⭐':''}</option>`).join('')}</select></div>
-      <div class="field"><label>Menge (g/ml)</label><input id="lf_amt" type="number" inputmode="numeric" value="100" oninput="lfCalc()"></div>
-      ${slot}<div class="macro-row" id="lf_out"></div>
-      <button class="btn" onclick="confirmLogFood()">Hinzufügen</button>`;lfCalc();}
+    LF_SELECTED=null;
+    b.innerHTML=`
+      <div class="field"><label>Lebensmittel suchen</label><input id="lf_search" type="text" placeholder="z.B. Hähnchen, Reis, Quark…" oninput="lfFilter()" autocomplete="off"></div>
+      <div id="lf_list" style="max-height:230px;overflow-y:auto;margin-bottom:14px"></div>
+      <div id="lf_chosen"></div>`;
+    lfFilter();}
   else if(t===2){b.innerHTML=`<div class="info">Schnell-Eintrag: Wenn du nur die Kalorien kennst (z.B. von der Verpackung), trag sie direkt ein. Makros optional.</div>
       <div class="field"><label>Bezeichnung</label><input id="qf_name" placeholder="z.B. Restaurant-Pizza"></div>
       <div class="field"><label>Kalorien (kcal)</label><input id="qf_kcal" type="number" inputmode="numeric" placeholder="z.B. 650"></div>
@@ -674,10 +724,39 @@ function lfTab(t){[1,2,3].forEach(i=>document.getElementById('lf_t'+i).classList
         <div class="field"><label>Fett /100g</label><input id="nf_f" type="number" inputmode="decimal" placeholder="g"></div>
       </div>
       <button class="btn" onclick="confirmNewFood()">Speichern &amp; auswählen</button>`;}}
-function lfCalc(){const f=FOODS[+val('lf_food')];if(!f)return;const a=parseFloat(val('lf_amt'))||0;
+let LF_SELECTED=null;
+// Liste live nach Suchtext filtern (häufig genutzte zuerst – FOODS kommt schon so sortiert)
+function lfFilter(){const q=(val('lf_search')||'').trim().toLowerCase();
+  const el=document.getElementById('lf_list');if(!el)return;
+  const matches=FOODS.filter(f=>f.name.toLowerCase().includes(q)).slice(0,40);
+  if(!matches.length){el.innerHTML='<div class="empty" style="padding:20px">Nichts gefunden. Tipp: Über „Schnell" kannst du freie Kalorien eintragen oder unter „Neu anlegen" ein eigenes Lebensmittel speichern.</div>';return;}
+  el.innerHTML='<div class="rows">'+matches.map(f=>{const i=FOODS.indexOf(f);
+    const kcal100=Math.round((f.fat*9+f.carbs*4+f.protein*4)*100);
+    return `<div class="row" style="cursor:pointer" onclick="lfPick(${i})"><div class="rl">${esc2(f.name)}${f.owner_id?' ⭐':''}<small>${kcal100} kcal / 100g</small></div><div class="rr" style="color:var(--ink3)">wählen ›</div></div>`;}).join('')+'</div>';}
+// Lebensmittel auswählen -> Menge + Makro-Vorschau + Hinzufügen
+function lfPick(i){LF_SELECTED=i;const f=FOODS[i];if(!f)return;
+  const slot=`<div class="field"><label>Mahlzeit</label><select id="lf_slot"><option>Frühstück</option><option>Mittag</option><option>Abend</option><option>Snack</option><option>Pre/Post Workout</option></select></div>`;
+  document.getElementById('lf_chosen').innerHTML=`
+    <div class="surface pad" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-weight:600">${esc2(f.name)}</div>
+        <button class="minibtn" onclick="lfClear()">ändern</button></div>
+      <div class="field"><label>Menge (g/ml)</label><input id="lf_amt" type="number" inputmode="numeric" value="100" oninput="lfCalc()"></div>
+      ${slot}<div class="macro-row" id="lf_out"></div>
+    </div>
+    <button class="btn" onclick="confirmLogFood()">Hinzufügen</button>`;
+  lfCalc();
+  // Liste & Suche ausblenden, damit der Fokus auf der Auswahl liegt
+  const ls=document.getElementById('lf_list');if(ls)ls.style.display='none';
+  const sf=document.getElementById('lf_search');if(sf)sf.closest('.field').style.display='none';}
+function lfClear(){LF_SELECTED=null;document.getElementById('lf_chosen').innerHTML='';
+  const ls=document.getElementById('lf_list');if(ls)ls.style.display='';
+  const sf=document.getElementById('lf_search');if(sf){sf.closest('.field').style.display='';sf.focus();}}
+function lfCalc(){if(LF_SELECTED==null)return;const f=FOODS[LF_SELECTED];if(!f)return;const a=parseFloat(val('lf_amt'))||0;
   const fat=f.fat*a,carb=f.carbs*a,prot=f.protein*a,kc=fat*9+carb*4+prot*4;
-  document.getElementById('lf_out').innerHTML=`<div class="macro kcal"><div class="v">${Math.round(kc)}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${prot.toFixed(1)}<em>g</em></div><div class="k">Protein</div></div><div class="macro"><div class="v">${carb.toFixed(1)}<em>g</em></div><div class="k">Carbs</div></div><div class="macro"><div class="v">${fat.toFixed(1)}<em>g</em></div><div class="k">Fett</div></div>`;}
-async function confirmLogFood(){const f=FOODS[+val('lf_food')];const a=parseFloat(val('lf_amt'))||0;
+  const out=document.getElementById('lf_out');if(out)out.innerHTML=`<div class="macro kcal"><div class="v">${Math.round(kc)}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${prot.toFixed(1)}<em>g</em></div><div class="k">Protein</div></div><div class="macro"><div class="v">${carb.toFixed(1)}<em>g</em></div><div class="k">Carbs</div></div><div class="macro"><div class="v">${fat.toFixed(1)}<em>g</em></div><div class="k">Fett</div></div>`;}
+async function confirmLogFood(){if(LF_SELECTED==null)return toast('Bitte ein Lebensmittel wählen');
+  const f=FOODS[LF_SELECTED];const a=parseFloat(val('lf_amt'))||0;
   const fat=f.fat*a,carb=f.carbs*a,prot=f.protein*a,kc=fat*9+carb*4+prot*4;
   await API.post('/foodlog',{user_id:VIEW_USER,date:today(),meal_slot:val('lf_slot'),food:f.name,amount:a,kcal:kc,fat,carbs:carb,protein:prot});
   closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;drawTrack();toast('Getrackt ✓');}
@@ -691,8 +770,8 @@ async function confirmNewFood(){const name=val('nf_name');if(!name)return toast(
   // Foods neu laden, damit das neue gleich auswählbar ist
   const fr=await API.get('/foods');FOODS=fr.data?.foods||[];
   toast('Gespeichert ✓');lfTab(1);
-  // das neue Lebensmittel vorselektieren
-  setTimeout(()=>{const sel=document.getElementById('lf_food');const idx=FOODS.findIndex(f=>f.name===name);if(sel&&idx>=0){sel.value=idx;lfCalc();}},50);}
+  // das neue Lebensmittel direkt auswählen
+  setTimeout(()=>{const idx=FOODS.findIndex(f=>f.name===name);if(idx>=0)lfPick(idx);},60);}
 function openLogFromPlan(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DIET);
   if(!meals.length)return toast('Kein Meal Plan vorhanden');
   openSheet('Mahlzeit übernehmen',`<div class="info">Übernimm eine geplante Mahlzeit mit einem Tipp als "gegessen".</div>`+
@@ -713,51 +792,176 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
       ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount} g/ml</div>${it.notes?`<div class="fm">${it.notes}</div>`:''}</div><div class="fmac">${Math.round(it.kcal||0)} kcal<br>${r1(it.protein)}P·${r1(it.carbs)}C·${r1(it.fat)}F</div></div>`).join('')}</div>`;}).join('');
   el.innerHTML=h;}
 
-// ===== TRACKER =====
-async function renderTracker(v){const dstr=new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
-  v.innerHTML=`<div class="page on"><div class="h1">Verlauf</div><div class="sub">${cap(dstr)}</div>
-    <div class="surface pad" style="margin-bottom:16px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="field"><label>Gewicht (kg)</label><input id="t_weight" type="number" step="0.1" inputmode="decimal" placeholder="63.5"></div>
-        <div class="field"><label>Schlaf (h)</label><input id="t_sleep" type="number" step="0.5" inputmode="decimal" placeholder="8"></div>
-        <div class="field"><label>Schritte</label><input id="t_steps" type="number" inputmode="numeric" placeholder="8000"></div>
-        <div class="field"><label>Wasser (L)</label><input id="t_water" type="number" step="0.1" inputmode="decimal" placeholder="3"></div>
-      </div>
-      <div class="field"><label>Notizen</label><textarea id="t_notes" rows="2" placeholder="Energie, Befinden, Offmeals..."></textarea></div>
-      <button class="btn" onclick="saveCheckin()">Check-in speichern</button>
-    </div>
-    <div class="info" style="margin-bottom:16px">💡 In einer späteren Version ziehen wir Gewicht, Schritte &amp; Schlaf automatisch aus Apple Health.</div>
-    <div class="section-label">Cardio heute</div>
-    <div id="cardioList" style="margin-bottom:10px"><div class="spinner"></div></div>
-    <button class="btn sec" style="margin-bottom:16px" onclick="openCardio()">+ Cardio-Einheit</button>
-    <div class="section-label">Körpermaße &amp; Physik</div>
-    <div class="quick" style="margin-bottom:16px">
+// ===== VERLAUF / ANALYSE =====
+async function renderTracker(v){
+  v.innerHTML=`<div class="page on"><div class="h1">Verlauf</div><div class="sub">Deine Entwicklung</div>
+    <div id="anaBox"><div class="spinner"></div></div></div>`;
+  const ci=await API.get('/checkins/'+VIEW_USER);
+  const checkins=(ci.data?.checkins||[]);
+  const box=document.getElementById('anaBox');
+  let h='';
+  // Hinweis, wenn noch zu wenig Daten
+  const wWeights=checkins.filter(c=>c.weight);
+  if(checkins.length<2){
+    h+=`<div class="info" style="margin-bottom:16px">📊 Deine Auswertungen erscheinen hier, sobald du ein paar Tage Check-ins gemacht hast (auf der Startseite: Gewicht, Schlaf, Schritte, Wasser).</div>`;
+  }
+  // GEWICHT
+  if(wWeights.length>=2){
+    const series=wWeights.slice(0,30).reverse().map(c=>c.weight);
+    const diff=(series[series.length-1]-series[0]);
+    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewicht</div><div class="v">${diff>0?'+':''}${diff.toFixed(1)} kg über ${series.length} Einträge</div></div>${sparkline(series)}</div>`;
+  }
+  // SCHLAF
+  const sl=checkins.filter(c=>c.sleep).slice(0,30).reverse().map(c=>c.sleep);
+  if(sl.length>=2){const avg=(sl.reduce((a,b)=>a+b,0)/sl.length).toFixed(1);
+    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Schlaf</div><div class="v">Ø ${avg} h</div></div>${sparkline(sl)}</div>`;}
+  // SCHRITTE
+  const st=checkins.filter(c=>c.steps).slice(0,30).reverse().map(c=>c.steps);
+  if(st.length>=2){const avg=Math.round(st.reduce((a,b)=>a+b,0)/st.length);
+    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Schritte</div><div class="v">Ø ${avg.toLocaleString('de-DE')}/Tag</div></div>${sparkline(st)}</div>`;}
+  // WASSER
+  const wa=checkins.filter(c=>c.water).slice(0,30).reverse().map(c=>c.water);
+  if(wa.length>=2){const avg=(wa.reduce((a,b)=>a+b,0)/wa.length).toFixed(1);
+    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Wasser</div><div class="v">Ø ${avg} L/Tag</div></div>${sparkline(wa)}</div>`;}
+
+  // KÖRPER & PHYSIK – eigener Bereich, adaptiv vorgestellt
+  h+=`<div class="section-label">Körper &amp; Physik</div>`;
+  if(isBeginner()){
+    h+=`<div class="info" style="margin-bottom:10px">Für den Anfang reicht dein Gewicht. Wenn du weiter bist, kannst du hier auch Körpermaße und Fortschrittsfotos festhalten – beides hilft deinem Coach, deinen Fortschritt zu sehen.</div>`;
+  }
+  h+=`<div class="quick" style="margin-bottom:16px">
       <button class="qcard" onclick="openMeasure()"><span class="ic">📏</span><div class="t">Körpermaße</div><div class="d">Taille, Arm, Brust…</div></button>
       <button class="qcard" onclick="openPhotos()"><span class="ic">📸</span><div class="t">Fortschrittsfotos</div><div class="d">Physik vergleichen</div></button>
-    </div>
-    <div class="section-label">Bisherige Einträge</div>
-    <div id="histlist"><div class="spinner"></div></div></div>`;
-  loadHist();loadCardio();}
-async function loadCardio(){const r=await API.get('/cardio/'+VIEW_USER+'?date='+today());const c=r.data?.cardio||[];
-  const el=document.getElementById('cardioList');if(!el)return;
-  if(!c.length){el.innerHTML='<div class="info">Noch kein Cardio heute erfasst.</div>';return;}
-  el.innerHTML='<div class="rows">'+c.map(x=>`<div class="row"><div class="rl">${x.kind}<small>${x.minutes||0} min${x.distance_km?' · '+x.distance_km+' km':''} · ${x.intensity||'moderat'}</small></div><div class="rr">${Math.round(x.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="delCardio(${x.id})">Entfernen</button></div></div>`).join('')+'</div>';}
-async function delCardio(id){await API.del('/cardio/'+id);loadCardio();toast('Entfernt');}
+    </div>`;
+
+  // CHECK-IN HISTORIE (kompakt, Anzeige)
+  h+=`<div class="section-label">Check-in Historie</div><div id="histlist"><div class="spinner"></div></div>`;
+  h+=`<div class="info" style="margin-top:16px;display:flex;align-items:center;gap:12px"><div style="flex:1">🍏 Du nutzt Apple Health? Importiere Gewicht, Schritte &amp; Schlaf für viele Tage auf einmal.</div></div>
+    <button class="btn sec" style="margin-top:10px" onclick="openHealthImport()">🍏 Apple Health importieren</button>`;
+  box.innerHTML=h;
+  loadHist();}
+const CARDIO_KINDS=['Laufen','Joggen','Rad','Spinning','Rudern','Gehen','Wandern','Schwimmen','Crosstrainer','Stepper','Seilspringen','HIIT','Crossfit'];
+const CARDIO_DIST=['Laufen','Joggen','Rad','Gehen','Wandern','Schwimmen']; // Sportarten mit sinnvoller Distanz
 function openCardio(){openSheet('Cardio-Einheit',`
-  <div class="field"><label>Art</label><select id="c_kind"><option>Laufen</option><option>Rad</option><option>Rudern</option><option>Gehen</option><option>Schwimmen</option><option>HIIT</option></select></div>
+  <div class="field"><label>Sportart</label><select id="c_kind" onchange="cardioKindChange()">${CARDIO_KINDS.map(k=>`<option>${k}</option>`).join('')}</select></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div class="field"><label>Minuten</label><input id="c_min" type="number" inputmode="numeric" placeholder="30"></div>
-    <div class="field"><label>Distanz (km, opt.)</label><input id="c_dist" type="number" step="0.1" inputmode="decimal" placeholder="5"></div>
+    <div class="field"><label>Minuten</label><input id="c_min" type="number" inputmode="numeric" placeholder="30" oninput="cardioPace()"></div>
+    <div class="field" id="c_distwrap"><label>Distanz (km, opt.)</label><input id="c_dist" type="number" step="0.1" inputmode="decimal" placeholder="5" oninput="cardioPace()"></div>
   </div>
-  <div class="field"><label>Intensität</label><select id="c_int"><option value="leicht">Leicht (locker)</option><option value="moderat" selected>Moderat</option><option value="hart">Hart (fordernd)</option></select></div>
-  <div class="info">Die Kalorien werden automatisch geschätzt. Hartes Cardio fließt in deine Erholungs-Anzeige ein – so weiß die App, ob du morgen voll Kraft trainieren kannst.</div>
-  <button class="btn" onclick="confirmCardio()">Speichern</button>`);}
-async function confirmCardio(){const body={user_id:VIEW_USER,date:today(),kind:val('c_kind'),minutes:num('c_min'),distance_km:num('c_dist'),intensity:val('c_int')};
+  <div id="c_pace" style="font-size:13px;color:var(--ink2);margin:-4px 0 12px;min-height:16px"></div>
+  <div class="field"><label>Intensität</label><select id="c_int"><option value="leicht">Leicht (locker, Gespräch möglich)</option><option value="moderat" selected>Moderat</option><option value="hart">Hart (fordernd, außer Atem)</option></select></div>
+  <div class="field"><label>Puls Ø (opt.)</label><input id="c_hr" type="number" inputmode="numeric" placeholder="z.B. 145"></div>
+  <div class="info">Die Kalorien werden automatisch geschätzt. Hartes/moderates Cardio fließt in deine Erholungs-Anzeige ein – so weiß die App, ob du morgen voll Kraft trainieren kannst.</div>
+  <button class="btn" onclick="confirmCardio()">Speichern</button>`);cardioKindChange();}
+function cardioKindChange(){const k=val('c_kind');const w=document.getElementById('c_distwrap');
+  if(w)w.style.display=CARDIO_DIST.includes(k)?'block':'none';cardioPace();}
+function cardioPace(){const el=document.getElementById('c_pace');if(!el)return;
+  const min=parseFloat(val('c_min'))||0,dist=parseFloat(val('c_dist'))||0;const k=val('c_kind');
+  if(CARDIO_DIST.includes(k)&&min>0&&dist>0){
+    const pace=min/dist;const mm=Math.floor(pace);const ss=Math.round((pace-mm)*60).toString().padStart(2,'0');
+    const speed=(dist/(min/60)).toFixed(1);
+    el.textContent=`Tempo: ${mm}:${ss} min/km · ${speed} km/h`;
+  }else el.textContent='';}
+async function confirmCardio(){const body={user_id:VIEW_USER,date:today(),kind:val('c_kind'),minutes:num('c_min'),distance_km:num('c_dist'),avg_hr:num('c_hr'),intensity:val('c_int')};
   if(!body.minutes)return toast('Bitte Minuten eingeben');
-  const r=await API.post('/cardio',body);if(r.status===200){closeModal();toast('Cardio gespeichert · '+r.data.kcal+' kcal ✓');loadCardio();}else toast('Fehler');}
+  const r=await API.post('/cardio',body);if(r.status===200){closeModal();toast('Cardio gespeichert · '+r.data.kcal+' kcal ✓');
+    drawCardioTab();}else toast('Fehler');}
+
+// ===== CARDIO-TAB im Training =====
+async function drawCardioTab(){const b=document.getElementById('workoutBody');b.innerHTML='<div class="spinner"></div>';
+  const r=await API.get('/cardio/'+VIEW_USER);const all=r.data?.cardio||[];
+  // Wochenstatistik (letzte 7 Tage)
+  const weekAgo=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  const wk=all.filter(c=>c.date>=weekAgo);
+  const wkMin=wk.reduce((a,c)=>a+(c.minutes||0),0);
+  const wkKcal=wk.reduce((a,c)=>a+(c.kcal||0),0);
+  const wkKm=wk.reduce((a,c)=>a+(c.distance_km||0),0);
+  let h=`<button class="btn" onclick="openCardio()">+ Cardio-Einheit erfassen</button>`;
+  h+=`<div class="section-label">Diese Woche</div>
+    <div class="tiles">
+      <div class="tile"><div class="v">${wkMin}<em> min</em></div><div class="l">Cardio-Zeit</div></div>
+      <div class="tile"><div class="v">${Math.round(wkKcal)}<em> kcal</em></div><div class="l">verbrannt</div></div>
+      ${wkKm>0?`<div class="tile"><div class="v">${wkKm.toFixed(1)}<em> km</em></div><div class="l">Distanz</div></div>`:''}
+    </div>`;
+  if(!all.length){h+='<div class="empty"><div class="ei">🏃</div>Noch keine Cardio-Einheiten.<br>Erfasse deine erste oben.</div>';}
+  else{h+='<div class="section-label">Verlauf</div><div class="rows">'+all.slice(0,40).map(c=>{
+    const dt=new Date(c.date+'T00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'});
+    const pace=(CARDIO_DIST.includes(c.kind)&&c.minutes&&c.distance_km)?` · ${(c.minutes/c.distance_km).toFixed(1)} min/km`:'';
+    const icon=({Laufen:'🏃',Joggen:'🏃',Rad:'🚴',Spinning:'🚴',Rudern:'🚣',Gehen:'🚶',Wandern:'🥾',Schwimmen:'🏊',Crosstrainer:'🏋️',Stepper:'🪜',Seilspringen:'🤸',HIIT:'🔥',Crossfit:'🔥'})[c.kind]||'🏃';
+    return `<div class="row"><div class="rl">${icon} ${c.kind}<small>${dt} · ${c.minutes||0} min${c.distance_km?' · '+c.distance_km+' km':''}${pace} · ${c.intensity||'moderat'}</small></div><div class="rr">${Math.round(c.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="delCardioTab(${c.id})">Entfernen</button></div></div>`;}).join('')+'</div>';}
+  b.innerHTML=h;}
+async function delCardioTab(id){await API.del('/cardio/'+id);drawCardioTab();toast('Entfernt');}
 
 // KÖRPERMASSE
 const MEASURE_FIELDS=[['waist','Taille'],['chest','Brust'],['arm','Arm'],['thigh','Bein'],['hips','Hüfte'],['shoulders','Schultern'],['neck','Nacken'],['body_fat','Körperfett %']];
+// ===== APPLE HEALTH IMPORT =====
+function openHealthImport(){openSheet('Apple Health importieren',`
+  <div class="info">Übertrage Gewicht, Schritte und Schlaf aus Apple Health – für viele Tage auf einmal. Deine manuell eingetragenen Werte bleiben dabei erhalten.</div>
+  <div class="section-label">So geht's auf dem iPhone</div>
+  <div class="surface pad" style="font-size:14px;line-height:1.7;margin-bottom:16px">
+    1. Öffne die <b>Health</b>-App (Health/Apple Health).<br>
+    2. Tippe oben rechts auf dein <b>Profilbild</b>.<br>
+    3. Ganz unten: <b>„Alle Gesundheitsdaten exportieren"</b>.<br>
+    4. Es entsteht eine ZIP-Datei – <b>entpacke</b> sie und wähle darin die Datei <b>„Export.xml"</b>.<br>
+    5. Lade diese Datei hier hoch. 👇
+  </div>
+  <input type="file" id="health_file" accept=".xml,text/xml" style="display:none" onchange="handleHealthFile(event)">
+  <button class="btn" onclick="document.getElementById('health_file').click()">📂 Export.xml auswählen</button>
+  <div id="health_status" style="margin-top:14px"></div>
+  <label style="display:flex;align-items:center;gap:10px;margin-top:18px;font-size:14px">
+    <input type="checkbox" id="health_rem" ${ME.health_reminder?'checked':''} onchange="toggleHealthReminder(this.checked)" style="width:auto">
+    Wöchentlich erinnern, neue Health-Daten zu importieren
+  </label>
+  <div style="font-size:12px;color:var(--ink3);margin-top:8px">Kein iPhone/Apple Health? Kein Problem – du kannst alle Werte auch direkt auf der Startseite eintragen.</div>`);}
+
+// Datei im Browser lesen und parsen (nur die Tageswerte gehen an den Server – klein & schnell)
+function handleHealthFile(ev){const file=ev.target.files&&ev.target.files[0];if(!file)return;
+  const st=document.getElementById('health_status');
+  st.innerHTML='<div class="spinner"></div><div style="text-align:center;color:var(--ink2);font-size:13px">Datei wird gelesen…</div>';
+  const reader=new FileReader();
+  reader.onerror=()=>{st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Datei konnte nicht gelesen werden. Stelle sicher, dass es die Export.xml ist.</div>';};
+  reader.onload=async()=>{
+    try{
+      const parsed=parseHealthXML(reader.result);
+      const dayCount=Object.keys(parsed.days).length;
+      if(!dayCount){st.innerHTML='<div class="info">Keine passenden Daten (Gewicht/Schritte/Schlaf) in der Datei gefunden. Hast du die richtige Export.xml gewählt?</div>';return;}
+      st.innerHTML=`<div class="info">Gefunden: <b>${parsed.stats.weightDays}</b> Tage Gewicht, <b>${parsed.stats.stepDays}</b> Tage Schritte, <b>${parsed.stats.sleepDays}</b> Tage Schlaf.<br>Insgesamt ${dayCount} Tage werden importiert.</div>
+        <button class="btn" onclick='doHealthImport(${JSON.stringify(parsed.days).replace(/'/g,"&#39;")})'>${dayCount} Tage jetzt importieren</button>`;
+    }catch(e){console.error(e);st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Die Datei konnte nicht verarbeitet werden. Ist es die Export.xml aus Apple Health?</div>';}
+  };
+  reader.readAsText(file);}
+
+// Kompakter XML-Parser (Browser-Variante des Server-Moduls): Gewicht (letzter/Tag),
+// Schritte (Summe/Tag), Schlaf (Std., dem Aufwach-Tag zugeordnet, nur echte Schlafphasen).
+function parseHealthXML(xml){
+  const dayOf=s=>{const m=(s||'').match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:null;};
+  const norm=x=>{const m=(x||'').match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\s*([+-]\d{2})(\d{2})?/);return m?`${m[1]}T${m[2]}${m[3]}:${m[4]||'00'}`:null;};
+  const weight={},steps={},sleepMs={};let count=0;
+  for(const mt of xml.matchAll(/<Record\b([^>]*)>/g)){
+    const tag=mt[1];const a={};for(const m of tag.matchAll(/(\w+)="([^"]*)"/g))a[m[1]]=m[2];count++;
+    const t=a.type;if(!t)continue;
+    if(t==='HKQuantityTypeIdentifierBodyMass'){const d=dayOf(a.startDate||a.endDate),v=parseFloat(a.value);if(d&&!isNaN(v))weight[d]=v;}
+    else if(t==='HKQuantityTypeIdentifierStepCount'){const d=dayOf(a.startDate||a.endDate),v=parseFloat(a.value);if(d&&!isNaN(v))steps[d]=(steps[d]||0)+v;}
+    else if(t==='HKCategoryTypeIdentifierSleepAnalysis'){if(!/Asleep/i.test(a.value||''))continue;const s=norm(a.startDate),e=norm(a.endDate);if(!s||!e)continue;const ms=Math.max(0,Date.parse(e)-Date.parse(s));if(ms<=0)continue;const d=dayOf(a.endDate||a.startDate);if(d)sleepMs[d]=(sleepMs[d]||0)+ms;}
+  }
+  const days={};const ens=d=>(days[d]=days[d]||{});
+  for(const[d,v]of Object.entries(weight))ens(d).weight=Math.round(v*10)/10;
+  for(const[d,v]of Object.entries(steps))ens(d).steps=Math.round(v);
+  for(const[d,ms]of Object.entries(sleepMs))ens(d).sleep=Math.round(ms/3600000*10)/10;
+  return{days,stats:{records:count,weightDays:Object.keys(weight).length,stepDays:Object.keys(steps).length,sleepDays:Object.keys(sleepMs).length}};}
+
+async function doHealthImport(days){const st=document.getElementById('health_status');
+  st.innerHTML='<div class="spinner"></div>';
+  const r=await API.post('/health-import/'+VIEW_USER,{days});
+  if(r.status===200){
+    if(ME)ME.last_health_import=new Date().toISOString();
+    st.innerHTML=`<div class="info" style="background:var(--green-soft,#e7f7ec)">✓ Fertig! ${r.data.created} neue Tage, ${r.data.updated} ergänzt. Deine Auswertungen im Verlauf sind aktualisiert.</div>`;
+    toast('Health-Daten importiert ✓');
+  }else st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Import fehlgeschlagen. Bitte erneut versuchen.</div>';}
+
+async function toggleHealthReminder(on){await API.post('/health-reminder',{enabled:on});if(ME)ME.health_reminder=on?1:0;
+  toast(on?'Erinnerung aktiviert ✓':'Erinnerung deaktiviert');}
+
 async function openMeasure(){const r=await API.get('/measurements/'+VIEW_USER);const list=r.data?.measurements||[];const last=list[0]||{};
   let h=`<div class="info">Trag ein, was du misst – leer lassen ist okay. Einheit: cm (Körperfett in %).</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">`;
@@ -815,8 +1019,6 @@ async function viewPhoto(id){const r=await API.get('/photos/'+VIEW_USER+'/'+id);
 async function delPhoto(id){if(!window.confirm('Foto löschen?'))return;
   const r=await API.del('/photos/'+id);if(r.status===200){toast('Gelöscht');openPhotos();}}
 
-async function saveCheckin(){const c={user_id:VIEW_USER,date:today(),weight:num('t_weight'),sleep:num('t_sleep'),steps:num('t_steps'),water:num('t_water'),notes:val('t_notes')};
-  const r=await API.post('/checkins',c);if(r.status===200){toast('Gespeichert ✓');['t_weight','t_sleep','t_steps','t_water','t_notes'].forEach(id=>document.getElementById(id).value='');loadHist();}else toast('Fehler');}
 async function loadHist(){const r=await API.get('/checkins/'+VIEW_USER);const h=r.data?.checkins||[];
   const el=document.getElementById('histlist');
   if(!h.length){el.innerHTML='<div class="empty"><div class="ei">📈</div>Noch keine Einträge.</div>';return;}
@@ -950,7 +1152,9 @@ async function confirmCreateAthlete(){const body={name:val('na_name'),email:val(
   if(r.status===200){closeModal();toast('Athlet angelegt ✓');go('athletes');}else toast(r.data?.error||'Fehler');}
 async function confirmAddAthlete(){const email=val('addEmail');const r=await API.post('/athletes/add',{email});
   if(r.status===200){closeModal();toast('Zugeordnet ✓');go('athletes');}else toast(r.data?.error||'Fehler');}
-async function openAthlete(id,name){COACH_CONTEXT=name;VIEW_USER=id;TODAY=null;PLAN=null;buildNav();await loadPlan();await loadToday();go('home');}
+async function openAthlete(id,name){COACH_CONTEXT=name;VIEW_USER=id;TODAY=null;PLAN=null;RECIPE_FILTER=null;buildNav();
+  const dr=await API.get('/dashboard/'+id);VIEW_USER_PROFILE=dr.data?.athlete||null;
+  await loadPlan();await loadToday();go('home');}
 
 // Coach-Dashboard für einen Athleten
 async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></div>');
@@ -972,7 +1176,8 @@ async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></di
   h+=`<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
     <button class="btn" style="flex:1;min-width:120px" onclick="coachOpenPlan(${id},'${esc(a.name)}')">Plan bearbeiten</button>
     <button class="btn sec" style="flex:1;min-width:120px" onclick="coachMessage(${id})">Nachricht</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSetPhase(${id},'${a.phase||'offseason'}')">Phase/Ziele</button></div>`;
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSetPhase(${id},'${a.phase||'offseason'}')">Phase/Ziele</button>
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSupp(${id},'${esc(a.name)}')">💊 Supplements</button></div>`;
   // Gewichtsverlauf
   if(d.weights.length>=2){const w=d.weights.slice().reverse().map(x=>x.weight);
     h+=`<div class="section-label">Gewichtsverlauf</div><div class="chart-card">${sparkline(w)}<div style="display:flex;justify-content:space-between;color:var(--ink2);font-size:13px;margin-top:8px"><span>${w[0]} kg</span><span>jetzt: ${w[w.length-1]} kg</span></div></div>`;}
@@ -999,7 +1204,9 @@ function barchart(vals){if(!vals.length)return'';const mx=Math.max(...vals)||1;c
     return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="4" fill="var(--red)" opacity="${0.4+0.6*v/mx}"/>`;}).join('')}</svg>`;}
 
 // Coach öffnet Plan des Athleten (wechselt VIEW_USER)
-async function coachOpenPlan(id,name){closeModal();COACH_CONTEXT=name;VIEW_USER=id;TODAY=null;PLAN=null;buildNav();await loadPlan();await loadToday();go('workout');}
+async function coachOpenPlan(id,name){closeModal();COACH_CONTEXT=name;VIEW_USER=id;TODAY=null;PLAN=null;RECIPE_FILTER=null;buildNav();
+  const dr=await API.get('/dashboard/'+id);VIEW_USER_PROFILE=dr.data?.athlete||null;
+  await loadPlan();await loadToday();go('workout');}
 function coachMessage(id){openSheet('Nachricht an Athlet',`<div class="field"><label>Betreff</label><input id="cm_title" placeholder="z.B. Plananpassung"></div><div class="field"><label>Nachricht</label><textarea id="cm_body" rows="3" placeholder="Deine Nachricht..."></textarea></div><button class="btn" onclick="sendCoachMsg(${id})">Senden</button>`);}
 async function sendCoachMsg(id){const r=await API.post('/messages',{user_id:id,title:val('cm_title'),body:val('cm_body')});
   if(r.status===200){closeModal();toast('Nachricht gesendet ✓');}else toast('Fehler');}
@@ -1017,6 +1224,38 @@ async function saveCoachPhase(id){const r=await API.put('/athlete/'+id+'/profile
   if(r.status===200){closeModal();toast('Gespeichert ✓ – Athlet benachrichtigt');}else toast('Fehler');}
 async function resolveNote(noteId,athleteId){const r=await API.post('/exercise-notes/'+noteId+'/resolve');
   if(r.status===200){toast('Als erledigt markiert ✓');openDashboard(athleteId);}else toast('Fehler');}
+
+// ===== COACH: SUPPLEMENTS für Athlet verwalten =====
+let COACH_SUPP_CTX={uid:null,name:'',cat:[],assigned:{}};
+async function coachSupp(uid,name){openSheet('Supplements: '+name,'<div class="spinner"></div>');
+  const [catR,aR]=await Promise.all([API.get('/supplements-catalog'),API.get('/supplements/'+uid)]);
+  const cat=catR.data?.supplements||[];
+  // aktuelle Zuweisungen (nur die personalisierten haben mandatory/assigned)
+  const assigned={};(aR.data?.personalized?aR.data.supplements:[]).forEach(s=>{assigned[s.id]={mandatory:s.mandatory,dose:s.dose,timing:s.timing,note:s.note};});
+  COACH_SUPP_CTX={uid,name,cat,assigned};
+  drawCoachSupp();}
+function drawCoachSupp(){const {uid,name,cat,assigned}=COACH_SUPP_CTX;
+  let h=`<div class="info">Tippe ein Supplement an, um es als <b>Pflicht</b> oder optional festzulegen und Dosierung/Timing für ${esc2(name)} anzupassen.</div>`;
+  h+='<div class="rows">'+cat.map(s=>{const a=assigned[s.id];
+    const status=a?(a.mandatory?'<span class="pill coach">Pflicht</span>':'<span class="pill" style="background:var(--surface2)">optional</span>'):'<span style="color:var(--ink3);font-size:12px">nicht zugewiesen</span>';
+    return `<div class="row" onclick="coachEditSupp(${s.id})"><div class="rl">${esc2(s.name)}<small>${esc2(a?.dose||s.dose||'')}</small></div><div class="rr">${status} ›</div></div>`;}).join('')+'</div>';
+  openSheet('Supplements: '+name,h);}
+function coachEditSupp(sid){const {cat,assigned}=COACH_SUPP_CTX;const s=cat.find(x=>x.id===sid);if(!s)return;const a=assigned[sid]||{};
+  openSheet(s.name,`
+    <div class="info">Standard: ${esc2(s.dose||'–')} · ${esc2(s.timing||'–')}. Leere Felder = Standard verwenden.</div>
+    <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:15px;font-weight:600"><input type="checkbox" id="cs_mand" ${a.mandatory?'checked':''} style="width:auto"> Als Pflicht festlegen</label>
+    <div class="field"><label>Dosierung anpassen (optional)</label><input id="cs_dose" value="${a.dose&&a.dose!==s.dose?esc(a.dose):''}" placeholder="${esc(s.dose||'z.B. 5 g')}"></div>
+    <div class="field"><label>Timing anpassen (optional)</label><input id="cs_timing" value="${a.timing&&a.timing!==s.timing?esc(a.timing):''}" placeholder="${esc(s.timing||'z.B. morgens')}"></div>
+    <div class="field"><label>Persönlicher Hinweis (optional)</label><textarea id="cs_note" rows="2" placeholder="z.B. wegen deiner Schlafprobleme abends">${esc(a.note||'')}</textarea></div>
+    <button class="btn" onclick="saveCoachSupp(${sid})">Speichern</button>
+    ${a&&Object.keys(assigned).includes(String(sid))?`<button class="btn sec" style="margin-top:10px;color:var(--red)" onclick="removeCoachSupp(${sid})">Zuweisung entfernen</button>`:''}`);}
+async function saveCoachSupp(sid){const {uid}=COACH_SUPP_CTX;
+  const body={mandatory:document.getElementById('cs_mand').checked,custom_dose:val('cs_dose')||null,custom_timing:val('cs_timing')||null,note:val('cs_note')||null};
+  const r=await API.put('/supplements/'+uid+'/'+sid,body);
+  if(r.status===200){toast('Gespeichert ✓');coachSupp(uid,COACH_SUPP_CTX.name);}else toast(r.data?.error||'Fehler');}
+async function removeCoachSupp(sid){const {uid}=COACH_SUPP_CTX;
+  const r=await API.del('/supplements/'+uid+'/'+sid);
+  if(r.status===200){toast('Entfernt');coachSupp(uid,COACH_SUPP_CTX.name);}else toast('Fehler');}
 
 // ===== MESSAGES =====
 async function openMessages(){const msgs=await loadMessages();
@@ -1044,6 +1283,16 @@ function renderMore(v){
   </div>`;}
 
 function openProfile(){const u=ME;
+  // Coach/Admin brauchen keine Trainings-/Ernährungsdaten – nur administratives Profil
+  if(u.role==='coach'||u.role==='admin'){
+    openSheet('Profil',`
+      <div class="info">Als ${u.role==='admin'?'Administrator':'Coach'} verwaltest du ${u.role==='admin'?'das System':'deine Athleten'}. Trainings- und Ernährungsdaten gibt es hier nicht.</div>
+      <div class="field"><label>Name</label><input id="p_name_simple" value="${u.name||''}"></div>
+      <div class="field"><label>E-Mail</label><input value="${u.email||''}" disabled style="opacity:.6"></div>
+      <button class="btn" onclick="saveSimpleProfile()">Name speichern</button>
+      <button class="btn sec" style="margin-top:10px" onclick="openChangePw()">🔒 Passwort ändern</button>`);
+    return;
+  }
   openSheet('Profil',`
     <div class="field"><label>Name</label><input id="p_name" value="${u.name||''}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -1071,6 +1320,9 @@ function openProfile(){const u=ME;
     <div class="info">Die Trainingsfrequenz legt deinen Rhythmus fest (z.B. 2 Tage Training, 1 Ruhetag) – nicht feste Wochentage. So machst du nach Pausen nahtlos weiter.</div>
     <button class="btn" onclick="saveProfile()">Speichern</button>
     <button class="btn sec" style="margin-top:10px" onclick="openChangePw()">🔒 Passwort ändern</button>`);}
+async function saveSimpleProfile(){const name=val('p_name_simple');if(!name)return toast('Name darf nicht leer sein');
+  const r=await API.put('/profile',{name,gender:ME.gender,start_weight:ME.start_weight});
+  if(r.status===200){ME.name=name;document.getElementById('avatar').textContent=name.charAt(0).toUpperCase();closeModal();toast('Gespeichert ✓');}else toast('Fehler');}
 function openChangePw(){openSheet('Passwort ändern',`
     <div class="field"><label>Aktuelles Passwort</label><input id="pw_cur" type="password" placeholder="••••••••"></div>
     <div class="field"><label>Neues Passwort</label><input id="pw_new" type="password" placeholder="min. 6 Zeichen"></div>
@@ -1201,7 +1453,36 @@ function openCalc(){if(!FOODS.length)return toast('Lädt...');
 function doCalc(){const f=FOODS[+val('calc_food')];const a=parseFloat(val('calc_amt'))||0;
   const fat=f.fat*a,carb=f.carbs*a,prot=f.protein*a,kc=fat*9+carb*4+prot*4;
   document.getElementById('calc_out').innerHTML=`<div class="macro kcal"><div class="v">${Math.round(kc)}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${prot.toFixed(1)}<em>g</em></div><div class="k">Protein</div></div><div class="macro"><div class="v">${carb.toFixed(1)}<em>g</em></div><div class="k">Carbs</div></div><div class="macro"><div class="v">${fat.toFixed(1)}<em>g</em></div><div class="k">Fett</div></div>`;}
+// Erklärung einer an einer Übung gesetzten Technik aus dem Lexikon zeigen
+function explainTechnique(term){
+  const t=(term||'').toLowerCase();
+  const hit=DEFS.find(d=>d.term.toLowerCase()===t)||DEFS.find(d=>d.term.toLowerCase().includes(t)||t.includes(d.term.toLowerCase()));
+  if(hit)openSheet(hit.term,`<div style="font-size:15px;line-height:1.6;color:var(--ink2)">${hit.def}</div><button class="btn" style="margin-top:16px" onclick="closeModal()">Verstanden</button>`);
+  else openSheet(term,`<div class="info">Für diese Technik gibt es noch keine Erklärung im Lexikon. Dein Coach hat sie als Hinweis gesetzt – frag im Zweifel direkt nach.</div><button class="btn" onclick="openDefs()">Ganzes Lexikon ansehen</button>`);
+}
 function openDefs(){openSheet('Technik-Lexikon',DEFS.length?DEFS.map(d=>`<div class="def"><div class="dt">${d.term}</div><div class="dd">${d.def}</div></div>`).join(''):'<div class="empty">Keine Einträge.</div>');}
+// Technik aus dem Lexikon auswählen -> trägt den Begriff ins Übungsformular ein
+function pickTechnique(){
+  if(!DEFS.length)return toast('Lexikon lädt noch…');
+  // aktuellen Formularstand sichern, damit beim Zurückkommen nichts verloren geht
+  if(EX_FORM_CTX&&!EX_FORM_CTX.id){EX_FORM_CTX.draft={muscle:val('ex_muscle'),name:val('ex_name'),target_sets:val('ex_sets'),target_reps:val('ex_reps'),video_url:val('ex_video'),notes:val('ex_notes')};}
+  openSheet('Technik wählen',`<div class="info">Tippe auf eine Technik, um sie für diese Übung zu übernehmen. Die Erklärung sieht der Athlet später direkt an der Übung.</div>`+
+    DEFS.map(d=>`<button class="def" style="display:block;width:100%;text-align:left;border:none;background:var(--surface2);margin-bottom:8px;border-radius:12px;cursor:pointer" onclick="setTechnique('${esc(d.term)}')"><div class="dt">${d.term}</div><div class="dd">${d.def}</div></button>`).join('')+
+    `<button class="btn sec" style="margin-top:6px" onclick="setTechnique('')">Keine / zurücksetzen</button>`);
+}
+let EX_FORM_CTX=null; // merkt sich, ob wir gerade eine Übung anlegen oder bearbeiten
+function setTechnique(term){
+  // Wir öffnen das Formular nicht neu (Werte gingen verloren) – stattdessen Feld direkt setzen,
+  // aber das Sheet wurde überschrieben. Lösung: Wert zwischenspeichern und Formular mit erhaltenem Stand neu zeigen.
+  closeModal();
+  if(EX_FORM_CTX&&EX_FORM_CTX.id){ // bearbeiten
+    const ex={...curDayObj().exercises.find(e=>e.id===EX_FORM_CTX.id)};ex.technique=term;
+    openSheet('Übung bearbeiten',exForm(ex)+`<button class="btn" onclick="confirmEditExercise(${ex.id})">Speichern</button>`);
+  } else { // anlegen – bisher eingegebene Werte aus dem Kontext wiederherstellen
+    const draft=EX_FORM_CTX?.draft||{};draft.technique=term;
+    openSheet('Übung hinzufügen',exForm(draft)+`<button class="btn" onclick="confirmAddExercise()">Hinzufügen</button>`);
+  }
+}
 
 // HANTELRECHNER
 function platesPerSideJS(target,bar,plates){let perSide=(target-bar)/2;const out=[];
@@ -1227,8 +1508,36 @@ function doPlate(){const target=parseFloat(val('pc_target'))||0;const bar=parseF
   if(r.remainder>0.01)h+=`<div class="warn">Exakt ${target} kg nicht möglich. Nächstmöglich: <b>${r.achievable} kg</b> (${r.remainder} kg fehlen). Tipp: kleinere Scheiben besorgen.</div>`;
   else h+=`<div class="info" style="text-align:center">Ergibt genau <b>${r.achievable} kg</b> ✓</div>`;
   el.innerHTML=h;}
-const SUPP=[{c:'First Meal',i:[['Multivitamin','3 Kps',1],['Kreatin','5 g',1],['Whey','s. Plan',1],['Vit D3+K2','1 Kps',0],['Glutamin','10 g',0]]},{c:'Pre Workout',i:[['V8 Booster','16 g',0],['V8 Nitro','30 g',0]]},{c:'Intra',i:[['EAAs','15 g',0],['Clusterdextrin','30 g',0]]},{c:'Last Meal',i:[['Omega 3','3 Kps',0],['Ashwagandha','2 Kps',0],['Magnesium','2 Kps',0]]}];
-function openSupp(){openSheet('Supplements',SUPP.map(s=>`<div class="section-label" style="margin:16px 0 6px">${s.c}</div><div class="rows">`+s.i.map(it=>`<div class="row"><div class="rl">${it[0]}${it[2]?'<span class="pill coach">Pflicht</span>':''}</div><div class="rr">${it[1]}</div></div>`).join('')+'</div>').join(''));}
+// Supplements des angesehenen Nutzers: Pflicht oben hervorgehoben, Details auf Tippen.
+let SUPP_CACHE=[];
+async function openSupp(){openSheet('Supplements','<div class="spinner"></div>');
+  const r=await API.get('/supplements/'+VIEW_USER);
+  const list=r.data?.supplements||[];SUPP_CACHE=list;const personalized=r.data?.personalized;
+  const mand=list.filter(s=>s.mandatory),opt=list.filter(s=>!s.mandatory);
+  let h='';
+  if(!personalized)h+=`<div class="info">Dein Coach hat dir noch keine Supplements zugewiesen. Hier siehst du gängige Empfehlungen zur Orientierung – tippe für Details.</div>`;
+  else h+=`<div class="info">Dein persönliches Protokoll. <b>Pflicht</b> hat dein Coach für dich festgelegt. Tippe ein Supplement für Dosierung, Timing und Einnahme.</div>`;
+  const card=s=>`<button class="def" style="display:block;width:100%;text-align:left;border:none;background:var(--surface2);margin-bottom:8px;border-radius:12px;cursor:pointer" onclick="suppDetail(${s.id})">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-weight:600">${esc2(s.name)}${s.mandatory?' <span class="pill coach">Pflicht</span>':''}</div>
+        <div style="color:var(--ink2);font-size:14px;white-space:nowrap">${esc2(s.dose||'')}</div></div>
+      <div style="color:var(--ink3);font-size:12px;margin-top:3px">${esc2(s.category||'')}${s.timing?' · '+esc2(s.timing):''}</div>
+    </button>`;
+  if(mand.length){h+=`<div class="section-label">Pflicht (vom Coach)</div>`+mand.map(card).join('');}
+  if(opt.length){h+=`<div class="section-label">${personalized?'Optional':'Empfehlungen'}</div>`+opt.map(card).join('');}
+  if(!list.length)h+='<div class="empty"><div class="ei">💊</div>Keine Supplements hinterlegt.</div>';
+  openSheet('Supplements',h);}
+function suppDetail(id){const s=SUPP_CACHE.find(x=>x.id===id);if(!s)return;
+  openSheet(s.name,`
+    ${s.mandatory?'<div class="info" style="background:var(--red-soft);color:var(--red)">⚠️ Pflicht – von deinem Coach festgelegt.</div>':''}
+    <div class="rows" style="margin-bottom:14px">
+      <div class="row"><div class="rl">Dosierung</div><div class="rr">${esc2(s.dose||'–')}</div></div>
+      <div class="row"><div class="rl">Wann</div><div class="rr" style="max-width:60%;text-align:right">${esc2(s.timing||'–')}</div></div>
+      <div class="row"><div class="rl">Mit Wasser</div><div class="rr">${s.with_water?'Ja 💧':'Nicht nötig'}</div></div>
+    </div>
+    ${s.how_to?`<div class="section-label">Einnahme &amp; Wirkung</div><div class="surface pad" style="font-size:14px;line-height:1.6">${esc2(s.how_to)}</div>`:''}
+    ${s.note?`<div class="section-label">Hinweis deines Coaches</div><div class="surface pad" style="font-size:14px;line-height:1.6;border-left:3px solid var(--red)">${esc2(s.note)}</div>`:''}
+    <button class="btn" style="margin-top:16px" onclick="openSupp()">Zurück</button>`);}
 
 // ===== MODAL/UTIL =====
 const INFO_TEXTS={
