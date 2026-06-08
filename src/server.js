@@ -1015,6 +1015,66 @@ app.get('/api/exercise-history/:userId/:exerciseId', auth, (req, res) => {
   res.json({ name: ex.name, history, prs: personalRecords(rows) });
 });
 
+// Trainings-Analyse: aggregierte Statistiken über alle Sätze eines Nutzers.
+// Liefert trainierte Übungen (für Drilldown), Wochen-Volumen/-Häufigkeit,
+// Gesamtwerte und Muskelgruppen-Verteilung. Auch vom Coach für seinen Athleten abrufbar.
+app.get('/api/analytics/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const rows = db.all(`
+    SELECT sl.exercise_id AS eid, e.name AS name, e.muscle AS muscle,
+           sl.date AS date, sl.weight AS weight, sl.reps AS reps
+    FROM set_logs sl LEFT JOIN exercises e ON e.id=sl.exercise_id
+    WHERE sl.user_id=? ORDER BY sl.date`, [uid]);
+
+  // Montag der Kalenderwoche zu einem Datum (für saubere Wochen-Buckets mit echtem Datum)
+  const mondayOf = (d) => { const dt = new Date(d + 'T00:00:00'); const day = (dt.getDay() + 6) % 7; dt.setDate(dt.getDate() - day); return dt.toISOString().slice(0, 10); };
+
+  const exMap = {}, weekMap = {}, muscleMap = {}, allDates = new Set();
+  for (const r of rows) {
+    const vol = (r.weight || 0) * (r.reps || 0);
+    allDates.add(r.date);
+    let ex = exMap[r.eid] || (exMap[r.eid] = { id: r.eid, name: r.name || 'Übung', muscle: r.muscle || null, dates: {}, volume: 0, best1rm: 0 });
+    ex.volume += vol;
+    const e1 = estimate1RM(r.weight, r.reps); if (e1 > ex.best1rm) ex.best1rm = e1;
+    const dd = ex.dates[r.date] || (ex.dates[r.date] = { maxW: 0, reps: 0 });
+    if ((r.weight || 0) >= dd.maxW) { dd.maxW = r.weight || 0; dd.reps = r.reps || 0; }
+    const wk = mondayOf(r.date); const w = weekMap[wk] || (weekMap[wk] = { week: wk, volume: 0, dates: {} }); w.volume += vol; w.dates[r.date] = 1;
+    if (r.muscle) muscleMap[r.muscle] = (muscleMap[r.muscle] || 0) + vol;
+  }
+
+  const exercises = Object.values(exMap).map(ex => {
+    const dates = Object.keys(ex.dates).sort();
+    const first = dates[0], last = dates[dates.length - 1];
+    return {
+      id: ex.id, name: ex.name, muscle: ex.muscle,
+      sessions: dates.length, volume: Math.round(ex.volume),
+      firstDate: first, lastDate: last,
+      firstWeight: ex.dates[first].maxW, lastWeight: ex.dates[last].maxW,
+      best1rm: Math.round(ex.best1rm * 10) / 10,
+    };
+  }).sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
+
+  const weeks = Object.values(weekMap).map(w => ({ week: w.week, volume: Math.round(w.volume), sessions: Object.keys(w.dates).length })).sort((a, b) => a.week.localeCompare(b.week));
+  const muscles = Object.entries(muscleMap).map(([m, v]) => ({ muscle: m, volume: Math.round(v) })).sort((a, b) => b.volume - a.volume);
+
+  // "diese Woche" = aktuelle Kalenderwoche
+  const thisMon = mondayOf(new Date().toISOString().slice(0, 10));
+  const thisWeek = weeks.find(w => w.week === thisMon) || { volume: 0, sessions: 0 };
+
+  res.json({
+    exercises, weeks, muscles,
+    totals: {
+      totalSessions: allDates.size,
+      totalVolume: Math.round(rows.reduce((s, r) => s + (r.weight || 0) * (r.reps || 0), 0)),
+      totalSets: rows.length,
+      exercisesTracked: exercises.length,
+      thisWeekSessions: thisWeek.sessions,
+      thisWeekVolume: thisWeek.volume,
+    },
+  });
+});
+
 /* ---------------- NACHRICHTEN ---------------- */
 app.get('/api/messages/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);

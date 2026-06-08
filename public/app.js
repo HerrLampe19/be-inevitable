@@ -146,17 +146,17 @@ function buildNav(){const nav=document.getElementById('navBar');
     items=[['admin','🛡️','Verwaltung'],['more','•••','Mehr']];
   } else if(ME.role==='coach'&&COACH_CONTEXT){
     // Coach hat einen Athleten betreten: dessen Daten ansehen + zurück
-    items=[['athletes','‹','Zurück'],['home','◎','Übersicht'],['workout','🏋️','Plan'],['diet','🍽️','Ernährung'],['tracker','📈','Verlauf']];
+    items=[['athletes','‹','Zurück'],['home','◎','Übersicht'],['workout','🏋️','Plan'],['diet','🍽️','Ernährung'],['tracker','📈','Analyse']];
   } else if(ME.role==='coach'){
     // Coach-Grundansicht: nur Athletenverwaltung + Mehr
     items=[['athletes','📊','Übersicht'],['more','•••','Mehr']];
   } else {
-    items=[['home','◎','Heute'],['workout','🏋️','Training'],['diet','🍽️','Ernährung'],['tracker','📈','Verlauf'],['more','•••','Mehr']];
+    items=[['home','◎','Heute'],['workout','🏋️','Training'],['diet','🍽️','Ernährung'],['tracker','📈','Analyse'],['more','•••','Mehr']];
   }
   nav.innerHTML=items.map(([p,i,l])=>`<button class="navbtn" data-p="${p}" onclick="go('${p}')"><div class="ni">${i}</div><div class="nl">${l}</div></button>`).join('');}
 
 // ===== ROUTER =====
-const TITLES={home:'Heute',workout:'Training',diet:'Ernährung',tracker:'Verlauf',more:'Mehr',athletes:'Übersicht',admin:'Verwaltung'};
+const TITLES={home:'Heute',workout:'Training',diet:'Ernährung',tracker:'Analyse',more:'Mehr',athletes:'Übersicht',admin:'Verwaltung'};
 function go(p){
   // Coach/Admin verlässt den Athleten-Kontext, wenn er auf "Zurück/Athleten" tippt
   if(p==='athletes'&&(ME.role==='coach'||ME.role==='admin')&&COACH_CONTEXT){COACH_CONTEXT=null;VIEW_USER=null;PLAN=null;TODAY=null;buildNav();}
@@ -230,8 +230,8 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
     if(days>=7){
       html+=`<div class="surface pad" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;border-left:3px solid var(--red)">
         <div style="font-size:22px">🍏</div>
-        <div style="flex:1"><div style="font-weight:600;font-size:14px">Health-Daten aktualisieren</div><div style="color:var(--ink2);font-size:13px">${li?'Letzter Import vor '+days+' Tagen.':'Noch keine Health-Daten importiert.'} Tippe zum Importieren.</div></div>
-        <button class="minibtn" onclick="openHealthImport()">Import</button>
+        <div style="flex:1"><div style="font-weight:600;font-size:14px">Gesundheitsdaten aktualisieren</div><div style="color:var(--ink2);font-size:13px">${li?'Letzter Import vor '+days+' Tagen.':'Noch keine Daten importiert.'} Tippe zum Importieren.</div></div>
+        <button class="minibtn" onclick="openIntegrations()">Import</button>
       </div>`;
     }
   }
@@ -287,7 +287,9 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   const startW=ME.start_weight;const curW=last?.weight;
   if(startW&&curW){
     const diff=Math.round((curW-startW)*10)/10;
-    const goal=TODAY?.goal||ME.goal;
+    // Ziel eindeutig bestimmen: eigenes Konto -> ME.goal (immer aktuell);
+    // Coach betrachtet Athlet -> dessen Profil. TODAY.goal ist hier unzuverlässig.
+    const goal=(VIEW_USER===ME.id?ME.goal:(VIEW_USER_PROFILE?.goal))||ME.goal;
     // Bewertung: passt die Richtung zum Ziel?
     let verdict,vColor;
     if(goal==='muscle'){if(diff>0){verdict='+'+diff+' kg aufgebaut 💪';vColor='var(--green)';}else if(diff<0){verdict=diff+' kg – Richtung stimmt noch nicht';vColor='var(--amber)';}else{verdict='Noch keine Veränderung';vColor='var(--ink2)';}}
@@ -310,7 +312,7 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   </div>`;
   // GEWICHTSKURVE
   if(cis.filter(c=>c.weight).length>=2){
-    html+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewichtsverlauf</div><div class="v">letzte ${Math.min(cis.length,30)} Einträge</div></div>${sparkline(cis.filter(c=>c.weight).slice(0,30).reverse().map(c=>c.weight))}</div>`;
+    html+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewichtsverlauf</div><div class="v">kg nach Datum</div></div>${lineChart(cis.filter(c=>c.weight).map(c=>({date:c.date,value:c.weight})),'kg')}</div>`;
   }
   // SCHNELL-CHECKIN (Gewicht, Schlaf, Schritte, Wasser – das Tägliche an einem Ort)
   html+=`<div class="section-label">Schneller Check-in</div>
@@ -353,6 +355,69 @@ function sparkline(vals){if(vals.length<2)return'';const w=480,h=120,pad=10;
     <path d="${d}" fill="none" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
     ${pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="var(--red)"/>`).join('')}
   </svg>`;}
+
+// Datums-basiertes Liniendiagramm mit beschrifteten Achsen.
+// data = [{date:'YYYY-MM-DD', value:Number}, ...]; x-Position nach echtem Datum (Lücken sichtbar).
+// unit = Einheit für die y-Achse (z.B. 'kg'). Punkte werden NICHT gleichmäßig verteilt,
+// sondern zeitlich korrekt – ausgelassene Tage verzerren die Skala dadurch nicht.
+function lineChart(data,unit){
+  const pts=data.filter(d=>d.value!=null&&d.date).map(d=>({t:Date.parse(d.date+'T00:00'),v:d.value})).filter(d=>!isNaN(d.t)).sort((a,b)=>a.t-b.t);
+  if(pts.length<2)return '<div style="color:var(--ink3);font-size:13px;padding:10px 0">Zu wenig Daten für ein Diagramm – ab 2 Einträgen erscheint hier die Kurve.</div>';
+  const W=520,H=180,L=44,R=12,T=12,B=28; // Ränder: links für y-Achse, unten für x-Achse
+  const tMin=pts[0].t,tMax=pts[pts.length-1].t,tRng=(tMax-tMin)||1;
+  let vMin=Math.min(...pts.map(p=>p.v)),vMax=Math.max(...pts.map(p=>p.v));
+  const vPad=((vMax-vMin)||1)*0.15;vMin-=vPad;vMax+=vPad;const vRng=(vMax-vMin)||1;
+  const X=t=>L+( (t-tMin)/tRng )*(W-L-R);
+  const Y=v=>T+(1-(v-vMin)/vRng)*(H-T-B);
+  const dPath=pts.map((p,i)=>(i?'L':'M')+X(p.t).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ');
+  // y-Gitter + Beschriftung (3 Linien)
+  let grid='';const yTicks=3;
+  for(let i=0;i<=yTicks;i++){const val=vMin+(vRng*i/yTicks);const y=Y(val);
+    grid+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${W-R}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    grid+=`<text x="${L-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--ink3)">${(Math.round(val*10)/10)}</text>`;}
+  // x-Beschriftung (Start, Mitte, Ende als Datum) – manuell formatiert (TT.MM), locale-unabhängig
+  const fmtD=t=>{const d=new Date(t);const dd=String(d.getDate()).padStart(2,'0');const mm=String(d.getMonth()+1).padStart(2,'0');return dd+'.'+mm;};
+  let xlab='';[tMin,tMin+tRng/2,tMax].forEach((t,i)=>{const x=X(t);const anchor=i===0?'start':i===2?'end':'middle';
+    xlab+=`<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="${anchor}" font-size="11" fill="var(--ink3)">${fmtD(t)}</text>`;});
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    ${grid}
+    ${xlab}
+    <path d="${dPath}" fill="none" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${pts.map(p=>`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="3" fill="var(--red)"/>`).join('')}
+    <text x="${L}" y="${T+2}" font-size="10" fill="var(--ink3)">${unit||''}</text>
+  </svg>`;}
+
+// Doppellinien-Diagramm: zwei Messreihen mit eigener y-Achse (links v1 rot, rechts v2 blau),
+// datums-basierte x-Achse mit Lücken-Logik. Für Übungs-Verlauf (Gewicht + Wiederholungen).
+function lineChart2(data,label1,unit1,label2,unit2){
+  const pts=data.filter(d=>d.date&&(d.v1!=null||d.v2!=null)).map(d=>({t:Date.parse(d.date+'T00:00'),v1:d.v1,v2:d.v2})).filter(d=>!isNaN(d.t)).sort((a,b)=>a.t-b.t);
+  if(pts.length<2)return '<div style="color:var(--ink3);font-size:13px;padding:10px 0">Ab der zweiten Trainingseinheit erscheint hier deine Fortschrittskurve.</div>';
+  const W=520,H=210,L=42,Rp=42,T=22,B=30;
+  const tMin=pts[0].t,tMax=pts[pts.length-1].t,tRng=(tMax-tMin)||1;
+  const v1s=pts.map(p=>p.v1).filter(v=>v!=null),v2s=pts.map(p=>p.v2).filter(v=>v!=null);
+  let v1Min=Math.min(...v1s),v1Max=Math.max(...v1s);const p1=((v1Max-v1Min)||1)*0.15;v1Min-=p1;v1Max+=p1;const v1Rng=(v1Max-v1Min)||1;
+  let v2Min=Math.min(...v2s),v2Max=Math.max(...v2s);const p2=((v2Max-v2Min)||1)*0.15;v2Min-=p2;v2Max+=p2;const v2Rng=(v2Max-v2Min)||1;
+  const X=t=>L+((t-tMin)/tRng)*(W-L-Rp);
+  const Y1=v=>T+(1-(v-v1Min)/v1Rng)*(H-T-B);
+  const Y2=v=>T+(1-(v-v2Min)/v2Rng)*(H-T-B);
+  let grid='';const ticks=3;
+  for(let i=0;i<=ticks;i++){const f=i/ticks;const y=T+(1-f)*(H-T-B);
+    grid+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${W-Rp}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    grid+=`<text x="${L-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--red)">${Math.round((v1Min+v1Rng*f)*10)/10}</text>`;
+    grid+=`<text x="${W-Rp+6}" y="${(y+3).toFixed(1)}" text-anchor="start" font-size="10" fill="var(--blue)">${Math.round(v2Min+v2Rng*f)}</text>`;}
+  const fmtD=t=>{const d=new Date(t);return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0');};
+  let xlab='';[tMin,tMin+tRng/2,tMax].forEach((t,i)=>{const x=X(t);const anchor=i===0?'start':i===2?'end':'middle';xlab+=`<text x="${x.toFixed(1)}" y="${H-8}" text-anchor="${anchor}" font-size="10" fill="var(--ink3)">${fmtD(t)}</text>`;});
+  const buildPath=(sel,Y)=>{let d='',pen=false;for(const p of pts){const v=sel(p);if(v==null){pen=false;continue;}d+=(pen?'L':'M')+X(p.t).toFixed(1)+' '+Y(v).toFixed(1)+' ';pen=true;}return d;};
+  const dots=(sel,Y,color)=>pts.map(p=>{const v=sel(p);return v==null?'':`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="${color}"/>`;}).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    ${grid}${xlab}
+    <path d="${buildPath(p=>p.v1,Y1)}" fill="none" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${buildPath(p=>p.v2,Y2)}" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${dots(p=>p.v1,Y1,'var(--red)')}${dots(p=>p.v2,Y2,'var(--blue)')}
+    <text x="${L}" y="12" font-size="11" fill="var(--red)" font-weight="600">${label1} (${unit1})</text>
+    <text x="${W-Rp}" y="12" text-anchor="end" font-size="11" fill="var(--blue)" font-weight="600">${label2} (${unit2})</text>
+  </svg>`;}
+
 function weightTrend(cis){const w=cis.filter(c=>c.weight).map(c=>c.weight);if(w.length<2)return'';
   const diff=w[0]-w[1];if(Math.abs(diff)<0.05)return'';
   return `<div class="trend ${diff>0?'up':'down'}">${diff>0?'↑':'↓'} ${Math.abs(diff).toFixed(1)} kg</div>`;}
@@ -393,6 +458,10 @@ function workoutTab(t){renderWorkout.tab=t;
   if(t==='strength')drawStrength();else drawCardioTab();}
 function drawStrength(){const b=document.getElementById('workoutBody');
   b.innerHTML=`${isBeginner()?`<div class="info" style="margin-bottom:16px">👋 Tippe eine Übung an, um sie zu öffnen. Trag bei jedem Satz dein Gewicht und die Wiederholungen ein. Der grüne, gelbe oder graue Hinweis sagt dir, ob du nächstes Mal mehr Gewicht nehmen solltest.</div>`:''}
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="btn sec" style="flex:1" onclick="startRest(90)">⏱️ Pause (90s)</button>
+      <button class="btn sec" style="flex:1" onclick="openPlateCalc()">🏋️ Hantelrechner</button>
+    </div>
     <div class="chip-row" id="daysel" style="margin-bottom:18px"></div>
     <div id="exlist"></div>
     <button class="btn sec" id="addExBtn" style="margin-top:4px" onclick="addExercise()">+ Übung hinzufügen</button>`;
@@ -446,15 +515,11 @@ async function renderEx(){const day=curDayObj();const el=document.getElementById
             <div><input type="number" inputmode="decimal" placeholder="kg"${suggClass} value="${wVal}" data-sugg="${sugg?1:0}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s+1},'weight',this.value)"><div class="prev">${ps?'zuletzt '+(ps.weight??'–')+' kg':'erster Satz'}</div></div>
             <div><input type="number" inputmode="numeric" placeholder="–"${suggClass} value="${rVal}" data-sugg="${sugg?1:0}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s+1},'reps',this.value,true)"><div class="prev">${ps?'× '+(ps.reps??'–'):''}</div></div>
           </div>`;}).join('')}
-        <button class="minibtn" style="margin-top:6px" onclick="startRest(90)">⏱️ Pause starten (90s)</button>
         ${ex.notes?`<div class="info" style="margin-top:12px">${ex.notes}</div>`:''}
         <div class="ex-tools">
           <button class="minibtn video" onclick="openVideo('${esc(ex.name)}','${esc(ex.video_url||'')}')">▶ Ausführung</button>
-          <button class="minibtn" onclick="openExHistory(${ex.id})">📊 Verlauf</button>
           <button class="minibtn" onclick="openExNote(${ex.id},'${esc(ex.name)}')">📝 Notiz</button>
-          ${/hantel|press|bench|squat|deadlift|kreuzheben|curl|rudern|bankdr|kniebeu/i.test(ex.name)?`<button class="minibtn" onclick="openPlateCalc()">🏋️ Hantel</button>`:''}
-          <button class="minibtn" onclick="editExercise(${ex.id})">Bearbeiten</button>
-          <button class="minibtn red" onclick="delExercise(${ex.id})">Löschen</button>
+          <button class="minibtn" onclick="exGear(${ex.id},'${esc(ex.name)}')">⚙️</button>
         </div>
       </div></div></div>`;}).join('');
   // Fortschritts-Banner: wie viele Sätze sind eingetragen?
@@ -496,8 +561,8 @@ async function openExHistory(exId){openSheet('Lädt…','<div class="spinner"></
       <div class="row" style="padding:8px 0"><div class="rl">Bestes Gewicht</div><div class="rr"><b>${p.maxWeight} kg</b> × ${p.maxWeightReps}</div></div>
       <div class="row" style="padding:8px 0"><div class="rl">Geschätztes 1RM</div><div class="rr"><b>${p.best1RM} kg</b></div></div>
       <div class="row" style="padding:8px 0;border:none"><div class="rl">Meiste Reps</div><div class="rr"><b>${p.maxReps}</b> @ ${p.maxRepsWeight} kg</div></div></div>`;
-    if(d.history.length>=2){const vals=d.history.map(x=>x.e1rm);
-      h+=`<div class="chart-card"><div class="ch-h"><div class="t">1RM-Entwicklung</div><div class="v">${d.history.length} Einheiten</div></div>${sparkline(vals)}<div style="display:flex;justify-content:space-between;color:var(--ink2);font-size:13px;margin-top:8px"><span>${vals[0]} kg</span><span>aktuell: ${vals[vals.length-1]} kg</span></div></div>`;}
+    if(d.history.length>=2){
+      h+=`<div class="chart-card"><div class="ch-h"><div class="t">Fortschritt</div><div class="v">${d.history.length} Einheiten</div></div>${lineChart2(d.history.map(x=>({date:x.date,v1:x.weight,v2:x.reps})),'Gewicht','kg','Wdh.','x')}<div style="font-size:12px;color:var(--ink3);margin-top:8px">Rote Linie = bestes Gewicht je Einheit, blaue Linie = zugehörige Wiederholungen. Beide dürfen schwanken – wichtig ist der Trend über Wochen.</div></div>`;}
     else h+='<div class="info">Ab dem zweiten Trainingstag siehst du hier deine Fortschrittskurve.</div>';
   }
   openSheet(d.name,h);}
@@ -538,8 +603,13 @@ function exForm(ex){return `
     <div class="field"><label>Reps (z.B. 8-12)</label><input id="ex_reps" value="${ex?.target_reps||''}" placeholder="8-12"></div>
   </div>
   <div class="field"><label>Technik (optional)</label>
-    <div style="display:flex;gap:8px"><input id="ex_tech" value="${ex?.technique||''}" placeholder="z.B. Continuous Reps" style="flex:1">
-    <button type="button" class="btn sec" style="width:auto;padding:0 14px;white-space:nowrap" onclick="pickTechnique()">📖 Begriffe</button></div></div>
+    <select id="ex_tech_sel" onchange="if(this.value){document.getElementById('ex_tech').value=this.value;}" style="margin-bottom:8px">
+      <option value="">– aus Liste wählen –</option>
+      ${(DEFS||[]).map(d=>`<option value="${esc(d.term)}"${ex?.technique===d.term?' selected':''}>${d.term}</option>`).join('')}
+    </select>
+    <div style="display:flex;gap:8px"><input id="ex_tech" value="${ex?.technique||''}" placeholder="oder frei eingeben…" style="flex:1">
+    <button type="button" class="btn sec" style="width:auto;padding:0 14px;white-space:nowrap" onclick="pickTechnique()">📖 Erklärung</button></div>
+    <div style="font-size:12px;color:var(--ink3);margin-top:4px">Wähle eine bekannte Technik aus der Liste oder schreibe eine eigene ins Feld.</div></div>
   <div class="field"><label>Video-Link (optional)</label><input id="ex_video" value="${ex?.video_url||''}" placeholder="YouTube-Link"></div>
   <div class="field"><label>Notizen (optional)</label><textarea id="ex_notes" rows="2">${ex?.notes||''}</textarea></div>`;}
 function addExercise(){if(!curDayObj())return toast('Erstelle zuerst einen Tag');
@@ -548,6 +618,10 @@ function addExercise(){if(!curDayObj())return toast('Erstelle zuerst einen Tag')
 async function confirmAddExercise(){const body={day_id:CUR_DAY,muscle:val('ex_muscle'),name:val('ex_name'),technique:val('ex_tech'),video_url:val('ex_video'),target_sets:clampSets(val('ex_sets')),target_reps:val('ex_reps'),notes:val('ex_notes')};
   if(!body.name)return toast('Name fehlt');const r=await API.post('/exercises',body);
   if(r.status===200){closeModal();await loadPlan();renderEx();toast('Hinzugefügt ✓');}}
+// Zahnrad-Menü pro Übung: bündelt die selteneren Aktionen (Bearbeiten/Löschen)
+function exGear(id,name){openSheet(name,`
+  <button class="btn sec" style="margin-bottom:10px" onclick="editExercise(${id})">✏️ Übung bearbeiten</button>
+  <button class="btn sec" style="color:var(--red)" onclick="delExercise(${id})">🗑️ Übung löschen</button>`);}
 function editExercise(id){const ex=curDayObj().exercises.find(e=>e.id===id);
   EX_FORM_CTX={id:id,draft:null};
   openSheet('Übung bearbeiten',(ex.coach_locked&&ME.role!=='coach'?`<div class="warn">⚠️ Diese Übung stammt von deinem Coach. Änderst du sie, weicht dein Plan von der Vorgabe ab.</div>`:'')+exForm(ex)+`<button class="btn" onclick="confirmEditExercise(${id})">Speichern</button>`);}
@@ -792,54 +866,69 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
       ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount} g/ml</div>${it.notes?`<div class="fm">${it.notes}</div>`:''}</div><div class="fmac">${Math.round(it.kcal||0)} kcal<br>${r1(it.protein)}P·${r1(it.carbs)}C·${r1(it.fat)}F</div></div>`).join('')}</div>`;}).join('');
   el.innerHTML=h;}
 
-// ===== VERLAUF / ANALYSE =====
-async function renderTracker(v){
-  v.innerHTML=`<div class="page on"><div class="h1">Verlauf</div><div class="sub">Deine Entwicklung</div>
-    <div id="anaBox"><div class="spinner"></div></div></div>`;
-  const ci=await API.get('/checkins/'+VIEW_USER);
-  const checkins=(ci.data?.checkins||[]);
-  const box=document.getElementById('anaBox');
-  let h='';
-  // Hinweis, wenn noch zu wenig Daten
-  const wWeights=checkins.filter(c=>c.weight);
-  if(checkins.length<2){
-    h+=`<div class="info" style="margin-bottom:16px">📊 Deine Auswertungen erscheinen hier, sobald du ein paar Tage Check-ins gemacht hast (auf der Startseite: Gewicht, Schlaf, Schritte, Wasser).</div>`;
-  }
-  // GEWICHT
-  if(wWeights.length>=2){
-    const series=wWeights.slice(0,30).reverse().map(c=>c.weight);
-    const diff=(series[series.length-1]-series[0]);
-    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewicht</div><div class="v">${diff>0?'+':''}${diff.toFixed(1)} kg über ${series.length} Einträge</div></div>${sparkline(series)}</div>`;
-  }
-  // SCHLAF
+// ===== ANALYSE (vormals Verlauf): Körper + Training =====
+function renderTracker(v){
+  v.innerHTML=`<div class="page on"><div class="h1">Analyse</div><div class="sub">Deine Entwicklung in Zahlen</div>
+    <div class="seg" style="margin-bottom:16px">
+      <button id="an_k" onclick="anaTab('koerper')">Körper</button>
+      <button id="an_t" onclick="anaTab('training')">Training</button>
+    </div>
+    <div id="anaBody"></div></div>`;
+  anaTab(renderTracker.tab||'koerper');}
+function anaTab(t){renderTracker.tab=t;
+  document.getElementById('an_k').classList.toggle('on',t==='koerper');
+  document.getElementById('an_t').classList.toggle('on',t==='training');
+  if(t==='training')drawAnaTraining();else drawAnaKoerper();}
+
+// --- Körper-Segment: tägliche Werte + Maße + Historie + Health ---
+async function drawAnaKoerper(){const box=document.getElementById('anaBody');box.innerHTML='<div class="spinner"></div>';
+  const ci=await API.get('/checkins/'+VIEW_USER);const checkins=(ci.data?.checkins||[]);
+  let h='';const wWeights=checkins.filter(c=>c.weight);
+  if(checkins.length<2){h+=`<div class="info" style="margin-bottom:16px">📊 Deine Auswertungen erscheinen hier, sobald du ein paar Tage Check-ins gemacht hast (auf der Startseite: Gewicht, Schlaf, Schritte, Wasser).</div>`;}
+  if(wWeights.length>=2){const diff=(wWeights[0].weight-wWeights[wWeights.length-1].weight);
+    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewicht</div><div class="v">${diff>0?'+':''}${diff.toFixed(1)} kg gesamt</div></div>${lineChart(wWeights.map(c=>({date:c.date,value:c.weight})),'kg')}</div>`;}
   const sl=checkins.filter(c=>c.sleep).slice(0,30).reverse().map(c=>c.sleep);
   if(sl.length>=2){const avg=(sl.reduce((a,b)=>a+b,0)/sl.length).toFixed(1);
     h+=`<div class="chart-card"><div class="ch-h"><div class="t">Schlaf</div><div class="v">Ø ${avg} h</div></div>${sparkline(sl)}</div>`;}
-  // SCHRITTE
   const st=checkins.filter(c=>c.steps).slice(0,30).reverse().map(c=>c.steps);
   if(st.length>=2){const avg=Math.round(st.reduce((a,b)=>a+b,0)/st.length);
     h+=`<div class="chart-card"><div class="ch-h"><div class="t">Schritte</div><div class="v">Ø ${avg.toLocaleString('de-DE')}/Tag</div></div>${sparkline(st)}</div>`;}
-  // WASSER
   const wa=checkins.filter(c=>c.water).slice(0,30).reverse().map(c=>c.water);
   if(wa.length>=2){const avg=(wa.reduce((a,b)=>a+b,0)/wa.length).toFixed(1);
     h+=`<div class="chart-card"><div class="ch-h"><div class="t">Wasser</div><div class="v">Ø ${avg} L/Tag</div></div>${sparkline(wa)}</div>`;}
-
-  // KÖRPER & PHYSIK – eigener Bereich, adaptiv vorgestellt
   h+=`<div class="section-label">Körper &amp; Physik</div>`;
-  if(isBeginner()){
-    h+=`<div class="info" style="margin-bottom:10px">Für den Anfang reicht dein Gewicht. Wenn du weiter bist, kannst du hier auch Körpermaße und Fortschrittsfotos festhalten – beides hilft deinem Coach, deinen Fortschritt zu sehen.</div>`;
-  }
+  if(isBeginner())h+=`<div class="info" style="margin-bottom:10px">Für den Anfang reicht dein Gewicht. Wenn du weiter bist, kannst du hier auch Körpermaße und Fortschrittsfotos festhalten – beides hilft deinem Coach.</div>`;
   h+=`<div class="quick" style="margin-bottom:16px">
       <button class="qcard" onclick="openMeasure()"><span class="ic">📏</span><div class="t">Körpermaße</div><div class="d">Taille, Arm, Brust…</div></button>
       <button class="qcard" onclick="openPhotos()"><span class="ic">📸</span><div class="t">Fortschrittsfotos</div><div class="d">Physik vergleichen</div></button>
     </div>`;
-
-  // CHECK-IN HISTORIE (kompakt, Anzeige)
   h+=`<div class="section-label">Check-in Historie</div><div id="histlist"><div class="spinner"></div></div>`;
-  h+=`<div class="info" style="margin-top:16px;display:flex;align-items:center;gap:12px"><div style="flex:1">🍏 Du nutzt Apple Health? Importiere Gewicht, Schritte &amp; Schlaf für viele Tage auf einmal.</div></div>
-    <button class="btn sec" style="margin-top:10px" onclick="openHealthImport()">🍏 Apple Health importieren</button>`;
-  box.innerHTML=h;
-  loadHist();}
+  h+=`<button class="btn sec" style="margin-top:16px" onclick="openIntegrations()">⌚ Gesundheitsdaten verbinden</button>`;
+  box.innerHTML=h;loadHist();}
+
+// --- Training-Segment: aggregierte Statistiken + Übungs-Drilldown ---
+async function drawAnaTraining(){const b=document.getElementById('anaBody');b.innerHTML='<div class="spinner"></div>';
+  const r=await API.get('/analytics/'+VIEW_USER);const a=r.data;
+  if(!a||!a.totals||a.totals.totalSets===0){b.innerHTML='<div class="empty"><div class="ei">🏋️</div>Noch keine Trainingsdaten.<br>Sobald Sätze eingetragen werden, erscheinen hier Volumen, Häufigkeit und der Verlauf jeder Übung.</div>';return;}
+  let h='';
+  h+=`<div class="tiles">
+    <div class="tile"><div class="v">${a.totals.totalSessions}</div><div class="l">Trainingstage</div></div>
+    <div class="tile"><div class="v">${a.totals.totalSets}</div><div class="l">Sätze gesamt</div></div>
+    <div class="tile"><div class="v">${(a.totals.totalVolume/1000).toFixed(1)}<em>t</em></div><div class="l">Volumen gesamt</div></div>
+    <div class="tile"><div class="v">${a.totals.thisWeekSessions}</div><div class="l">diese Woche</div></div>
+  </div>`;
+  if(a.weeks.length>=2)h+=`<div class="chart-card"><div class="ch-h"><div class="t">Wochen-Volumen</div><div class="v">kg / Woche</div></div>${lineChart(a.weeks.map(w=>({date:w.week,value:w.volume})),'kg')}<div style="font-size:12px;color:var(--ink3);margin-top:8px">Gesamtlast pro Woche (Gewicht × Wiederholungen). Tendenz nach oben = mehr Trainingsreiz.</div></div>`;
+  h+=`<div class="section-label">Übungen – tippen für Verlauf (Gewicht + Wdh.)</div>`;
+  if(a.exercises.length){h+='<div class="rows">'+a.exercises.map(e=>{
+      const tr=Math.round((e.lastWeight-e.firstWeight)*10)/10;
+      const trTxt=e.sessions<2?'<span style="color:var(--ink3)">neu</span>':(tr>0?`<span style="color:var(--green)">▲ +${tr} kg</span>`:tr<0?`<span style="color:var(--amber)">▼ ${tr} kg</span>`:'<span style="color:var(--ink3)">→ stabil</span>');
+      return `<div class="row" style="cursor:pointer" onclick="openExHistory(${e.id})"><div class="rl">${esc2(e.name)}<small>${e.sessions} Einheiten${e.muscle?' · '+esc2(e.muscle):''} · 1RM ~${e.best1rm} kg</small></div><div class="rr">${trTxt} ›</div></div>`;}).join('')+'</div>';
+  }else h+='<div class="info">Noch keine Übungen mit Sätzen.</div>';
+  if(a.muscles.length){const max=Math.max(...a.muscles.map(m=>m.volume))||1;
+    h+=`<div class="section-label">Volumen nach Muskelgruppe</div><div class="surface pad">`+
+      a.muscles.map(m=>`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>${esc2(m.muscle)}</span><span style="color:var(--ink2)">${(m.volume/1000).toFixed(1)} t</span></div><div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.round(m.volume/max*100)}%;background:var(--red);border-radius:4px"></div></div></div>`).join('')+`</div>`;}
+  if(ME.role==='coach'||ME.role==='admin')h+=`<div class="info" style="margin-top:16px">💡 Als Coach siehst du hier dieselben Zahlen wie dein Athlet – nutze Volumen-Trend und Übungsverlauf, um den Plan gezielt anzupassen.</div>`;
+  b.innerHTML=h;}
 const CARDIO_KINDS=['Laufen','Joggen','Rad','Spinning','Rudern','Gehen','Wandern','Schwimmen','Crosstrainer','Stepper','Seilspringen','HIIT','Crossfit'];
 const CARDIO_DIST=['Laufen','Joggen','Rad','Gehen','Wandern','Schwimmen']; // Sportarten mit sinnvoller Distanz
 function openCardio(){openSheet('Cardio-Einheit',`
@@ -894,45 +983,111 @@ async function delCardioTab(id){await API.del('/cardio/'+id);drawCardioTab();toa
 
 // KÖRPERMASSE
 const MEASURE_FIELDS=[['waist','Taille'],['chest','Brust'],['arm','Arm'],['thigh','Bein'],['hips','Hüfte'],['shoulders','Schultern'],['neck','Nacken'],['body_fat','Körperfett %']];
-// ===== APPLE HEALTH IMPORT =====
-function openHealthImport(){openSheet('Apple Health importieren',`
-  <div class="info">Übertrage Gewicht, Schritte und Schlaf aus Apple Health – für viele Tage auf einmal. Deine manuell eingetragenen Werte bleiben dabei erhalten.</div>
-  <div class="section-label">So geht's auf dem iPhone</div>
-  <div class="surface pad" style="font-size:14px;line-height:1.7;margin-bottom:16px">
-    1. Öffne die <b>Health</b>-App (Health/Apple Health).<br>
-    2. Tippe oben rechts auf dein <b>Profilbild</b>.<br>
-    3. Ganz unten: <b>„Alle Gesundheitsdaten exportieren"</b>.<br>
-    4. Es entsteht eine ZIP-Datei – <b>entpacke</b> sie und wähle darin die Datei <b>„Export.xml"</b>.<br>
-    5. Lade diese Datei hier hoch. 👇
+// ===== GESUNDHEITS-INTEGRATIONEN (Hub) =====
+function openIntegrations(){openSheet('Gesundheitsdaten verbinden',`
+  <div class="info">Verbinde deine Gesundheits-App, damit Gewicht, Schritte und Schlaf automatisch in deinen Verlauf fließen – ohne alles von Hand einzutragen.</div>
+  <div class="rows">
+    <div class="row" onclick="openAppleHealth()"><div class="rl">🍏 Apple Health<small>Über Kurzbefehl – schnell &amp; ohne Riesen-Export</small></div><div class="rr"><span class="pill coach">verfügbar</span> ›</div></div>
+    <div class="row" style="opacity:.55"><div class="rl">🤖 Google Fit / Health Connect<small>Für Android-Geräte</small></div><div class="rr"><span class="pill" style="background:var(--surface2)">kommt bald</span></div></div>
+    <div class="row" style="opacity:.55"><div class="rl">⌚ Fitbit<small>Tracker &amp; Smartwatches</small></div><div class="rr"><span class="pill" style="background:var(--surface2)">kommt bald</span></div></div>
+    <div class="row" style="opacity:.55"><div class="rl">🛰️ Garmin Connect<small>Sportuhren</small></div><div class="rr"><span class="pill" style="background:var(--surface2)">kommt bald</span></div></div>
   </div>
-  <input type="file" id="health_file" accept=".xml,text/xml" style="display:none" onchange="handleHealthFile(event)">
-  <button class="btn" onclick="document.getElementById('health_file').click()">📂 Export.xml auswählen</button>
-  <div id="health_status" style="margin-top:14px"></div>
   <label style="display:flex;align-items:center;gap:10px;margin-top:18px;font-size:14px">
     <input type="checkbox" id="health_rem" ${ME.health_reminder?'checked':''} onchange="toggleHealthReminder(this.checked)" style="width:auto">
-    Wöchentlich erinnern, neue Health-Daten zu importieren
+    Wöchentlich erinnern, neue Daten zu importieren
   </label>
-  <div style="font-size:12px;color:var(--ink3);margin-top:8px">Kein iPhone/Apple Health? Kein Problem – du kannst alle Werte auch direkt auf der Startseite eintragen.</div>`);}
+  <div style="font-size:12px;color:var(--ink3);margin-top:8px">Kein passendes Gerät? Du kannst alle Werte jederzeit direkt auf der Startseite eintragen.</div>`);}
+// Kompatibilität: alte Aufrufe leiten auf den Hub
+function openHealthImport(){openIntegrations();}
 
-// Datei im Browser lesen und parsen (nur die Tageswerte gehen an den Server – klein & schnell)
+// ----- Apple Health über Kurzbefehl -----
+function openAppleHealth(){openSheet('🍏 Apple Health',`
+  <div class="info">Der schnelle Weg – ganz ohne den riesigen „Alle Daten exportieren". Du richtest <b>einmal</b> einen Kurzbefehl ein und tippst danach wöchentlich nur noch einen Knopf.</div>
+  <div class="section-label">Einmalig: Kurzbefehl einrichten</div>
+  <div class="surface pad" style="font-size:14px;line-height:1.7;margin-bottom:16px">
+    1. Öffne die <b>Kurzbefehle</b>-App (auf jedem iPhone vorinstalliert).<br>
+    2. Tippe auf <b>+</b> (neuer Kurzbefehl).<br>
+    3. Aktion hinzufügen: <b>„Gesundheitsdaten suchen"</b> (engl. „Find Health Samples").<br>
+    &nbsp;&nbsp;• einmal für <b>Gewicht</b>, einmal für <b>Schritte</b>, einmal für <b>Schlaf</b><br>
+    &nbsp;&nbsp;• jeweils Zeitraum z.B. „<b>letzte 7 Tage</b>" wählen.<br>
+    4. Aktion <b>„Text"</b> hinzufügen und die Werte als JSON zusammensetzen (Format siehst du unten).<br>
+    5. Aktion <b>„In die Zwischenablage kopieren"</b> ans Ende.<br>
+    6. Kurzbefehl benennen (z.B. „BE INEVITABLE Export") und sichern.
+  </div>
+  <div class="section-label">Wöchentlich: Daten übertragen</div>
+  <div class="surface pad" style="font-size:14px;line-height:1.7;margin-bottom:16px">
+    1. Kurzbefehl starten → er kopiert deine Werte.<br>
+    2. Hier unten ins Feld <b>einfügen</b> und auf „Übernehmen" tippen. Fertig. ✅
+  </div>
+  <div class="field"><label>Werte hier einfügen</label><textarea id="sc_text" rows="4" placeholder='{"days":{"2026-06-01":{"weight":75.5,"steps":8200,"sleep":7.5}}}'></textarea></div>
+  <button class="btn" onclick="importShortcutText()">Übernehmen</button>
+  <div style="text-align:center;margin:12px 0;color:var(--ink3);font-size:13px">oder</div>
+  <input type="file" id="health_file" accept=".json,.txt,.xml,application/json,text/plain,text/xml" style="display:none" onchange="handleHealthFile(event)">
+  <button class="btn sec" onclick="document.getElementById('health_file').click()">📂 Datei hochladen (JSON oder Export.xml)</button>
+  <div id="health_status" style="margin-top:14px"></div>
+  <details style="margin-top:16px"><summary style="cursor:pointer;color:var(--ink2);font-size:13px">Welches Format muss der Kurzbefehl erzeugen?</summary>
+    <div class="surface pad" style="font-size:13px;line-height:1.6;margin-top:8px">Eine kleine Textdatei oder Zwischenablage im Format:<br><code style="font-size:12px;word-break:break-all">{"days":{"2026-06-01":{"weight":75.5,"steps":8200,"sleep":7.5}}}</code><br><br>Datum als JJJJ-MM-TT, Gewicht in kg, Schritte als Zahl, Schlaf in Stunden. Felder, die du nicht hast, kannst du weglassen.</div>
+  </details>`);}
+
+// Text aus dem Kurzbefehl (oder per Hand) einlesen – tolerant gegenüber kleinen Formatfehlern
+function importShortcutText(){const raw=val('sc_text');const st=document.getElementById('health_status');
+  if(!raw||!raw.trim())return toast('Bitte zuerst die Werte einfügen');
+  const days=parseShortcutData(raw);
+  if(!days){st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Die eingefügten Daten konnte ich nicht lesen. Sie sollten im JSON-Format sein (siehe „Welches Format…" unten).</div>';return;}
+  const n=Object.keys(days).length;
+  if(!n){st.innerHTML='<div class="info">Keine Tage gefunden. Prüfe das Format.</div>';return;}
+  showImportPreview(days,st);}
+
+// Tolerantes Parsen: akzeptiert {"days":{...}}, {...} direkt, oder einfache Zeilen "Datum, Gewicht, Schritte, Schlaf"
+function parseShortcutData(raw){
+  const txt=raw.trim();
+  // 1) JSON versuchen
+  try{const j=JSON.parse(txt);const days=j.days||j;
+    if(days&&typeof days==='object'){const out={};
+      for(const[k,v]of Object.entries(days)){if(!/^\d{4}-\d{2}-\d{2}$/.test(k)||typeof v!=='object')continue;
+        const e={};if(v.weight!=null&&!isNaN(+v.weight))e.weight=Math.round(+v.weight*10)/10;
+        if(v.steps!=null&&!isNaN(+v.steps))e.steps=Math.round(+v.steps);
+        if(v.sleep!=null&&!isNaN(+v.sleep))e.sleep=Math.round(+v.sleep*10)/10;
+        if(Object.keys(e).length)out[k]=e;}
+      if(Object.keys(out).length)return out;}
+  }catch(e){}
+  // 2) CSV-artige Zeilen: "2026-06-01, 75.5, 8200, 7.5"
+  const out={};
+  for(const line of txt.split(/\r?\n/)){
+    const m=line.match(/(\d{4}-\d{2}-\d{2})/);if(!m)continue;
+    const nums=line.replace(m[1],'').match(/-?\d+(?:[.,]\d+)?/g)||[];
+    const f=nums.map(x=>parseFloat(x.replace(',','.')));
+    const e={};if(f[0]!=null)e.weight=Math.round(f[0]*10)/10;if(f[1]!=null)e.steps=Math.round(f[1]);if(f[2]!=null)e.sleep=Math.round(f[2]*10)/10;
+    if(Object.keys(e).length)out[m[1]]=e;
+  }
+  return Object.keys(out).length?out:null;}
+
+// Datei lesen: JSON/Text -> parseShortcutData; XML -> alter Apple-Voll-Export-Parser (Fallback)
 function handleHealthFile(ev){const file=ev.target.files&&ev.target.files[0];if(!file)return;
   const st=document.getElementById('health_status');
   st.innerHTML='<div class="spinner"></div><div style="text-align:center;color:var(--ink2);font-size:13px">Datei wird gelesen…</div>';
   const reader=new FileReader();
-  reader.onerror=()=>{st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Datei konnte nicht gelesen werden. Stelle sicher, dass es die Export.xml ist.</div>';};
-  reader.onload=async()=>{
-    try{
-      const parsed=parseHealthXML(reader.result);
-      const dayCount=Object.keys(parsed.days).length;
-      if(!dayCount){st.innerHTML='<div class="info">Keine passenden Daten (Gewicht/Schritte/Schlaf) in der Datei gefunden. Hast du die richtige Export.xml gewählt?</div>';return;}
-      st.innerHTML=`<div class="info">Gefunden: <b>${parsed.stats.weightDays}</b> Tage Gewicht, <b>${parsed.stats.stepDays}</b> Tage Schritte, <b>${parsed.stats.sleepDays}</b> Tage Schlaf.<br>Insgesamt ${dayCount} Tage werden importiert.</div>
-        <button class="btn" onclick='doHealthImport(${JSON.stringify(parsed.days).replace(/'/g,"&#39;")})'>${dayCount} Tage jetzt importieren</button>`;
-    }catch(e){console.error(e);st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Die Datei konnte nicht verarbeitet werden. Ist es die Export.xml aus Apple Health?</div>';}
-  };
+  reader.onerror=()=>{st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Datei konnte nicht gelesen werden.</div>';};
+  reader.onload=()=>{try{
+      const text=reader.result;
+      let days;
+      if(/^\s*</.test(text)&&/<Record/.test(text)){days=parseHealthXML(text).days;} // alter XML-Export
+      else{days=parseShortcutData(text);}
+      if(!days||!Object.keys(days).length){st.innerHTML='<div class="info">Keine passenden Daten gefunden. Erwartet wird die kleine JSON-Datei aus dem Kurzbefehl (oder die Export.xml).</div>';return;}
+      showImportPreview(days,st);
+    }catch(e){console.error(e);st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Die Datei konnte nicht verarbeitet werden.</div>';}};
   reader.readAsText(file);}
 
-// Kompakter XML-Parser (Browser-Variante des Server-Moduls): Gewicht (letzter/Tag),
-// Schritte (Summe/Tag), Schlaf (Std., dem Aufwach-Tag zugeordnet, nur echte Schlafphasen).
+// Vorschau + Bestätigen (gemeinsam für Text- und Datei-Weg)
+function showImportPreview(days,st){
+  const dc=Object.keys(days).length;
+  const w=Object.values(days).filter(d=>d.weight!=null).length;
+  const s=Object.values(days).filter(d=>d.steps!=null).length;
+  const sl=Object.values(days).filter(d=>d.sleep!=null).length;
+  st.innerHTML=`<div class="info">Gefunden: <b>${w}</b> Tage Gewicht, <b>${s}</b> Tage Schritte, <b>${sl}</b> Tage Schlaf (${dc} Tage gesamt).</div>
+    <button class="btn" onclick='doHealthImport(${JSON.stringify(days).replace(/'/g,"&#39;")})'>${dc} Tage importieren</button>`;}
+
+// XML-Fallback-Parser (alter Apple-Voll-Export) – bleibt für Nutzer, die das schon haben
 function parseHealthXML(xml){
   const dayOf=s=>{const m=(s||'').match(/^(\d{4}-\d{2}-\d{2})/);return m?m[1]:null;};
   const norm=x=>{const m=(x||'').match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\s*([+-]\d{2})(\d{2})?/);return m?`${m[1]}T${m[2]}${m[3]}:${m[4]||'00'}`:null;};
@@ -955,8 +1110,8 @@ async function doHealthImport(days){const st=document.getElementById('health_sta
   const r=await API.post('/health-import/'+VIEW_USER,{days});
   if(r.status===200){
     if(ME)ME.last_health_import=new Date().toISOString();
-    st.innerHTML=`<div class="info" style="background:var(--green-soft,#e7f7ec)">✓ Fertig! ${r.data.created} neue Tage, ${r.data.updated} ergänzt. Deine Auswertungen im Verlauf sind aktualisiert.</div>`;
-    toast('Health-Daten importiert ✓');
+    st.innerHTML=`<div class="info" style="background:var(--green-soft,#e7f7ec)">✓ Fertig! ${r.data.created} neue Tage, ${r.data.updated} ergänzt. Schau in den Verlauf – deine Kurven sind aktualisiert.</div>`;
+    toast('Daten importiert ✓');
   }else st.innerHTML='<div class="info" style="background:var(--red-soft);color:var(--red)">Import fehlgeschlagen. Bitte erneut versuchen.</div>';}
 
 async function toggleHealthReminder(on){await API.post('/health-reminder',{enabled:on});if(ME)ME.health_reminder=on?1:0;
@@ -1461,28 +1616,18 @@ function explainTechnique(term){
   else openSheet(term,`<div class="info">Für diese Technik gibt es noch keine Erklärung im Lexikon. Dein Coach hat sie als Hinweis gesetzt – frag im Zweifel direkt nach.</div><button class="btn" onclick="openDefs()">Ganzes Lexikon ansehen</button>`);
 }
 function openDefs(){openSheet('Technik-Lexikon',DEFS.length?DEFS.map(d=>`<div class="def"><div class="dt">${d.term}</div><div class="dd">${d.def}</div></div>`).join(''):'<div class="empty">Keine Einträge.</div>');}
-// Technik aus dem Lexikon auswählen -> trägt den Begriff ins Übungsformular ein
+// Erklärung der aktuell im Feld stehenden Technik zeigen (Auswahl läuft jetzt übers Dropdown)
 function pickTechnique(){
   if(!DEFS.length)return toast('Lexikon lädt noch…');
-  // aktuellen Formularstand sichern, damit beim Zurückkommen nichts verloren geht
-  if(EX_FORM_CTX&&!EX_FORM_CTX.id){EX_FORM_CTX.draft={muscle:val('ex_muscle'),name:val('ex_name'),target_sets:val('ex_sets'),target_reps:val('ex_reps'),video_url:val('ex_video'),notes:val('ex_notes')};}
-  openSheet('Technik wählen',`<div class="info">Tippe auf eine Technik, um sie für diese Übung zu übernehmen. Die Erklärung sieht der Athlet später direkt an der Übung.</div>`+
-    DEFS.map(d=>`<button class="def" style="display:block;width:100%;text-align:left;border:none;background:var(--surface2);margin-bottom:8px;border-radius:12px;cursor:pointer" onclick="setTechnique('${esc(d.term)}')"><div class="dt">${d.term}</div><div class="dd">${d.def}</div></button>`).join('')+
-    `<button class="btn sec" style="margin-top:6px" onclick="setTechnique('')">Keine / zurücksetzen</button>`);
+  const cur=(document.getElementById('ex_tech')?.value||'').trim();
+  if(cur){const t=cur.toLowerCase();
+    const hit=DEFS.find(d=>d.term.toLowerCase()===t)||DEFS.find(d=>d.term.toLowerCase().includes(t)||t.includes(d.term.toLowerCase()));
+    if(hit){openSheet(hit.term,`<div style="font-size:15px;line-height:1.6;color:var(--ink2)">${hit.def}</div><button class="btn" style="margin-top:16px" onclick="closeModal()">Verstanden</button>`);return;}
+  }
+  // sonst: ganzes Lexikon als Nachschlagewerk
+  openSheet('Technik-Lexikon',DEFS.map(d=>`<div class="def"><div class="dt">${d.term}</div><div class="dd">${d.def}</div></div>`).join(''));
 }
 let EX_FORM_CTX=null; // merkt sich, ob wir gerade eine Übung anlegen oder bearbeiten
-function setTechnique(term){
-  // Wir öffnen das Formular nicht neu (Werte gingen verloren) – stattdessen Feld direkt setzen,
-  // aber das Sheet wurde überschrieben. Lösung: Wert zwischenspeichern und Formular mit erhaltenem Stand neu zeigen.
-  closeModal();
-  if(EX_FORM_CTX&&EX_FORM_CTX.id){ // bearbeiten
-    const ex={...curDayObj().exercises.find(e=>e.id===EX_FORM_CTX.id)};ex.technique=term;
-    openSheet('Übung bearbeiten',exForm(ex)+`<button class="btn" onclick="confirmEditExercise(${ex.id})">Speichern</button>`);
-  } else { // anlegen – bisher eingegebene Werte aus dem Kontext wiederherstellen
-    const draft=EX_FORM_CTX?.draft||{};draft.technique=term;
-    openSheet('Übung hinzufügen',exForm(draft)+`<button class="btn" onclick="confirmAddExercise()">Hinzufügen</button>`);
-  }
-}
 
 // HANTELRECHNER
 function platesPerSideJS(target,bar,plates){let perSide=(target-bar)/2;const out=[];

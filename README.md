@@ -276,3 +276,33 @@ Da eine Web-App technisch nicht direkt auf Apple Health zugreifen kann (das erla
 - **Schritt-für-Schritt-Anleitung** direkt in der App (Health → Profil → „Alle Gesundheitsdaten exportieren").
 - **Wöchentliche Erinnerung (opt-in):** Häkchen setzen, und die Startseite weist freundlich darauf hin, wenn länger nichts importiert wurde.
 - Wer kein Apple Health nutzt, trägt alles wie gewohnt auf der Startseite ein.
+
+## Gesundheitsdaten-Integrationen (überarbeitet)
+Statt des riesigen Apple-Voll-Exports gibt es jetzt einen schlanken Integrations-Hub (Verlauf → „Gesundheitsdaten verbinden").
+- **Apple Health über Kurzbefehl (aktiv):** Einmal einen iOS-Kurzbefehl einrichten, der Gewicht/Schritte/Schlaf der letzten Tage als kompakten Text liefert. Diesen einfügen (oder als kleine JSON-Datei hochladen) – fertig. Nur Kilobyte statt Gigabyte, kein Entpacken, kein Speichermüll. Ausführliche Anleitung in HEALTH-IMPORT.md.
+- **Text-Einfügen ODER Datei:** Beide Wege; der Parser akzeptiert JSON (mit/ohne `days`-Wrapper) und sogar einfache Zeilenlisten (Datum, Gewicht, Schritte, Schlaf) inkl. deutscher Dezimalkommas.
+- **Alter XML-Voll-Export bleibt als Fallback** für alle, die ihn schon haben.
+- **Mehrere Anbieter vorbereitet:** Google Fit / Health Connect, Fitbit und Garmin sind in der Oberfläche bereits als „kommt bald" angelegt (noch ohne Funktion), damit die Bedienung später gleich bleibt.
+- Manueller Import bleibt nicht-überschreibend (nur leere Felder werden gefüllt) und die wöchentliche Erinnerung (opt-in) bleibt erhalten.
+
+## Statistik, Diagramm, Technik & Übungs-Buttons (neu)
+- **Ziel-Bug behoben:** Die Fortschritts-Bewertung nutzt jetzt eindeutig dein aktuelles Ziel. „Abnehmen" + abgenommen zeigt korrekt „verloren 🔥" (grün) statt „Richtung stimmt nicht".
+- **Gewichtsdiagramm mit Achsen:** Neue datums-basierte Kurve mit beschrifteter x-Achse (Datum TT.MM) und y-Achse (kg). Ausgelassene Tage werden zeitlich korrekt dargestellt und verzerren die Skala nicht mehr.
+- **Technik-Feld: Dropdown + Freitext:** Beim Bearbeiten einer Übung lässt sich eine Technik aus der Liste wählen ODER frei eintippen. „📖 Erklärung" zeigt die Bedeutung der gewählten Technik.
+- **Übungs-Buttons aufgeräumt:** Pro Übung nur noch das Übungsspezifische (Ausführung-Video, Notiz) plus ein ⚙️-Zahnrad für Bearbeiten/Löschen. Pause-Timer und Hantelrechner sind als allgemeine Werkzeuge einmal oben im Training statt bei jeder Übung. Der Übungs-Verlauf wandert in den Verlauf-Reiter (folgt).
+
+## Branding: Logo & Schriftarten (neu)
+- **Logo** „BE INEVITABLE" prominent auf dem Login/Start-Bildschirm, in einem schwarzen, abgerundeten Panel (passt zum dunklen Logo-Hintergrund). Liegt unter `public/logo.jpg` und wird unter `/logo.jpg` ausgeliefert.
+- **Überschriften** in **Bebas Neue**, durchgehend GROSSGESCHRIEBEN (Seitentitel, Tagesart auf Home, Sheet-Titel, Login-Headline).
+- **Fließtext** in **Nunito**.
+- Schriften werden über Google Fonts geladen (`fonts.googleapis.com`); funktioniert im Browser und auf der Render-Deployment automatisch.
+
+## Analyse stark ausgebaut (vormals „Verlauf")
+Der Reiter heißt jetzt **Analyse** und ist in zwei Segmente gegliedert:
+- **Körper:** Trend-Diagramme für Gewicht (mit beschrifteten Achsen + Lücken-Logik), Schlaf, Schritte, Wasser; Körpermaße & Fotos; Check-in-Historie; Health-Verbindung.
+- **Training:** echte Trainings-Statistiken aus allen geloggten Sätzen.
+  - Kennzahlen: Trainingstage, Sätze gesamt, Gesamtvolumen (in Tonnen), Einheiten diese Woche.
+  - **Wochen-Volumen-Diagramm** (Gesamtlast pro Woche, datums-basiert).
+  - **Übungs-Drilldown:** Liste aller trainierten Übungen mit Trend-Pfeil (Gewicht hoch/runter) und geschätztem 1RM. Antippen öffnet den **Übungs-Verlauf mit zwei Linien** – Gewicht (rot, linke Achse) und Wiederholungen (blau, rechte Achse) über die Zeit, beide Achsen beschriftet, ausgelassene Tage zeitlich korrekt dargestellt.
+  - **Volumen nach Muskelgruppe** als Balken.
+- **Coach-Sicht:** Der Coach sieht im Athleten-Kontext exakt dieselbe Analyse (Volumen-Trend, Übungsverlauf) und kann den Plan datenbasiert anpassen. Neue Route `GET /api/analytics/:userId` mit Zugriffsschutz.
