@@ -306,3 +306,22 @@ Der Reiter heißt jetzt **Analyse** und ist in zwei Segmente gegliedert:
   - **Übungs-Drilldown:** Liste aller trainierten Übungen mit Trend-Pfeil (Gewicht hoch/runter) und geschätztem 1RM. Antippen öffnet den **Übungs-Verlauf mit zwei Linien** – Gewicht (rot, linke Achse) und Wiederholungen (blau, rechte Achse) über die Zeit, beide Achsen beschriftet, ausgelassene Tage zeitlich korrekt dargestellt.
   - **Volumen nach Muskelgruppe** als Balken.
 - **Coach-Sicht:** Der Coach sieht im Athleten-Kontext exakt dieselbe Analyse (Volumen-Trend, Übungsverlauf) und kann den Plan datenbasiert anpassen. Neue Route `GET /api/analytics/:userId` mit Zugriffsschutz.
+
+## Ernährungsplan-System (neu)
+Unter Ernährung → Plan gibt es jetzt einen echten, automatisch erstellten Mahlzeitenplan – nicht mehr nur ein Kalorienziel.
+- **Automatische Erstellung aus dem Profil:** Aus Geschlecht, Gewicht, Größe, Alter und Ziel wird der Kalorienbedarf berechnet (Mifflin-St-Jeor × Aktivität, Ziel-Anpassung) und daraus ein Plan mit konkreten Mahlzeiten erzeugt – getrennt für Trainings- und Ruhetag. Trifft das kcal-Ziel auf ±1–5 % genau, mit ausreichend Protein.
+- **Beim Onboarding:** Neuer Schritt „Was magst du nicht?" – ausgewählte Lebensmittel werden aus dem Plan ausgeschlossen. Der Plan wird direkt nach dem Onboarding erzeugt.
+- **Im Plan-Tab:** Mahlzeiten mit Lebensmitteln, Mengen und Makros; Vergleich Plan-kcal vs. Ziel; Buttons „🔄 Neu erstellen" und „🚫 Ausschließen"; jede Mahlzeit per Tipp als gegessen eintragbar.
+- **Kuratierter Lebensmittel-Katalog mit Rollen** (Protein/Carb/Fett/Gemüse/Obst, je Mahlzeit geeignet) als Grundlage; Portionen werden aufs Ziel skaliert. Der Plan ist ein Vorschlag – Lebensmittel lassen sich im „Heute"-Tab frei austauschen.
+- Neue Routen: `POST /api/mealplan/generate/:userId`, `GET/POST /api/disliked/:userId`. Neue Spalte `users.disliked_foods` (automatische, datenschonende Migration).
+
+## Logo auf der Startseite (neu)
+Das BE-INEVITABLE-Logo erscheint jetzt auch oben auf der Home (in schwarzem, abgerundetem Band) – als Wiedererkennungsmerkmal auf jedem Start. Aktualisiertes, höher aufgelöstes Logo unter `public/logo.jpg` (auch auf dem Login).
+
+## E-Mail: Verifizierung, Passwort-Reset & Benachrichtigungen (neu)
+Die E-Mail-Adresse beim Login hat jetzt echte Funktion.
+- **Verifizierung:** Bei der Registrierung geht eine Bestätigungs-Mail raus (Link 48 Std. gültig). Nicht-blockierend – Login klappt auch ohne Bestätigung, auf der Startseite erscheint ein Hinweis „E-Mail bestätigen" mit „erneut senden".
+- **Passwort vergessen:** Link „Passwort vergessen?" auf der Anmeldeseite → E-Mail mit Reset-Link (1 Std. gültig, einmalig). Der Link öffnet ein Formular für ein neues Passwort. Aus Sicherheit verrät die App nie, ob eine Adresse existiert.
+- **Benachrichtigungen per E-Mail (optional):** In „Mehr → Profil" aktivierbar. Bei neuer Coach-Nachricht bekommt der Athlet dann zusätzlich eine Mail.
+- **Sicherheit:** zufällige Tokens mit Ablauf, einmalig nutzbar; beim Reset werden übrige offene Links entwertet; sanftes Rate-Limit bei „Passwort vergessen".
+- **Versand:** über SMTP/Transaktionsmail-Dienst – Zugangsdaten als Umgebungsvariablen (siehe EMAIL-SETUP.md). Ohne Konfiguration loggt der Server die Mails nur (App bleibt voll funktionsfähig). Neue Abhängigkeit `nodemailer` (wird nur geladen, wenn `EMAIL_HOST` gesetzt ist). Neue Tabelle `auth_tokens`, neue Spalten `users.email_verified` / `email_notifications` (automatische, datenschonende Migration).

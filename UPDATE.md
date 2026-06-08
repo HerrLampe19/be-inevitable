@@ -72,3 +72,11 @@ Dieses Update fügt der `users`-Tabelle zwei neue Spalten hinzu (`last_health_im
 - Es werden keine Spalten entfernt oder umbenannt.
 Du musst nichts manuell tun. Wie immer gilt: vorher ein kurzes Backup schadet nicht
 (`cp /var/data/data.db /var/data/backup-$(date +%F).db`).
+
+## Update-Hinweis (E-Mail-Funktionen)
+Dieses Update fügt eine Tabelle (`auth_tokens`) und zwei Spalten
+(`users.email_verified`, `users.email_notifications`) automatisch hinzu – ohne
+Datenverlust. Für echten E-Mail-Versand die Variablen aus EMAIL-SETUP.md setzen;
+ohne sie funktioniert die App normal weiter (Mails landen nur im Log).
+Neue Abhängigkeit `nodemailer`: Render installiert sie beim Deploy automatisch
+über die package.json.

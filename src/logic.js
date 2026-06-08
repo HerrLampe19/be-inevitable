@@ -314,6 +314,157 @@ export function generatePlan({ goal, experience, daysPerWeek }) {
 }
 
 // ============================================================
+// MAHLZEITENPLAN-GENERATOR
+// ============================================================
+
+// Kuratierter Lebensmittel-Katalog mit Rollen + Mahlzeiteignung.
+// Werte pro 100 g (p=Protein, c=Kohlenhydrate, f=Fett in g).
+// roles: protein|carb|fat|fruit|veg  ·  meals: b(Frühstück) l(Mittag) d(Abend) s(Snack)
+const MEAL_FOODS = [
+  { name: 'Haferflocken', p: 13.5, c: 58.7, f: 7, role: 'carb', meals: 'bs' },
+  { name: 'Vollkornbrot', p: 9, c: 41, f: 3, role: 'carb', meals: 'b' },
+  { name: 'Magerquark', p: 12, c: 4, f: 0.3, role: 'protein', meals: 'bs' },
+  { name: 'Skyr', p: 11, c: 4, f: 0.2, role: 'protein', meals: 'bs' },
+  { name: 'Hüttenkäse', p: 11, c: 3, f: 4.3, role: 'protein', meals: 'bs' },
+  { name: 'Eier', p: 13, c: 1, f: 11, role: 'protein', meals: 'b' },
+  { name: 'Whey Protein', p: 80, c: 8, f: 6, role: 'protein', meals: 'bs' },
+  { name: 'Banane', p: 1.1, c: 23, f: 0.3, role: 'fruit', meals: 'bs' },
+  { name: 'Apfel', p: 0.3, c: 14, f: 0.2, role: 'fruit', meals: 's' },
+  { name: 'Beeren', p: 1, c: 12, f: 0.3, role: 'fruit', meals: 'bs' },
+  { name: 'Erdnussbutter', p: 25, c: 20, f: 50, role: 'fat', meals: 'bs' },
+  { name: 'Mandeln', p: 21, c: 20, f: 50, role: 'fat', meals: 's' },
+  { name: 'Avocado', p: 2, c: 9, f: 15, role: 'fat', meals: 'bl' },
+  { name: 'Olivenöl', p: 0, c: 0, f: 100, role: 'fat', meals: 'ld' },
+  { name: 'Hähnchenbrust', p: 23, c: 0, f: 1.5, role: 'protein', meals: 'ld' },
+  { name: 'Pute', p: 24, c: 0, f: 1, role: 'protein', meals: 'ld' },
+  { name: 'Rindfleisch (mager)', p: 26, c: 0, f: 10, role: 'protein', meals: 'ld' },
+  { name: 'Lachs', p: 20, c: 0, f: 13, role: 'protein', meals: 'ld' },
+  { name: 'Thunfisch', p: 23, c: 0, f: 1, role: 'protein', meals: 'ld' },
+  { name: 'Tofu', p: 12, c: 2, f: 7, role: 'protein', meals: 'ld' },
+  { name: 'Linsen', p: 9, c: 20, f: 0.4, role: 'carb', meals: 'ld' },
+  { name: 'Reis', p: 6.7, c: 80, f: 0.7, role: 'carb', meals: 'ld' },
+  { name: 'Vollkornnudeln', p: 12, c: 72, f: 1.5, role: 'carb', meals: 'ld' },
+  { name: 'Kartoffeln', p: 2, c: 15, f: 0.1, role: 'carb', meals: 'ld' },
+  { name: 'Süßkartoffeln', p: 1.6, c: 20, f: 0.1, role: 'carb', meals: 'ld' },
+  { name: 'Quinoa', p: 4.4, c: 21, f: 1.9, role: 'carb', meals: 'ld' },
+  { name: 'Brokkoli', p: 2.8, c: 7, f: 0.4, role: 'veg', meals: 'ld' },
+  { name: 'Gemüse gemischt', p: 2, c: 7, f: 0.3, role: 'veg', meals: 'ld' },
+  { name: 'Spinat', p: 2.9, c: 3.6, f: 0.4, role: 'veg', meals: 'ld' },
+];
+
+const kcalOf = (food, grams) => (food.p * 4 + food.c * 4 + food.f * 9) * grams / 100;
+const isDisliked = (name, disliked) => (disliked || []).some(d => {
+  const a = name.toLowerCase(), b = String(d).toLowerCase();
+  return a === b || a.includes(b) || b.includes(a);
+});
+
+// Wählt aus dem Katalog ein Lebensmittel einer Rolle, das zur Mahlzeit passt und nicht abgelehnt ist.
+// `seed` rotiert die Auswahl, damit nicht in jeder Mahlzeit dasselbe steht.
+function pickFood(role, mealSlot, disliked, seed) {
+  const cands = MEAL_FOODS.filter(x => x.role === role && x.meals.includes(mealSlot) && !isDisliked(x.name, disliked));
+  if (!cands.length) {
+    // Fallback: Rolle ohne Mahlzeit-Einschränkung
+    const any = MEAL_FOODS.filter(x => x.role === role && !isDisliked(x.name, disliked));
+    return any.length ? any[seed % any.length] : null;
+  }
+  return cands[seed % cands.length];
+}
+
+// Erzeugt einen Tagesplan mit Mahlzeiten, der das kcal-Ziel anpeilt und die Makros grob trifft.
+// Gibt { meals:[{label, slot, items:[{food,amount,kcal,protein,carbs,fat}], kcal, protein}], totals } zurück.
+export function generateMealPlan({ kcalTarget, macros, disliked = [], mealCount = 4 }) {
+  const kcal = Number(kcalTarget) || 2200;
+  const targetProtein = (macros && macros.protein) || Math.round((kcal * 0.3) / 4);
+
+  // Mahlzeiten-Aufteilung je Anzahl
+  let splits;
+  if (mealCount <= 3) splits = [
+    { label: 'Frühstück', slot: 'b', share: 0.33 },
+    { label: 'Mittagessen', slot: 'l', share: 0.37 },
+    { label: 'Abendessen', slot: 'd', share: 0.30 },
+  ];
+  else if (mealCount >= 5) splits = [
+    { label: 'Frühstück', slot: 'b', share: 0.22 },
+    { label: 'Snack', slot: 's', share: 0.13 },
+    { label: 'Mittagessen', slot: 'l', share: 0.28 },
+    { label: 'Snack 2', slot: 's', share: 0.12 },
+    { label: 'Abendessen', slot: 'd', share: 0.25 },
+  ];
+  else splits = [
+    { label: 'Frühstück', slot: 'b', share: 0.28 },
+    { label: 'Mittagessen', slot: 'l', share: 0.32 },
+    { label: 'Abendessen', slot: 'd', share: 0.28 },
+    { label: 'Snack', slot: 's', share: 0.12 },
+  ];
+
+  const mkItem = (food, grams) => {
+    const g = Math.max(10, Math.round(grams / 5) * 5); // auf 5 g runden
+    return { food: food.name, amount: g,
+      kcal: Math.round(kcalOf(food, g)),
+      protein: Math.round(food.p * g / 100 * 10) / 10,
+      carbs: Math.round(food.c * g / 100 * 10) / 10,
+      fat: Math.round(food.f * g / 100 * 10) / 10 };
+  };
+
+  const meals = splits.map((s, i) => {
+    const mealKcal = kcal * s.share;
+    const mealProtein = targetProtein * s.share;
+    const items = [];
+
+    // 1) Proteinquelle – Menge so, dass ~70% des Mahlzeit-Proteins gedeckt sind
+    const pf = pickFood('protein', s.slot, disliked, i);
+    if (pf) { const grams = (mealProtein * 0.7) / (pf.p / 100); items.push(mkItem(pf, grams)); }
+
+    // 2) Kohlenhydratquelle – füllt den Großteil der restlichen kcal
+    const cf = pickFood('carb', s.slot, disliked, i);
+    if (cf) {
+      const used = items.reduce((a, it) => a + it.kcal, 0);
+      const remain = Math.max(120, mealKcal - used);
+      const grams = (remain * 0.7) / ((cf.p * 4 + cf.c * 4 + cf.f * 9) / 100);
+      items.push(mkItem(cf, grams));
+    }
+
+    // 3) Beilage: Gemüse (Mittag/Abend) bzw. Obst (Frühstück/Snack)
+    if (s.slot === 'l' || s.slot === 'd') {
+      const vf = pickFood('veg', s.slot, disliked, i + 1);
+      if (vf) items.push(mkItem(vf, 150));
+    } else {
+      const ff = pickFood('fruit', s.slot, disliked, i + 1);
+      if (ff) items.push(mkItem(ff, 100));
+    }
+
+    // 4) Feinabstimmung: Mahlzeit auf das kcal-Ziel skalieren (Verhältnisse bleiben erhalten)
+    let actual = items.reduce((a, it) => a + it.kcal, 0);
+    if (actual > 0) {
+      let factor = mealKcal / actual;
+      factor = Math.max(0.6, Math.min(1.6, factor));
+      for (const it of items) {
+        const g = Math.max(10, Math.round((it.amount * factor) / 5) * 5);
+        const food = MEAL_FOODS.find(x => x.name === it.food);
+        Object.assign(it, mkItem(food, g));
+      }
+    }
+    const mKcal = items.reduce((a, it) => a + it.kcal, 0);
+    const mProt = Math.round(items.reduce((a, it) => a + it.protein, 0));
+    return { label: s.label, slot: s.slot, items, kcal: mKcal, protein: mProt };
+  });
+
+  const totals = {
+    kcal: meals.reduce((a, m) => a + m.kcal, 0),
+    protein: Math.round(meals.reduce((a, m) => a + m.items.reduce((x, it) => x + it.protein, 0), 0)),
+    carbs: Math.round(meals.reduce((a, m) => a + m.items.reduce((x, it) => x + it.carbs, 0), 0)),
+    fat: Math.round(meals.reduce((a, m) => a + m.items.reduce((x, it) => x + it.fat, 0), 0)),
+  };
+  return { meals, totals, kcalTarget: kcal, proteinTarget: targetProtein };
+}
+
+// Liste auswählbarer „mag ich nicht"-Lebensmittel fürs Onboarding (aus dem Katalog, sinnvoll gruppiert)
+export function dislikeOptions() {
+  return ['Eier', 'Lachs', 'Thunfisch', 'Rindfleisch (mager)', 'Tofu', 'Linsen', 'Hüttenkäse',
+    'Magerquark', 'Brokkoli', 'Süßkartoffeln', 'Quinoa', 'Avocado', 'Erdnussbutter', 'Mandeln'];
+}
+
+// ============================================================
 // PERSÖNLICHE REKORDE (PRs) + 1RM-Schätzung
 // ============================================================
 

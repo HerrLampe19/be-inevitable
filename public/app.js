@@ -33,15 +33,49 @@ async function doAuth(){const email=val('i_email'),pw=val('i_pw');document.getEl
 function showErr(m){const e=document.getElementById('authErr');e.textContent=m;e.classList.remove('hidden');}
 async function logout(){await API.post('/logout');location.reload();}
 
+// ===== PASSWORT VERGESSEN / RESET / VERIFIZIERUNG =====
+function openForgot(){openSheet('Passwort zurücksetzen',`
+  <div class="info">Gib deine E-Mail ein. Wenn ein Konto existiert, senden wir dir einen Link zum Zurücksetzen.</div>
+  <div class="field"><label>E-Mail</label><input id="fp_email" type="email" autocomplete="email" placeholder="du@mail.com"></div>
+  <button class="btn" onclick="submitForgot()">Link anfordern</button>`);}
+async function submitForgot(){const email=val('fp_email');if(!email)return toast('Bitte E-Mail eingeben');
+  await API.post('/forgot-password',{email});
+  openSheet('E-Mail unterwegs',`<div class="info">Wenn ein Konto zu <b>${esc2(email)}</b> existiert, ist eine E-Mail mit einem Link zum Zurücksetzen unterwegs. Schau auch im Spam-Ordner nach.</div><button class="btn" onclick="closeModal()">Alles klar</button>`);}
+
+// Reset-Formular (vom Link ?reset=TOKEN aufgerufen) – funktioniert ohne Login
+function showResetForm(token){
+  document.getElementById('loginView')?.classList.remove('hidden');
+  document.getElementById('appView')?.classList.add('hidden');
+  document.getElementById('onbView')?.classList.add('hidden');
+  openSheet('Neues Passwort festlegen',`
+    <div class="info">Wähle ein neues Passwort für dein Konto.</div>
+    <div class="field"><label>Neues Passwort</label><input id="rp_pw" type="password" placeholder="mind. 6 Zeichen"></div>
+    <div class="field"><label>Wiederholen</label><input id="rp_pw2" type="password" placeholder="nochmal eingeben"></div>
+    <button class="btn" onclick="submitReset('${esc(token)}')">Passwort speichern</button>`);}
+async function submitReset(token){const pw=val('rp_pw'),pw2=val('rp_pw2');
+  if(!pw||pw.length<6)return toast('Mindestens 6 Zeichen');
+  if(pw!==pw2)return toast('Passwörter stimmen nicht überein');
+  const r=await API.post('/reset-password',{token,password:pw});
+  if(r.status===200){
+    // Reset-Param aus der URL entfernen und zur Anmeldung
+    history.replaceState(null,'',location.pathname);
+    openSheet('Passwort geändert ✓',`<div class="info">Dein Passwort wurde geändert. Du kannst dich jetzt anmelden.</div><button class="btn" onclick="closeModal()">Zur Anmeldung</button>`);
+  }else toast(r.data?.error||'Link ungültig oder abgelaufen');}
+
+// Verifizierungs-Mail erneut senden (eingeloggt)
+async function resendVerify(){const r=await API.post('/request-verification');
+  if(r.status===200)toast(r.data.already?'Deine E-Mail ist bereits bestätigt ✓':'Bestätigungs-E-Mail gesendet ✓');
+  else toast('Fehler');}
+
 // ===== ONBOARDING WIZARD =====
 let ONB={step:0,data:{experience:'beginner',days_per_week:3}};
-function startOnboarding(){ONB={step:0,data:{experience:'beginner',days_per_week:3,gender:'male'}};
+function startOnboarding(){ONB={step:0,data:{experience:'beginner',days_per_week:3,gender:'male',disliked:[]}};
   document.getElementById('loginView').classList.add('hidden');
   document.getElementById('onbView').classList.remove('hidden');
   renderOnb();}
 const ONB_STEPS=[
   {key:'welcome'},
-  {key:'goal'},{key:'experience'},{key:'body'},{key:'frequency'},{key:'result'}
+  {key:'goal'},{key:'experience'},{key:'body'},{key:'frequency'},{key:'dislikes'},{key:'result'}
 ];
 function onbSet(k,v){ONB.data[k]=v;onbNext();}
 function onbNext(){if(ONB.step<ONB_STEPS.length-1){ONB.step++;renderOnb();}}
@@ -83,12 +117,26 @@ async function renderOnb(){const v=document.getElementById('onbView');const s=ON
       <input type="range" min="1" max="6" value="${d.days_per_week}" style="width:100%;margin-bottom:8px" oninput="ONB.data.days_per_week=+this.value;renderOnb()">
       <p style="text-align:center;color:var(--ink2);font-size:14px;margin-bottom:24px">${freqHint(d.days_per_week)}</p>
       <button class="btn" onclick="onbNext()">Plan erstellen</button>`;
+  } else if(s.key==='dislikes'){
+    h+=`<h2 style="font-size:24px;font-weight:700;margin-bottom:6px">Was magst du nicht?</h2><p style="color:var(--ink2);margin-bottom:20px">Tippe an, was nicht in deinen Ernährungsplan soll. Kannst du auch später ändern.</p>
+      <div id="onbDislikes"><div class="spinner"></div></div>
+      <button class="btn" style="margin-top:8px" onclick="onbNext()">Weiter</button>`;
+    v.innerHTML=h+(backBtn||'')+'</div>';loadOnbDislikes();return;
   } else if(s.key==='result'){
     h+=`<div id="onbResult" style="text-align:center"><div class="spinner"></div><p style="color:var(--ink2)">Wir berechnen deinen Plan…</p></div>`;
     v.innerHTML=h+'</div>';loadOnbResult();return;
   }
   h+=backBtn+'</div>';v.innerHTML=h;}
 function freqHint(n){return {1:'Ganzkörper – besser als nichts!',2:'2× Ganzkörper – solider Einstieg.',3:'Push/Pull/Beine – sehr effektiv.',4:'Ober-/Unterkörper-Split – top für Aufbau.',5:'5er-Split – für Ambitionierte.',6:'6× – nur mit guter Erholung.'}[n]||'';}
+async function loadOnbDislikes(){const el=document.getElementById('onbDislikes');if(!el)return;
+  const r=await API.get('/disliked/'+ME.id);const opts=r.data?.options||[];
+  if(!ONB.data.disliked)ONB.data.disliked=[];
+  const sel=new Set(ONB.data.disliked);
+  el.innerHTML=`<div style="display:flex;flex-wrap:wrap">`+opts.map(o=>`<button class="daychip ${sel.has(o)?'now':''}" style="margin:0 6px 8px 0" onclick="toggleOnbDislike('${esc(o)}',this)">${sel.has(o)?'✓ ':''}${o}</button>`).join('')+`</div>`;}
+function toggleOnbDislike(name,btn){if(!ONB.data.disliked)ONB.data.disliked=[];
+  const i=ONB.data.disliked.indexOf(name);
+  if(i>=0){ONB.data.disliked.splice(i,1);btn.classList.remove('now');btn.textContent=name;}
+  else{ONB.data.disliked.push(name);btn.classList.add('now');btn.textContent='✓ '+name;}}
 function onbBody(){const age=+val('o_age'),h=+val('o_h'),w=+val('o_w');
   if(!age||!h||!w)return toast('Bitte alle Felder ausfüllen');
   if(age<14||age>100)return toast('Bitte ein realistisches Alter');
@@ -208,6 +256,7 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   const dayName=eff.type==='sick'?'Erholung':(isTrain?(eff.dayName||'Training'):'Rest Day');
 
   let html='<div class="page on">';
+  html+=`<div style="text-align:center;margin:0 0 18px"><div style="display:inline-block;background:#000;border-radius:14px;padding:13px 20px;box-shadow:var(--shadow)"><img src="/logo.jpg" alt="BE INEVITABLE" style="display:block;width:100%;max-width:210px;height:auto"></div></div>`;
   // Einstiegs-Banner, wenn noch kein Plan/Ziel existiert (nur eigenes Konto)
   if(VIEW_USER===ME.id && !PLAN?.days?.length && !TODAY?.kcal?.train){
     html+=`<div class="today" style="background:linear-gradient(135deg,var(--red),#b00500);color:#fff">
@@ -223,6 +272,14 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   const greet=hour<11?'Guten Morgen':hour<17?'Hallo':'Guten Abend';
   const greetLine=(VIEW_USER===ME.id)?`<div style="font-size:15px;color:var(--ink2);margin-bottom:14px">${greet}, ${ME.name.split(' ')[0]} 👋</div>`:'';
   html+=greetLine;
+  // E-Mail noch nicht bestätigt -> sanfter, nicht-blockierender Hinweis (nur eigenes Konto)
+  if(VIEW_USER===ME.id && ME.email && !ME.email_verified){
+    html+=`<div class="surface pad" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;border-left:3px solid var(--amber)">
+      <div style="font-size:20px">✉️</div>
+      <div style="flex:1"><div style="font-weight:600;font-size:14px">E-Mail bestätigen</div><div style="color:var(--ink2);font-size:13px">Bestätige <b>${esc2(ME.email)}</b>, um Passwort-Reset &amp; Benachrichtigungen per Mail zu nutzen.</div></div>
+      <button class="minibtn" onclick="resendVerify()">Senden</button>
+    </div>`;
+  }
   // Sanfter Health-Import-Hinweis: nur fürs eigene Konto, wenn Erinnerung aktiv und >7 Tage her (oder nie)
   if(VIEW_USER===ME.id && ME.health_reminder){
     const li=ME.last_health_import?Date.parse(ME.last_health_import):0;
@@ -855,16 +912,54 @@ async function logFromMeal(mealId){await API.post('/foodlog/frommeal/'+mealId,{d
   closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;drawTrack();toast('Übernommen ✓');}
 
 function setDiet(t){DIET=t;drawDiet();}
+function dietTargetKcal(){const prof=(VIEW_USER===ME.id?ME:(VIEW_USER_PROFILE||ME));
+  return DIET==='training'?(prof.kcal_target_train||0):(prof.kcal_target_rest||0);}
 function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DIET);
   let kc=0,f=0,c=0,p=0;meals.forEach(m=>m.items.forEach(it=>{kc+=it.kcal||0;f+=it.fat||0;c+=it.carbs||0;p+=it.protein||0;}));
   const el=document.getElementById('dietBody');
-  let h=macroRow(kc,p,c,f);
+  const target=dietTargetKcal();
+  let h=macroRow(kc,p,c,f,target||undefined);
   h+=`<div class="seg" style="margin-bottom:14px"><button class="${DIET==='training'?'on':''}" onclick="setDiet('training')">Trainingstag</button><button class="${DIET==='rest'?'on':''}" onclick="setDiet('rest')">Ruhetag</button></div>`;
-  if(!meals.length){h+='<div class="empty"><div class="ei">🍽️</div>Noch kein Meal Plan.</div>';el.innerHTML=h;return;}
-  h+=meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);
-    return `<div class="meal"><div class="meal-h"><div class="ml"><div class="n">Meal ${m.meal_no}</div><div class="t">${m.label||''}</div></div><div class="kc">${Math.round(mk)}<em>kcal</em></div></div>
-      ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount} g/ml</div>${it.notes?`<div class="fm">${it.notes}</div>`:''}</div><div class="fmac">${Math.round(it.kcal||0)} kcal<br>${r1(it.protein)}P·${r1(it.carbs)}C·${r1(it.fat)}F</div></div>`).join('')}</div>`;}).join('');
+  if(!meals.length){
+    h+=`<div class="empty"><div class="ei">🍽️</div><div style="font-weight:600;margin-bottom:4px">Noch kein Ernährungsplan</div><div style="color:var(--ink2);font-size:14px;margin-bottom:16px">Wir erstellen dir aus deinem Profil (Gewicht, Größe, Ziel) automatisch einen Plan mit konkreten Mahlzeiten.</div></div>
+      <button class="btn" onclick="genMealPlan()">Plan automatisch erstellen</button>
+      <button class="btn sec" style="margin-top:10px" onclick="openDislikes()">Erst Lebensmittel ausschließen</button>`;
+    el.innerHTML=h;return;}
+  // Plan vorhanden: Mahlzeiten + Aktionen
+  h+=`<div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn sec" style="flex:1" onclick="genMealPlan()">🔄 Neu erstellen</button>
+      <button class="btn sec" style="flex:1" onclick="openDislikes()">🚫 Ausschließen</button></div>`;
+  if(target){const diff=Math.round(kc-target);
+    h+=`<div class="info" style="margin-bottom:14px">Plan: <b>${Math.round(kc)} kcal</b> · Ziel: <b>${target} kcal</b> ${Math.abs(diff)<=120?'– passt 👍':(diff>0?`(${diff} drüber)`:`(${Math.abs(diff)} drunter)`)}</div>`;}
+  h+=meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);const mp=m.items.reduce((s,it)=>s+(it.protein||0),0);
+    return `<div class="meal"><div class="meal-h"><div class="ml"><div class="n">Mahlzeit ${m.meal_no}</div><div class="t">${m.label||''}</div></div><div class="kc">${Math.round(mk)}<em>kcal · ${Math.round(mp)}g P</em></div></div>
+      ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount} g/ml</div></div><div class="fmac">${Math.round(it.kcal||0)} kcal<br>${r1(it.protein)}P·${r1(it.carbs)}C·${r1(it.fat)}F</div></div>`).join('')}
+      <button class="minibtn" style="margin-top:8px" onclick="logFromMeal(${m.id})">✓ als gegessen eintragen</button></div>`;}).join('');
+  h+=`<div style="font-size:12px;color:var(--ink3);margin-top:14px">Der Plan ist ein Vorschlag, der dein kcal- und Proteinziel trifft. Mengen sind Richtwerte – tausche Lebensmittel im „Heute"-Tab frei aus.</div>`;
   el.innerHTML=h;}
+
+// Mahlzeitenplan automatisch (neu) erstellen
+async function genMealPlan(){const el=document.getElementById('dietBody');if(el)el.innerHTML='<div class="spinner"></div>';
+  const r=await API.post('/mealplan/generate/'+VIEW_USER,{});
+  if(r.status===200){const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];toast('Plan erstellt ✓');drawDiet();}
+  else{toast('Fehler beim Erstellen');drawDiet();}}
+
+// Lebensmittel ausschließen (Abneigungen) – Mehrfachauswahl, danach Plan neu
+async function openDislikes(){openSheet('Lebensmittel ausschließen','<div class="spinner"></div>');
+  const r=await API.get('/disliked/'+VIEW_USER);const opts=r.data?.options||[];const sel=new Set(r.data?.disliked||[]);
+  DISLIKE_SEL=sel;
+  const chips=opts.map(o=>`<button class="daychip ${sel.has(o)?'now':''}" style="margin:0 6px 8px 0" onclick="toggleDislike('${esc(o)}',this)">${sel.has(o)?'✓ ':''}${o}</button>`).join('');
+  openSheet('Lebensmittel ausschließen',`
+    <div class="info">Tippe an, was du nicht magst. Diese Lebensmittel kommen nicht in deinen automatischen Plan.</div>
+    <div style="display:flex;flex-wrap:wrap;margin-bottom:8px">${chips}</div>
+    <button class="btn" onclick="saveDislikes()">Speichern &amp; Plan aktualisieren</button>`);}
+let DISLIKE_SEL=new Set();
+function toggleDislike(name,btn){if(DISLIKE_SEL.has(name)){DISLIKE_SEL.delete(name);btn.classList.remove('now');btn.textContent=name;}
+  else{DISLIKE_SEL.add(name);btn.classList.add('now');btn.textContent='✓ '+name;}}
+async function saveDislikes(){closeModal();const el=document.getElementById('dietBody');if(el)el.innerHTML='<div class="spinner"></div>';
+  const r=await API.post('/disliked/'+VIEW_USER,{disliked:[...DISLIKE_SEL]});
+  if(r.status===200){const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];toast('Gespeichert ✓ Plan aktualisiert');drawDiet();}
+  else{toast('Fehler');drawDiet();}}
 
 // ===== ANALYSE (vormals Verlauf): Körper + Training =====
 function renderTracker(v){
@@ -1444,6 +1539,7 @@ function openProfile(){const u=ME;
       <div class="info">Als ${u.role==='admin'?'Administrator':'Coach'} verwaltest du ${u.role==='admin'?'das System':'deine Athleten'}. Trainings- und Ernährungsdaten gibt es hier nicht.</div>
       <div class="field"><label>Name</label><input id="p_name_simple" value="${u.name||''}"></div>
       <div class="field"><label>E-Mail</label><input value="${u.email||''}" disabled style="opacity:.6"></div>
+      <label style="display:flex;align-items:center;gap:10px;margin:6px 0 14px;font-size:14px"><input type="checkbox" id="p_notif" ${u.email_notifications?'checked':''} onchange="toggleEmailNotif(this.checked)" style="width:auto"> Benachrichtigungen auch per E-Mail</label>
       <button class="btn" onclick="saveSimpleProfile()">Name speichern</button>
       <button class="btn sec" style="margin-top:10px" onclick="openChangePw()">🔒 Passwort ändern</button>`);
     return;
@@ -1473,8 +1569,11 @@ function openProfile(){const u=ME;
       <div class="field"><label>kcal Ruhetag</label><input id="p_kr" type="number" value="${u.kcal_target_rest||''}" placeholder="z.B. 2600"></div>
     </div>
     <div class="info">Die Trainingsfrequenz legt deinen Rhythmus fest (z.B. 2 Tage Training, 1 Ruhetag) – nicht feste Wochentage. So machst du nach Pausen nahtlos weiter.</div>
+    <label style="display:flex;align-items:center;gap:10px;margin:4px 0 14px;font-size:14px"><input type="checkbox" id="p_notif" ${u.email_notifications?'checked':''} onchange="toggleEmailNotif(this.checked)" style="width:auto"> Benachrichtigungen auch per E-Mail</label>
     <button class="btn" onclick="saveProfile()">Speichern</button>
     <button class="btn sec" style="margin-top:10px" onclick="openChangePw()">🔒 Passwort ändern</button>`);}
+async function toggleEmailNotif(on){await API.post('/notifications',{email_notifications:on});if(ME)ME.email_notifications=on?1:0;
+  toast(on?'E-Mail-Benachrichtigungen an ✓':'E-Mail-Benachrichtigungen aus');}
 async function saveSimpleProfile(){const name=val('p_name_simple');if(!name)return toast('Name darf nicht leer sein');
   const r=await API.put('/profile',{name,gender:ME.gender,start_weight:ME.start_weight});
   if(r.status===200){ME.name=name;document.getElementById('avatar').textContent=name.charAt(0).toUpperCase();closeModal();toast('Gespeichert ✓');}else toast('Fehler');}
@@ -1728,4 +1827,20 @@ function isBeginner(){return (ME?.experience||'beginner')==='beginner';}
 function isAdvanced(){return (ME?.experience)==='advanced';}
 
 // ===== INIT =====
-(async()=>{const r=await API.get('/me');if(r.status===200){ME=r.data.user;startApp();}})();
+(async()=>{
+  const params=new URLSearchParams(location.search);
+  // Reset-Link aus E-Mail: Formular zeigen, KEIN Auto-Login nötig
+  const resetTok=params.get('reset');
+  if(resetTok){showResetForm(resetTok);return;}
+  const r=await API.get('/me');
+  if(r.status===200){ME=r.data.user;
+    startApp();
+    // Rückmeldung der E-Mail-Verifizierung
+    const v=params.get('verified');
+    if(v==='1'){if(ME)ME.email_verified=1;history.replaceState(null,'',location.pathname);setTimeout(()=>toast('E-Mail bestätigt ✓'),400);}
+    else if(v==='0'){history.replaceState(null,'',location.pathname);setTimeout(()=>toast('Bestätigungslink ungültig oder abgelaufen'),400);}
+  } else {
+    const v=params.get('verified');
+    if(v==='1')setTimeout(()=>toast('E-Mail bestätigt ✓ – bitte anmelden'),400);
+  }
+})();

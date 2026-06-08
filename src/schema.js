@@ -19,6 +19,9 @@ export function initSchema() {
     experience TEXT DEFAULT 'beginner',      -- 'beginner' | 'intermediate' | 'advanced'
     last_health_import TEXT,                 -- Zeitpunkt des letzten Apple-Health-Imports
     health_reminder INTEGER DEFAULT 0,       -- 1 = wöchentliche Erinnerung gewünscht
+    disliked_foods TEXT,                     -- JSON-Array abgelehnter Lebensmittel (für Mahlzeitenplan)
+    email_verified INTEGER DEFAULT 0,        -- 1 = E-Mail bestätigt
+    email_notifications INTEGER DEFAULT 1,   -- 1 = Benachrichtigungen auch per E-Mail
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (coach_id) REFERENCES users(id)
   );
@@ -237,6 +240,18 @@ export function initSchema() {
   CREATE INDEX IF NOT EXISTS idx_checkins ON checkins(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_foodlog ON food_log(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_cardiolog ON cardio_log(user_id, date);
+
+  CREATE TABLE IF NOT EXISTS auth_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    type TEXT NOT NULL,                      -- 'verify' | 'reset'
+    expires_at TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_authtokens ON auth_tokens(token);
   `);
 
   // Idempotente Migrationen: fehlende Spalten zu bestehenden Tabellen ergänzen,
@@ -245,6 +260,9 @@ export function initSchema() {
   const addCol = (name, def) => { if (!cols.includes(name)) { try { db.run(`ALTER TABLE users ADD COLUMN ${name} ${def}`); } catch (e) {} } };
   addCol('last_health_import', 'TEXT');
   addCol('health_reminder', 'INTEGER DEFAULT 0');
+  addCol('disliked_foods', 'TEXT');
+  addCol('email_verified', 'INTEGER DEFAULT 0');
+  addCol('email_notifications', 'INTEGER DEFAULT 1');
 
   console.log('[db] Schema bereit');
 }

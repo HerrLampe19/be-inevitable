@@ -2,10 +2,12 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import { db } from './db.js';
 import { initSchema } from './schema.js';
 import { hashPassword, verifyPassword, signToken, auth, requireCoach, requireAdmin, cookieOpts } from './auth.js';
-import { recommend, buildPattern, suggestForToday, previewNext, dayNutrition, estimateCardioKcal, recoveryStatus, nutritionPlan, generatePlan, bmr, personalRecords, estimate1RM, calendarRange } from './logic.js';
+import { recommend, buildPattern, suggestForToday, previewNext, dayNutrition, estimateCardioKcal, recoveryStatus, nutritionPlan, generatePlan, bmr, personalRecords, estimate1RM, calendarRange, generateMealPlan, dislikeOptions } from './logic.js';
+import { sendEmail, verifyEmailContent, resetPasswordContent, notifyMessageContent } from './email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 initSchema();
@@ -97,6 +99,8 @@ app.post('/api/register', (req, res) => {
   const r = db.run('INSERT INTO users(email,password_hash,name,role) VALUES(?,?,?,?)',
     [email.toLowerCase(), hashPassword(password), name.trim(), 'athlete']);
   const user = db.get('SELECT * FROM users WHERE id=?', [r.lastInsertRowid]);
+  // Verifizierungs-E-Mail senden (nicht-blockierend: Login klappt auch ohne Bestätigung)
+  sendVerificationEmail(user).catch(() => {});
   const token = signToken(user);
   res.cookie('token', token, cookieOpts);
   res.json({ token, user: pubUser(user) });
@@ -165,6 +169,87 @@ app.post('/api/password', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------------- E-MAIL: VERIFIZIERUNG & PASSWORT-RESET ---------------- */
+// Token erzeugen (zufällig, mit Ablauf) und in auth_tokens ablegen
+function makeToken(userId, type, ttlMinutes) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + ttlMinutes * 60000).toISOString();
+  db.run('INSERT INTO auth_tokens(user_id,token,type,expires_at) VALUES(?,?,?,?)', [userId, token, type, expires]);
+  return token;
+}
+// Token einlösen: gibt user_id zurück, wenn gültig (richtiger Typ, nicht benutzt, nicht abgelaufen), sonst null
+function consumeToken(token, type) {
+  if (!token) return null;
+  const row = db.get('SELECT * FROM auth_tokens WHERE token=? AND type=?', [token, type]);
+  if (!row || row.used) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  db.run('UPDATE auth_tokens SET used=1 WHERE id=?', [row.id]);
+  return row.user_id;
+}
+async function sendVerificationEmail(user) {
+  if (!user || !user.email) return;
+  const token = makeToken(user.id, 'verify', 48 * 60);
+  const c = verifyEmailContent(user.name, token);
+  await sendEmail({ to: user.email, ...c });
+}
+
+// E-Mail bestätigen (Link aus der Mail, im Browser geöffnet) -> markiert verifiziert, leitet in die App
+app.get('/api/verify-email', (req, res) => {
+  const uid = consumeToken(req.query.token, 'verify');
+  if (!uid) return res.redirect('/?verified=0');
+  db.run('UPDATE users SET email_verified=1 WHERE id=?', [uid]);
+  res.redirect('/?verified=1');
+});
+
+// Verifizierungs-Mail erneut senden (eingeloggt)
+app.post('/api/request-verification', auth, async (req, res) => {
+  const user = db.get('SELECT * FROM users WHERE id=?', [req.user.id]);
+  if (!user) return res.status(404).json({ error: 'Nicht gefunden' });
+  if (user.email_verified) return res.json({ ok: true, already: true });
+  await sendVerificationEmail(user);
+  res.json({ ok: true });
+});
+
+// Passwort vergessen: erzeugt Reset-Token + Mail. Antwortet IMMER ok (keine Existenz-Preisgabe).
+const forgotAttempts = new Map();
+app.post('/api/forgot-password', async (req, res) => {
+  const email = (req.body.email || '').toLowerCase().trim();
+  // sanftes Rate-Limit je IP
+  const key = req.ip || 'x';
+  const rec = forgotAttempts.get(key) || { count: 0, first: Date.now() };
+  if (Date.now() - rec.first > 15 * 60000) { rec.count = 0; rec.first = Date.now(); }
+  rec.count++; forgotAttempts.set(key, rec);
+  if (rec.count > 10) return res.json({ ok: true }); // still ok, aber nichts tun
+
+  if (EMAIL_RE.test(email)) {
+    const user = db.get('SELECT * FROM users WHERE email=?', [email]);
+    if (user) {
+      const token = makeToken(user.id, 'reset', 60); // 1 Stunde gültig
+      const c = resetPasswordContent(user.name, token);
+      await sendEmail({ to: user.email, ...c });
+    }
+  }
+  res.json({ ok: true });
+});
+
+// Passwort mit Reset-Token neu setzen
+app.post('/api/reset-password', (req, res) => {
+  const { token, password } = req.body;
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Neues Passwort min. 6 Zeichen' });
+  const uid = consumeToken(token, 'reset');
+  if (!uid) return res.status(400).json({ error: 'Link ungültig oder abgelaufen. Bitte fordere einen neuen an.' });
+  db.run('UPDATE users SET password_hash=? WHERE id=?', [hashPassword(password), uid]);
+  // alle übrigen offenen Reset-Tokens dieses Nutzers entwerten
+  db.run("UPDATE auth_tokens SET used=1 WHERE user_id=? AND type='reset'", [uid]);
+  res.json({ ok: true });
+});
+
+// E-Mail-Benachrichtigungen an/aus
+app.post('/api/notifications', auth, (req, res) => {
+  db.run('UPDATE users SET email_notifications=? WHERE id=?', [req.body.email_notifications ? 1 : 0, req.user.id]);
+  res.json({ ok: true });
+});
+
 // Coach setzt Passwort eines Athleten zurück (Self-Service-Reset per E-Mail kommt später mit Mailversand)
 app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
   const a = db.get('SELECT coach_id FROM users WHERE id=?', [req.params.id]);
@@ -216,7 +301,13 @@ app.post('/api/onboarding/complete', auth, (req, res) => {
         [dayId, e.muscle, e.name, e.technique || null, e.target_sets, e.target_reps, ei, 'system', 0]);
     });
   });
-  res.json({ ok: true, nutrition: nut });
+  // Abgelehnte Lebensmittel merken und gleich einen Mahlzeitenplan erzeugen
+  if (Array.isArray(f.disliked)) {
+    db.run('UPDATE users SET disliked_foods=? WHERE id=?', [JSON.stringify(f.disliked.filter(x => typeof x === 'string')), req.user.id]);
+  }
+  let mealPlan = null;
+  try { mealPlan = buildAndStoreMealPlan(req.user.id); } catch (e) { console.error('[mealplan] Erzeugung übersprungen:', e.message); }
+  res.json({ ok: true, nutrition: nut, mealPlan: !!mealPlan });
 });
 
 /* ---------------- PROFIL ---------------- */
@@ -771,6 +862,62 @@ app.get('/api/meals/:userId', auth, (req, res) => {
   res.json({ meals });
 });
 
+// Erzeugt aus dem Profil einen Mahlzeitenplan (Trainings- UND Ruhetag) und speichert ihn.
+// Ersetzt einen evtl. vorhandenen Plan. Gibt die berechneten Ziele zurück.
+function buildAndStoreMealPlan(uid) {
+  const u = getUserFull(uid);
+  if (!u) return null;
+  const age = u.dob ? Math.floor((Date.now() - new Date(u.dob).getTime()) / (365.25 * 864e5)) : 30;
+  const nut = nutritionPlan({ gender: u.gender, weightKg: u.start_weight, heightCm: u.height_cm, age, goal: u.goal, daysPerWeek: u.days_per_week });
+  let disliked = [];
+  try { disliked = JSON.parse(u.disliked_foods || '[]'); } catch (e) { disliked = []; }
+  // alte Mahlzeiten entfernen (meal_items via ON DELETE CASCADE)
+  db.run('DELETE FROM meals WHERE user_id=?', [uid]);
+  const writeDay = (dayType, kcalTarget) => {
+    const plan = generateMealPlan({ kcalTarget, macros: nut.macros, disliked, mealCount: 4 });
+    plan.meals.forEach((m, i) => {
+      const mealId = db.run('INSERT INTO meals(user_id,day_type,meal_no,label,position) VALUES(?,?,?,?,?)',
+        [uid, dayType, i + 1, m.label, i]).lastInsertRowid;
+      for (const it of m.items) {
+        db.run('INSERT INTO meal_items(meal_id,food,amount,kcal,fat,carbs,protein) VALUES(?,?,?,?,?,?,?)',
+          [mealId, it.food, it.amount, it.kcal, it.fat, it.carbs, it.protein]);
+      }
+    });
+    return plan.totals;
+  };
+  const train = writeDay('training', nut.trainKcal);
+  const rest = writeDay('rest', nut.restKcal);
+  return { nutrition: nut, trainTotals: train, restTotals: rest };
+}
+
+// Mahlzeitenplan (neu) erzeugen
+app.post('/api/mealplan/generate/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const r = buildAndStoreMealPlan(uid);
+  if (!r) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
+  res.json({ ok: true, ...r });
+});
+
+// Auswählbare „mag ich nicht"-Lebensmittel + aktuelle Auswahl des Nutzers
+app.get('/api/disliked/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const u = getUserFull(uid);
+  let disliked = []; try { disliked = JSON.parse(u.disliked_foods || '[]'); } catch (e) {}
+  res.json({ options: dislikeOptions(), disliked });
+});
+
+// Abgelehnte Lebensmittel speichern (und Plan neu erzeugen)
+app.post('/api/disliked/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const list = Array.isArray(req.body.disliked) ? req.body.disliked.filter(x => typeof x === 'string').slice(0, 50) : [];
+  db.run('UPDATE users SET disliked_foods=? WHERE id=?', [JSON.stringify(list), uid]);
+  const r = buildAndStoreMealPlan(uid);
+  res.json({ ok: true, regenerated: !!r });
+});
+
 /* ---------------- FOODS / RECHNER ---------------- */
 app.get('/api/foods', auth, (req, res) => {
   // Eigene + globale Lebensmittel; häufig genutzte zuerst, dann alphabetisch
@@ -1099,10 +1246,16 @@ app.post('/api/messages/:userId/read', auth, (req, res) => {
 // Coach schickt Nachricht an Athlet
 app.post('/api/messages', auth, requireCoach, (req, res) => {
   const { user_id, title, body } = req.body;
-  const a = db.get('SELECT coach_id FROM users WHERE id=?', [user_id]);
+  const a = db.get('SELECT * FROM users WHERE id=?', [user_id]);
   if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
   db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
     [user_id, req.user.id, 'message', title || 'Nachricht vom Coach', body || '']);
+  // Optionale E-Mail-Benachrichtigung (nur wenn der Athlet sie aktiviert hat; best effort)
+  if (a.email_notifications && a.email) {
+    const coach = db.get('SELECT name FROM users WHERE id=?', [req.user.id]);
+    const c = notifyMessageContent(a.name, coach?.name, (body || '').slice(0, 200));
+    sendEmail({ to: a.email, ...c }).catch(() => {});
+  }
   res.json({ ok: true });
 });
 
