@@ -784,8 +784,10 @@ app.post('/api/exercise-notes', auth, (req, res) => {
   const { user_id, exercise_id, note, flagged } = req.body;
   if (!canAccess(req.user, user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
   if (!note || !note.trim()) return res.status(400).json({ error: 'Notiz fehlt' });
-  db.run('INSERT INTO exercise_notes(user_id,exercise_id,date,note,flagged) VALUES(?,?,?,?,?)',
-    [user_id, exercise_id, new Date().toISOString().slice(0, 10), note.trim(), flagged === false ? 0 : 1]);
+  // Autor = wer schreibt. Coach/Admin, der NICHT der Besitzer ist -> 'coach', sonst 'athlete'.
+  const authorRole = (req.user.id !== Number(user_id) && (req.user.role === 'coach' || req.user.role === 'admin')) ? 'coach' : 'athlete';
+  db.run('INSERT INTO exercise_notes(user_id,exercise_id,date,note,flagged,author_id,author_role) VALUES(?,?,?,?,?,?,?)',
+    [user_id, exercise_id, new Date().toISOString().slice(0, 10), note.trim(), flagged === true ? 1 : 0, req.user.id, authorRole]);
   res.json({ ok: true });
 });
 app.post('/api/exercise-notes/:id/resolve', auth, requireCoach, (req, res) => {
@@ -1298,12 +1300,15 @@ app.post('/api/foodlog/frommeal/:mealId', auth, (req, res) => {
   const meal = db.get('SELECT * FROM meals WHERE id=?', [req.params.mealId]);
   if (!meal || !canAccess(req.user, meal.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
   const items = db.all('SELECT * FROM meal_items WHERE meal_id=?', [req.params.mealId]);
+  if (!items.length) return res.status(400).json({ error: 'Mahlzeit ist leer' });
   const date = req.body.date || new Date().toISOString().slice(0, 10);
-  for (const it of items) {
-    db.run(`INSERT INTO food_log(user_id,date,meal_slot,food,amount,kcal,fat,carbs,protein) VALUES(?,?,?,?,?,?,?,?,?)`,
-      [meal.user_id, date, meal.label || ('Meal ' + meal.meal_no), it.food, it.amount, it.kcal, it.fat, it.carbs, it.protein]);
-  }
-  res.json({ ok: true, added: items.length });
+  // Als EINE Mahlzeit eintragen (summierte Nährwerte), nicht als einzelne Zutaten.
+  const sum = items.reduce((a, it) => ({ kcal: a.kcal + (it.kcal || 0), fat: a.fat + (it.fat || 0), carbs: a.carbs + (it.carbs || 0), protein: a.protein + (it.protein || 0) }), { kcal: 0, fat: 0, carbs: 0, protein: 0 });
+  const label = meal.label || ('Mahlzeit ' + meal.meal_no);
+  db.run(`INSERT INTO food_log(user_id,date,meal_slot,food,amount,kcal,fat,carbs,protein) VALUES(?,?,?,?,?,?,?,?,?)`,
+    [meal.user_id, date, label, label, null,
+     Math.round(sum.kcal), Math.round(sum.fat * 10) / 10, Math.round(sum.carbs * 10) / 10, Math.round(sum.protein * 10) / 10]);
+  res.json({ ok: true, added: 1, label });
 });
 
 /* ---------------- BAUSTEIN 2: CARDIO ---------------- */

@@ -224,8 +224,17 @@ async function loadPlan(){const r=await API.get('/plan/'+VIEW_USER);if(r.status=
   if(PLAN.days.length&&!PLAN.days.find(d=>d.id===CUR_DAY))CUR_DAY=PLAN.days[0].id;}}
 async function loadToday(){const r=await API.get('/today/'+VIEW_USER);if(r.status===200)TODAY=r.data;}
 async function loadMessages(){const r=await API.get('/messages/'+ME.id);const m=r.data?.messages||[];
-  UNREAD=m.filter(x=>!x.read).length;const b=document.getElementById('bellBadge');
-  if(b){b.textContent=UNREAD>9?'9+':UNREAD;b.classList.toggle('hidden',UNREAD===0);}return m;}
+  UNREAD=m.filter(x=>!x.read).length;
+  const extra=pendingNotifications().length;const total=UNREAD+extra;
+  const b=document.getElementById('bellBadge');
+  if(b){b.textContent=total>9?'9+':total;b.classList.toggle('hidden',total===0);}return m;}
+// Offene System-Hinweise (früher Karten auf der Home, jetzt im Glocken-Portal)
+function pendingNotifications(){const out=[];if(!ME)return out;
+  if(ME.role==='athlete'||ME.id===VIEW_USER){
+    if(ME.email && !ME.email_verified) out.push({type:'verify'});
+    if(ME.health_reminder){const li=ME.last_health_import?Date.parse(ME.last_health_import):0;const days=li?Math.floor((Date.now()-li)/864e5):999;if(days>=7)out.push({type:'health',days,li});}
+  }
+  return out;}
 // Regelmäßig auf neue Nachrichten prüfen (alle 30s), damit Coach-Nachrichten zeitnah auftauchen
 let msgPoll=null;
 function startMsgPolling(){clearInterval(msgPoll);msgPoll=setInterval(()=>{if(ME)loadMessages();},30000);}
@@ -272,26 +281,6 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   const greet=hour<11?'Guten Morgen':hour<17?'Hallo':'Guten Abend';
   const greetLine=(VIEW_USER===ME.id)?`<div style="font-size:15px;color:var(--ink2);margin-bottom:14px">${greet}, ${ME.name.split(' ')[0]} 👋</div>`:'';
   html+=greetLine;
-  // E-Mail noch nicht bestätigt -> sanfter, nicht-blockierender Hinweis (nur eigenes Konto)
-  if(VIEW_USER===ME.id && ME.email && !ME.email_verified){
-    html+=`<div class="surface pad" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;border-left:3px solid var(--amber)">
-      <div style="font-size:20px">✉️</div>
-      <div style="flex:1"><div style="font-weight:600;font-size:14px">E-Mail bestätigen</div><div style="color:var(--ink2);font-size:13px">Bestätige <b>${esc2(ME.email)}</b>, um Passwort-Reset &amp; Benachrichtigungen per Mail zu nutzen.</div></div>
-      <button class="minibtn" onclick="resendVerify()">Senden</button>
-    </div>`;
-  }
-  // Sanfter Health-Import-Hinweis: nur fürs eigene Konto, wenn Erinnerung aktiv und >7 Tage her (oder nie)
-  if(VIEW_USER===ME.id && ME.health_reminder){
-    const li=ME.last_health_import?Date.parse(ME.last_health_import):0;
-    const days=li?Math.floor((Date.now()-li)/864e5):999;
-    if(days>=7){
-      html+=`<div class="surface pad" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;border-left:3px solid var(--red)">
-        <div style="font-size:22px">🍏</div>
-        <div style="flex:1"><div style="font-weight:600;font-size:14px">Gesundheitsdaten aktualisieren</div><div style="color:var(--ink2);font-size:13px">${li?'Letzter Import vor '+days+' Tagen.':'Noch keine Daten importiert.'} Tippe zum Importieren.</div></div>
-        <button class="minibtn" onclick="openIntegrations()">Import</button>
-      </div>`;
-    }
-  }
   html+=`<div class="today">
     <div class="eyebrow">◎ ${cap(dateStr)}</div>
     <div class="daytype">${dayName}</div>
@@ -514,7 +503,7 @@ function workoutTab(t){renderWorkout.tab=t;
   document.getElementById('wt_cardio').classList.toggle('on',t==='cardio');
   if(t==='strength')drawStrength();else drawCardioTab();}
 function drawStrength(){const b=document.getElementById('workoutBody');
-  b.innerHTML=`${isBeginner()?`<div class="info" style="margin-bottom:16px">👋 Tippe eine Übung an, um sie zu öffnen. Trag bei jedem Satz dein Gewicht und die Wiederholungen ein. Der grüne, gelbe oder graue Hinweis sagt dir, ob du nächstes Mal mehr Gewicht nehmen solltest.</div>`:''}
+  b.innerHTML=`${isBeginner()?infoBox('workout_intro','👋 Tippe eine Übung an, um sie zu öffnen. Trag bei jedem Satz dein Gewicht und die Wiederholungen ein. Der grüne, gelbe oder graue Hinweis sagt dir, ob du nächstes Mal mehr Gewicht nehmen solltest.'):''}
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <button class="btn sec" style="flex:1" onclick="startRest(90)">⏱️ Pause (90s)</button>
       <button class="btn sec" style="flex:1" onclick="openPlateCalc()">🏋️ Hantelrechner</button>
@@ -596,18 +585,22 @@ function toggleEx(id){document.getElementById('ex-'+id).classList.toggle('open')
 // Notizen / Beschwerden zu einer Übung
 async function openExNote(exId,name){openSheet('Notizen: '+name,'<div class="spinner"></div>');
   const r=await API.get('/exercise-notes/'+VIEW_USER+'/'+exId);const notes=r.data?.notes||[];
-  let h=`<div class="info">Schreib hier Beschwerden oder Beobachtungen (z.B. "Schulter knackt", "linkes Knie zwickt"). Als Beschwerde markierte Notizen sieht dein Coach hervorgehoben.</div>
-    <div class="field"><label>Neue Notiz</label><textarea id="en_note" rows="2" placeholder="Was ist dir aufgefallen?"></textarea></div>
-    <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" id="en_flag" checked style="width:auto"> Als Beschwerde markieren (Coach informieren)</label>
-    <button class="btn" onclick="saveExNote(${exId},'${esc(name)}')">Notiz speichern</button>`;
-  if(notes.length){h+=`<div class="section-label">Frühere Notizen</div><div class="rows">`+notes.map(n=>{
+  const coachView=(ME.role==='coach'||ME.role==='admin')&&VIEW_USER!==ME.id;
+  let h=`<div class="info">${coachView?'Schreib deinem Athleten einen Kommentar zu dieser Übung – z.B. „nächstes Mal 2,5 kg mehr, du schaffst das!".':'Notizen &amp; Kommentare zu dieser Übung – z.B. „nächstes Mal mehr Gewicht", „lief super" oder eine Beschwerde wie „Schulter zwickt".'}</div>
+    <div class="field"><label>Neue Notiz</label><textarea id="en_note" rows="2" placeholder="${coachView?'Dein Kommentar für den Athleten…':'Was möchtest du festhalten?'}"></textarea></div>
+    <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" id="en_flag" style="width:auto"> Als Problem markieren${coachView?'':' (Coach informieren)'}</label>
+    <button class="btn" onclick="saveExNote(${exId},'${esc(name)}')">${coachView?'Kommentar senden':'Notiz speichern'}</button>`;
+  if(notes.length){h+=`<div class="section-label">Verlauf</div><div class="rows">`+notes.map(n=>{
     const dt=new Date(n.date+'T00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'});
-    return `<div class="row"><div class="rl">${n.note}<small>${dt}</small></div><div class="rr">${n.flagged?'<span class="pill" style="background:var(--red-soft);color:var(--red)">offen</span>':'<span style="color:var(--ink3);font-size:12px">erledigt</span>'}</div></div>`;}).join('')+`</div>`;}
+    const isCoach=n.author_role==='coach';
+    const who=isCoach?'<span class="pill" style="background:var(--ink);color:#fff">Coach</span>':'<span class="pill" style="background:var(--surface2);color:var(--ink2)">Du</span>';
+    const tag=n.flagged?' <span class="pill" style="background:var(--red-soft);color:var(--red)">Problem</span>':'';
+    return `<div class="row" style="align-items:flex-start"><div class="rl" style="${isCoach?'border-left:3px solid var(--ink);padding-left:8px':''}">${esc2(n.note)}<small>${dt}</small></div><div class="rr">${who}${tag}</div></div>`;}).join('')+`</div>`;}
   openSheet('Notizen: '+name,h);}
 async function saveExNote(exId,name){const note=val('en_note');if(!note)return toast('Bitte etwas eingeben');
   const flag=document.getElementById('en_flag').checked;
   const r=await API.post('/exercise-notes',{user_id:VIEW_USER,exercise_id:exId,note,flagged:flag});
-  if(r.status===200){toast('Notiz gespeichert ✓');openExNote(exId,name);}else toast('Fehler');}
+  if(r.status===200){toast('Gespeichert ✓');openExNote(exId,name);}else toast('Fehler');}
 async function openExHistory(exId){openSheet('Lädt…','<div class="spinner"></div>');
   const r=await API.get('/exercise-history/'+VIEW_USER+'/'+exId);if(r.status!==200)return toast('Fehler');
   const d=r.data;const p=d.prs;
@@ -732,11 +725,11 @@ function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const su
   // Schnell-Aktionen
   h+=`<div style="display:flex;gap:10px;margin-bottom:16px">
     <button class="btn" onclick="openLogFood()">+ Lebensmittel</button>
-    <button class="btn sec" onclick="openLogFromPlan()">Aus Plan übernehmen</button></div>`;
+    <button class="btn sec" onclick="dietTab('plan')">Aus Plan übernehmen</button></div>`;
   // gegessene Items
   if(!items.length){h+='<div class="empty"><div class="ei">🍽️</div>Noch nichts getrackt heute.<br>Füge dein erstes Lebensmittel hinzu.</div>';}
   else{h+='<div class="section-label">Heute gegessen</div><div class="rows">';
-    items.forEach(it=>{h+=`<div class="row"><div class="rl">${it.food}<small>${it.amount} g/ml${it.meal_slot?' · '+it.meal_slot:''}</small></div><div class="rr">${Math.round(it.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="delFood(${it.id})">Entfernen</button></div></div>`;});
+    items.forEach(it=>{const amt=it.amount?`${it.amount} g/ml`:'ganze Mahlzeit';h+=`<div class="row"><div class="rl">${it.food}<small>${amt}${it.meal_slot&&it.meal_slot!==it.food?' · '+it.meal_slot:''}</small></div><div class="rr">${Math.round(it.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="delFood(${it.id})">Entfernen</button></div></div>`;});
     h+='</div>';}
   // Ernährungs-Tools
   h+=`<div class="section-label">Hilfsmittel</div><div class="quick">
@@ -765,9 +758,12 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
   if(f.goal!=='all')q+='goal='+encodeURIComponent(f.goal)+'&';
   if(f.meal!=='all')q+='meal='+encodeURIComponent(f.meal)+'&';
   if(f.fit&&remaining>0)q+='maxKcal='+encodeURIComponent(remaining)+'&';
-  const r=await API.get(q);const recipes=r.data?.recipes||[];
+  const r=await API.get(q);let recipes=r.data?.recipes||[];
+  // Zutaten-Ausschluss: Rezepte ausblenden, die ein abgelehntes Lebensmittel enthalten
+  const dis=myDisliked();
+  if(dis.length)recipes=recipes.filter(rc=>{const ing=(rc.ingredients||'').toLowerCase();return !dis.some(d=>ing.includes(String(d).toLowerCase()));});
   const meals=['Frühstück','Mittag','Abend','Snack'];
-  let h=`<div class="info">Fertige Mahlzeiten mit Nährwerten – mit einem Tipp ins Tagesprotokoll übernehmen. Kein lästiges Einzel-Tracken.</div>`;
+  let h=infoBox('recipes_intro','Fertige Mahlzeiten mit Nährwerten – mit einem Tipp ins Tagesprotokoll übernehmen. Kein lästiges Einzel-Tracken.');
   // Filter-Chips
   h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Ziel</div><div class="chip-row" style="margin-bottom:12px">`+
     [['all','Alle'],['muscle','Aufbau'],['fatloss','Definition'],['health','Gesundheit']].map(([v,l])=>`<button class="daychip ${f.goal===v?'now':''}" onclick="recipeFilter('goal','${v}')">${l}</button>`).join('')+`</div>`;
@@ -775,6 +771,8 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
     [['all','Alle'],...meals.map(m=>[m,m])].map(([v,l])=>`<button class="daychip ${f.meal===v?'now':''}" onclick="recipeFilter('meal','${v}')">${l}</button>`).join('')+`</div>`;
   // "Passt in mein Budget"-Schalter (nur sinnvoll, wenn Restbudget bekannt)
   if(remaining>0)h+=`<label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" ${f.fit?'checked':''} onchange="recipeFilter('fit',this.checked)" style="width:auto"> Nur Rezepte, die noch in mein Budget passen (${remaining} kcal übrig)</label>`;
+  h+=`<button class="btn sec" style="margin-bottom:10px" onclick="openDislikes()">🚫 Zutaten ausschließen (Unverträglichkeiten)</button>`;
+  if(dis.length)h+=`<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Ausgeblendet: Rezepte mit ${dis.map(esc2).join(', ')}.</div>`;
   h+=`<button class="btn sec" style="margin-bottom:16px" onclick="openNewRecipe()">+ Eigenes Rezept</button>`;
   // Liste
   if(!recipes.length)h+='<div class="empty"><div class="ei">🍳</div>Keine Rezepte für diese Filter.</div>';
@@ -903,13 +901,9 @@ async function confirmNewFood(){const name=val('nf_name');if(!name)return toast(
   toast('Gespeichert ✓');lfTab(1);
   // das neue Lebensmittel direkt auswählen
   setTimeout(()=>{const idx=FOODS.findIndex(f=>f.name===name);if(idx>=0)lfPick(idx);},60);}
-function openLogFromPlan(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DIET);
-  if(!meals.length)return toast('Kein Meal Plan vorhanden');
-  openSheet('Mahlzeit übernehmen',`<div class="info">Übernimm eine geplante Mahlzeit mit einem Tipp als "gegessen".</div>`+
-    meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);
-      return `<button class="btn sec" style="margin-bottom:8px;text-align:left" onclick="logFromMeal(${m.id})">Meal ${m.meal_no}: ${m.label||''} · ${Math.round(mk)} kcal</button>`;}).join(''));}
-async function logFromMeal(mealId){await API.post('/foodlog/frommeal/'+mealId,{date:today()});
-  closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;drawTrack();toast('Übernommen ✓');}
+async function logFromMeal(mealId){const r=await API.post('/foodlog/frommeal/'+mealId,{date:today()});
+  closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;
+  dietTab('track');toast('Als gegessen eingetragen ✓');}
 
 function setDiet(t){DIET=t;drawDiet();}
 function dietTargetKcal(){const prof=(VIEW_USER===ME.id?ME:(VIEW_USER_PROFILE||ME));
@@ -935,7 +929,7 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
     return `<div class="meal"><div class="meal-h"><div class="ml"><div class="n">Mahlzeit ${m.meal_no}</div><div class="t">${m.label||''}</div></div><div class="kc">${Math.round(mk)}<em>kcal · ${Math.round(mp)}g P</em></div></div>
       ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount} g/ml</div></div><div class="fmac">${Math.round(it.kcal||0)} kcal<br>${r1(it.protein)}P·${r1(it.carbs)}C·${r1(it.fat)}F</div></div>`).join('')}
       <button class="minibtn" style="margin-top:8px" onclick="logFromMeal(${m.id})">✓ als gegessen eintragen</button></div>`;}).join('');
-  h+=`<div style="font-size:12px;color:var(--ink3);margin-top:14px">Der Plan ist ein Vorschlag, der dein kcal- und Proteinziel trifft. Mengen sind Richtwerte – tausche Lebensmittel im „Heute"-Tab frei aus.</div>`;
+  h+=infoBox('dietplan_note','Der Plan ist ein Vorschlag, der dein kcal- und Proteinziel trifft. Mengen sind Richtwerte – tausche Lebensmittel im „Heute"-Tab frei aus.');
   el.innerHTML=h;}
 
 // Mahlzeitenplan automatisch (neu) erstellen
@@ -957,9 +951,15 @@ let DISLIKE_SEL=new Set();
 function toggleDislike(name,btn){if(DISLIKE_SEL.has(name)){DISLIKE_SEL.delete(name);btn.classList.remove('now');btn.textContent=name;}
   else{DISLIKE_SEL.add(name);btn.classList.add('now');btn.textContent='✓ '+name;}}
 async function saveDislikes(){closeModal();const el=document.getElementById('dietBody');if(el)el.innerHTML='<div class="spinner"></div>';
-  const r=await API.post('/disliked/'+VIEW_USER,{disliked:[...DISLIKE_SEL]});
-  if(r.status===200){const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];toast('Gespeichert ✓ Plan aktualisiert');drawDiet();}
-  else{toast('Fehler');drawDiet();}}
+  const list=[...DISLIKE_SEL];
+  const r=await API.post('/disliked/'+VIEW_USER,{disliked:list});
+  if(r.status===200){
+    if(VIEW_USER===ME.id)ME.disliked_foods=list; // lokal spiegeln, damit Rezept-Filter sofort greift
+    const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];
+    toast('Gespeichert ✓');
+    // im richtigen Tab neu zeichnen
+    if(renderDiet.tab==='recipes')drawRecipes();else drawDiet();
+  } else {toast('Fehler');if(renderDiet.tab==='recipes')drawRecipes();else drawDiet();}}
 
 // ===== ANALYSE (vormals Verlauf): Körper + Training =====
 function renderTracker(v){
@@ -992,7 +992,7 @@ async function drawAnaKoerper(){const box=document.getElementById('anaBody');box
   if(wa.length>=2){const avg=(wa.reduce((a,b)=>a+b,0)/wa.length).toFixed(1);
     h+=`<div class="chart-card"><div class="ch-h"><div class="t">Wasser</div><div class="v">Ø ${avg} L/Tag</div></div>${sparkline(wa)}</div>`;}
   h+=`<div class="section-label">Körper &amp; Physik</div>`;
-  if(isBeginner())h+=`<div class="info" style="margin-bottom:10px">Für den Anfang reicht dein Gewicht. Wenn du weiter bist, kannst du hier auch Körpermaße und Fortschrittsfotos festhalten – beides hilft deinem Coach.</div>`;
+  if(isBeginner())h+=infoBox('koerper_beginner','Für den Anfang reicht dein Gewicht. Wenn du weiter bist, kannst du hier auch Körpermaße und Fortschrittsfotos festhalten – beides hilft deinem Coach.');
   h+=`<div class="quick" style="margin-bottom:16px">
       <button class="qcard" onclick="openMeasure()"><span class="ic">📏</span><div class="t">Körpermaße</div><div class="d">Taille, Arm, Brust…</div></button>
       <button class="qcard" onclick="openPhotos()"><span class="ic">📸</span><div class="t">Fortschrittsfotos</div><div class="d">Physik vergleichen</div></button>
@@ -1232,22 +1232,26 @@ async function saveMeasure(){const body={user_id:VIEW_USER,date:today()};let any
   const r=await API.post('/measurements',body);if(r.status===200){closeModal();toast('Maße gespeichert ✓');}else toast('Fehler');}
 
 // FORTSCHRITTSFOTOS
-async function openPhotos(){const r=await API.get('/photos/'+VIEW_USER);const list=r.data?.photos||[];
-  let h=`<div class="info">Mach regelmäßig Fotos (z.B. alle 2 Wochen, gleiche Pose &amp; Licht), um deine Veränderung zu sehen. Fotos bleiben privat.</div>
+async function openPhotos(uid){uid=uid||VIEW_USER;const readOnly=(uid!==ME.id);
+  const r=await API.get('/photos/'+uid);const list=r.data?.photos||[];
+  const title=readOnly?('Fortschrittsfotos'):'Fortschrittsfotos';
+  let h=readOnly
+    ? `<div class="info">Nur du als zugewiesener Coach siehst die Fotos dieses Athleten.</div>`
+    : `<div class="info">Mach regelmäßig Fotos (z.B. alle 2 Wochen, gleiche Pose &amp; Licht), um deine Veränderung zu sehen. Fotos bleiben privat – nur du und dein zugewiesener Coach sehen sie.</div>
     <label class="btn" style="display:block;text-align:center;cursor:pointer">📸 Foto aufnehmen / auswählen
       <input type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoto(event)"></label>
     <div style="display:flex;gap:8px;margin:12px 0">
       <select id="ph_pose" class="field" style="flex:1;margin:0"><option value="front">Vorne</option><option value="side">Seite</option><option value="back">Hinten</option></select>
     </div>`;
-  if(list.length){h+=`<div class="section-label">Deine Fotos</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">`+
+  if(list.length){h+=`<div class="section-label">${readOnly?'Fotos':'Deine Fotos'}</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">`+
     list.map(p=>{const dt=new Date(p.date+'T00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'});
-      return `<div style="position:relative"><img src="" data-pid="${p.id}" onclick="viewPhoto(${p.id})" style="width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px;background:var(--surface2);cursor:pointer" loading="lazy">
+      return `<div style="position:relative"><img src="" data-pid="${p.id}" onclick="viewPhoto(${p.id},${uid})" style="width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px;background:var(--surface2);cursor:pointer" loading="lazy">
         <div style="position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 6px;border-radius:6px">${dt} ${({front:'V',side:'S',back:'H'}[p.pose]||'')}</div>
-        <button onclick="delPhoto(${p.id})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:50%;width:24px;height:24px">✕</button></div>`;}).join('')+`</div>`;
+        ${readOnly?'':`<button onclick="delPhoto(${p.id})" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:50%;width:24px;height:24px">✕</button>`}</div>`;}).join('')+`</div>`;
   }else h+=`<div class="empty"><div class="ei">📸</div>Noch keine Fotos.</div>`;
-  openSheet('Fortschrittsfotos',h);
+  openSheet(title,h);
   // Thumbnails laden (einzeln, da Bilddaten separat)
-  list.forEach(async p=>{const pr=await API.get('/photos/'+VIEW_USER+'/'+p.id);
+  list.forEach(async p=>{const pr=await API.get('/photos/'+uid+'/'+p.id);
     const img=document.querySelector(`img[data-pid="${p.id}"]`);if(img&&pr.data?.photo)img.src=pr.data.photo.image;});}
 function handlePhoto(ev){const file=ev.target.files[0];if(!file)return;
   const reader=new FileReader();reader.onload=()=>{
@@ -1263,9 +1267,9 @@ function handlePhoto(ev){const file=ev.target.files[0];if(!file)return;
 async function uploadPhoto(data){toast('Lädt hoch…');
   const r=await API.post('/photos',{user_id:VIEW_USER,date:today(),pose:val('ph_pose')||'front',image:data});
   if(r.status===200){toast('Foto gespeichert ✓');openPhotos();}else toast(r.data?.error||'Fehler');}
-async function viewPhoto(id){const r=await API.get('/photos/'+VIEW_USER+'/'+id);if(r.status!==200)return;
+async function viewPhoto(id,uid){uid=uid||VIEW_USER;const r=await API.get('/photos/'+uid+'/'+id);if(r.status!==200)return;
   const p=r.data.photo;const dt=new Date(p.date+'T00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'long',year:'numeric'});
-  openSheet(dt,`<img src="${p.image}" style="width:100%;border-radius:14px"><button class="btn sec" style="margin-top:14px" onclick="openPhotos()">Zurück</button>`);}
+  openSheet(dt,`<img src="${p.image}" style="width:100%;border-radius:14px"><button class="btn sec" style="margin-top:14px" onclick="openPhotos(${uid})">Zurück</button>`);}
 async function delPhoto(id){if(!window.confirm('Foto löschen?'))return;
   const r=await API.del('/photos/'+id);if(r.status===200){toast('Gelöscht');openPhotos();}}
 
@@ -1423,11 +1427,15 @@ async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></di
         <div style="font-size:14px;margin:3px 0 6px">${n.note}</div>
         <button class="minibtn" onclick="resolveNote(${n.id},${id})">✓ Als erledigt markieren</button></div>`;}).join('')+`</div>`;}
   // Aktionen
-  h+=`<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+  h+=`<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
     <button class="btn" style="flex:1;min-width:120px" onclick="coachOpenPlan(${id},'${esc(a.name)}')">Plan bearbeiten</button>
     <button class="btn sec" style="flex:1;min-width:120px" onclick="coachMessage(${id})">Nachricht</button>
     <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSetPhase(${id},'${a.phase||'offseason'}')">Phase/Ziele</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSupp(${id},'${esc(a.name)}')">💊 Supplements</button></div>`;
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSupp(${id},'${esc(a.name)}')">💊 Supplements</button></div>
+  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','tracker')">📈 Volle Analyse</button>
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="openPhotos(${id})">📸 Fortschrittsfotos</button>
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','home')">👁️ Alles ansehen</button></div>`;
   // Gewichtsverlauf
   if(d.weights.length>=2){const w=d.weights.slice().reverse().map(x=>x.weight);
     h+=`<div class="section-label">Gewichtsverlauf</div><div class="chart-card">${sparkline(w)}<div style="display:flex;justify-content:space-between;color:var(--ink2);font-size:13px;margin-top:8px"><span>${w[0]} kg</span><span>jetzt: ${w[w.length-1]} kg</span></div></div>`;}
@@ -1457,6 +1465,13 @@ function barchart(vals){if(!vals.length)return'';const mx=Math.max(...vals)||1;c
 async function coachOpenPlan(id,name){closeModal();COACH_CONTEXT=name;VIEW_USER=id;TODAY=null;PLAN=null;RECIPE_FILTER=null;buildNav();
   const dr=await API.get('/dashboard/'+id);VIEW_USER_PROFILE=dr.data?.athlete||null;
   await loadPlan();await loadToday();go('workout');}
+// Coach betritt den Athleten-Kontext und öffnet einen bestimmten Tab (home/tracker/diet/workout).
+// Bei 'tracker' direkt das Training-Segment der Analyse zeigen.
+async function coachOpenView(id,name,tab){closeModal();COACH_CONTEXT=name;VIEW_USER=id;TODAY=null;PLAN=null;RECIPE_FILTER=null;buildNav();
+  const dr=await API.get('/dashboard/'+id);VIEW_USER_PROFILE=dr.data?.athlete||null;
+  await loadPlan();await loadToday();
+  if(tab==='tracker')renderTracker.tab='training';
+  go(tab||'home');}
 function coachMessage(id){openSheet('Nachricht an Athlet',`<div class="field"><label>Betreff</label><input id="cm_title" placeholder="z.B. Plananpassung"></div><div class="field"><label>Nachricht</label><textarea id="cm_body" rows="3" placeholder="Deine Nachricht..."></textarea></div><button class="btn" onclick="sendCoachMsg(${id})">Senden</button>`);}
 async function sendCoachMsg(id){const r=await API.post('/messages',{user_id:id,title:val('cm_title'),body:val('cm_body')});
   if(r.status===200){closeModal();toast('Nachricht gesendet ✓');}else toast('Fehler');}
@@ -1511,9 +1526,17 @@ async function removeCoachSupp(sid){const {uid}=COACH_SUPP_CTX;
 async function openMessages(){const msgs=await loadMessages();
   await API.post('/messages/'+ME.id+'/read');document.getElementById('bellBadge').classList.add('hidden');
   const canReply=ME.role==='athlete'&&ME.coach_id;
-  openSheet('Nachrichten',(canReply?`<button class="btn sec" style="margin-bottom:14px" onclick="replyCoach()">✏️ Nachricht an deinen Coach</button>`:'')+(msgs.length?msgs.map(m=>{const dt=new Date(m.created_at).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  // System-Hinweise (E-Mail bestätigen / Health-Import) als oberste Einträge
+  const notes=pendingNotifications();let sys='';
+  for(const n of notes){
+    if(n.type==='verify')sys+=`<div class="msg" style="border-left:3px solid var(--amber)"><div class="mh"><div class="mt">✉️ E-Mail bestätigen</div></div><div class="mb">Bestätige <b>${esc2(ME.email)}</b>, um Passwort-Reset &amp; Benachrichtigungen per Mail zu nutzen.</div><button class="minibtn" style="margin-top:8px" onclick="resendVerify()">Bestätigungs-Mail senden</button></div>`;
+    if(n.type==='health')sys+=`<div class="msg" style="border-left:3px solid var(--red)"><div class="mh"><div class="mt">🍏 Gesundheitsdaten aktualisieren</div></div><div class="mb">${n.li?'Letzter Import vor '+n.days+' Tagen.':'Noch keine Daten importiert.'}</div><button class="minibtn" style="margin-top:8px" onclick="closeModal();openIntegrations()">Jetzt importieren</button></div>`;
+  }
+  const reply=canReply?`<button class="btn sec" style="margin-bottom:14px" onclick="replyCoach()">✏️ Nachricht an deinen Coach</button>`:'';
+  const list=msgs.length?msgs.map(m=>{const dt=new Date(m.created_at).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
     const sender=m.from_name?m.from_name:(m.kind==='system'?'System':'');
-    return `<div class="msg ${m.kind}"><div class="mh"><div class="mt">${m.title}</div><div class="md">${dt}</div></div>${sender?`<div style="font-size:12px;color:var(--ink3);margin-top:2px">von ${sender}</div>`:''}<div class="mb">${m.body}</div></div>`;}).join(''):'<div class="empty"><div class="ei">🔔</div>Keine Nachrichten.</div>'));}
+    return `<div class="msg ${m.kind}"><div class="mh"><div class="mt">${m.title}</div><div class="md">${dt}</div></div>${sender?`<div style="font-size:12px;color:var(--ink3);margin-top:2px">von ${sender}</div>`:''}<div class="mb">${m.body}</div></div>`;}).join(''):(sys?'':'<div class="empty"><div class="ei">🔔</div>Keine Nachrichten.</div>');
+  openSheet('Nachrichten',reply+sys+list);}
 function replyCoach(){openSheet('An deinen Coach',`<div class="field"><label>Betreff</label><input id="rc_title" placeholder="z.B. Frage zum Training"></div><div class="field"><label>Nachricht</label><textarea id="rc_body" rows="3" placeholder="Deine Nachricht..."></textarea></div><button class="btn" onclick="sendReplyCoach()">Senden</button>`);}
 async function sendReplyCoach(){const r=await API.post('/messages/tocoach',{title:val('rc_title'),body:val('rc_body')});
   if(r.status===200){closeModal();toast('An Coach gesendet ✓');}else toast(r.data?.error||'Fehler');}
@@ -1528,6 +1551,8 @@ function renderMore(v){
     <button class="qcard" onclick="openProfile()"><span class="ic">👤</span><div class="t">Profil</div><div class="d">${ME.role==='athlete'?'Ziele &amp; Daten':'Deine Daten'}</div></button>
     <button class="qcard" onclick="openChangePw()"><span class="ic">🔒</span><div class="t">Passwort</div><div class="d">Ändern</div></button>
   </div>
+  <div class="section-label">Anzeige</div>
+  <div class="rows"><div class="row" onclick="resetHints()"><div class="rl">Hinweise wieder anzeigen<small>Alle ausgeblendeten Info-Boxen zurückholen</small></div><div class="rr">↺</div></div></div>
   <div class="section-label">Konto</div>
   <div class="rows"><div class="row" onclick="logout()"><div class="rl" style="color:var(--red)">Abmelden</div><div class="rr">›</div></div></div>
   </div>`;}
@@ -1820,6 +1845,62 @@ function num(id){const v=document.getElementById(id)?.value;return v===''||v==nu
 function fmt(d){return d.toISOString().slice(0,10);}
 function r1(n){return Math.round((n||0)*10)/10;}
 function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+
+// ===== AUSBLENDBARE HINWEISE =====
+// infoBox(key,html) liefert eine Info-Box mit zwei kleinen Buttons: ✕ (jetzt schließen)
+// und 🚫 (dauerhaft ausblenden, gemerkt pro Gerät via localStorage). Profis können so
+// alles clean halten; unter „Mehr → Hinweise wieder anzeigen" lässt sich alles zurücksetzen.
+function hintsDismissed(){try{return JSON.parse(localStorage.getItem('be_hints')||'{}');}catch(e){return {};}}
+function infoBox(key,html){if(hintsDismissed()[key])return '';
+  return `<div class="info hintbox" data-hint="${key}" style="position:relative;padding-right:56px">${html}
+    <span style="position:absolute;top:6px;right:6px;display:flex;gap:3px">
+      <button onclick="hintClose(this)" title="Schließen" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer">✕</button>
+      <button onclick="hintNever('${key}',this)" title="Nicht mehr anzeigen" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer">🚫</button>
+    </span></div>`;}
+function hintClose(btn){const b=btn.closest('.hintbox');if(b)b.remove();}
+function hintNever(key,btn){const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}
+  const b=btn.closest('.hintbox');if(b)b.remove();toast('Hinweis ausgeblendet – unter „Mehr" wieder aktivierbar.');}
+function resetHints(){try{localStorage.removeItem('be_hints');}catch(e){}toast('Alle Hinweise wieder aktiviert ✓');
+  // aktuelle Ansicht neu zeichnen, damit ausgeblendete Boxen sofort zurückkommen
+  try{const cur=document.querySelector('.navbtn.on')?.dataset?.p;if(cur)go(cur);}catch(e){}}
+
+// --- Globaler Hinweis-Mechanismus: macht JEDE .info-Box ausblendbar ---
+// Stabiler Kurz-Hash aus dem Text (Schlüssel pro Hinweis, ohne dass jede Box einen Key braucht).
+function hintKey(text){let h=0;const s=(text||'').trim().slice(0,200);for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;}return 'h'+(h>>>0).toString(36);}
+function applyHintControls(){
+  const boxes=document.querySelectorAll('.info:not(.hintbox):not([data-hctl])');
+  boxes.forEach(box=>{
+    box.setAttribute('data-hctl','1');
+    const style=box.getAttribute('style')||'';
+    // Fehler-/Erfolgsmeldungen (rot/grün) NICHT ausblendbar machen – das sind keine Hinweise
+    if(style.includes('red-soft')||style.includes('green-soft'))return;
+    const txt=(box.textContent||'').trim();
+    if(txt.length<8)return;
+    const key=hintKey(txt);
+    if(hintsDismissed()[key]){box.remove();return;}
+    if(!box.style.position)box.style.position='relative';
+    box.style.paddingRight='56px';
+    const ctr=document.createElement('span');
+    ctr.style.cssText='position:absolute;top:6px;right:6px;display:flex;gap:3px;z-index:1';
+    const mk=(label,title)=>{const b=document.createElement('button');b.textContent=label;b.title=title;
+      b.style.cssText='border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer';return b;};
+    const bx=mk('✕','Schließen'),bn=mk('🚫','Nicht mehr anzeigen');
+    bx.onclick=()=>box.remove();
+    bn.onclick=()=>{const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}box.remove();toast('Hinweis ausgeblendet – unter „Mehr" wieder aktivierbar.');};
+    ctr.appendChild(bx);ctr.appendChild(bn);box.appendChild(ctr);
+  });
+}
+// Bei jeder DOM-Änderung (Seitenwechsel, Sheets) die Steuerelemente nachrüsten.
+let _hintTimer=null;
+function startHintObserver(){
+  if(!document.body)return;
+  const obs=new MutationObserver(()=>{clearTimeout(_hintTimer);_hintTimer=setTimeout(applyHintControls,30);});
+  obs.observe(document.body,{childList:true,subtree:true});
+  applyHintControls();
+}
+startHintObserver();
+// Abgelehnte Lebensmittel des eigenen Profils (für Rezept-Filter)
+function myDisliked(){try{const v=ME?.disliked_foods;return Array.isArray(v)?v:JSON.parse(v||'[]');}catch(e){return [];}}
 function esc(s){return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 function goalLabel(g){return{muscle:'Muskelaufbau',fatloss:'Definition',health:'Gesundheit'}[g]||'–';}
 function clampSets(v){let n=parseInt(v);if(isNaN(n))n=3;return Math.max(1,Math.min(10,n));}

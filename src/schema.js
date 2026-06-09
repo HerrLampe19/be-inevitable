@@ -211,7 +211,9 @@ export function initSchema() {
     exercise_id INTEGER NOT NULL,
     date TEXT NOT NULL,
     note TEXT,
-    flagged INTEGER DEFAULT 1,               -- 1 = für Coach hervorheben (Beschwerde)
+    flagged INTEGER DEFAULT 0,               -- 1 = ausdrücklich als Problem markiert (optional)
+    author_id INTEGER,                        -- wer die Notiz geschrieben hat
+    author_role TEXT DEFAULT 'athlete',       -- 'athlete' | 'coach'
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
@@ -263,6 +265,12 @@ export function initSchema() {
   addCol('disliked_foods', 'TEXT');
   addCol('email_verified', 'INTEGER DEFAULT 0');
   addCol('email_notifications', 'INTEGER DEFAULT 1');
+
+  // exercise_notes: Autor-Spalten nachrüsten (bestehende DBs)
+  const enCols = db.all("PRAGMA table_info(exercise_notes)").map(c => c.name);
+  const addEnCol = (name, def) => { if (!enCols.includes(name)) { try { db.run(`ALTER TABLE exercise_notes ADD COLUMN ${name} ${def}`); } catch (e) {} } };
+  addEnCol('author_id', 'INTEGER');
+  addEnCol('author_role', "TEXT DEFAULT 'athlete'");
 
   console.log('[db] Schema bereit');
 }
