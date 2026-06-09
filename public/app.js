@@ -1847,15 +1847,15 @@ function r1(n){return Math.round((n||0)*10)/10;}
 function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
 
 // ===== AUSBLENDBARE HINWEISE =====
-// infoBox(key,html) liefert eine Info-Box mit zwei kleinen Buttons: ✕ (jetzt schließen)
-// und 🚫 (dauerhaft ausblenden, gemerkt pro Gerät via localStorage). Profis können so
+// infoBox(key,html) liefert eine Info-Box mit zwei kleinen Buttons: − (vorübergehend schließen)
+// und ✕ (dauerhaft ausblenden, gemerkt pro Gerät via localStorage). Profis können so
 // alles clean halten; unter „Mehr → Hinweise wieder anzeigen" lässt sich alles zurücksetzen.
 function hintsDismissed(){try{return JSON.parse(localStorage.getItem('be_hints')||'{}');}catch(e){return {};}}
 function infoBox(key,html){if(hintsDismissed()[key])return '';
   return `<div class="info hintbox" data-hint="${key}" style="position:relative;padding-right:56px">${html}
     <span style="position:absolute;top:6px;right:6px;display:flex;gap:3px">
-      <button onclick="hintClose(this)" title="Schließen" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer">✕</button>
-      <button onclick="hintNever('${key}',this)" title="Nicht mehr anzeigen" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer">🚫</button>
+      <button onclick="hintClose(this)" title="Vorübergehend ausblenden" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:16px;line-height:1;cursor:pointer">−</button>
+      <button onclick="hintNever('${key}',this)" title="Komplett ausblenden – nicht mehr anzeigen" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer">✕</button>
     </span></div>`;}
 function hintClose(btn){const b=btn.closest('.hintbox');if(b)b.remove();}
 function hintNever(key,btn){const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}
@@ -1883,11 +1883,11 @@ function applyHintControls(){
     const ctr=document.createElement('span');
     ctr.style.cssText='position:absolute;top:6px;right:6px;display:flex;gap:3px;z-index:1';
     const mk=(label,title)=>{const b=document.createElement('button');b.textContent=label;b.title=title;
-      b.style.cssText='border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer';return b;};
-    const bx=mk('✕','Schließen'),bn=mk('🚫','Nicht mehr anzeigen');
-    bx.onclick=()=>box.remove();
-    bn.onclick=()=>{const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}box.remove();toast('Hinweis ausgeblendet – unter „Mehr" wieder aktivierbar.');};
-    ctr.appendChild(bx);ctr.appendChild(bn);box.appendChild(ctr);
+      b.style.cssText='border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:15px;line-height:1;cursor:pointer';return b;};
+    const bTemp=mk('−','Vorübergehend ausblenden'),bPerm=mk('✕','Komplett ausblenden – nicht mehr anzeigen');
+    bTemp.onclick=()=>box.remove();
+    bPerm.onclick=()=>{const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}box.remove();toast('Hinweis ausgeblendet – unter „Mehr" wieder aktivierbar.');};
+    ctr.appendChild(bTemp);ctr.appendChild(bPerm);box.appendChild(ctr);
   });
 }
 // Bei jeder DOM-Änderung (Seitenwechsel, Sheets) die Steuerelemente nachrüsten.
