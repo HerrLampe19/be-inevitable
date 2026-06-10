@@ -202,7 +202,22 @@ export function initSchema() {
     steps TEXT,                              -- Zubereitung als Text
     link TEXT,                               -- optionaler Link zu Video/Rezeptseite
     owner_id INTEGER,                        -- NULL = global, sonst eigenes
+    diet TEXT DEFAULT '',                    -- 'vegan' | 'veg' | '' (Ernährungsweise)
+    category TEXT,                           -- freie Kategorie (z.B. 'Bowl', 'Smoothie', 'Meal Prep')
+    photo TEXT,                              -- optionales Foto (base64 Data-URL)
+    shared_scope TEXT DEFAULT 'private',     -- 'private' | 'athletes' (Coach->seine Athleten) | 'public'
     created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  -- Gezieltes Teilen einzelner Rezepte an einzelne Nutzer (Athlet<->Athlet, Coach->Athlet)
+  CREATE TABLE IF NOT EXISTS recipe_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_id INTEGER NOT NULL,
+    shared_by INTEGER NOT NULL,              -- wer geteilt hat
+    shared_with INTEGER NOT NULL,            -- mit wem
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(recipe_id, shared_with),
+    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS exercise_notes (
@@ -266,7 +281,11 @@ export function initSchema() {
 
   // recipes: Ernährungsweise-Tag nachrüsten (bestehende DBs)
   const recCols = db.all("PRAGMA table_info(recipes)").map(c => c.name);
-  if (!recCols.includes('diet')) { try { db.run("ALTER TABLE recipes ADD COLUMN diet TEXT DEFAULT ''"); } catch (e) {} }
+  const addRecCol = (name, def) => { if (!recCols.includes(name)) { try { db.run(`ALTER TABLE recipes ADD COLUMN ${name} ${def}`); } catch (e) {} } };
+  addRecCol('diet', "TEXT DEFAULT ''");
+  addRecCol('category', 'TEXT');
+  addRecCol('photo', 'TEXT');
+  addRecCol('shared_scope', "TEXT DEFAULT 'private'");
   addCol('disliked_foods', 'TEXT');
   addCol('email_verified', 'INTEGER DEFAULT 0');
   addCol('email_notifications', 'INTEGER DEFAULT 1');

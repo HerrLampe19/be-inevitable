@@ -983,14 +983,55 @@ app.get('/api/definitions', (req, res) => {
 /* ---------------- REZEPTE ---------------- */
 // Rezeptliste: global + eigene; optional gefiltert nach goal, meal_type, maxKcal
 app.get('/api/recipes', auth, (req, res) => {
-  const { goal, meal, maxKcal } = req.query;
-  let sql = 'SELECT * FROM recipes WHERE (owner_id IS NULL OR owner_id=?)';
-  const params = [req.user.id];
+  const { goal, meal, maxKcal, category, mine, shared } = req.query;
+  const uid = req.user.id;
+  const me = db.get('SELECT coach_id FROM users WHERE id=?', [uid]);
+  const coachId = me?.coach_id || -1;
+  // Sichtbar: global (owner NULL) ODER eigenes ODER explizit mit mir geteilt
+  // ODER vom eigenen Coach für „seine Athleten" freigegeben.
+  // Fotos werden in der Liste NICHT mitgeschickt (Performance) – nur ein Flag has_photo.
+  let sql = `SELECT id,name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,owner_id,diet,category,shared_scope,
+      (photo IS NOT NULL AND photo!='') AS has_photo,
+      (owner_id=?) AS is_mine,
+      EXISTS(SELECT 1 FROM recipe_shares s WHERE s.recipe_id=recipes.id AND s.shared_with=?) AS is_shared
+    FROM recipes WHERE (
+      owner_id IS NULL
+      OR owner_id=?
+      OR EXISTS(SELECT 1 FROM recipe_shares s WHERE s.recipe_id=recipes.id AND s.shared_with=?)
+      OR (shared_scope='athletes' AND owner_id=?)
+    )`;
+  const params = [uid, uid, uid, uid, coachId];
   if (goal && goal !== 'all') { sql += ' AND (goal=? OR goal IS NULL)'; params.push(goal); }
   if (meal && meal !== 'all') { sql += ' AND meal_type=?'; params.push(meal); }
+  if (category && category !== 'all') { sql += ' AND category=?'; params.push(category); }
   if (maxKcal && Number(maxKcal) > 0) { sql += ' AND kcal<=?'; params.push(Number(maxKcal)); }
-  sql += ' ORDER BY (owner_id IS NOT NULL) DESC, name'; // eigene zuerst
+  if (mine === '1') { sql += ' AND owner_id=?'; params.push(uid); }
+  if (shared === '1') { sql += ' AND owner_id!=? AND owner_id IS NOT NULL'; params.push(uid); }
+  sql += ' ORDER BY (owner_id IS NOT NULL) DESC, name'; // eigene/geteilte zuerst
   res.json({ recipes: db.all(sql, params) });
+});
+
+// Verfügbare Kategorien (für den Filter) – aus sichtbaren Rezepten
+app.get('/api/recipes/categories', auth, (req, res) => {
+  const uid = req.user.id;
+  const rows = db.all(`SELECT DISTINCT category FROM recipes
+    WHERE category IS NOT NULL AND category!='' AND (
+      owner_id IS NULL OR owner_id=? OR EXISTS(SELECT 1 FROM recipe_shares s WHERE s.recipe_id=recipes.id AND s.shared_with=?))
+    ORDER BY category`, [uid, uid]);
+  res.json({ categories: rows.map(r => r.category) });
+});
+
+// Einzelnes Rezept inkl. Foto (Detailansicht)
+app.get('/api/recipes/:id', auth, (req, res) => {
+  const uid = req.user.id;
+  const me = db.get('SELECT coach_id FROM users WHERE id=?', [uid]);
+  const rec = db.get('SELECT * FROM recipes WHERE id=?', [req.params.id]);
+  if (!rec) return res.status(404).json({ error: 'Nicht gefunden' });
+  const visible = rec.owner_id == null || rec.owner_id === uid
+    || db.get('SELECT 1 x FROM recipe_shares WHERE recipe_id=? AND shared_with=?', [rec.id, uid])
+    || (rec.shared_scope === 'athletes' && rec.owner_id === (me?.coach_id || -1));
+  if (!visible) return res.status(403).json({ error: 'Kein Zugriff' });
+  res.json({ recipe: rec });
 });
 
 // Eigenes Rezept anlegen
@@ -1000,11 +1041,93 @@ app.post('/api/recipes', auth, (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name fehlt' });
   const kcal = Number(b.kcal) || 0;
   if (kcal <= 0) return res.status(400).json({ error: 'Kalorien angeben' });
-  const r = db.run(`INSERT INTO recipes(name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,owner_id)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+  // Foto begrenzen (base64) – Schutz vor Riesen-Uploads
+  let photo = typeof b.photo === 'string' && b.photo.startsWith('data:image/') ? b.photo : null;
+  if (photo && photo.length > 1500000) return res.status(400).json({ error: 'Foto zu groß (max. ~1 MB)' });
+  const scope = ['private', 'athletes', 'public'].includes(b.shared_scope) ? b.shared_scope : 'private';
+  // Nur Coaches/Admins dürfen „an alle meine Athleten" freigeben
+  const finalScope = (scope === 'athletes' && !(req.user.role === 'coach' || req.user.role === 'admin')) ? 'private' : scope;
+  const r = db.run(`INSERT INTO recipes(name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,owner_id,diet,category,photo,shared_scope)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [name, b.goal || null, b.meal_type || null, kcal, Number(b.protein) || 0, Number(b.carbs) || 0, Number(b.fat) || 0,
-     b.ingredients || '', b.steps || '', b.link || '', req.user.id]);
+     b.ingredients || '', b.steps || '', b.link || '', req.user.id,
+     ['vegan', 'veg', ''].includes(b.diet) ? b.diet : '', (b.category || '').trim() || null, photo, finalScope]);
   res.json({ ok: true, id: r.lastInsertRowid });
+});
+
+// Eigenes Rezept bearbeiten
+app.put('/api/recipes/:id', auth, (req, res) => {
+  const rec = db.get('SELECT * FROM recipes WHERE id=?', [req.params.id]);
+  if (!rec) return res.status(404).json({ error: 'Nicht gefunden' });
+  if (rec.owner_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Rezepte' });
+  const b = req.body;
+  let photo = rec.photo;
+  if (b.photo === null || b.photo === '') photo = null;
+  else if (typeof b.photo === 'string' && b.photo.startsWith('data:image/')) {
+    if (b.photo.length > 1500000) return res.status(400).json({ error: 'Foto zu groß (max. ~1 MB)' });
+    photo = b.photo;
+  }
+  const scope = ['private', 'athletes', 'public'].includes(b.shared_scope) ? b.shared_scope : rec.shared_scope;
+  const finalScope = (scope === 'athletes' && !(req.user.role === 'coach' || req.user.role === 'admin')) ? 'private' : scope;
+  db.run(`UPDATE recipes SET name=?,goal=?,meal_type=?,kcal=?,protein=?,carbs=?,fat=?,ingredients=?,steps=?,link=?,diet=?,category=?,photo=?,shared_scope=? WHERE id=?`,
+    [(b.name || rec.name).trim(), b.goal || null, b.meal_type || null, Number(b.kcal) || rec.kcal,
+     Number(b.protein) || 0, Number(b.carbs) || 0, Number(b.fat) || 0, b.ingredients || '', b.steps || '', b.link || '',
+     ['vegan', 'veg', ''].includes(b.diet) ? b.diet : (rec.diet || ''), (b.category || '').trim() || null, photo, finalScope, rec.id]);
+  res.json({ ok: true });
+});
+
+// Mit wem kann ich teilen? Athlet: andere Athleten desselben Coaches. Coach: eigene Athleten.
+app.get('/api/recipes/:id/share-targets', auth, (req, res) => {
+  const rec = db.get('SELECT * FROM recipes WHERE id=?', [req.params.id]);
+  if (!rec || rec.owner_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Rezepte' });
+  let targets = [];
+  if (req.user.role === 'coach' || req.user.role === 'admin') {
+    targets = db.all("SELECT id,name FROM users WHERE coach_id=? AND role='athlete'", [req.user.id]);
+  } else {
+    const me = db.get('SELECT coach_id FROM users WHERE id=?', [req.user.id]);
+    if (me?.coach_id) targets = db.all("SELECT id,name FROM users WHERE coach_id=? AND role='athlete' AND id!=?", [me.coach_id, req.user.id]);
+  }
+  const already = new Set(db.all('SELECT shared_with FROM recipe_shares WHERE recipe_id=?', [rec.id]).map(r => r.shared_with));
+  res.json({ targets: targets.map(t => ({ ...t, shared: already.has(t.id) })), scope: rec.shared_scope, canBroadcast: (req.user.role === 'coach' || req.user.role === 'admin') });
+});
+
+// Rezept mit bestimmten Nutzern teilen (oder Coach-Freigabe an alle Athleten setzen)
+app.post('/api/recipes/:id/share', auth, (req, res) => {
+  const rec = db.get('SELECT * FROM recipes WHERE id=?', [req.params.id]);
+  if (!rec || rec.owner_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Rezepte' });
+  const me = db.get('SELECT coach_id FROM users WHERE id=?', [req.user.id]);
+  // Erlaubte Empfänger bestimmen (gleiche Logik wie share-targets)
+  let allowed;
+  if (req.user.role === 'coach' || req.user.role === 'admin') allowed = new Set(db.all("SELECT id FROM users WHERE coach_id=? AND role='athlete'", [req.user.id]).map(r => r.id));
+  else allowed = new Set(db.all("SELECT id FROM users WHERE coach_id=? AND role='athlete' AND id!=?", [me?.coach_id || -1, req.user.id]).map(r => r.id));
+
+  // Coach-Broadcast an alle eigenen Athleten
+  if (req.body.scope && (req.user.role === 'coach' || req.user.role === 'admin')) {
+    const sc = ['private', 'athletes', 'public'].includes(req.body.scope) ? req.body.scope : 'private';
+    db.run('UPDATE recipes SET shared_scope=? WHERE id=?', [sc, rec.id]);
+  }
+  let shared = 0;
+  const ids = Array.isArray(req.body.user_ids) ? req.body.user_ids : [];
+  const coach = db.get('SELECT name FROM users WHERE id=?', [req.user.id]);
+  for (const id of ids) {
+    if (!allowed.has(Number(id))) continue;
+    try {
+      db.run('INSERT OR IGNORE INTO recipe_shares(recipe_id,shared_by,shared_with) VALUES(?,?,?)', [rec.id, req.user.id, Number(id)]);
+      // Benachrichtigung für den Empfänger
+      db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+        [Number(id), req.user.id, 'message', '🍽️ Neues Rezept geteilt', `${coach?.name || 'Jemand'} hat das Rezept „${rec.name}" mit dir geteilt. Du findest es jetzt in deinen Rezepten.`]);
+      shared++;
+    } catch (e) {}
+  }
+  res.json({ ok: true, shared });
+});
+
+// Teilen rückgängig (einzelner Empfänger)
+app.delete('/api/recipes/:id/share/:userId', auth, (req, res) => {
+  const rec = db.get('SELECT * FROM recipes WHERE id=?', [req.params.id]);
+  if (!rec || rec.owner_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Rezepte' });
+  db.run('DELETE FROM recipe_shares WHERE recipe_id=? AND shared_with=?', [rec.id, Number(req.params.userId)]);
+  res.json({ ok: true });
 });
 
 // Eigenes Rezept löschen (nur eigene)
@@ -1111,10 +1234,12 @@ app.get('/api/today/:userId', auth, (req, res) => {
   const history = getHistory(uid).filter(h => h.date < date); // alles vor heute
   const existing = db.get('SELECT type,day_name as dayName FROM day_log WHERE user_id=? AND date=?', [uid, date]);
   const suggestion = suggestForToday({ pattern, trainingDays, history });
-  // Vorschau beginnt MIT heute: dieselbe History wie die suggestion verwenden
-  const preview = previewNext({ pattern, trainingDays, history }, 7);
-  // Wenn heute bereits bestätigt ist, ersten Vorschau-Eintrag entsprechend ersetzen
-  if (existing) preview[0] = { type: existing.type, dayName: existing.dayName };
+  // Vorschau über EXAKT dieselbe Engine wie der Kalender, damit Widget & Kalender niemals
+  // auseinanderlaufen: heutiger/künftiger day_log gilt als "planned" und verschiebt den Rhythmus.
+  const planned = {};
+  for (const h of getHistory(uid).filter(h => h.date >= date)) planned[h.date] = { type: h.type, dayName: h.dayName };
+  const preview = calendarRange({ pattern, trainingDays, history, startDate: date, days: 7, planned, today: date })
+    .map(e => ({ type: e.type, dayName: e.dayName }));
   res.json({ date, suggestion, confirmed: existing || null, preview, phase: u.phase, goal: u.goal,
     kcal: { train: u.kcal_target_train, rest: u.kcal_target_rest } });
 });

@@ -109,7 +109,7 @@ async function renderOnb(){const v=document.getElementById('onbView');const s=ON
         <div class="field"><label>Alter</label><input id="o_age" type="number" inputmode="numeric" min="5" max="120" value="${d.age||''}" placeholder="28"></div>
         <div class="field"><label>Größe (cm)</label><input id="o_h" type="number" inputmode="numeric" min="50" max="260" value="${d.height_cm||''}" placeholder="180"></div>
       </div>
-      <div class="field"><label>Aktuelles Gewicht (kg)</label><input id="o_w" type="number" step="0.1" inputmode="decimal" min="20" max="500" value="${d.start_weight||''}" placeholder="80"></div>
+      <div class="field"><label>Aktuelles Gewicht (kg)</label><input id="o_w" type="number" step="0.1" inputmode="decimal" min="0" max="500" value="${d.start_weight||''}" placeholder="80"></div>
       <button class="btn" onclick="onbBody()">Weiter</button>`;
   } else if(s.key==='frequency'){
     h+=`<h2 style="font-size:24px;font-weight:700;margin-bottom:6px">Wie oft willst du trainieren?</h2><p style="color:var(--ink2);margin-bottom:20px">Pro Woche – ehrlich sein bringt die besten Ergebnisse.</p>
@@ -345,13 +345,8 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
             <div><b style="color:var(--ink)">${w.thisWeek.sessions}</b> Einheiten <span style="color:var(--ink3)">(Vorwoche: ${w.lastWeek.sessions})</span></div>
             <div><b style="color:var(--ink)">${(w.thisWeek.volume/1000).toFixed(1).replace('.',',')} t</b> Volumen ${dTxt}</div>
           </div></div>`;
-        // Neu freigeschalteten Erfolg feiern (Vergleich mit letztem Stand auf diesem Gerät)
-        try{const prev=JSON.parse(localStorage.getItem('be_ach')||'[]');
-          const now=(INS.achievements||[]).filter(a=>a.done).map(a=>a.id);
-          const fresh=now.filter(id=>!prev.includes(id));
-          if(prev.length&&fresh.length){const a=INS.achievements.find(x=>x.id===fresh[0]);
-            setTimeout(()=>toast('🏅 Neuer Erfolg: '+a.title+'!'),600);}
-          localStorage.setItem('be_ach',JSON.stringify(now));}catch(e){}
+        // Neu freigeschalteten Erfolg feiern – zentrale Funktion (greift überall)
+        checkNewAchievements(INS);
       }
     }catch(e){}
   }
@@ -380,7 +375,7 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   html+=`<div class="section-label">Fast Check-in</div>
     <div class="surface pad">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="20" max="500" placeholder="${last?.weight||'63.5'}"></div>
+        <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="0" max="500" placeholder="${last?.weight||'63.5'}"></div>
         <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" min="0" max="24" placeholder="${last?.sleep||'8'}"></div>
         <div class="field"><label>Schritte</label><input id="qc_steps" type="number" inputmode="numeric" min="0" max="200000" placeholder="${last?.steps||'8000'}"></div>
         <div class="field"><label>Wasser (L)</label><input id="qc_water" type="number" step="0.1" inputmode="decimal" min="0" max="30" placeholder="${last?.water||'3'}"></div>
@@ -487,7 +482,7 @@ async function quickCheckin(){const w=num('qc_weight'),sl=num('qc_sleep'),st=num
   if(w==null&&sl==null&&st==null&&wa==null)return toast('Bitte mindestens einen Wert eingeben');
   const body={user_id:VIEW_USER,date:today()};
   if(w!=null)body.weight=w;if(sl!=null)body.sleep=sl;if(st!=null)body.steps=st;if(wa!=null)body.water=wa;
-  await API.post('/checkins',body);toast('Check-in gespeichert ✓');go('home');}
+  await API.post('/checkins',body);toast('Check-in gespeichert ✓');refreshAchievements();go('home');}
 
 // ===== TAG-PICKER =====
 function openDayPicker(){const days=(PLAN?.days||[]);
@@ -596,7 +591,11 @@ async function renderEx(){const day=curDayObj();const el=document.getElementById
   else if(doneSets>0)banner+=`<div style="text-align:center;margin-top:10px;color:var(--ink2);font-size:13px">Weiter so – ${totalSets-doneSets} Sätze noch!</div>`;
   banner+=`</div>`;
   el.innerHTML=banner+el.innerHTML;}
-function toggleEx(id){document.getElementById('ex-'+id).classList.toggle('open');}
+function toggleEx(id){const el=document.getElementById('ex-'+id);const wasOpen=el.classList.contains('open');
+  // alle anderen schließen, dann die getippte umschalten (immer nur eine offen)
+  document.querySelectorAll('.ex.open').forEach(x=>{if(x!==el)x.classList.remove('open');});
+  el.classList.toggle('open',!wasOpen);
+  if(!wasOpen)setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'nearest'}),50);}
 // Verlauf + PRs einer Übung als Chart
 // Notizen / Beschwerden zu einer Übung
 async function openExNote(exId,name){openSheet('Notizen: '+name,'<div class="spinner"></div>');
@@ -643,6 +642,7 @@ function logSet(exId,setNo,field,value,autoTimer){const key=exId+'_'+setNo;
     if(r.status===200&&r.data?.pr){logSet.prDone=logSet.prDone||{};
       if(!logSet.prDone[key]){logSet.prDone[key]=1;toast('🎉 NEUER REKORD: '+logSet.cache[key].weight+' kg!');}}
     setSaveStatus(exId, r.status===200?'saved':'error');
+    if(r.status===200)refreshAchievements();
   },500);
   // Beim Eintragen der Reps automatisch Pausen-Timer starten (wenn ein Wert da ist)
   if(autoTimer&&value!==''&&parseFloat(value)>0&&restInt===null)startRest(90);}
@@ -777,6 +777,9 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
   if(f.goal!=='all')q+='goal='+encodeURIComponent(f.goal)+'&';
   if(f.meal!=='all')q+='meal='+encodeURIComponent(f.meal)+'&';
   if(f.fit&&remaining>0)q+='maxKcal='+encodeURIComponent(remaining)+'&';
+  if(f.category&&f.category!=='all')q+='category='+encodeURIComponent(f.category)+'&';
+  if(f.source==='mine')q+='mine=1&';else if(f.source==='shared')q+='shared=1&';
+  if(!RECIPE_CATS.length)loadRecipeCats();
   const r=await API.get(q);let recipes=r.data?.recipes||[];
   // Zutaten-Ausschluss: Rezepte ausblenden, die ein abgelehntes Lebensmittel enthalten
   const dis=myDisliked();
@@ -800,7 +803,13 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
   else{RECIPES_CACHE=recipes;h+='<div class="rows">'+recipes.map(rc=>{
     const badge=({muscle:'💪',fatloss:'🔥',health:'❤️'})[rc.goal]||'';
     const dpill=rc.diet==='vegan'?' 🌱':rc.diet==='veg'?' 🥕':'';
-    return `<div class="row" onclick="openRecipe(${rc.id})"><div class="rl">${rc.name}${dpill} ${rc.owner_id?'⭐':''}<small>${rc.meal_type||''} ${badge} · P${Math.round(rc.protein)} K${Math.round(rc.carbs)} F${Math.round(rc.fat)}</small></div><div class="rr">${Math.round(rc.kcal)} kcal<br><span style="color:var(--ink3);font-size:11px">ansehen ›</span></div></div>`;}).join('')+'</div>';}
+    const mine=rc.owner_id===ME.id, shared=rc.owner_id&&!mine;
+    const tag=mine?' <span class="pill" style="background:var(--surface2);color:var(--ink2)">eigenes</span>':shared?' <span class="pill" style="background:var(--red-soft);color:var(--red)">geteilt</span>':'';
+    const thumb=rc.has_photo?`<div style="width:46px;height:46px;border-radius:10px;background:var(--surface2);margin-right:10px;flex-shrink:0;overflow:hidden" data-rcthumb="${rc.id}"></div>`:'';
+    return `<div class="row" onclick="openRecipe(${rc.id})" style="align-items:center">${thumb}<div class="rl">${rc.name}${dpill}${tag}<small>${rc.meal_type||''}${rc.category?' · '+esc2(rc.category):''} ${badge} · P${Math.round(rc.protein)} K${Math.round(rc.carbs)} F${Math.round(rc.fat)}</small></div><div class="rr">${Math.round(rc.kcal)} kcal<br><span style="color:var(--ink3);font-size:11px">ansehen ›</span></div></div>`;}).join('')+'</div>';
+    // Thumbnails nachladen (Fotos sind nicht in der Liste enthalten)
+    recipes.filter(rc=>rc.has_photo).forEach(async rc=>{const dr=await API.get('/recipes/'+rc.id);
+      if(dr.status===200&&dr.data.recipe.photo){const box=document.querySelector(`[data-rcthumb="${rc.id}"]`);if(box)box.innerHTML=`<img src="${dr.data.recipe.photo}" style="width:100%;height:100%;object-fit:cover">`;}});}
   el.innerHTML=h;}
 
 // Filter-Sheet: Ziel, Mahlzeit, Budget, Ernährungsweise, Unverträglichkeiten – an einem Ort
@@ -813,6 +822,10 @@ function openRecipeFilter(){const f=RECIPE_FILTER;const meals=['Frühstück','Mi
     [['all','Alle'],...meals.map(m=>[m,m])].map(([v,l])=>`<button class="daychip ${f.meal===v?'now':''}" onclick="recipeFilter('meal','${v}')">${l}</button>`).join('')+`</div>`;
   h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Ernährungsweise</div><div class="chip-row" style="margin-bottom:14px">`+
     [['all','Alle'],['vegetarian','🥕 Vegetarisch'],['vegan','🌱 Vegan']].map(([v,l])=>`<button class="daychip ${dt===v?'now':''}" onclick="setDietType('${v}')">${l}</button>`).join('')+`</div>`;
+  h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Quelle</div><div class="chip-row" style="margin-bottom:14px">`+
+    [['all','Alle'],['mine','⭐ Eigene'],['shared','📤 Geteilt']].map(([v,l])=>`<button class="daychip ${(f.source||'all')===v?'now':''}" onclick="recipeFilter('source','${v}')">${l}</button>`).join('')+`</div>`;
+  if(RECIPE_CATS.length)h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Kategorie</div><div class="chip-row" style="margin-bottom:14px">`+
+    [['all','Alle'],...RECIPE_CATS.map(c=>[c,c])].map(([v,l])=>`<button class="daychip ${(f.category||'all')===v?'now':''}" onclick="recipeFilter('category','${esc(v)}')">${esc(l)}</button>`).join('')+`</div>`;
   if(remaining>0)h+=`<label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" ${f.fit?'checked':''} onchange="recipeFilter('fit',this.checked)" style="width:auto"> Nur was in mein Budget passt (${remaining} kcal übrig)</label>`;
   h+=`<button class="btn sec" onclick="openDislikes()">🚫 Zutaten ausschließen (Unverträglichkeiten)</button>`;
   openSheet('Rezepte filtern',h);}
@@ -823,18 +836,48 @@ async function setDietType(v){const r=await API.post('/disliked/'+VIEW_USER,{dis
     const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];
     closeModal();drawRecipes();toast('Ernährungsweise: '+({all:'Alle',vegetarian:'Vegetarisch',vegan:'Vegan'}[v])+' ✓');}
   else toast('Fehler');}
-let RECIPES_CACHE=[];
+let RECIPES_CACHE=[];let RECIPE_CATS=[];
+async function loadRecipeCats(){try{const r=await API.get('/recipes/categories');if(r.status===200)RECIPE_CATS=r.data.categories||[];}catch(e){}}
 function recipeFilter(key,val){RECIPE_FILTER[key]=val;drawRecipes();}
-function openRecipe(id){const rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)return;
+async function openRecipe(id){let rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)return;
+  openSheet(rc.name,'<div class="spinner"></div>');
+  // volle Daten inkl. Foto nachladen
+  const dr=await API.get('/recipes/'+id);if(dr.status===200)rc=dr.data.recipe;
   const badge=({muscle:'Muskelaufbau',fatloss:'Definition',health:'Gesundheit'})[rc.goal]||'für alle Ziele';
-  let h=macroRow(rc.kcal,rc.protein,rc.carbs,rc.fat);
-  h+=`<div style="color:var(--ink2);font-size:13px;margin:4px 0 16px">${rc.meal_type||'Mahlzeit'} · ${badge}</div>`;
+  const dpill=rc.diet==='vegan'?' · 🌱 Vegan':rc.diet==='veg'?' · 🥕 Vegetarisch':'';
+  const isMine=rc.owner_id===ME.id;
+  let h='';
+  if(rc.photo)h+=`<img src="${rc.photo}" style="width:100%;border-radius:14px;margin-bottom:14px">`;
+  h+=macroRow(rc.kcal,rc.protein,rc.carbs,rc.fat);
+  h+=`<div style="color:var(--ink2);font-size:13px;margin:4px 0 16px">${rc.meal_type||'Mahlzeit'} · ${badge}${rc.category?' · '+esc2(rc.category):''}${dpill}${(rc.owner_id&&!isMine)?' · <span style="color:var(--red)">geteilt</span>':''}</div>`;
   h+=`<button class="btn" onclick="logRecipe(${rc.id})">🍽️ Als gegessen eintragen</button>`;
   if(rc.link)h+=`<a class="btn sec" style="margin-top:10px;display:block;text-align:center;text-decoration:none" href="${esc(rc.link)}" target="_blank" rel="noopener">▶ Rezept ansehen (extern)</a>`;
   if(rc.ingredients){h+=`<div class="section-label">Zutaten</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.ingredients)}</div>`;}
   if(rc.steps){h+=`<div class="section-label">Zubereitung</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.steps)}</div>`;}
-  if(rc.owner_id)h+=`<button class="btn sec" style="margin-top:16px;color:var(--red)" onclick="delRecipe(${rc.id})">🗑 Eigenes Rezept löschen</button>`;
+  if(isMine){h+=`<div style="display:flex;gap:8px;margin-top:16px">
+    <button class="btn sec" style="flex:1" onclick="openShareRecipe(${rc.id},'${esc(rc.name)}')">📤 Teilen</button>
+    <button class="btn sec" style="flex:1;color:var(--red)" onclick="delRecipe(${rc.id})">🗑 Löschen</button></div>`;}
   openSheet(rc.name,h);}
+
+// Teilen-Sheet: einzelne Empfänger ankreuzen (Athlet->Athlet gleicher Coach, Coach->Athleten)
+async function openShareRecipe(id,name){openSheet('„'+name+'" teilen','<div class="spinner"></div>');
+  const r=await API.get('/recipes/'+id+'/share-targets');
+  if(r.status!==200){openSheet('Teilen',`<div class="info">${esc2(r.data?.error||'Fehler')}</div>`);return;}
+  const t=r.data;
+  let h=`<div class="info">${t.canBroadcast?'Teile dieses Rezept mit einzelnen Athleten oder gib es für alle frei.':'Teile dieses Rezept mit anderen Athleten deines Coaches.'}</div>`;
+  if(t.canBroadcast){const on=t.scope==='athletes';
+    h+=`<label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" id="sh_all" ${on?'checked':''} onchange="shareBroadcast(${id},this.checked)" style="width:auto"> 📢 Für alle meine Athleten freigeben</label>`;}
+  if(!t.targets.length)h+=`<div class="empty" style="padding:20px"><div class="ei">👥</div>Keine Personen zum Teilen verfügbar.</div>`;
+  else{h+=`<div class="section-label">Einzeln teilen</div><div class="rows">`+t.targets.map(p=>`<label class="row" style="cursor:pointer"><div class="rl">${esc2(p.name)}</div><div class="rr"><input type="checkbox" class="sh_t" value="${p.id}" ${p.shared?'checked':''} style="width:auto;transform:scale(1.3)"></div></label>`).join('')+`</div>
+    <button class="btn" style="margin-top:14px" onclick="doShareRecipe(${id})">Auswahl speichern</button>`;}
+  openSheet('„'+name+'" teilen',h);}
+async function shareBroadcast(id,on){await API.post('/recipes/'+id+'/share',{scope:on?'athletes':'private'});toast(on?'Für alle Athleten freigegeben ✓':'Freigabe entfernt');}
+async function doShareRecipe(id){const boxes=[...document.querySelectorAll('.sh_t')];
+  const add=boxes.filter(b=>b.checked).map(b=>+b.value);
+  const remove=boxes.filter(b=>!b.checked).map(b=>+b.value);
+  if(add.length)await API.post('/recipes/'+id+'/share',{user_ids:add});
+  for(const uid of remove)await API.del('/recipes/'+id+'/share/'+uid);
+  closeModal();toast('Teilen aktualisiert ✓');}
 async function logRecipe(id){const r=await API.post('/recipes/'+id+'/log',{user_id:VIEW_USER,date:today()});
   if(r.status===200){closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;
     toast('Eingetragen ✓');dietTab('track');}else toast(r.data?.error||'Fehler');}
@@ -855,13 +898,32 @@ function openNewRecipe(){openSheet('Eigenes Rezept',`
   <div class="field"><label>Ziel (optional)</label><select id="nr_goal"><option value="">für alle</option><option value="muscle">Aufbau</option><option value="fatloss">Definition</option><option value="health">Gesundheit</option></select></div>
   <div class="field"><label>Zutaten (optional, eine pro Zeile)</label><textarea id="nr_ing" rows="3" placeholder="100 g Haferflocken\n300 ml Milch"></textarea></div>
   <div class="field"><label>Zubereitung (optional)</label><textarea id="nr_steps" rows="2" placeholder="1. ..."></textarea></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="field"><label>Kategorie (optional)</label><input id="nr_cat" list="catlist" placeholder="z.B. Bowl, Smoothie"><datalist id="catlist">${(RECIPE_CATS||[]).map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
+    <div class="field"><label>Ernährungsweise</label><select id="nr_diet"><option value="">egal</option><option value="veg">🥕 Vegetarisch</option><option value="vegan">🌱 Vegan</option></select></div>
+  </div>
+  <div class="field"><label>Foto (optional)</label>
+    <label class="btn sec" style="display:block;text-align:center;cursor:pointer">📷 Foto aufnehmen / auswählen<input type="file" accept="image/*" style="display:none" onchange="recipePhotoPick(event)"></label>
+    <div id="nr_photo_prev" style="margin-top:10px"></div></div>
   <div class="field"><label>Link zu Rezept/Video (optional)</label><input id="nr_link" placeholder="https://..."></div>
+  ${(ME.role==='coach'||ME.role==='admin')?`<label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" id="nr_share_ath" style="width:auto"> 📢 Direkt mit allen meinen Athleten teilen</label>`:''}
   <button class="btn" onclick="saveNewRecipe()">Rezept speichern</button>`);}
-async function saveNewRecipe(){const body={name:val('nr_name'),kcal:num('nr_kcal'),protein:num('nr_p'),carbs:num('nr_c'),fat:num('nr_f'),
-    meal_type:val('nr_meal'),goal:val('nr_goal')||null,ingredients:val('nr_ing'),steps:val('nr_steps'),link:val('nr_link')};
+// Foto auswählen, runterskalieren (max 1024px), als Data-URL in NR_PHOTO ablegen
+let NR_PHOTO=null;
+function recipePhotoPick(ev){const file=ev.target.files&&ev.target.files[0];if(!file)return;
+  const reader=new FileReader();reader.onload=e=>{const img=new Image();img.onload=()=>{
+    const max=1024;let{width:w,height:h}=img;if(w>max||h>max){if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+    NR_PHOTO=cv.toDataURL('image/jpeg',0.78);
+    const pv=document.getElementById('nr_photo_prev');if(pv)pv.innerHTML=`<img src="${NR_PHOTO}" style="width:100%;border-radius:12px"><button class="minibtn" style="margin-top:6px" onclick="NR_PHOTO=null;document.getElementById('nr_photo_prev').innerHTML='';">Foto entfernen</button>`;
+  };img.src=e.target.result;};reader.readAsDataURL(file);}
+async function saveNewRecipe(){const shareAth=document.getElementById('nr_share_ath');
+  const body={name:val('nr_name'),kcal:num('nr_kcal'),protein:num('nr_p'),carbs:num('nr_c'),fat:num('nr_f'),
+    meal_type:val('nr_meal'),goal:val('nr_goal')||null,ingredients:val('nr_ing'),steps:val('nr_steps'),link:val('nr_link'),
+    category:val('nr_cat'),diet:val('nr_diet'),photo:NR_PHOTO,shared_scope:(shareAth&&shareAth.checked)?'athletes':'private'};
   if(!body.name)return toast('Name fehlt');if(!body.kcal)return toast('Kalorien angeben');
   const r=await API.post('/recipes',body);
-  if(r.status===200){closeModal();toast('Rezept gespeichert ✓');RECIPE_FILTER.goal='all';drawRecipes();}else toast(r.data?.error||'Fehler');}
+  if(r.status===200){closeModal();NR_PHOTO=null;toast('Rezept gespeichert ✓');RECIPE_FILTER.goal='all';loadRecipeCats();drawRecipes();}else toast(r.data?.error||'Fehler');}
 function openLogFood(){
   openSheet('Essen hinzufügen',`
     <div class="seg" style="margin-bottom:16px">
@@ -1092,7 +1154,7 @@ function cardioPace(){const el=document.getElementById('c_pace');if(!el)return;
   }else el.textContent='';}
 async function confirmCardio(){const body={user_id:VIEW_USER,date:today(),kind:val('c_kind'),minutes:num('c_min'),distance_km:num('c_dist'),avg_hr:num('c_hr'),intensity:val('c_int')};
   if(!body.minutes)return toast('Bitte Minuten eingeben');
-  const r=await API.post('/cardio',body);if(r.status===200){closeModal();toast('Cardio gespeichert · '+r.data.kcal+' kcal ✓');
+  const r=await API.post('/cardio',body);if(r.status===200){closeModal();toast('Cardio gespeichert · '+r.data.kcal+' kcal ✓');refreshAchievements();
     drawCardioTab();}else toast('Fehler');}
 
 // ===== CARDIO-TAB im Training =====
@@ -1273,7 +1335,7 @@ async function openMeasure(){const r=await API.get('/measurements/'+VIEW_USER);c
 async function saveMeasure(){const body={user_id:VIEW_USER,date:today()};let any=false;
   MEASURE_FIELDS.forEach(([k])=>{const v=num('ms_'+k);if(v!=null){body[k]=v;any=true;}});
   if(!any)return toast('Bitte mindestens einen Wert eingeben');
-  const r=await API.post('/measurements',body);if(r.status===200){closeModal();toast('Maße gespeichert ✓');}else toast('Fehler');}
+  const r=await API.post('/measurements',body);if(r.status===200){closeModal();toast('Maße gespeichert ✓');refreshAchievements();}else toast('Fehler');}
 
 // FORTSCHRITTSFOTOS
 async function openPhotos(uid){uid=uid||VIEW_USER;const readOnly=(uid!==ME.id);
@@ -1310,7 +1372,7 @@ function handlePhoto(ev){const file=ev.target.files[0];if(!file)return;
   reader.readAsDataURL(file);}
 async function uploadPhoto(data){toast('Lädt hoch…');
   const r=await API.post('/photos',{user_id:VIEW_USER,date:today(),pose:val('ph_pose')||'front',image:data});
-  if(r.status===200){toast('Foto gespeichert ✓');openPhotos();}else toast(r.data?.error||'Fehler');}
+  if(r.status===200){toast('Foto gespeichert ✓');refreshAchievements();openPhotos();}else toast(r.data?.error||'Fehler');}
 async function viewPhoto(id,uid){uid=uid||VIEW_USER;const r=await API.get('/photos/'+uid+'/'+id);if(r.status!==200)return;
   const p=r.data.photo;const dt=new Date(p.date+'T00:00').toLocaleDateString('de-DE',{day:'2-digit',month:'long',year:'numeric'});
   openSheet(dt,`<img src="${p.image}" style="width:100%;border-radius:14px"><button class="btn sec" style="margin-top:14px" onclick="openPhotos(${uid})">Zurück</button>`);}
@@ -1571,7 +1633,14 @@ async function openShoppingList(){openSheet('🛒 Einkaufsliste','<div class="sp
 let LAST_INSIGHTS=null;
 async function openAchievements(){
   if(!LAST_INSIGHTS){const r=await API.get('/insights/'+VIEW_USER);LAST_INSIGHTS=r.data;}
-  const I=LAST_INSIGHTS||{};const list=I.achievements||[];const done=list.filter(a=>a.done).length;
+  const I=LAST_INSIGHTS||{};
+  // Abgeschlossene Erfolge zuerst, dann die mit dem meisten Fortschritt
+  const list=(I.achievements||[]).slice().sort((a,b)=>{
+    if(a.done!==b.done)return a.done?-1:1;
+    const pa=a.target?a.progress/a.target:0, pb=b.target?b.progress/b.target:0;
+    return pb-pa;
+  });
+  const done=list.filter(a=>a.done).length;
   const lp=I.levelProgress||{pct:0};
   const head=`<div class="surface pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;font-size:15px;margin-bottom:4px">
@@ -1581,6 +1650,26 @@ async function openAchievements(){
   openSheet('🏅 Erfolge ('+done+'/'+list.length+')',head+
     list.map(a=>{const prog=(!a.done&&a.target)?` · <span style="color:var(--ink3)">${a.progress}/${a.target}</span>`:'';
       return `<div class="row" style="${a.done?'':'opacity:.5'}"><div class="rl"><span style="font-size:20px;margin-right:8px">${a.icon}</span><b>${esc2(a.title)}</b><small>${esc2(a.desc)}${prog}</small></div><div class="rr">${a.done?'<span class="pill" style="background:var(--green-soft,#e6f6ea);color:var(--green)">✓</span>':'<span style="color:var(--ink3)">🔒</span>'}</div></div>`;}).join(''));}
+
+// Vergleicht erreichte Erfolge mit dem letzten Stand (pro Gerät) und feiert neue – überall einsetzbar.
+function checkNewAchievements(INS){
+  if(!INS||VIEW_USER!==ME.id||ME.role!=='athlete')return;
+  LAST_INSIGHTS=INS;
+  try{const prev=JSON.parse(localStorage.getItem('be_ach')||'[]');
+    const now=(INS.achievements||[]).filter(a=>a.done).map(a=>a.id);
+    const fresh=now.filter(id=>!prev.includes(id));
+    if(prev.length&&fresh.length){
+      // Mehrere gleichzeitig? Nacheinander feiern.
+      fresh.forEach((id,i)=>{const a=INS.achievements.find(x=>x.id===id);if(a)setTimeout(()=>toast('🏅 Neuer Erfolg: '+a.title+'!'),600+i*1900);});
+    }
+    localStorage.setItem('be_ach',JSON.stringify(now));
+  }catch(e){}
+}
+// Holt frische Insights und prüft auf neue Erfolge – nach jeder Aktion, die XP bringt.
+async function refreshAchievements(){
+  if(VIEW_USER!==ME.id||ME.role!=='athlete')return;
+  try{const r=await API.get('/insights/'+ME.id);if(r.status===200)checkNewAchievements(r.data);}catch(e){}
+}
 function coachMessage(id){openSheet('Nachricht an Athlet',`<div class="field"><label>Betreff</label><input id="cm_title" placeholder="z.B. Plananpassung"></div><div class="field"><label>Nachricht</label><textarea id="cm_body" rows="3" placeholder="Deine Nachricht..."></textarea></div><button class="btn" onclick="sendCoachMsg(${id})">Senden</button>`);}
 async function sendCoachMsg(id){const r=await API.post('/messages',{user_id:id,title:val('cm_title'),body:val('cm_body')});
   if(r.status===200){closeModal();toast('Nachricht gesendet ✓');}else toast('Fehler');}
@@ -1764,7 +1853,8 @@ async function drawCalendar(){
     let bg=isTrain?'var(--red)':(e?.type==='rest'||isSick)?'var(--surface2)':'transparent';
     let fg=isTrain?'#fff':'var(--ink2)';
     const icon=isTrain?'🏋️':isSick?'🤒':'😴';
-    grid+=`<button onclick="calDay('${iso}')" ${isPast?'disabled':''} style="aspect-ratio:1;box-sizing:border-box;border:none;border-radius:10px;background:${bg};color:${fg};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer;opacity:${isPast?0.4:1};${isToday?'box-shadow:inset 0 0 0 2px var(--ink)':''};position:relative;overflow:hidden">
+    const isFuture=iso>todayISO;
+    grid+=`<button onclick="calDay('${iso}',${isPast?'true':'false'})" style="aspect-ratio:1;box-sizing:border-box;border:none;border-radius:10px;background:${bg};color:${fg};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer;opacity:${isPast&&!e?0.5:1};${isToday?'box-shadow:inset 0 0 0 2px var(--ink)':''};position:relative;overflow:hidden">
       <span style="font-size:clamp(11px,3.2vw,13px);font-weight:600;line-height:1">${day}</span>
       <span style="font-size:clamp(10px,3vw,13px);line-height:1">${icon}</span>
       ${e?.planned?`<span style="position:absolute;top:3px;right:3px;width:6px;height:6px;background:var(--blue);border-radius:50%"></span>`:''}
@@ -1786,10 +1876,10 @@ async function drawCalendar(){
   openSheet('Kalender',body);
 }
 function calNav(dir){CAL_MONTH.setMonth(CAL_MONTH.getMonth()+dir);drawCalendar();}
-function calDay(iso){const dt=new Date(iso+'T00:00').toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
+function calDay(iso,isPast){const dt=new Date(iso+'T00:00').toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
   const trainNames=(PLAN?.days||[]).map(d=>d.name);
   openSheet(dt,`
-    <div class="info">Was möchtest du für diesen Tag festlegen?</div>
+    <div class="info">${isPast?'Tag nachtragen – z.B. ein vergessenes Training. Vergangene Einträge verschieben deinen künftigen Rhythmus nicht.':'Was möchtest du für diesen Tag festlegen?'}</div>
     <button class="btn" onclick="setCalDay('${iso}','rest',null)">😴 Ruhetag</button>
     <div class="section-label" style="margin-top:14px">Training</div>
     ${trainNames.length?trainNames.map(n=>`<button class="btn sec" style="margin-bottom:8px" onclick="setCalDay('${iso}','train','${esc(n)}')">🏋️ ${n}</button>`).join(''):'<button class="btn sec" onclick="setCalDay(\''+iso+'\',\'train\',null)">🏋️ Training</button>'}
@@ -1987,9 +2077,9 @@ function applyHintControls(){
     const style=box.getAttribute('style')||'';
     // Fehler-/Erfolgsmeldungen (rot/grün) NICHT ausblendbar machen – das sind keine Hinweise
     if(style.includes('red-soft')||style.includes('green-soft'))return;
-    // Keine Wegklick-Buttons in Übungskarten (Notizen dort sollen sichtbar bleiben) –
-    // das verursachte verirrte ✕/− neben den Satz-Zeilen der ersten Übung.
-    if(box.closest('.ex-body')||box.closest('.setgrid'))return;
+    // Wegklick-Buttons NIE in Übungskarten/Sätzen/Mini-Texten (doppelter Boden gegen
+    // verirrte ✕/−). Notizen in Übungen sollen ohnehin sichtbar bleiben.
+    if(box.closest('.ex')||box.closest('.ex-body')||box.closest('.setgrid')||box.closest('.prev')||box.closest('.rec'))return;
     const txt=(box.textContent||'').trim();
     if(txt.length<30)return;
     const key=hintKey(txt);

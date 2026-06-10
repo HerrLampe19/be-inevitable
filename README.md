@@ -379,3 +379,22 @@ Keine Schema-Änderung – alles wird aus vorhandenen Daten abgeleitet (null Mig
 - **Klarere Zutaten-Namen:** z.B. „Rinderhack (5% Fett)" statt „Rindfleisch (mager)", „Quinoa (gekocht)".
 - **Einkaufsliste mit Stückzahlen:** z.B. „12 Stück ≈ 720 g" bei Eiern.
 - **Rezept-Filter als Symbol (⚙️):** kompakter Button öffnet ein Filter-Sheet (Ziel, Mahlzeit, Ernährungsweise, Unverträglichkeiten). **51 Rezepte** (vorher 29), mit deutlich mehr für Definition (8 Mittag, 9 Abend statt je 2) und je ≥9 vegan/≥23 vegetarisch.
+
+## Bugfix-Runde 2 (Kalender-Sync, Eingabe, Akkordeon)
+- **Kalender-Widget == Kalender:** Beide nutzen jetzt EXAKT dieselbe Engine (`calendarRange`). Vorher rechnete das Heute-Widget die Folgetage ohne den heutigen Eintrag (z.B. "krank gemeldet") und lief auseinander. Mit Repro-Test abgesichert.
+- **Vergangene Tage nachtragen:** Kalendertage in der Vergangenheit sind jetzt anklickbar (z.B. vergessenes Training nachtragen).
+- **Fast-Checkin-Gewicht:** Minimum auf 0 gesetzt (vorher 20 → Eingabe wurde blockiert).
+- **Übungen-Akkordeon:** Es bleibt immer nur EINE Übung gleichzeitig aufgeklappt.
+- **✕/−-Härtung:** Der Hinweis-Mechanismus ist zusätzlich gegen Übungskarten abgesichert (`.ex`, `.prev`, `.rec` ausgenommen).
+
+## Erfolge überall + Rezepte teilen, Fotos, Kategorien
+**Gamification-Feinschliff**
+- **Erfolgs-Meldung überall:** Die „🏅 Neuer Erfolg"-Meldung erscheint jetzt nach JEDER Aktion, die XP bringt (Satz, Check-in, Cardio, Foto, Maße) – nicht mehr nur auf der Startseite. Mehrere gleichzeitig werden nacheinander gefeiert.
+- **Erfolge-Liste:** Abgeschlossene Erfolge stehen jetzt oben, danach die mit dem meisten Fortschritt.
+
+**Rezepte teilen + Fotos + Kategorien** (neues Schema: `recipes.photo/category/shared_scope`, Tabelle `recipe_shares` – automatische Migration)
+- **Fotos:** Beim Anlegen/Bearbeiten eines Rezepts ein Foto aufnehmen/auswählen. Wird clientseitig auf max. 1024 px / ~1 MB runterskaliert. Thumbnails in der Liste (separat nachgeladen, nicht in der Listen-Antwort → schnell), großes Bild in der Detailansicht.
+- **Kategorien:** Freies Feld (z.B. „Bowl", „Smoothie", „Meal Prep") mit Vorschlägen; eigener Kategorie-Filter im ⚙️-Filter-Sheet. Zusätzlich Quelle-Filter (Alle / ⭐ Eigene / 📤 Geteilt).
+- **Teilen – Athlet:** kann eigene Rezepte mit anderen Athleten **desselben Coaches** teilen (einzeln auswählbar). Empfänger bekommt eine Benachrichtigung.
+- **Teilen – Coach:** kann einzeln teilen ODER ein Rezept **für alle eigenen Athleten** freigeben (`shared_scope='athletes'`).
+- **Rechte (serverseitig erzwungen, getestet):** Fremde Athleten (anderer Coach) sehen geteilte/freigegebene Rezepte NICHT; nur Eigentümer kann teilen/bearbeiten/löschen; Athleten können NICHT „an alle" broadcasten. Teilen ist einzeln widerrufbar.
