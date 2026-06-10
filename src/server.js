@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { db } from './db.js';
 import { initSchema } from './schema.js';
 import { hashPassword, verifyPassword, signToken, auth, requireCoach, requireAdmin, cookieOpts } from './auth.js';
-import { recommend, buildPattern, suggestForToday, previewNext, dayNutrition, estimateCardioKcal, recoveryStatus, nutritionPlan, generatePlan, bmr, personalRecords, estimate1RM, calendarRange, generateMealPlan, dislikeOptions, streakDays, attentionStatus, weeklyGoalStreak } from './logic.js';
+import { recommend, buildPattern, suggestForToday, previewNext, dayNutrition, estimateCardioKcal, recoveryStatus, nutritionPlan, generatePlan, bmr, personalRecords, estimate1RM, calendarRange, generateMealPlan, dislikeOptions, pieceInfo, streakDays, attentionStatus, weeklyGoalStreak } from './logic.js';
 import { sendEmail, verifyEmailContent, resetPasswordContent, notifyMessageContent } from './email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,10 +34,14 @@ try {
   const existing = new Set(db.all('SELECT name FROM recipes WHERE owner_id IS NULL').map(r => r.name));
   let added = 0;
   for (const r of recipes) {
-    if (existing.has(r.name)) continue;
-    db.run(`INSERT INTO recipes(name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,owner_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,NULL)`,
-      [r.name, r.goal || null, r.meal_type || null, r.kcal, r.protein, r.carbs, r.fat, r.ingredients || '', r.steps || '', r.link || '']);
+    if (existing.has(r.name)) {
+      // Ernährungsweise-Tag nachträglich setzen, falls noch leer (für früher angelegte DBs)
+      if (r.diet) db.run("UPDATE recipes SET diet=? WHERE name=? AND owner_id IS NULL AND (diet IS NULL OR diet='')", [r.diet, r.name]);
+      continue;
+    }
+    db.run(`INSERT INTO recipes(name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,diet,owner_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)`,
+      [r.name, r.goal || null, r.meal_type || null, r.kcal, r.protein, r.carbs, r.fat, r.ingredients || '', r.steps || '', r.link || '', r.diet || '']);
     added++;
   }
   if (added) console.log('[init] Rezepte nachgetragen:', added);
@@ -295,10 +299,11 @@ app.post('/api/onboarding/complete', auth, (req, res) => {
   const nut = nutritionPlan({ gender: f.gender, weightKg: f.start_weight, heightCm: f.height_cm, age, goal: f.goal, daysPerWeek: f.days_per_week });
   const pattern = JSON.stringify(buildPattern(Number(f.days_per_week) || 3));
   // Profil speichern
+  const dietType = ['all','vegetarian','vegan'].includes(f.diet_type) ? f.diet_type : 'all';
   db.run(`UPDATE users SET dob=?,gender=?,height_cm=?,start_weight=?,goal=?,days_per_week=?,
-    pattern=?,experience=?,kcal_target_train=?,kcal_target_rest=? WHERE id=?`,
+    pattern=?,experience=?,kcal_target_train=?,kcal_target_rest=?,diet_type=? WHERE id=?`,
     [f.dob, f.gender, clampNum(f.height_cm, 50, 260), clampNum(f.start_weight, 20, 500), f.goal, clampNum(f.days_per_week, 1, 7, true),
-     pattern, f.experience || 'beginner', nut.trainKcal, nut.restKcal, req.user.id]);
+     pattern, f.experience || 'beginner', nut.trainKcal, nut.restKcal, dietType, req.user.id]);
   // Bestehenden aktiven Plan deaktivieren, neuen anlegen
   db.run('UPDATE plans SET active=0 WHERE user_id=?', [req.user.id]);
   const planId = db.run('INSERT INTO plans(user_id,title,active) VALUES(?,?,1)',
@@ -333,9 +338,9 @@ app.put('/api/profile', auth, (req, res) => {
     pattern = JSON.stringify(buildPattern(Number(f.days_per_week)));
   }
   db.run(`UPDATE users SET name=?,dob=?,gender=?,height_cm=?,start_weight=?,goal=?,days_per_week=?,
-    pattern=COALESCE(?,pattern),phase=COALESCE(?,phase),kcal_target_train=?,kcal_target_rest=?,experience=COALESCE(?,experience) WHERE id=?`,
+    pattern=COALESCE(?,pattern),phase=COALESCE(?,phase),kcal_target_train=?,kcal_target_rest=?,experience=COALESCE(?,experience),diet_type=COALESCE(?,diet_type) WHERE id=?`,
     [f.name, f.dob, f.gender, clampNum(f.height_cm, 50, 260), clampNum(f.start_weight, 20, 500), f.goal, clampNum(f.days_per_week, 1, 7, true),
-     pattern, f.phase, clampNum(f.kcal_target_train, 0, 15000, true), clampNum(f.kcal_target_rest, 0, 15000, true), f.experience, req.user.id]);
+     pattern, f.phase, clampNum(f.kcal_target_train, 0, 15000, true), clampNum(f.kcal_target_rest, 0, 15000, true), f.experience, (['all','vegetarian','vegan'].includes(f.diet_type)?f.diet_type:null), req.user.id]);
   res.json({ ok: true });
 });
 
@@ -903,7 +908,8 @@ function buildAndStoreMealPlan(uid) {
   // alte Mahlzeiten entfernen (meal_items via ON DELETE CASCADE)
   db.run('DELETE FROM meals WHERE user_id=?', [uid]);
   const writeDay = (dayType, kcalTarget) => {
-    const plan = generateMealPlan({ kcalTarget, macros: nut.macros, disliked, mealCount: 4 });
+    const plan = generateMealPlan({ kcalTarget, macros: nut.macros, disliked, mealCount: 4,
+      goal: u.goal, dietType: u.diet_type || 'all' });
     plan.meals.forEach((m, i) => {
       const mealId = db.run('INSERT INTO meals(user_id,day_type,meal_no,label,position) VALUES(?,?,?,?,?)',
         [uid, dayType, i + 1, m.label, i]).lastInsertRowid;
@@ -934,7 +940,7 @@ app.get('/api/disliked/:userId', auth, (req, res) => {
   if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
   const u = getUserFull(uid);
   let disliked = []; try { disliked = JSON.parse(u.disliked_foods || '[]'); } catch (e) {}
-  res.json({ options: dislikeOptions(), disliked });
+  res.json({ options: dislikeOptions(), disliked, diet_type: u.diet_type || 'all' });
 });
 
 // Abgelehnte Lebensmittel speichern (und Plan neu erzeugen)
@@ -943,6 +949,7 @@ app.post('/api/disliked/:userId', auth, (req, res) => {
   if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
   const list = Array.isArray(req.body.disliked) ? req.body.disliked.filter(x => typeof x === 'string').slice(0, 50) : [];
   db.run('UPDATE users SET disliked_foods=? WHERE id=?', [JSON.stringify(list), uid]);
+  if (['all','vegetarian','vegan'].includes(req.body.diet_type)) db.run('UPDATE users SET diet_type=? WHERE id=?', [req.body.diet_type, uid]);
   const r = buildAndStoreMealPlan(uid);
   res.json({ ok: true, regenerated: !!r });
 });
@@ -1140,7 +1147,8 @@ app.get('/api/calendar/:userId', auth, (req, res) => {
   for (const h of allLog.filter(h => h.date >= start)) {
     planned[h.date] = { type: h.type, dayName: h.dayName };
   }
-  const calendar = calendarRange({ pattern, trainingDays, history, startDate: start, days, planned });
+  const calendar = calendarRange({ pattern, trainingDays, history, startDate: start, days, planned,
+    today: new Date().toISOString().slice(0, 10) });
   res.json({ start, days, calendar });
 });
 
@@ -1411,8 +1419,11 @@ app.get('/api/shoppinglist/:userId', auth, (req, res) => {
     const mult = r.dt === 'training' ? trainDays : restDays;
     agg[r.f] = (agg[r.f] || 0) + r.a * mult;
   }
-  const items = Object.entries(agg).map(([food, amount]) => ({ food, amount: Math.round(amount / 5) * 5 }))
-    .filter(i => i.amount > 0).sort((a, b) => b.amount - a.amount);
+  const items = Object.entries(agg).map(([food, amount]) => {
+    const a = Math.round(amount / 5) * 5;
+    const pi = pieceInfo(food);
+    return pi ? { food, amount: a, pieces: Math.max(1, Math.round(a / pi.pieceG)) } : { food, amount: a };
+  }).filter(i => i.amount > 0).sort((a, b) => b.amount - a.amount);
   res.json({ items, trainDays, restDays });
 });
 

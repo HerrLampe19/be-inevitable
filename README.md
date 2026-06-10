@@ -363,3 +363,19 @@ Keine Schema-Änderung – alles wird aus vorhandenen Daten abgeleitet (null Mig
 - **24 Erfolge** (vorher 14): neu u.a. Rekord-Meilensteine (1/5/15), „4/12 Wochen Plan erfüllt", 10 Cardio-Einheiten, 100 km Distanz, 7 Tage Ernährung getrackt, Level 5/10. **Gesperrte Erfolge zeigen den Fortschritt** (z.B. „67/100").
 - **🏅 Freischaltungs-Hinweis:** Beim nächsten App-Öffnen nach einem neuen Erfolg erscheint eine Feier-Meldung (Stand wird pro Gerät gemerkt).
 - Bewusst **kein Athleten-Ranking** – Vergleich demotiviert bei kleiner Gruppe mehr als er nützt. Weiterhin keine Schema-Änderung.
+
+## Große Bugfix- & Ernährungs-Runde
+**Behobene Bugs**
+- **Eingabefelder:** Die Begrenzung greift jetzt erst beim Verlassen des Feldes (change) statt bei jedem Tastendruck – „26 kg" lässt sich wieder eintippen (vorher sprang es nach „2" sofort auf 20).
+- **Verirrte ✕/− neben den Satz-Zeilen:** Der globale Hinweis-Mechanismus fasst Übungskarten nicht mehr an (Mindestlänge 30 Zeichen, `.ex-body`/`.setgrid` ausgenommen).
+- **Kalender ≠ Widget:** Ausgelassene Vergangenheitstage verschieben den Rhythmus nicht mehr – Kalender und Heute-Widget zeigen jetzt denselben Tag. Ausgelassene Tage werden als verpasste Ruhetage markiert.
+
+**Home aufgeräumt & nach Priorität sortiert:** „Heute" → „Home"; doppeltes Gewicht entfernt (nur noch in der Fortschritts-Karte); Gewichtsverlauf entfernt (lebt in der Analyse); Recovery-Badge entfernt (ungenutzt); „Schneller Check-in" → „Fast Check-in"; Streak in die Wochen-Karte integriert; Gamification-Karte nach oben.
+
+**Ernährung überarbeitet**
+- **Generator trifft das kcal-Ziel jetzt auf ±2,5 %** (vorher fehlten teils ~600 kcal). Globaler Skalierungs- und Auffüll-Pass mit realistischen Portions-Obergrenzen; füllt bei Bedarf zielgerecht auf (Definition mit Volumen statt Öl/Nussmus).
+- **Vegetarisch & Vegan:** Im Profil, im Onboarding und im Rezept-Filter wählbar. Der Plan wird strikt fleisch-/tierfrei erzeugt und das Protein-Ziel bestmöglich gehalten.
+- **Ziel-gerechte Lebensmittel:** Definition bevorzugt kalorienärmere (sättigende) Optionen, Aufbau darf kaloriendichte nehmen.
+- **Klarere Zutaten-Namen:** z.B. „Rinderhack (5% Fett)" statt „Rindfleisch (mager)", „Quinoa (gekocht)".
+- **Einkaufsliste mit Stückzahlen:** z.B. „12 Stück ≈ 720 g" bei Eiern.
+- **Rezept-Filter als Symbol (⚙️):** kompakter Button öffnet ein Filter-Sheet (Ziel, Mahlzeit, Ernährungsweise, Unverträglichkeiten). **51 Rezepte** (vorher 29), mit deutlich mehr für Definition (8 Mittag, 9 Abend statt je 2) und je ≥9 vegan/≥23 vegetarisch.

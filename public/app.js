@@ -118,7 +118,11 @@ async function renderOnb(){const v=document.getElementById('onbView');const s=ON
       <p style="text-align:center;color:var(--ink2);font-size:14px;margin-bottom:24px">${freqHint(d.days_per_week)}</p>
       <button class="btn" onclick="onbNext()">Plan erstellen</button>`;
   } else if(s.key==='dislikes'){
-    h+=`<h2 style="font-size:24px;font-weight:700;margin-bottom:6px">Was magst du nicht?</h2><p style="color:var(--ink2);margin-bottom:20px">Tippe an, was nicht in deinen Ernährungsplan soll. Kannst du auch später ändern.</p>
+    const dt=d.diet_type||'all';
+    h+=`<h2 style="font-size:24px;font-weight:700;margin-bottom:6px">Ernährung</h2><p style="color:var(--ink2);margin-bottom:16px">Damit dein Plan und die Rezepte passen. Alles später änderbar.</p>
+      <div style="margin-bottom:8px;font-size:14px;font-weight:600">Ernährungsweise</div>
+      <div class="chip-row" style="margin-bottom:18px">${[['all','Alles'],['vegetarian','🥕 Vegetarisch'],['vegan','🌱 Vegan']].map(([v,l])=>`<button class="daychip ${dt===v?'now':''}" onclick="ONB.data.diet_type='${v}';renderOnb()">${l}</button>`).join('')}</div>
+      <div style="margin-bottom:8px;font-size:14px;font-weight:600">Was magst du nicht? <span style="font-weight:400;color:var(--ink3)">(optional)</span></div>
       <div id="onbDislikes"><div class="spinner"></div></div>
       <button class="btn" style="margin-top:8px" onclick="onbNext()">Weiter</button>`;
     v.innerHTML=h+(backBtn||'')+'</div>';loadOnbDislikes();return;
@@ -199,12 +203,12 @@ function buildNav(){const nav=document.getElementById('navBar');
     // Coach-Grundansicht: nur Athletenverwaltung + Mehr
     items=[['athletes','📊','Übersicht'],['more','•••','Mehr']];
   } else {
-    items=[['home','◎','Heute'],['workout','🏋️','Training'],['diet','🍽️','Ernährung'],['tracker','📈','Analyse'],['more','•••','Mehr']];
+    items=[['home','◎','Home'],['workout','🏋️','Training'],['diet','🍽️','Ernährung'],['tracker','📈','Analyse'],['more','•••','Mehr']];
   }
   nav.innerHTML=items.map(([p,i,l])=>`<button class="navbtn" data-p="${p}" onclick="go('${p}')"><div class="ni">${i}</div><div class="nl">${l}</div></button>`).join('');}
 
 // ===== ROUTER =====
-const TITLES={home:'Heute',workout:'Training',diet:'Ernährung',tracker:'Analyse',more:'Mehr',athletes:'Übersicht',admin:'Verwaltung'};
+const TITLES={home:'Home',workout:'Training',diet:'Ernährung',tracker:'Analyse',more:'Mehr',athletes:'Übersicht',admin:'Verwaltung'};
 function go(p){
   // Coach/Admin verlässt den Athleten-Kontext, wenn er auf "Zurück/Athleten" tippt
   if(p==='athletes'&&(ME.role==='coach'||ME.role==='admin')&&COACH_CONTEXT){COACH_CONTEXT=null;VIEW_USER=null;PLAN=null;TODAY=null;buildNav();}
@@ -242,14 +246,12 @@ function startMsgPolling(){clearInterval(msgPoll);msgPoll=setInterval(()=>{if(ME
 // ===== HOME =====
 async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinner"></div></div>';
   await Promise.all([loadToday(),PLAN?Promise.resolve():loadPlan()]);
-  const [cr,flr,rec]=await Promise.all([
+  const [cr,flr]=await Promise.all([
     API.get('/checkins/'+VIEW_USER),
-    API.get('/foodlog/'+VIEW_USER+'?date='+today()),
-    API.get('/recovery/'+VIEW_USER)
+    API.get('/foodlog/'+VIEW_USER+'?date='+today())
   ]);
   const cis=cr.data?.checkins||[];const last=cis[0];
   const foodSummary=flr.data?.summary||{consumed:0,target:null,remaining:null,macros:{}};
-  const recovery=rec.data||null;
   // streak
   let streak=0;if(cis.length){const ds=new Set(cis.map(c=>c.date));let d=new Date();d.setHours(0,0,0,0);
     if(!ds.has(fmt(d)))d.setDate(d.getDate()-1);while(ds.has(fmt(d))){streak++;d.setDate(d.getDate()-1);}}
@@ -321,15 +323,38 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
         <div class="kcal-left">${statusTxt} · ${foodSummary.macros?.protein||0}g Protein →</div>
       </div></div>`;
   }
-  // RECOVERY-BADGE
-  if(recovery&&recovery.score!=null){
-    const col=recovery.score>=75?'var(--green)':recovery.score>=50?'var(--amber)':'var(--red)';
-    html+=`<div class="surface pad" style="margin-bottom:16px;display:flex;align-items:center;gap:16px" onclick="openInfo('recovery')">
-      <div style="flex-shrink:0;width:54px;height:54px;border-radius:50%;background:${col};color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700">${recovery.score}</div>
-      <div style="flex:1"><div style="font-weight:600;font-size:16px">${recovery.label} <span style="color:var(--ink3);font-size:13px;font-weight:400">ⓘ</span></div><div style="color:var(--ink2);font-size:13px;margin-top:2px">${recovery.advice}</div></div>
-    </div>`;
-  }
   // FORTSCHRITTS-KARTE: Startgewicht -> aktuell, mit Bewertung je nach Ziel
+  // WOCHENRÜCKBLICK + ERFOLGE (nur eigenes Athleten-Konto)
+  if(VIEW_USER===ME.id&&ME.role==='athlete'){
+    try{const ir=await API.get('/insights/'+ME.id);const INS=ir.data;LAST_INSIGHTS=INS;
+      const w=INS?.week;
+      if(INS&&w){
+        const dv=w.lastWeek.volume>0?Math.round((w.thisWeek.volume-w.lastWeek.volume)/w.lastWeek.volume*100):null;
+        const dTxt=dv==null?(w.thisWeek.volume>0?'<span style="color:var(--ink3)">neu</span>':''):(dv>0?`<span style="color:var(--green)">▲ +${dv}%</span>`:dv<0?`<span style="color:var(--amber)">▼ ${dv}%</span>`:`<span style="color:var(--ink3)">→ ±0%</span>`);
+        const wg=INS.weekGoal||{target:0,done:0};
+        const dots=wg.target?Array.from({length:wg.target},(_,i)=>`<span style="color:${i<wg.done?'var(--red)':'var(--line)'}">●</span>`).join(''):'';
+        const wgOk=wg.done>=wg.target;
+        const lp=INS.levelProgress||{pct:0};
+        html+=`<div class="surface pad" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-weight:700">📊 Deine Woche</div><button class="minibtn" onclick="openAchievements()">🏅 Erfolge</button></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:4px">
+            <div>⭐ <b>Level ${INS.level}</b> · ${esc2(INS.levelTitle||'')}</div><div style="color:var(--ink3);font-size:12px">🔥 ${INS.streaks?.checkin||0} Tage Streak · ${INS.xp} XP</div></div>
+          <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;width:${lp.pct}%;background:var(--red);border-radius:3px"></div></div>
+          <div style="font-size:14px;color:var(--ink2);margin-bottom:8px">🎯 Wochenziel: <b style="color:var(--ink)">${wg.done}/${wg.target}</b> Einheiten ${dots} ${wgOk?'<span style="color:var(--green)">✓ geschafft!</span>':''}${INS.streaks?.weekGoal>=2?` <span style="color:var(--ink3)">· ${INS.streaks.weekGoal} Wochen in Serie 🔥</span>`:''}</div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--ink2)">
+            <div><b style="color:var(--ink)">${w.thisWeek.sessions}</b> Einheiten <span style="color:var(--ink3)">(Vorwoche: ${w.lastWeek.sessions})</span></div>
+            <div><b style="color:var(--ink)">${(w.thisWeek.volume/1000).toFixed(1).replace('.',',')} t</b> Volumen ${dTxt}</div>
+          </div></div>`;
+        // Neu freigeschalteten Erfolg feiern (Vergleich mit letztem Stand auf diesem Gerät)
+        try{const prev=JSON.parse(localStorage.getItem('be_ach')||'[]');
+          const now=(INS.achievements||[]).filter(a=>a.done).map(a=>a.id);
+          const fresh=now.filter(id=>!prev.includes(id));
+          if(prev.length&&fresh.length){const a=INS.achievements.find(x=>x.id===fresh[0]);
+            setTimeout(()=>toast('🏅 Neuer Erfolg: '+a.title+'!'),600);}
+          localStorage.setItem('be_ach',JSON.stringify(now));}catch(e){}
+      }
+    }catch(e){}
+  }
   const startW=ME.start_weight;const curW=last?.weight;
   if(startW&&curW){
     const diff=Math.round((curW-startW)*10)/10;
@@ -351,48 +376,8 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
       <div style="text-align:center;margin-top:12px;font-weight:600;font-size:14px;color:${vColor}">${verdict}</div>
     </div>`;
   }
-  // STAT TILES
-  html+=`<div class="tiles">
-    <div class="tile" onclick="go('tracker')"><div class="v">${last?.weight??'–'}<em> kg</em></div><div class="l">Aktuelles Gewicht</div>${weightTrend(cis)}</div>
-    <div class="tile" onclick="openInfo('streak')"><div class="v">${streak}<em> Tage</em></div><div class="l">Check-in Streak ⓘ</div></div>
-  </div>`;
-  // GEWICHTSKURVE
-  if(cis.filter(c=>c.weight).length>=2){
-    html+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewichtsverlauf</div><div class="v">kg nach Datum</div></div>${lineChart(cis.filter(c=>c.weight).map(c=>({date:c.date,value:c.weight})),'kg')}</div>`;
-  }
-  // WOCHENRÜCKBLICK + ERFOLGE (nur eigenes Athleten-Konto)
-  if(VIEW_USER===ME.id&&ME.role==='athlete'){
-    try{const ir=await API.get('/insights/'+ME.id);const INS=ir.data;LAST_INSIGHTS=INS;
-      const w=INS?.week;
-      if(INS&&w){
-        const dv=w.lastWeek.volume>0?Math.round((w.thisWeek.volume-w.lastWeek.volume)/w.lastWeek.volume*100):null;
-        const dTxt=dv==null?(w.thisWeek.volume>0?'<span style="color:var(--ink3)">neu</span>':''):(dv>0?`<span style="color:var(--green)">▲ +${dv}%</span>`:dv<0?`<span style="color:var(--amber)">▼ ${dv}%</span>`:`<span style="color:var(--ink3)">→ ±0%</span>`);
-        const wg=INS.weekGoal||{target:0,done:0};
-        const dots=wg.target?Array.from({length:wg.target},(_,i)=>`<span style="color:${i<wg.done?'var(--red)':'var(--line)'}">●</span>`).join(''):'';
-        const wgOk=wg.done>=wg.target;
-        const lp=INS.levelProgress||{pct:0};
-        html+=`<div class="surface pad" style="margin-bottom:16px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-weight:700">📊 Deine Woche</div><button class="minibtn" onclick="openAchievements()">🏅 Erfolge</button></div>
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:4px">
-            <div>⭐ <b>Level ${INS.level}</b> · ${esc2(INS.levelTitle||'')}</div><div style="color:var(--ink3);font-size:12px">${INS.xp} XP</div></div>
-          <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;width:${lp.pct}%;background:var(--red);border-radius:3px"></div></div>
-          <div style="font-size:14px;color:var(--ink2);margin-bottom:8px">🎯 Wochenziel: <b style="color:var(--ink)">${wg.done}/${wg.target}</b> Einheiten ${dots} ${wgOk?'<span style="color:var(--green)">✓ geschafft!</span>':''}${INS.streaks?.weekGoal>=2?` <span style="color:var(--ink3)">· ${INS.streaks.weekGoal} Wochen in Serie 🔥</span>`:''}</div>
-          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--ink2)">
-            <div><b style="color:var(--ink)">${w.thisWeek.sessions}</b> Einheiten <span style="color:var(--ink3)">(Vorwoche: ${w.lastWeek.sessions})</span></div>
-            <div><b style="color:var(--ink)">${(w.thisWeek.volume/1000).toFixed(1).replace('.',',')} t</b> Volumen ${dTxt}</div>
-          </div></div>`;
-        // Neu freigeschalteten Erfolg feiern (Vergleich mit letztem Stand auf diesem Gerät)
-        try{const prev=JSON.parse(localStorage.getItem('be_ach')||'[]');
-          const now=(INS.achievements||[]).filter(a=>a.done).map(a=>a.id);
-          const fresh=now.filter(id=>!prev.includes(id));
-          if(prev.length&&fresh.length){const a=INS.achievements.find(x=>x.id===fresh[0]);
-            setTimeout(()=>toast('🏅 Neuer Erfolg: '+a.title+'!'),600);}
-          localStorage.setItem('be_ach',JSON.stringify(now));}catch(e){}
-      }
-    }catch(e){}
-  }
   // SCHNELL-CHECKIN (Gewicht, Schlaf, Schritte, Wasser – das Tägliche an einem Ort)
-  html+=`<div class="section-label">Schneller Check-in</div>
+  html+=`<div class="section-label">Fast Check-in</div>
     <div class="surface pad">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="20" max="500" placeholder="${last?.weight||'63.5'}"></div>
@@ -796,24 +781,48 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
   // Zutaten-Ausschluss: Rezepte ausblenden, die ein abgelehntes Lebensmittel enthalten
   const dis=myDisliked();
   if(dis.length)recipes=recipes.filter(rc=>{const ing=(rc.ingredients||'').toLowerCase();return !dis.some(d=>ing.includes(String(d).toLowerCase()));});
+  // Ernährungsweise: vegan zeigt nur vegane, vegetarisch zeigt vegetarisch+vegan
+  const dt=(VIEW_USER===ME.id?ME.diet_type:VIEW_USER_PROFILE?.diet_type)||'all';
+  if(dt==='vegan')recipes=recipes.filter(rc=>rc.diet==='vegan');
+  else if(dt==='vegetarian')recipes=recipes.filter(rc=>rc.diet==='veg'||rc.diet==='vegan');
   const meals=['Frühstück','Mittag','Abend','Snack'];
   let h=infoBox('recipes_intro','Fertige Mahlzeiten mit Nährwerten – mit einem Tipp ins Tagesprotokoll übernehmen. Kein lästiges Einzel-Tracken.');
-  // Filter-Chips
-  h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Ziel</div><div class="chip-row" style="margin-bottom:12px">`+
-    [['all','Alle'],['muscle','Aufbau'],['fatloss','Definition'],['health','Gesundheit']].map(([v,l])=>`<button class="daychip ${f.goal===v?'now':''}" onclick="recipeFilter('goal','${v}')">${l}</button>`).join('')+`</div>`;
-  h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Mahlzeit</div><div class="chip-row" style="margin-bottom:12px">`+
-    [['all','Alle'],...meals.map(m=>[m,m])].map(([v,l])=>`<button class="daychip ${f.meal===v?'now':''}" onclick="recipeFilter('meal','${v}')">${l}</button>`).join('')+`</div>`;
-  // "Passt in mein Budget"-Schalter (nur sinnvoll, wenn Restbudget bekannt)
-  if(remaining>0)h+=`<label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" ${f.fit?'checked':''} onchange="recipeFilter('fit',this.checked)" style="width:auto"> Nur Rezepte, die noch in mein Budget passen (${remaining} kcal übrig)</label>`;
-  h+=`<button class="btn sec" style="margin-bottom:10px" onclick="openDislikes()">🚫 Zutaten ausschließen (Unverträglichkeiten)</button>`;
-  if(dis.length)h+=`<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Ausgeblendet: Rezepte mit ${dis.map(esc2).join(', ')}.</div>`;
-  h+=`<button class="btn sec" style="margin-bottom:16px" onclick="openNewRecipe()">+ Eigenes Rezept</button>`;
+  // Kopfzeile mit kompaktem Filter-Symbol + „Eigenes Rezept"
+  const dietLbl={all:'',vegetarian:'🥕 Vegetarisch',vegan:'🌱 Vegan'}[dt];
+  const activeBits=[];if(f.goal!=='all')activeBits.push(({muscle:'Aufbau',fatloss:'Definition',health:'Gesundheit'})[f.goal]);
+  if(f.meal!=='all')activeBits.push(f.meal);if(dietLbl)activeBits.push(dietLbl);if(dis.length)activeBits.push(dis.length+' ausgeschlossen');
+  h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <button class="minibtn" onclick="openRecipeFilter()" style="display:flex;align-items:center;gap:6px"><span style="font-size:15px">⚙️</span> Filter</button>
+    <button class="minibtn" onclick="openNewRecipe()">+ Eigenes Rezept</button></div>`;
+  if(activeBits.length)h+=`<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Aktiv: ${activeBits.map(esc2).join(' · ')}</div>`;
   // Liste
   if(!recipes.length)h+='<div class="empty"><div class="ei">🍳</div>Keine Rezepte für diese Filter.</div>';
   else{RECIPES_CACHE=recipes;h+='<div class="rows">'+recipes.map(rc=>{
     const badge=({muscle:'💪',fatloss:'🔥',health:'❤️'})[rc.goal]||'';
-    return `<div class="row" onclick="openRecipe(${rc.id})"><div class="rl">${rc.name} ${rc.owner_id?'⭐':''}<small>${rc.meal_type||''} ${badge} · P${Math.round(rc.protein)} K${Math.round(rc.carbs)} F${Math.round(rc.fat)}</small></div><div class="rr">${Math.round(rc.kcal)} kcal<br><span style="color:var(--ink3);font-size:11px">ansehen ›</span></div></div>`;}).join('')+'</div>';}
+    const dpill=rc.diet==='vegan'?' 🌱':rc.diet==='veg'?' 🥕':'';
+    return `<div class="row" onclick="openRecipe(${rc.id})"><div class="rl">${rc.name}${dpill} ${rc.owner_id?'⭐':''}<small>${rc.meal_type||''} ${badge} · P${Math.round(rc.protein)} K${Math.round(rc.carbs)} F${Math.round(rc.fat)}</small></div><div class="rr">${Math.round(rc.kcal)} kcal<br><span style="color:var(--ink3);font-size:11px">ansehen ›</span></div></div>`;}).join('')+'</div>';}
   el.innerHTML=h;}
+
+// Filter-Sheet: Ziel, Mahlzeit, Budget, Ernährungsweise, Unverträglichkeiten – an einem Ort
+function openRecipeFilter(){const f=RECIPE_FILTER;const meals=['Frühstück','Mittag','Abend','Snack'];
+  const sum=renderDiet.foodlog?.summary||{};const remaining=sum.remaining;
+  const dt=(VIEW_USER===ME.id?ME.diet_type:VIEW_USER_PROFILE?.diet_type)||'all';
+  let h=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Ziel</div><div class="chip-row" style="margin-bottom:14px">`+
+    [['all','Alle'],['muscle','Aufbau'],['fatloss','Definition'],['health','Gesundheit']].map(([v,l])=>`<button class="daychip ${f.goal===v?'now':''}" onclick="recipeFilter('goal','${v}')">${l}</button>`).join('')+`</div>`;
+  h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Mahlzeit</div><div class="chip-row" style="margin-bottom:14px">`+
+    [['all','Alle'],...meals.map(m=>[m,m])].map(([v,l])=>`<button class="daychip ${f.meal===v?'now':''}" onclick="recipeFilter('meal','${v}')">${l}</button>`).join('')+`</div>`;
+  h+=`<div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Ernährungsweise</div><div class="chip-row" style="margin-bottom:14px">`+
+    [['all','Alle'],['vegetarian','🥕 Vegetarisch'],['vegan','🌱 Vegan']].map(([v,l])=>`<button class="daychip ${dt===v?'now':''}" onclick="setDietType('${v}')">${l}</button>`).join('')+`</div>`;
+  if(remaining>0)h+=`<label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:14px"><input type="checkbox" ${f.fit?'checked':''} onchange="recipeFilter('fit',this.checked)" style="width:auto"> Nur was in mein Budget passt (${remaining} kcal übrig)</label>`;
+  h+=`<button class="btn sec" onclick="openDislikes()">🚫 Zutaten ausschließen (Unverträglichkeiten)</button>`;
+  openSheet('Rezepte filtern',h);}
+
+// Ernährungsweise setzen -> speichern (regeneriert auch den Plan) und Rezepte neu filtern
+async function setDietType(v){const r=await API.post('/disliked/'+VIEW_USER,{disliked:myDisliked(),diet_type:v});
+  if(r.status===200){if(VIEW_USER===ME.id)ME.diet_type=v;else if(VIEW_USER_PROFILE)VIEW_USER_PROFILE.diet_type=v;
+    const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];
+    closeModal();drawRecipes();toast('Ernährungsweise: '+({all:'Alle',vegetarian:'Vegetarisch',vegan:'Vegan'}[v])+' ✓');}
+  else toast('Fehler');}
 let RECIPES_CACHE=[];
 function recipeFilter(key,val){RECIPE_FILTER[key]=val;drawRecipes();}
 function openRecipe(id){const rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)return;
@@ -1553,7 +1562,10 @@ async function openShoppingList(){openSheet('🛒 Einkaufsliste','<div class="sp
   const d=r.data;
   openSheet('🛒 Einkaufsliste (1 Woche)',`
     <div class="info">Berechnet aus deinem Plan: ${d.trainDays} Trainingstage + ${d.restDays} Ruhetage. Mengen gerundet.</div>
-    <div class="rows">`+d.items.map(i=>`<div class="row"><div class="rl">${esc2(i.food)}</div><div class="rr"><b>${i.amount>=1000?(i.amount/1000).toFixed(1).replace('.',',')+' kg':i.amount+' g'}</b></div></div>`).join('')+`</div>`);}
+    <div class="rows">`+d.items.map(i=>{
+      const menge=i.amount>=1000?(i.amount/1000).toFixed(1).replace('.',',')+' kg':i.amount+' g';
+      const stk=i.pieces?` <span style="color:var(--ink3);font-weight:400">≈ ${i.pieces} Stück</span>`:'';
+      return `<div class="row"><div class="rl">${esc2(i.food)}</div><div class="rr"><b>${menge}</b>${stk}</div></div>`;}).join('')+`</div>`);}
 
 // ===== ATHLET: ERFOLGE =====
 let LAST_INSIGHTS=null;
@@ -1680,6 +1692,10 @@ function openProfile(){const u=ME;
       <option value="muscle"${u.goal==='muscle'?' selected':''}>Muskelaufbau</option>
       <option value="fatloss"${u.goal==='fatloss'?' selected':''}>Gewicht verlieren / Definition</option>
       <option value="health"${u.goal==='health'?' selected':''}>Gesundheit / Fitness</option></select></div>
+    <div class="field"><label>Ernährungsweise</label><select id="p_diet">
+      <option value="all"${(u.diet_type||'all')==='all'?' selected':''}>Alles</option>
+      <option value="vegetarian"${u.diet_type==='vegetarian'?' selected':''}>🥕 Vegetarisch</option>
+      <option value="vegan"${u.diet_type==='vegan'?' selected':''}>🌱 Vegan</option></select></div>
     <div class="field"><label>Phase</label><select id="p_phase">
       <option value="offseason"${u.phase==='offseason'?' selected':''}>Offseason (Aufbau)</option>
       <option value="prep"${u.phase==='prep'?' selected':''}>Wettkampf-Prep (Diät)</option>
@@ -1714,7 +1730,7 @@ async function saveProfile(){const newDays=num('p_days');
   if(newDays&&newDays!==ME.days_per_week){
     if(!window.confirm('Du änderst die Trainingstage pro Woche von '+(ME.days_per_week||'?')+' auf '+newDays+'.\n\nDadurch wird dein Trainingsrhythmus neu berechnet – manuell im Kalender geplante Tage gehen dabei verloren.\n\nFortfahren?'))return;
   }
-  const body={name:val('p_name'),height_cm:num('p_height'),goal:val('p_goal'),phase:val('p_phase'),experience:val('p_exp'),days_per_week:newDays,kcal_target_train:num('p_kt'),kcal_target_rest:num('p_kr'),dob:ME.dob,gender:ME.gender,start_weight:ME.start_weight};
+  const body={name:val('p_name'),height_cm:num('p_height'),goal:val('p_goal'),phase:val('p_phase'),experience:val('p_exp'),days_per_week:newDays,kcal_target_train:num('p_kt'),kcal_target_rest:num('p_kr'),dob:ME.dob,gender:ME.gender,start_weight:ME.start_weight,diet_type:val('p_diet')};
   const r=await API.put('/profile',body);if(r.status===200){Object.assign(ME,body);
     document.getElementById('avatar').textContent=(ME.name||'?').charAt(0).toUpperCase();
     TODAY=null;closeModal();toast('Profil gespeichert ✓');go('home');}}
@@ -1971,8 +1987,11 @@ function applyHintControls(){
     const style=box.getAttribute('style')||'';
     // Fehler-/Erfolgsmeldungen (rot/grün) NICHT ausblendbar machen – das sind keine Hinweise
     if(style.includes('red-soft')||style.includes('green-soft'))return;
+    // Keine Wegklick-Buttons in Übungskarten (Notizen dort sollen sichtbar bleiben) –
+    // das verursachte verirrte ✕/− neben den Satz-Zeilen der ersten Übung.
+    if(box.closest('.ex-body')||box.closest('.setgrid'))return;
     const txt=(box.textContent||'').trim();
-    if(txt.length<8)return;
+    if(txt.length<30)return;
     const key=hintKey(txt);
     if(hintsDismissed()[key]){box.remove();return;}
     if(!box.style.position)box.style.position='relative';
@@ -1999,7 +2018,7 @@ startHintObserver();
 
 // Globaler Eingabeschutz: KEIN Zahlenfeld darf negativ werden (Standard-Minimum 0);
 // vorhandene min/max-Attribute werden eingehalten. Greift für alle <input type="number">.
-document.addEventListener('input',e=>{
+document.addEventListener('change',e=>{
   const el=e.target;if(!el||el.tagName!=='INPUT'||el.type!=='number'||el.value==='')return;
   const n=parseFloat(el.value);if(isNaN(n))return;
   const min=el.getAttribute('min')!=null?parseFloat(el.getAttribute('min')):0; // Standard: nicht negativ

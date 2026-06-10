@@ -262,6 +262,11 @@ export function initSchema() {
   const addCol = (name, def) => { if (!cols.includes(name)) { try { db.run(`ALTER TABLE users ADD COLUMN ${name} ${def}`); } catch (e) {} } };
   addCol('last_health_import', 'TEXT');
   addCol('health_reminder', 'INTEGER DEFAULT 0');
+  addCol('diet_type', "TEXT DEFAULT 'all'");   // 'all' | 'vegetarian' | 'vegan'
+
+  // recipes: Ernährungsweise-Tag nachrüsten (bestehende DBs)
+  const recCols = db.all("PRAGMA table_info(recipes)").map(c => c.name);
+  if (!recCols.includes('diet')) { try { db.run("ALTER TABLE recipes ADD COLUMN diet TEXT DEFAULT ''"); } catch (e) {} }
   addCol('disliked_foods', 'TEXT');
   addCol('email_verified', 'INTEGER DEFAULT 0');
   addCol('email_notifications', 'INTEGER DEFAULT 1');
