@@ -334,3 +334,32 @@ Die E-Mail-Adresse beim Login hat jetzt echte Funktion.
 5. **Übungs-Notizen sind allgemein:** Das Feld ist jetzt ein Kommentarfeld für alles („nächstes Mal mehr", „lief super", oder eine Beschwerde). „Als Problem markieren" ist optional (Standard aus) statt alles als Beschwerde zu behandeln.
 6. **Coach kann Notizen schreiben:** Pro Übung können Athlet UND Coach kommentieren (z.B. „nächstes Mal 2,5 kg mehr, du schaffst das!"). Notizen zeigen den Autor (Du / Coach) und sind optisch unterscheidbar.
 7. **Coach sieht mehr:** Das Athleten-Dashboard hat zusätzliche Schnellzugänge – „Volle Analyse" (Trainings-Auswertung), „Alles ansehen" (kompletter Athleten-Blick) und „📸 Fortschrittsfotos". Fortschrittsfotos sieht ausschließlich der zugewiesene Coach (kein anderer Coach) – serverseitig erzwungen. Notiz: `exercise_notes` bekommt Autor-Spalten (automatische Migration).
+
+## Eingabe-Validierung gegen unrealistische Werte (neu)
+Alle Zahlenfelder akzeptieren nur noch realistische Werte – kein negatives Gewicht o.ä.
+- **Backend (Absicherung):** Zentraler `clampNum`-Helfer begrenzt jeden eingehenden Wert auf einen sinnvollen Bereich, bevor er gespeichert wird – auch bei direktem API-Zugriff. Bereiche u.a.: Gewicht (gehoben) 0–1000 kg, Wiederholungen 0–1000, Körpergewicht 20–500 kg, Schlaf 0–24 h, Schritte 0–200000, Wasser 0–30 L, Cardio 0–1440 min, Puls 0–250, Größe 50–260 cm, Tage/Woche 1–7, Körperfett 0–80 %, Umfänge 0–300 cm, kcal-Ziele 0–15000, Makros pro Gramm 0–1 g. Optionale Felder behalten bei Teil-Updates ihren Bestandswert.
+- **Frontend (Komfort):** Globaler Eingabeschutz – KEIN Zahlenfeld kann negativ werden (Standard-Minimum 0), vorhandene min/max werden eingehalten. Zusätzlich sinnvolle min/max-Attribute an den wichtigsten Feldern.
+
+## Mehrwert-Update: neue Features für Athleten, Coaches & Admins
+Keine Schema-Änderung – alles wird aus vorhandenen Daten abgeleitet (null Migrationsrisiko).
+
+**Für Athleten**
+- **📊 Wochenrückblick** auf der Startseite: Einheiten & Trainingsvolumen dieser Woche im Vergleich zur Vorwoche (▲/▼ in %).
+- **🏅 Erfolge**: 14 Meilenstein-Abzeichen aus echten Daten (erstes Training, 100 Sätze, 10 Tonnen bewegt, 7/30-Tage-Streak, erstes Foto …) – erreichte farbig, offene gesperrt. Route `GET /api/insights/:userId` (auch für den Coach sichtbar).
+- **🛒 Einkaufsliste**: Im Ernährungsplan-Tab – aggregiert alle Zutaten des Plans für eine Woche (Trainings-/Ruhetage nach deiner Frequenz), sinnvoll gerundet.
+
+**Für Coaches**
+- **🚦 Athleten-Ampel** in der Übersicht: Sektion „Braucht Aufmerksamkeit" mit konkreten Gründen (X Tage kein Check-in / kein Training, offene Beschwerden), nach Dringlichkeit sortiert, antippbar. Route `GET /api/coach/attention`.
+- **📢 Rundnachricht**: Eine Nachricht an alle eigenen Athleten (inkl. optionaler E-Mail, wenn der Athlet das aktiviert hat).
+- **🤖 KI-Analyse** (optional): Knopf im Athleten-Dashboard – der Server schickt Check-ins, Sätze und offene Beschwerden an die Anthropic-API und liefert eine kompakte Analyse mit Empfehlungen. **Setup:** Umgebungsvariable `ANTHROPIC_API_KEY` setzen (Key von console.anthropic.com, kostenpflichtig nach Nutzung; optional `AI_MODEL`). Ohne Key zeigt die App eine klare Meldung – nichts bricht.
+
+**Für Admins**
+- **📈 System-Statistiken** in der Verwaltung: aktive Nutzer (7 Tage), Sätze, Check-ins, Nachrichten gesamt. Route `GET /api/admin/stats`.
+
+## Gamification ausgebaut: Level, Wochenziel & Rekord-Feier
+- **⭐ Level-System mit XP:** Alles zahlt ein – Trainingstage (10), Sätze (2), Check-ins (5), Cardio (10), Fotos (15), Maße (10), Ernährungs-Tage (3) und am meisten **neue Rekorde (25 XP)**. Progressive Level-Kurve mit Titeln von „Rookie" über „Athlet", „Beast", „Maschine" bis **„UNAUFHALTBAR"** (Level 50). Level + XP-Balken auf der Startseite und im Erfolge-Sheet.
+- **🎯 Wochenziel:** „2/4 Einheiten" mit Punkte-Anzeige auf der Home, gegen die Profil-Frequenz – inkl. **Wochen-Serie** („3 Wochen in Serie 🔥"). Die laufende Woche zählt erst, wenn das Ziel erreicht ist.
+- **🎉 Rekord-Feier:** Beim Satz-Speichern erkennt der Server automatisch einen neuen Übungs-Rekord (Vergleich gegen das Bestgewicht aller früheren Tage – der erste Trainingstag feiert nicht) und die App zeigt sofort „🎉 NEUER REKORD: X kg!". Route `/api/logs` liefert dazu `pr` + `prevMax`.
+- **24 Erfolge** (vorher 14): neu u.a. Rekord-Meilensteine (1/5/15), „4/12 Wochen Plan erfüllt", 10 Cardio-Einheiten, 100 km Distanz, 7 Tage Ernährung getrackt, Level 5/10. **Gesperrte Erfolge zeigen den Fortschritt** (z.B. „67/100").
+- **🏅 Freischaltungs-Hinweis:** Beim nächsten App-Öffnen nach einem neuen Erfolg erscheint eine Feier-Meldung (Stand wird pro Gerät gemerkt).
+- Bewusst **kein Athleten-Ranking** – Vergleich demotiviert bei kleiner Gruppe mehr als er nützt. Weiterhin keine Schema-Änderung.

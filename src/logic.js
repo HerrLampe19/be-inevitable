@@ -465,6 +465,54 @@ export function dislikeOptions() {
 }
 
 // ============================================================
+// STREAKS & ATHLETEN-AMPEL (reine Logik)
+// ============================================================
+
+// Tages-Streak: wie viele Tage in Folge (endend heute oder gestern) ein Eintrag existiert.
+// dates = Array 'YYYY-MM-DD'. Heute darf noch fehlen (Streak "läuft noch").
+export function streakDays(dates, todayStr) {
+  const set = new Set(dates || []);
+  const fmt = x => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+  const d = todayStr ? new Date(todayStr + 'T00:00:00') : new Date();
+  if (!set.has(fmt(d))) d.setDate(d.getDate() - 1); // heute noch offen -> ab gestern zählen
+  let n = 0;
+  while (set.has(fmt(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+// Wochenziel-Serie: wie viele Wochen in Folge wurde die Ziel-Frequenz (Trainingstage/Woche)
+// erreicht? Die laufende Woche zählt nur, wenn das Ziel schon erfüllt ist – sonst ab Vorwoche.
+export function weeklyGoalStreak(dates, goalPerWeek, todayStr) {
+  const goal = Math.max(1, Number(goalPerWeek) || 1);
+  const fmt = x => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+  const monday = ds => { const d = new Date(ds + 'T00:00:00'); const w = (d.getDay() + 6) % 7; d.setDate(d.getDate() - w); return fmt(d); };
+  const perWeek = {};
+  for (const d of (dates || [])) { const m = monday(d); (perWeek[m] = perWeek[m] || new Set()).add(d); }
+  const cnt = k => (perWeek[k] ? perWeek[k].size : 0);
+  const prevMon = k => { const d = new Date(k + 'T00:00:00'); d.setDate(d.getDate() - 7); return fmt(d); };
+  let m = monday(todayStr || fmt(new Date()));
+  if (cnt(m) < goal) m = prevMon(m);
+  let n = 0;
+  while (cnt(m) >= goal) { n++; m = prevMon(m); }
+  return n;
+}
+
+// Ampel-Status für einen Athleten aus Sicht des Coaches.
+// Liefert { level: 'ok'|'watch'|'alert', reasons: [...] }.
+export function attentionStatus({ daysSinceCheckin, daysSinceTraining, openFlags }) {
+  const reasons = []; let level = 'ok';
+  const bump = l => { if (l === 'alert') level = 'alert'; else if (l === 'watch' && level === 'ok') level = 'watch'; };
+  if ((openFlags || 0) > 0) { reasons.push(openFlags + ' offene Beschwerde' + (openFlags > 1 ? 'n' : '')); bump('alert'); }
+  if (daysSinceCheckin == null) { reasons.push('noch kein Check-in'); bump('watch'); }
+  else if (daysSinceCheckin >= 10) { reasons.push(daysSinceCheckin + ' Tage kein Check-in'); bump('alert'); }
+  else if (daysSinceCheckin >= 5) { reasons.push(daysSinceCheckin + ' Tage kein Check-in'); bump('watch'); }
+  if (daysSinceTraining == null) { reasons.push('noch kein Training geloggt'); bump('watch'); }
+  else if (daysSinceTraining >= 10) { reasons.push(daysSinceTraining + ' Tage kein Training'); bump('alert'); }
+  else if (daysSinceTraining >= 6) { reasons.push(daysSinceTraining + ' Tage kein Training'); bump('watch'); }
+  return { level, reasons };
+}
+
+// ============================================================
 // PERSÖNLICHE REKORDE (PRs) + 1RM-Schätzung
 // ============================================================
 

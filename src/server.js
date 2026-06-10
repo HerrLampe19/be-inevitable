@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { db } from './db.js';
 import { initSchema } from './schema.js';
 import { hashPassword, verifyPassword, signToken, auth, requireCoach, requireAdmin, cookieOpts } from './auth.js';
-import { recommend, buildPattern, suggestForToday, previewNext, dayNutrition, estimateCardioKcal, recoveryStatus, nutritionPlan, generatePlan, bmr, personalRecords, estimate1RM, calendarRange, generateMealPlan, dislikeOptions } from './logic.js';
+import { recommend, buildPattern, suggestForToday, previewNext, dayNutrition, estimateCardioKcal, recoveryStatus, nutritionPlan, generatePlan, bmr, personalRecords, estimate1RM, calendarRange, generateMealPlan, dislikeOptions, streakDays, attentionStatus, weeklyGoalStreak } from './logic.js';
 import { sendEmail, verifyEmailContent, resetPasswordContent, notifyMessageContent } from './email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -86,6 +86,17 @@ function coachOwns(reqUser, athleteCoachId) {
 
 /* ---------------- AUTH ---------------- */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Begrenzt einen eingehenden Zahlenwert auf einen realistischen Bereich (Schutz vor
+// unrealistischen Eingaben wie negativem Gewicht). Gibt null zurück, wenn nichts/ungültig
+// übergeben wurde – so behalten optionale Felder per COALESCE ihren Bestandswert.
+function clampNum(v, min, max, asInt) {
+  if (v === undefined || v === null || v === '') return null;
+  let n = Number(v);
+  if (!isFinite(n)) return null;
+  n = Math.max(min, Math.min(max, n));
+  return asInt ? Math.round(n) : n;
+}
 
 app.post('/api/register', (req, res) => {
   const { email, password, name } = req.body;
@@ -286,7 +297,7 @@ app.post('/api/onboarding/complete', auth, (req, res) => {
   // Profil speichern
   db.run(`UPDATE users SET dob=?,gender=?,height_cm=?,start_weight=?,goal=?,days_per_week=?,
     pattern=?,experience=?,kcal_target_train=?,kcal_target_rest=? WHERE id=?`,
-    [f.dob, f.gender, f.height_cm, f.start_weight, f.goal, f.days_per_week,
+    [f.dob, f.gender, clampNum(f.height_cm, 50, 260), clampNum(f.start_weight, 20, 500), f.goal, clampNum(f.days_per_week, 1, 7, true),
      pattern, f.experience || 'beginner', nut.trainKcal, nut.restKcal, req.user.id]);
   // Bestehenden aktiven Plan deaktivieren, neuen anlegen
   db.run('UPDATE plans SET active=0 WHERE user_id=?', [req.user.id]);
@@ -323,8 +334,8 @@ app.put('/api/profile', auth, (req, res) => {
   }
   db.run(`UPDATE users SET name=?,dob=?,gender=?,height_cm=?,start_weight=?,goal=?,days_per_week=?,
     pattern=COALESCE(?,pattern),phase=COALESCE(?,phase),kcal_target_train=?,kcal_target_rest=?,experience=COALESCE(?,experience) WHERE id=?`,
-    [f.name, f.dob, f.gender, f.height_cm, f.start_weight, f.goal, f.days_per_week,
-     pattern, f.phase, f.kcal_target_train, f.kcal_target_rest, f.experience, req.user.id]);
+    [f.name, f.dob, f.gender, clampNum(f.height_cm, 50, 260), clampNum(f.start_weight, 20, 500), f.goal, clampNum(f.days_per_week, 1, 7, true),
+     pattern, f.phase, clampNum(f.kcal_target_train, 0, 15000, true), clampNum(f.kcal_target_rest, 0, 15000, true), f.experience, req.user.id]);
   res.json({ ok: true });
 });
 
@@ -680,8 +691,16 @@ app.get('/api/logs/:userId', auth, (req, res) => {
 
 // Satz speichern (upsert pro user+exercise+date+set_no)
 app.post('/api/logs', auth, (req, res) => {
-  const { user_id, exercise_id, date, set_no, weight, reps, note } = req.body;
+  const { user_id, exercise_id, date, set_no, note } = req.body;
   if (!canAccess(req.user, user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  // Werte begrenzen: kein negatives Gewicht / unrealistische Wiederholungen
+  const weight = clampNum(req.body.weight, 0, 1000) ?? 0;
+  const reps = clampNum(req.body.reps, 0, 1000, true) ?? 0;
+  // Persönlicher Rekord? Vergleich gegen das Bestgewicht aller FRÜHEREN Tage dieser Übung.
+  // (Erster Trainingstag einer Übung feiert nicht – es gibt noch keine Messlatte.)
+  const prevMax = db.get('SELECT MAX(weight) m FROM set_logs WHERE user_id=? AND exercise_id=? AND date<?',
+    [user_id, exercise_id, date])?.m || 0;
+  const pr = weight > 0 && prevMax > 0 && weight > prevMax;
   const ex = db.get('SELECT * FROM set_logs WHERE user_id=? AND exercise_id=? AND date=? AND set_no=?',
     [user_id, exercise_id, date, set_no]);
   if (ex) {
@@ -695,7 +714,7 @@ app.post('/api/logs', auth, (req, res) => {
   const dayRow = db.get('SELECT id,type FROM day_log WHERE user_id=? AND date=?', [user_id, date]);
   if (!dayRow) db.run('INSERT INTO day_log(user_id,date,type,day_name) VALUES(?,?,?,?)', [user_id, date, 'train', exMeta?.dn || null]);
   else if (dayRow.type !== 'train') db.run('UPDATE day_log SET type=?,day_name=? WHERE id=?', ['train', exMeta?.dn || null, dayRow.id]);
-  res.json({ ok: true });
+  res.json({ ok: true, pr, prevMax });
 });
 
 /* ---------------- CHECK-INS ---------------- */
@@ -708,21 +727,27 @@ app.get('/api/checkins/:userId', auth, (req, res) => {
 app.post('/api/checkins', auth, (req, res) => {
   const c = req.body;
   if (!canAccess(req.user, c.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
-  // Hilfsfunktion: undefined -> null, damit COALESCE den Bestandswert behält
-  const v = x => (x === undefined ? null : x);
+  // Werte begrenzen (null = nicht übergeben -> COALESCE behält Bestand). Schützt vor
+  // unrealistischen Eingaben (z.B. negatives Gewicht, 999 Stunden Schlaf).
+  const weight = clampNum(c.weight, 20, 500);
+  const sleep = clampNum(c.sleep, 0, 24);
+  const sleepQ = clampNum(c.sleep_quality, 1, 10, true);
+  const steps = clampNum(c.steps, 0, 200000, true);
+  const cardio = clampNum(c.cardio, 0, 1440, true);
+  const water = clampNum(c.water, 0, 30);
+  const training = (c.training === undefined ? null : c.training);
+  const notes = (c.notes === undefined ? null : c.notes);
   const ex = db.get('SELECT id FROM checkins WHERE user_id=? AND date=?', [c.user_id, c.date]);
   if (ex) {
-    // Nur tatsächlich übergebene Felder ändern – fehlende behalten ihren Wert (kein Datenverlust
-    // bei Teil-Check-ins, z.B. morgens Gewicht, abends Wasser).
     db.run(`UPDATE checkins SET
       weight=COALESCE(?,weight), sleep=COALESCE(?,sleep), sleep_quality=COALESCE(?,sleep_quality),
       steps=COALESCE(?,steps), cardio=COALESCE(?,cardio), water=COALESCE(?,water),
       training=COALESCE(?,training), notes=COALESCE(?,notes) WHERE id=?`,
-      [v(c.weight), v(c.sleep), v(c.sleep_quality), v(c.steps), v(c.cardio), v(c.water), v(c.training), v(c.notes), ex.id]);
+      [weight, sleep, sleepQ, steps, cardio, water, training, notes, ex.id]);
   } else {
     db.run(`INSERT INTO checkins(user_id,date,weight,sleep,sleep_quality,steps,cardio,water,training,notes)
       VALUES(?,?,?,?,?,?,?,?,?,?)`,
-      [c.user_id, c.date, v(c.weight), v(c.sleep), v(c.sleep_quality), v(c.steps), v(c.cardio), v(c.water), v(c.training), v(c.notes)]);
+      [c.user_id, c.date, weight, sleep, sleepQ, steps, cardio, water, training, notes]);
   }
   res.json({ ok: true });
 });
@@ -816,11 +841,13 @@ app.post('/api/measurements', auth, (req, res) => {
   const date = m.date || new Date().toISOString().slice(0, 10);
   const ex = db.get('SELECT id FROM measurements WHERE user_id=? AND date=?', [m.user_id, date]);
   const f = ['body_fat', 'chest', 'waist', 'hips', 'arm', 'thigh', 'neck', 'shoulders'];
+  // Begrenzen: Körperfett 0–80 %, Umfänge 0–300 cm. null = nicht übergeben.
+  const cv = k => clampNum(m[k], 0, k === 'body_fat' ? 80 : 300);
   if (ex) {
-    db.run(`UPDATE measurements SET ${f.map(k => k + '=?').join(',')} WHERE id=?`, [...f.map(k => m[k] ?? null), ex.id]);
+    db.run(`UPDATE measurements SET ${f.map(k => k + '=COALESCE(?,' + k + ')').join(',')} WHERE id=?`, [...f.map(cv), ex.id]);
   } else {
     db.run(`INSERT INTO measurements(user_id,date,${f.join(',')}) VALUES(?,?,${f.map(() => '?').join(',')})`,
-      [m.user_id, date, ...f.map(k => m[k] ?? null)]);
+      [m.user_id, date, ...f.map(cv)]);
   }
   res.json({ ok: true });
 });
@@ -933,9 +960,10 @@ app.post('/api/foods', auth, (req, res) => {
   const name = (req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Name fehlt' });
   const per = req.body.per100 ? 100 : 1; // Eingabe pro 100g oder pro 1g
-  const fat = (Number(req.body.fat) || 0) / per;
-  const carbs = (Number(req.body.carbs) || 0) / per;
-  const protein = (Number(req.body.protein) || 0) / per;
+  // Makros pro Gramm begrenzen (max. 1 g pro g – schützt vor unrealistischen/negativen Werten)
+  const fat = clampNum((Number(req.body.fat) || 0) / per, 0, 1) ?? 0;
+  const carbs = clampNum((Number(req.body.carbs) || 0) / per, 0, 1) ?? 0;
+  const protein = clampNum((Number(req.body.protein) || 0) / per, 0, 1) ?? 0;
   const r = db.run('INSERT INTO foods(name,fat,carbs,protein,owner_id,use_count) VALUES(?,?,?,?,?,1)',
     [name, fat, carbs, protein, req.user.id]);
   res.json({ ok: true, id: r.lastInsertRowid });
@@ -1224,6 +1252,205 @@ app.get('/api/analytics/:userId', auth, (req, res) => {
   });
 });
 
+/* ---------------- INSIGHTS: WOCHENRÜCKBLICK, STREAKS & ERFOLGE ---------------- */
+// Alles aus vorhandenen Daten abgeleitet – keine neuen Tabellen nötig.
+app.get('/api/insights/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const today = new Date().toISOString().slice(0, 10);
+  const ciDates = db.all('SELECT date FROM checkins WHERE user_id=? ORDER BY date DESC LIMIT 400', [uid]).map(r => r.date);
+  const setRows = db.all('SELECT exercise_id, date, weight, reps FROM set_logs WHERE user_id=?', [uid]);
+  const trDates = [...new Set(setRows.map(r => r.date))];
+
+  // Wochen-Vergleich: diese Woche (ab Montag) vs. komplette Vorwoche
+  const mondayOf = (dstr) => { const dt = new Date(dstr + 'T00:00:00'); const day = (dt.getDay() + 6) % 7; dt.setDate(dt.getDate() - day); return dt.toISOString().slice(0, 10); };
+  const thisMon = mondayOf(today);
+  const lastMonD = new Date(thisMon + 'T00:00:00'); lastMonD.setDate(lastMonD.getDate() - 7);
+  const lastMon = lastMonD.toISOString().slice(0, 10);
+  const sum = (from, to) => { // [from, to) – Volumen + Trainingstage
+    const rows = setRows.filter(r => r.date >= from && r.date < to);
+    return { volume: Math.round(rows.reduce((s, r) => s + (r.weight || 0) * (r.reps || 0), 0)), sessions: new Set(rows.map(r => r.date)).size };
+  };
+  const week = {
+    thisWeek: { ...sum(thisMon, '9999'), checkins: ciDates.filter(d => d >= thisMon).length },
+    lastWeek: { ...sum(lastMon, thisMon), checkins: ciDates.filter(d => d >= lastMon && d < thisMon).length },
+  };
+
+  const checkinStreak = streakDays(ciDates, today);
+  const totalSets = setRows.length;
+  const totalVolume = Math.round(setRows.reduce((s, r) => s + (r.weight || 0) * (r.reps || 0), 0));
+  const cnt = (q, p) => db.get(q, p).c;
+  const cardioCount = cnt('SELECT COUNT(*) c FROM cardio_log WHERE user_id=?', [uid]);
+  const distSum = Math.round((db.get('SELECT SUM(distance_km) s FROM cardio_log WHERE user_id=?', [uid]).s || 0) * 10) / 10;
+  const photoCount = cnt('SELECT COUNT(*) c FROM progress_photos WHERE user_id=?', [uid]);
+  const mealCount = cnt('SELECT COUNT(*) c FROM meals WHERE user_id=?', [uid]);
+  const measCount = cnt('SELECT COUNT(*) c FROM measurements WHERE user_id=?', [uid]);
+  const foodDays = cnt('SELECT COUNT(DISTINCT date) c FROM food_log WHERE user_id=?', [uid]);
+
+  // PR-Ereignisse zählen: pro Übung das Tages-Bestgewicht chronologisch; ein PR ist ein Tag,
+  // der ALLE früheren Tage übertrifft (konsistent mit der Live-Erkennung beim Satz-Speichern).
+  const byEx = {};
+  for (const r of setRows) { const k = r.exercise_id; (byEx[k] = byEx[k] || {})[r.date] = Math.max((byEx[k] || {})[r.date] || 0, r.weight || 0); }
+  let prCount = 0;
+  for (const k in byEx) {
+    let run = 0;
+    for (const d of Object.keys(byEx[k]).sort()) { const v = byEx[k][d]; if (run > 0 && v > run) prCount++; if (v > run) run = v; }
+  }
+
+  // Wochenziel (Trainingstage/Woche aus dem Profil) + Serie erfüllter Wochen
+  const u = getUserFull(uid);
+  const weekTarget = Math.max(1, Math.min(7, Number(u?.days_per_week) || 3));
+  const weekGoalStreak = weeklyGoalStreak(trDates, weekTarget, today);
+
+  // XP & Level: alles Sinnvolle zahlt ein – Konstanz und echte Rekorde am meisten
+  const xp = trDates.length * 10 + totalSets * 2 + ciDates.length * 5 + cardioCount * 10
+    + photoCount * 15 + measCount * 10 + foodDays * 3 + prCount * 25;
+  const need = n => 50 * n * (n - 1); // kumulierte XP-Schwelle für Level n (progressiv)
+  let level = 1; while (level < 99 && xp >= need(level + 1)) level++;
+  const LEVEL_TITLES = [[50, 'UNAUFHALTBAR'], [40, 'Legende'], [30, 'Elite'], [25, 'Maschine'], [20, 'Beast'],
+    [16, 'Veteran'], [12, 'Fortgeschritten'], [8, 'Athlet'], [5, 'Aufsteiger'], [3, 'Einsteiger'], [1, 'Rookie']];
+  const levelTitle = LEVEL_TITLES.find(t => level >= t[0])[1];
+  const levelProgress = { base: need(level), next: need(level + 1),
+    pct: Math.max(0, Math.min(100, Math.round((xp - need(level)) / (need(level + 1) - need(level)) * 100))) };
+
+  // Erfolge: aus echten Daten abgeleitet; gesperrte zeigen den Fortschritt
+  const A = (id, icon, title, desc, done, progress, target) =>
+    ({ id, icon, title, desc, done: !!done, ...(target ? { progress: Math.min(Math.round(progress), target), target } : {}) });
+  const achievements = [
+    A('first_checkin', '✅', 'Erster Check-in', 'Den Anfang gemacht', ciDates.length >= 1),
+    A('first_workout', '🏋️', 'Erstes Training', 'Ersten Satz geloggt', trDates.length >= 1),
+    A('sessions_10', '🔟', '10 Trainingstage', 'Dranbleiben zahlt sich aus', trDates.length >= 10, trDates.length, 10),
+    A('sessions_50', '🏆', '50 Trainingstage', 'Du meinst es ernst', trDates.length >= 50, trDates.length, 50),
+    A('sets_100', '💯', '100 Sätze', 'Dreistellig!', totalSets >= 100, totalSets, 100),
+    A('sets_1000', '⚡', '1000 Sätze', 'Maschine.', totalSets >= 1000, totalSets, 1000),
+    A('volume_10t', '🐘', '10 Tonnen bewegt', 'Gesamtvolumen ≥ 10.000 kg', totalVolume >= 10000, totalVolume, 10000),
+    A('volume_100t', '🚛', '100 Tonnen bewegt', 'Gesamtvolumen ≥ 100.000 kg', totalVolume >= 100000, totalVolume, 100000),
+    A('pr_1', '🥇', 'Erster Rekord', 'Stärker als je zuvor', prCount >= 1),
+    A('pr_5', '🏅', '5 Rekorde', 'Progression läuft', prCount >= 5, prCount, 5),
+    A('pr_15', '👑', '15 Rekorde', 'Rekordjäger', prCount >= 15, prCount, 15),
+    A('streak_7', '🔥', '7-Tage-Streak', '7 Tage in Folge eingecheckt', checkinStreak >= 7, checkinStreak, 7),
+    A('streak_30', '🌋', '30-Tage-Streak', 'Ein ganzer Monat – stark!', checkinStreak >= 30, checkinStreak, 30),
+    A('weekgoal_4', '🗓️', '4 Wochen Plan erfüllt', 'Wochenziel 4× in Folge erreicht', weekGoalStreak >= 4, weekGoalStreak, 4),
+    A('weekgoal_12', '📆', '12 Wochen Plan erfüllt', 'Ein ganzes Quartal Disziplin', weekGoalStreak >= 12, weekGoalStreak, 12),
+    A('first_cardio', '🏃', 'Erstes Cardio', 'Herz-Kreislauf nicht vergessen', cardioCount >= 1),
+    A('cardio_10', '🚴', '10 Cardio-Einheiten', 'Ausdauer zählt auch', cardioCount >= 10, cardioCount, 10),
+    A('dist_100', '🛣️', '100 km Distanz', 'Cardio-Kilometer gesammelt', distSum >= 100, distSum, 100),
+    A('food_7', '🥗', '7 Tage getrackt', 'Ernährung eine Woche protokolliert', foodDays >= 7, foodDays, 7),
+    A('first_photo', '📸', 'Erstes Fortschrittsfoto', 'Der Spiegel lügt, Fotos nicht', photoCount >= 1),
+    A('first_measure', '📏', 'Erste Körpermaße', 'Mehr als nur die Waage', measCount >= 1),
+    A('mealplan', '🍽️', 'Ernährungsplan aktiv', 'Plan erstellt', mealCount > 0),
+    A('level_5', '⭐', 'Level 5', 'Aufsteiger-Status erreicht', level >= 5, level, 5),
+    A('level_10', '🌟', 'Level 10', 'Zweistellig!', level >= 10, level, 10),
+  ];
+  res.json({ streaks: { checkin: checkinStreak, weekGoal: weekGoalStreak }, week,
+    weekGoal: { target: weekTarget, done: week.thisWeek.sessions },
+    xp, level, levelTitle, levelProgress, achievements,
+    totals: { sets: totalSets, volume: totalVolume, sessions: trDates.length, prs: prCount } });
+});
+
+/* ---------------- COACH: ATHLETEN-AMPEL ---------------- */
+// Wer braucht Aufmerksamkeit – mit konkreten Gründen, sortiert nach Dringlichkeit.
+app.get('/api/coach/attention', auth, requireCoach, (req, res) => {
+  const athletes = db.all("SELECT id,name FROM users WHERE coach_id=? AND role='athlete'", [req.user.id]);
+  const now = Date.now();
+  const ds = d => d ? Math.floor((now - Date.parse(d + 'T00:00:00')) / 864e5) : null;
+  const out = athletes.map(a => {
+    const lc = db.get('SELECT MAX(date) d FROM checkins WHERE user_id=?', [a.id])?.d || null;
+    const lt = db.get('SELECT MAX(date) d FROM set_logs WHERE user_id=?', [a.id])?.d || null;
+    const flags = db.get('SELECT COUNT(*) c FROM exercise_notes WHERE user_id=? AND flagged=1', [a.id]).c;
+    const st = attentionStatus({ daysSinceCheckin: ds(lc), daysSinceTraining: ds(lt), openFlags: flags });
+    return { id: a.id, name: a.name, lastCheckin: lc, lastTraining: lt, openFlags: flags, status: st.level, reasons: st.reasons };
+  }).sort((x, y) => ({ alert: 0, watch: 1, ok: 2 }[x.status]) - ({ alert: 0, watch: 1, ok: 2 }[y.status]));
+  res.json({ athletes: out });
+});
+
+/* ---------------- COACH: RUNDNACHRICHT ---------------- */
+app.post('/api/messages/broadcast', auth, requireCoach, (req, res) => {
+  const { title, body } = req.body;
+  if (!body || !body.trim()) return res.status(400).json({ error: 'Nachricht fehlt' });
+  const list = db.all("SELECT * FROM users WHERE coach_id=? AND role='athlete'", [req.user.id]);
+  const coach = db.get('SELECT name FROM users WHERE id=?', [req.user.id]);
+  for (const a of list) {
+    db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+      [a.id, req.user.id, 'message', title || 'Nachricht vom Coach', body.trim()]);
+    if (a.email_notifications && a.email) {
+      const c = notifyMessageContent(a.name, coach?.name, body.trim().slice(0, 200));
+      sendEmail({ to: a.email, ...c }).catch(() => {});
+    }
+  }
+  res.json({ ok: true, sent: list.length });
+});
+
+/* ---------------- ADMIN: SYSTEM-STATISTIKEN ---------------- */
+app.get('/api/admin/stats', auth, requireAdmin, (req, res) => {
+  const roles = Object.fromEntries(db.all('SELECT role, COUNT(*) c FROM users GROUP BY role').map(r => [r.role, r.c]));
+  const cut = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const act = new Set([
+    ...db.all('SELECT DISTINCT user_id u FROM checkins WHERE date>=?', [cut]).map(r => r.u),
+    ...db.all('SELECT DISTINCT user_id u FROM set_logs WHERE date>=?', [cut]).map(r => r.u),
+  ]);
+  res.json({ roles, active7: act.size,
+    totalSets: db.get('SELECT COUNT(*) c FROM set_logs').c,
+    totalCheckins: db.get('SELECT COUNT(*) c FROM checkins').c,
+    totalCardio: db.get('SELECT COUNT(*) c FROM cardio_log').c,
+    totalMessages: db.get('SELECT COUNT(*) c FROM messages').c });
+});
+
+/* ---------------- EINKAUFSLISTE AUS DEM ERNÄHRUNGSPLAN ---------------- */
+// Aggregiert die Mahlzeiten-Zutaten für eine Woche (Trainings- vs. Ruhetage nach Frequenz).
+app.get('/api/shoppinglist/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const u = getUserFull(uid);
+  const trainDays = Math.max(1, Math.min(7, Number(u?.days_per_week) || 3));
+  const restDays = 7 - trainDays;
+  const rows = db.all('SELECT m.day_type dt, mi.food f, mi.amount a FROM meals m JOIN meal_items mi ON mi.meal_id=m.id WHERE m.user_id=?', [uid]);
+  const agg = {};
+  for (const r of rows) {
+    if (!r.a) continue;
+    const mult = r.dt === 'training' ? trainDays : restDays;
+    agg[r.f] = (agg[r.f] || 0) + r.a * mult;
+  }
+  const items = Object.entries(agg).map(([food, amount]) => ({ food, amount: Math.round(amount / 5) * 5 }))
+    .filter(i => i.amount > 0).sort((a, b) => b.amount - a.amount);
+  res.json({ items, trainDays, restDays });
+});
+
+/* ---------------- KI-ANALYSE (optional, braucht ANTHROPIC_API_KEY) ---------------- */
+// Der eigene Server ruft die Anthropic-API auf und liefert dem Coach eine kompakte
+// Athleten-Analyse. Ohne Key: klare Meldung, App bleibt voll funktionsfähig.
+app.post('/api/ai/summary/:userId', auth, requireCoach, async (req, res) => {
+  const uid = Number(req.params.userId);
+  const a = db.get('SELECT * FROM users WHERE id=?', [uid]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ error: 'KI-Analyse nicht konfiguriert. Setze ANTHROPIC_API_KEY als Umgebungsvariable (Key von console.anthropic.com).' });
+  }
+  const cis = db.all('SELECT date,weight,sleep,steps,water FROM checkins WHERE user_id=? ORDER BY date DESC LIMIT 14', [uid]);
+  const sets = db.all(`SELECT sl.date d, e.name n, sl.weight w, sl.reps r FROM set_logs sl
+    LEFT JOIN exercises e ON e.id=sl.exercise_id WHERE sl.user_id=? ORDER BY sl.date DESC LIMIT 90`, [uid]);
+  const flags = db.all('SELECT date,note FROM exercise_notes WHERE user_id=? AND flagged=1 ORDER BY date DESC LIMIT 5', [uid]);
+  const prompt = `Du bist Assistent eines Bodybuilding-/Fitness-Coaches. Analysiere die Daten dieses Athleten kompakt auf Deutsch (max. 180 Wörter), ohne Floskeln.
+Athlet: ${a.name}, Ziel: ${a.goal || 'unbekannt'}, ${a.days_per_week || '?'}x Training/Woche, Erfahrung: ${a.experience || 'unbekannt'}.
+Check-ins der letzten 14 Tage: ${JSON.stringify(cis)}
+Letzte Sätze (Datum, Übung, kg, Wdh.): ${JSON.stringify(sets)}
+Offene Beschwerden: ${JSON.stringify(flags)}
+Struktur: 1) Zustand & Trend 2) Auffälligkeiten/Risiken 3) 2–3 konkrete Empfehlungen für den Coach.`;
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: process.env.AI_MODEL || 'claude-sonnet-4-20250514', max_tokens: 600, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!resp.ok) return res.status(502).json({ error: 'KI-Anfrage fehlgeschlagen (Status ' + resp.status + '). API-Key/Guthaben prüfen.' });
+    const data = await resp.json();
+    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    res.json({ summary: text });
+  } catch (e) {
+    res.status(502).json({ error: 'KI nicht erreichbar: ' + e.message });
+  }
+});
+
 /* ---------------- NACHRICHTEN ---------------- */
 app.get('/api/messages/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
@@ -1278,8 +1505,13 @@ app.get('/api/foodlog/:userId', auth, (req, res) => {
 });
 
 app.post('/api/foodlog', auth, (req, res) => {
-  const { user_id, date, meal_slot, food, amount, kcal, fat, carbs, protein } = req.body;
+  const { user_id, date, meal_slot, food } = req.body;
   if (!canAccess(req.user, user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const amount = clampNum(req.body.amount, 0, 10000);
+  const kcal = clampNum(req.body.kcal, 0, 20000);
+  const fat = clampNum(req.body.fat, 0, 5000);
+  const carbs = clampNum(req.body.carbs, 0, 5000);
+  const protein = clampNum(req.body.protein, 0, 5000);
   const r = db.run(`INSERT INTO food_log(user_id,date,meal_slot,food,amount,kcal,fat,carbs,protein)
     VALUES(?,?,?,?,?,?,?,?,?)`,
     [user_id, date || new Date().toISOString().slice(0, 10), meal_slot, food, amount, kcal, fat, carbs, protein]);
@@ -1323,11 +1555,15 @@ app.get('/api/cardio/:userId', auth, (req, res) => {
 });
 
 app.post('/api/cardio', auth, (req, res) => {
-  const { user_id, date, kind, minutes, distance_km, avg_hr, intensity, notes } = req.body;
+  const { user_id, date, kind, intensity, notes } = req.body;
   if (!canAccess(req.user, user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
   const u = getUserFull(user_id);
+  // Werte begrenzen: Minuten 0–1440, Distanz 0–1000 km, Puls 0–250
+  const minutes = clampNum(req.body.minutes, 0, 1440, true);
+  const distance_km = clampNum(req.body.distance_km, 0, 1000);
+  const avg_hr = clampNum(req.body.avg_hr, 0, 250, true);
   // Kalorien schätzen, falls nicht angegeben
-  let kcal = req.body.kcal;
+  let kcal = clampNum(req.body.kcal, 0, 20000, true);
   if (kcal == null) kcal = estimateCardioKcal({ kind, minutes, intensity, weightKg: u.start_weight });
   const d = date || new Date().toISOString().slice(0, 10);
   const r = db.run(`INSERT INTO cardio_log(user_id,date,kind,minutes,distance_km,avg_hr,kcal,intensity,notes)

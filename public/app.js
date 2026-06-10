@@ -106,10 +106,10 @@ async function renderOnb(){const v=document.getElementById('onbView');const s=ON
     h+=`<h2 style="font-size:24px;font-weight:700;margin-bottom:6px">Ein paar Eckdaten</h2><p style="color:var(--ink2);margin-bottom:20px">Für die Berechnung deiner Kalorien.</p>
       <div class="seg" style="margin-bottom:14px"><button id="g_m" class="${d.gender!=='female'?'on':''}" onclick="ONB.data.gender='male';renderOnb()">Mann</button><button id="g_f" class="${d.gender==='female'?'on':''}" onclick="ONB.data.gender='female';renderOnb()">Frau</button></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div class="field"><label>Alter</label><input id="o_age" type="number" inputmode="numeric" value="${d.age||''}" placeholder="28"></div>
-        <div class="field"><label>Größe (cm)</label><input id="o_h" type="number" inputmode="numeric" value="${d.height_cm||''}" placeholder="180"></div>
+        <div class="field"><label>Alter</label><input id="o_age" type="number" inputmode="numeric" min="5" max="120" value="${d.age||''}" placeholder="28"></div>
+        <div class="field"><label>Größe (cm)</label><input id="o_h" type="number" inputmode="numeric" min="50" max="260" value="${d.height_cm||''}" placeholder="180"></div>
       </div>
-      <div class="field"><label>Aktuelles Gewicht (kg)</label><input id="o_w" type="number" step="0.1" inputmode="decimal" value="${d.start_weight||''}" placeholder="80"></div>
+      <div class="field"><label>Aktuelles Gewicht (kg)</label><input id="o_w" type="number" step="0.1" inputmode="decimal" min="20" max="500" value="${d.start_weight||''}" placeholder="80"></div>
       <button class="btn" onclick="onbBody()">Weiter</button>`;
   } else if(s.key==='frequency'){
     h+=`<h2 style="font-size:24px;font-weight:700;margin-bottom:6px">Wie oft willst du trainieren?</h2><p style="color:var(--ink2);margin-bottom:20px">Pro Woche – ehrlich sein bringt die besten Ergebnisse.</p>
@@ -360,14 +360,45 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   if(cis.filter(c=>c.weight).length>=2){
     html+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewichtsverlauf</div><div class="v">kg nach Datum</div></div>${lineChart(cis.filter(c=>c.weight).map(c=>({date:c.date,value:c.weight})),'kg')}</div>`;
   }
+  // WOCHENRÜCKBLICK + ERFOLGE (nur eigenes Athleten-Konto)
+  if(VIEW_USER===ME.id&&ME.role==='athlete'){
+    try{const ir=await API.get('/insights/'+ME.id);const INS=ir.data;LAST_INSIGHTS=INS;
+      const w=INS?.week;
+      if(INS&&w){
+        const dv=w.lastWeek.volume>0?Math.round((w.thisWeek.volume-w.lastWeek.volume)/w.lastWeek.volume*100):null;
+        const dTxt=dv==null?(w.thisWeek.volume>0?'<span style="color:var(--ink3)">neu</span>':''):(dv>0?`<span style="color:var(--green)">▲ +${dv}%</span>`:dv<0?`<span style="color:var(--amber)">▼ ${dv}%</span>`:`<span style="color:var(--ink3)">→ ±0%</span>`);
+        const wg=INS.weekGoal||{target:0,done:0};
+        const dots=wg.target?Array.from({length:wg.target},(_,i)=>`<span style="color:${i<wg.done?'var(--red)':'var(--line)'}">●</span>`).join(''):'';
+        const wgOk=wg.done>=wg.target;
+        const lp=INS.levelProgress||{pct:0};
+        html+=`<div class="surface pad" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-weight:700">📊 Deine Woche</div><button class="minibtn" onclick="openAchievements()">🏅 Erfolge</button></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:4px">
+            <div>⭐ <b>Level ${INS.level}</b> · ${esc2(INS.levelTitle||'')}</div><div style="color:var(--ink3);font-size:12px">${INS.xp} XP</div></div>
+          <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;width:${lp.pct}%;background:var(--red);border-radius:3px"></div></div>
+          <div style="font-size:14px;color:var(--ink2);margin-bottom:8px">🎯 Wochenziel: <b style="color:var(--ink)">${wg.done}/${wg.target}</b> Einheiten ${dots} ${wgOk?'<span style="color:var(--green)">✓ geschafft!</span>':''}${INS.streaks?.weekGoal>=2?` <span style="color:var(--ink3)">· ${INS.streaks.weekGoal} Wochen in Serie 🔥</span>`:''}</div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--ink2)">
+            <div><b style="color:var(--ink)">${w.thisWeek.sessions}</b> Einheiten <span style="color:var(--ink3)">(Vorwoche: ${w.lastWeek.sessions})</span></div>
+            <div><b style="color:var(--ink)">${(w.thisWeek.volume/1000).toFixed(1).replace('.',',')} t</b> Volumen ${dTxt}</div>
+          </div></div>`;
+        // Neu freigeschalteten Erfolg feiern (Vergleich mit letztem Stand auf diesem Gerät)
+        try{const prev=JSON.parse(localStorage.getItem('be_ach')||'[]');
+          const now=(INS.achievements||[]).filter(a=>a.done).map(a=>a.id);
+          const fresh=now.filter(id=>!prev.includes(id));
+          if(prev.length&&fresh.length){const a=INS.achievements.find(x=>x.id===fresh[0]);
+            setTimeout(()=>toast('🏅 Neuer Erfolg: '+a.title+'!'),600);}
+          localStorage.setItem('be_ach',JSON.stringify(now));}catch(e){}
+      }
+    }catch(e){}
+  }
   // SCHNELL-CHECKIN (Gewicht, Schlaf, Schritte, Wasser – das Tägliche an einem Ort)
   html+=`<div class="section-label">Schneller Check-in</div>
     <div class="surface pad">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" placeholder="${last?.weight||'63.5'}"></div>
-        <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" placeholder="${last?.sleep||'8'}"></div>
-        <div class="field"><label>Schritte</label><input id="qc_steps" type="number" inputmode="numeric" placeholder="${last?.steps||'8000'}"></div>
-        <div class="field"><label>Wasser (L)</label><input id="qc_water" type="number" step="0.1" inputmode="decimal" placeholder="${last?.water||'3'}"></div>
+        <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="20" max="500" placeholder="${last?.weight||'63.5'}"></div>
+        <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" min="0" max="24" placeholder="${last?.sleep||'8'}"></div>
+        <div class="field"><label>Schritte</label><input id="qc_steps" type="number" inputmode="numeric" min="0" max="200000" placeholder="${last?.steps||'8000'}"></div>
+        <div class="field"><label>Wasser (L)</label><input id="qc_water" type="number" step="0.1" inputmode="decimal" min="0" max="30" placeholder="${last?.water||'3'}"></div>
       </div>
       <button class="btn" onclick="quickCheckin()">Check-in speichern</button>
       <div style="font-size:12px;color:var(--ink3);text-align:center;margin-top:8px">Leer lassen ist okay – trag ein, was du hast.</div>
@@ -558,8 +589,8 @@ async function renderEx(){const day=curDayObj();const el=document.getElementById
           const suggClass=sugg?' class="sugg"':'';
           return `<div class="setgrid">
             <div class="sn">${s+1}</div>
-            <div><input type="number" inputmode="decimal" placeholder="kg"${suggClass} value="${wVal}" data-sugg="${sugg?1:0}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s+1},'weight',this.value)"><div class="prev">${ps?'zuletzt '+(ps.weight??'–')+' kg':'erster Satz'}</div></div>
-            <div><input type="number" inputmode="numeric" placeholder="–"${suggClass} value="${rVal}" data-sugg="${sugg?1:0}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s+1},'reps',this.value,true)"><div class="prev">${ps?'× '+(ps.reps??'–'):''}</div></div>
+            <div><input type="number" inputmode="decimal" min="0" max="1000" placeholder="kg"${suggClass} value="${wVal}" data-sugg="${sugg?1:0}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s+1},'weight',this.value)"><div class="prev">${ps?'zuletzt '+(ps.weight??'–')+' kg':'erster Satz'}</div></div>
+            <div><input type="number" inputmode="numeric" min="0" max="1000" placeholder="–"${suggClass} value="${rVal}" data-sugg="${sugg?1:0}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s+1},'reps',this.value,true)"><div class="prev">${ps?'× '+(ps.reps??'–'):''}</div></div>
           </div>`;}).join('')}
         ${ex.notes?`<div class="info" style="margin-top:12px">${ex.notes}</div>`:''}
         <div class="ex-tools">
@@ -623,6 +654,9 @@ function logSet(exId,setNo,field,value,autoTimer){const key=exId+'_'+setNo;
   setSaveStatus(exId,'saving');
   clearTimeout(logTimers[key]);logTimers[key]=setTimeout(async()=>{
     const r=await API.post('/logs',logSet.cache[key]);
+    // Neuer Übungs-Rekord? Einmal pro Satz feiern.
+    if(r.status===200&&r.data?.pr){logSet.prDone=logSet.prDone||{};
+      if(!logSet.prDone[key]){logSet.prDone[key]=1;toast('🎉 NEUER REKORD: '+logSet.cache[key].weight+' kg!');}}
     setSaveStatus(exId, r.status===200?'saved':'error');
   },500);
   // Beim Eintragen der Reps automatisch Pausen-Timer starten (wenn ein Wert da ist)
@@ -922,7 +956,8 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
   // Plan vorhanden: Mahlzeiten + Aktionen
   h+=`<div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn sec" style="flex:1" onclick="genMealPlan()">🔄 Neu erstellen</button>
-      <button class="btn sec" style="flex:1" onclick="openDislikes()">🚫 Ausschließen</button></div>`;
+      <button class="btn sec" style="flex:1" onclick="openDislikes()">🚫 Ausschließen</button>
+      <button class="btn sec" style="flex:1" onclick="openShoppingList()">🛒 Einkauf</button></div>`;
   if(target){const diff=Math.round(kc-target);
     h+=`<div class="info" style="margin-bottom:14px">Plan: <b>${Math.round(kc)} kcal</b> · Ziel: <b>${target} kcal</b> ${Math.abs(diff)<=120?'– passt 👍':(diff>0?`(${diff} drüber)`:`(${Math.abs(diff)} drunter)`)}</div>`;}
   h+=meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);const mp=m.items.reduce((s,it)=>s+(it.protein||0),0);
@@ -1029,12 +1064,12 @@ const CARDIO_DIST=['Laufen','Joggen','Rad','Gehen','Wandern','Schwimmen']; // Sp
 function openCardio(){openSheet('Cardio-Einheit',`
   <div class="field"><label>Sportart</label><select id="c_kind" onchange="cardioKindChange()">${CARDIO_KINDS.map(k=>`<option>${k}</option>`).join('')}</select></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div class="field"><label>Minuten</label><input id="c_min" type="number" inputmode="numeric" placeholder="30" oninput="cardioPace()"></div>
-    <div class="field" id="c_distwrap"><label>Distanz (km, opt.)</label><input id="c_dist" type="number" step="0.1" inputmode="decimal" placeholder="5" oninput="cardioPace()"></div>
+    <div class="field"><label>Minuten</label><input id="c_min" type="number" inputmode="numeric" min="0" max="1440" placeholder="30" oninput="cardioPace()"></div>
+    <div class="field" id="c_distwrap"><label>Distanz (km, opt.)</label><input id="c_dist" type="number" step="0.1" inputmode="decimal" min="0" max="1000" placeholder="5" oninput="cardioPace()"></div>
   </div>
   <div id="c_pace" style="font-size:13px;color:var(--ink2);margin:-4px 0 12px;min-height:16px"></div>
   <div class="field"><label>Intensität</label><select id="c_int"><option value="leicht">Leicht (locker, Gespräch möglich)</option><option value="moderat" selected>Moderat</option><option value="hart">Hart (fordernd, außer Atem)</option></select></div>
-  <div class="field"><label>Puls Ø (opt.)</label><input id="c_hr" type="number" inputmode="numeric" placeholder="z.B. 145"></div>
+  <div class="field"><label>Puls Ø (opt.)</label><input id="c_hr" type="number" inputmode="numeric" min="0" max="250" placeholder="z.B. 145"></div>
   <div class="info">Die Kalorien werden automatisch geschätzt. Hartes/moderates Cardio fließt in deine Erholungs-Anzeige ein – so weiß die App, ob du morgen voll Kraft trainieren kannst.</div>
   <button class="btn" onclick="confirmCardio()">Speichern</button>`);cardioKindChange();}
 function cardioKindChange(){const k=val('c_kind');const w=document.getElementById('c_distwrap');
@@ -1215,7 +1250,7 @@ async function toggleHealthReminder(on){await API.post('/health-reminder',{enabl
 async function openMeasure(){const r=await API.get('/measurements/'+VIEW_USER);const list=r.data?.measurements||[];const last=list[0]||{};
   let h=`<div class="info">Trag ein, was du misst – leer lassen ist okay. Einheit: cm (Körperfett in %).</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">`;
-  MEASURE_FIELDS.forEach(([k,lbl])=>{h+=`<div class="field"><label>${lbl}</label><input id="ms_${k}" type="number" step="0.1" inputmode="decimal" value="" placeholder="${last[k]??'–'}"></div>`;});
+  MEASURE_FIELDS.forEach(([k,lbl])=>{h+=`<div class="field"><label>${lbl}</label><input id="ms_${k}" type="number" step="0.1" inputmode="decimal" min="0" max="300" value="" placeholder="${last[k]??'–'}"></div>`;});
   h+=`</div><button class="btn" onclick="saveMeasure()">Speichern</button>`;
   // Verlauf der wichtigsten Maße
   if(list.length>=2){h+=`<div class="section-label">Verlauf Taille</div>`;
@@ -1283,13 +1318,20 @@ async function loadHist(){const r=await API.get('/checkins/'+VIEW_USER);const h=
 // ===== ADMIN: NUTZERVERWALTUNG =====
 let ADMIN_USERS=[],ADMIN_COACHES=[];
 async function renderAdmin(v){v.innerHTML=`<div class="page on"><div class="h1">Verwaltung</div><div class="sub">Nutzer &amp; Rollen</div><div id="adminBox"><div class="spinner"></div></div></div>`;
-  const [ur,cr]=await Promise.all([API.get('/admin/users'),API.get('/admin/coaches')]);
+  const [ur,cr,st]=await Promise.all([API.get('/admin/users'),API.get('/admin/coaches'),API.get('/admin/stats')]);
+  const st_=st?.data||{};
   if(ur.status!==200){document.getElementById('adminBox').innerHTML='<div class="empty">Kein Zugriff.</div>';return;}
   ADMIN_USERS=ur.data.users;ADMIN_COACHES=cr.data?.coaches||[];const c=ur.data.counts;
   let h=`<div class="tiles" style="margin-bottom:8px">
     <div class="tile"><div class="v">${c.admin||0}</div><div class="l">Admins 🛡️</div></div>
     <div class="tile"><div class="v">${c.coach||0}</div><div class="l">Coaches</div></div>
     <div class="tile"><div class="v">${c.athlete||0}</div><div class="l">Athleten</div></div>
+  </div>
+  <div class="tiles" style="margin-bottom:8px">
+    <div class="tile"><div class="v">${st_.active7??'–'}</div><div class="l">aktiv (7 Tage)</div></div>
+    <div class="tile"><div class="v">${st_.totalSets??'–'}</div><div class="l">Sätze gesamt</div></div>
+    <div class="tile"><div class="v">${st_.totalCheckins??'–'}</div><div class="l">Check-ins</div></div>
+    <div class="tile"><div class="v">${st_.totalMessages??'–'}</div><div class="l">Nachrichten</div></div>
   </div>
   <button class="btn" style="margin-bottom:16px" onclick="adminNewUser()">+ Nutzer anlegen</button>`;
   const roleGroups=[['admin','🛡️ Admins'],['coach','👤 Coaches'],['athlete','🏋️ Athleten']];
@@ -1352,6 +1394,9 @@ async function renderAthletes(v){v.innerHTML=`<div class="page on"><div class="h
     <div class="tile"><div class="v" style="color:${o.attention?'var(--red)':'var(--ink)'}">${o.attention||0}</div><div class="l">brauchen Aufmerksamkeit</div></div>
     <div class="tile"><div class="v">${o.trainingsThisWeek||0}</div><div class="l">Trainings/Woche</div></div>
   </div>`;
+  // RUNDNACHRICHT + AMPEL-DETAILS
+  h+=`<button class="btn sec" style="margin:4px 0 12px" onclick="openBroadcast()">📢 Nachricht an alle Athleten</button>`;
+  h+=`<div id="attBox"></div>`;
   // WOCHEN-TREND
   if(o.weeklyTrend&&o.weeklyTrend.some(x=>x>0)){
     h+=`<div class="chart-card"><div class="ch-h"><div class="t">Trainings-Aktivität</div><div class="v">letzte 8 Wochen</div></div>${barchart(o.weeklyTrend)}</div>`;}
@@ -1371,6 +1416,7 @@ async function renderAthletes(v){v.innerHTML=`<div class="page on"><div class="h
   h+=`<div id="athList"></div>
     <button class="btn sec" style="margin-top:12px" onclick="addAthlete()">+ Athlet hinzufügen</button>`;
   document.getElementById('ovBox').innerHTML=h;
+  loadAttention();
   drawAthleteList(list);}
 let ATHLETES_CACHE=[];
 function filterAthletes(q){const f=ATHLETES_CACHE.filter(a=>a.name.toLowerCase().includes(q.toLowerCase()));drawAthleteList(f);}
@@ -1435,7 +1481,8 @@ async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></di
   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
     <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','tracker')">📈 Volle Analyse</button>
     <button class="btn sec" style="flex:1;min-width:120px" onclick="openPhotos(${id})">📸 Fortschrittsfotos</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','home')">👁️ Alles ansehen</button></div>`;
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','home')">👁️ Alles ansehen</button>
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="aiSummary(${id})">🤖 KI-Analyse</button></div>`;
   // Gewichtsverlauf
   if(d.weights.length>=2){const w=d.weights.slice().reverse().map(x=>x.weight);
     h+=`<div class="section-label">Gewichtsverlauf</div><div class="chart-card">${sparkline(w)}<div style="display:flex;justify-content:space-between;color:var(--ink2);font-size:13px;margin-top:8px"><span>${w[0]} kg</span><span>jetzt: ${w[w.length-1]} kg</span></div></div>`;}
@@ -1472,6 +1519,56 @@ async function coachOpenView(id,name,tab){closeModal();COACH_CONTEXT=name;VIEW_U
   await loadPlan();await loadToday();
   if(tab==='tracker')renderTracker.tab='training';
   go(tab||'home');}
+
+// ===== COACH: ATHLETEN-AMPEL (wer braucht Aufmerksamkeit – mit Gründen) =====
+async function loadAttention(){const box=document.getElementById('attBox');if(!box)return;
+  const r=await API.get('/coach/attention');const list=(r.data?.athletes||[]).filter(a=>a.status!=='ok');
+  if(!list.length){box.innerHTML='';return;}
+  const col={alert:'var(--red)',watch:'var(--amber)'};
+  box.innerHTML=`<div class="section-label">🚦 Braucht Aufmerksamkeit</div><div class="rows" style="margin-bottom:8px">`+
+    list.map(a=>`<div class="row" style="cursor:pointer;border-left:3px solid ${col[a.status]}" onclick="openDashboard(${a.id})">
+      <div class="rl">${esc2(a.name)}<small>${a.reasons.map(esc2).join(' · ')}</small></div><div class="rr">›</div></div>`).join('')+`</div>`;}
+
+// ===== COACH: RUNDNACHRICHT AN ALLE =====
+function openBroadcast(){openSheet('Nachricht an alle Athleten',`
+  <div class="info">Diese Nachricht geht an alle deine Athleten (plus optional als E-Mail, falls aktiviert).</div>
+  <div class="field"><label>Titel (optional)</label><input id="bc_title" placeholder="z.B. Info zur Woche"></div>
+  <div class="field"><label>Nachricht</label><textarea id="bc_body" rows="4" placeholder="Deine Nachricht…"></textarea></div>
+  <button class="btn" onclick="sendBroadcast()">📢 An alle senden</button>`);}
+async function sendBroadcast(){const body=val('bc_body');if(!body)return toast('Bitte Nachricht eingeben');
+  const r=await API.post('/messages/broadcast',{title:val('bc_title'),body});
+  if(r.status===200){closeModal();toast('An '+r.data.sent+' Athleten gesendet ✓');}else toast(r.data?.error||'Fehler');}
+
+// ===== COACH: KI-ANALYSE EINES ATHLETEN =====
+async function aiSummary(id){openSheet('🤖 KI-Analyse','<div class="spinner"></div><p style="text-align:center;color:var(--ink2)">Analysiere Trainings- &amp; Check-in-Daten…</p>');
+  const r=await API.post('/ai/summary/'+id,{});
+  if(r.status===200){openSheet('🤖 KI-Analyse',`<div style="white-space:pre-wrap;font-size:15px;line-height:1.6">${esc2(r.data.summary||'')}</div>
+    <div style="font-size:12px;color:var(--ink3);margin-top:14px">KI-generiert – als Zweitmeinung gedacht. Deine Coach-Einschätzung zählt.</div>`);}
+  else openSheet('🤖 KI-Analyse',`<div class="info">${esc2(r.data?.error||'Fehler bei der Analyse.')}</div><button class="btn sec" onclick="closeModal()">OK</button>`);}
+
+// ===== ERNÄHRUNG: EINKAUFSLISTE =====
+async function openShoppingList(){openSheet('🛒 Einkaufsliste','<div class="spinner"></div>');
+  const r=await API.get('/shoppinglist/'+VIEW_USER);
+  if(r.status!==200||!r.data.items.length){openSheet('🛒 Einkaufsliste','<div class="empty"><div class="ei">🛒</div>Noch kein Ernährungsplan – erst einen Plan erstellen.</div>');return;}
+  const d=r.data;
+  openSheet('🛒 Einkaufsliste (1 Woche)',`
+    <div class="info">Berechnet aus deinem Plan: ${d.trainDays} Trainingstage + ${d.restDays} Ruhetage. Mengen gerundet.</div>
+    <div class="rows">`+d.items.map(i=>`<div class="row"><div class="rl">${esc2(i.food)}</div><div class="rr"><b>${i.amount>=1000?(i.amount/1000).toFixed(1).replace('.',',')+' kg':i.amount+' g'}</b></div></div>`).join('')+`</div>`);}
+
+// ===== ATHLET: ERFOLGE =====
+let LAST_INSIGHTS=null;
+async function openAchievements(){
+  if(!LAST_INSIGHTS){const r=await API.get('/insights/'+VIEW_USER);LAST_INSIGHTS=r.data;}
+  const I=LAST_INSIGHTS||{};const list=I.achievements||[];const done=list.filter(a=>a.done).length;
+  const lp=I.levelProgress||{pct:0};
+  const head=`<div class="surface pad" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:15px;margin-bottom:4px">
+      <div>⭐ <b>Level ${I.level||1}</b> · ${esc2(I.levelTitle||'Rookie')}</div><div style="color:var(--ink3);font-size:12px">${I.xp||0} XP · nächstes Level bei ${lp.next||100}</div></div>
+    <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden"><div style="height:100%;width:${lp.pct}%;background:var(--red);border-radius:3px"></div></div>
+    <div style="font-size:12px;color:var(--ink3);margin-top:8px">XP gibt es für alles: Sätze, Check-ins, Cardio, Fotos, Maße – und am meisten für neue Rekorde.</div></div>`;
+  openSheet('🏅 Erfolge ('+done+'/'+list.length+')',head+
+    list.map(a=>{const prog=(!a.done&&a.target)?` · <span style="color:var(--ink3)">${a.progress}/${a.target}</span>`:'';
+      return `<div class="row" style="${a.done?'':'opacity:.5'}"><div class="rl"><span style="font-size:20px;margin-right:8px">${a.icon}</span><b>${esc2(a.title)}</b><small>${esc2(a.desc)}${prog}</small></div><div class="rr">${a.done?'<span class="pill" style="background:var(--green-soft,#e6f6ea);color:var(--green)">✓</span>':'<span style="color:var(--ink3)">🔒</span>'}</div></div>`;}).join(''));}
 function coachMessage(id){openSheet('Nachricht an Athlet',`<div class="field"><label>Betreff</label><input id="cm_title" placeholder="z.B. Plananpassung"></div><div class="field"><label>Nachricht</label><textarea id="cm_body" rows="3" placeholder="Deine Nachricht..."></textarea></div><button class="btn" onclick="sendCoachMsg(${id})">Senden</button>`);}
 async function sendCoachMsg(id){const r=await API.post('/messages',{user_id:id,title:val('cm_title'),body:val('cm_body')});
   if(r.status===200){closeModal();toast('Nachricht gesendet ✓');}else toast('Fehler');}
@@ -1481,8 +1578,8 @@ function coachSetPhase(id,cur){openSheet('Phase & Ziele',`
     <option value="prep"${cur==='prep'?' selected':''}>Wettkampf-Prep (Diät)</option>
     <option value="maintain"${cur==='maintain'?' selected':''}>Maintenance</option></select></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div class="field"><label>kcal Trainingstag</label><input id="cp_kt" type="number" placeholder="z.B. 3000"></div>
-    <div class="field"><label>kcal Ruhetag</label><input id="cp_kr" type="number" placeholder="z.B. 2600"></div></div>
+    <div class="field"><label>kcal Trainingstag</label><input id="cp_kt" type="number" min="0" max="15000" placeholder="z.B. 3000"></div>
+    <div class="field"><label>kcal Ruhetag</label><input id="cp_kr" type="number" min="0" max="15000" placeholder="z.B. 2600"></div></div>
   <div class="info">Der Athlet bekommt automatisch eine Nachricht über die Änderung.</div>
   <button class="btn" onclick="saveCoachPhase(${id})">Speichern</button>`);}
 async function saveCoachPhase(id){const r=await API.put('/athlete/'+id+'/profile',{phase:val('cp_phase'),kcal_target_train:num('cp_kt'),kcal_target_rest:num('cp_kr')});
@@ -1572,7 +1669,7 @@ function openProfile(){const u=ME;
   openSheet('Profil',`
     <div class="field"><label>Name</label><input id="p_name" value="${u.name||''}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="field"><label>Größe (cm)</label><input id="p_height" type="number" value="${u.height_cm||''}"></div>
+      <div class="field"><label>Größe (cm)</label><input id="p_height" type="number" min="50" max="260" value="${u.height_cm||''}"></div>
       <div class="field"><label>Startgewicht (fest)</label><input type="number" value="${u.start_weight||'–'}" disabled style="opacity:.6"></div>
     </div>
     <div class="field"><label>Erfahrung</label><select id="p_exp">
@@ -1590,8 +1687,8 @@ function openProfile(){const u=ME;
     <div class="field"><label>Trainings pro Woche: <span id="dpwLabel">${u.days_per_week||4}</span></label>
       <input id="p_days" type="range" min="1" max="7" value="${u.days_per_week||4}" oninput="document.getElementById('dpwLabel').textContent=this.value"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="field"><label>kcal Trainingstag</label><input id="p_kt" type="number" value="${u.kcal_target_train||''}" placeholder="z.B. 3000"></div>
-      <div class="field"><label>kcal Ruhetag</label><input id="p_kr" type="number" value="${u.kcal_target_rest||''}" placeholder="z.B. 2600"></div>
+      <div class="field"><label>kcal Trainingstag</label><input id="p_kt" type="number" min="0" max="15000" value="${u.kcal_target_train||''}" placeholder="z.B. 3000"></div>
+      <div class="field"><label>kcal Ruhetag</label><input id="p_kr" type="number" min="0" max="15000" value="${u.kcal_target_rest||''}" placeholder="z.B. 2600"></div>
     </div>
     <div class="info">Die Trainingsfrequenz legt deinen Rhythmus fest (z.B. 2 Tage Training, 1 Ruhetag) – nicht feste Wochentage. So machst du nach Pausen nahtlos weiter.</div>
     <label style="display:flex;align-items:center;gap:10px;margin:4px 0 14px;font-size:14px"><input type="checkbox" id="p_notif" ${u.email_notifications?'checked':''} onchange="toggleEmailNotif(this.checked)" style="width:auto"> Benachrichtigungen auch per E-Mail</label>
@@ -1761,7 +1858,7 @@ function platesPerSideJS(target,bar,plates){let perSide=(target-bar)/2;const out
 function openPlateCalc(){openSheet('Hantelrechner',`
   <div class="info">Gib dein Zielgewicht ein – wir zeigen dir, welche Scheiben pro Seite auf die Stange müssen.</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div class="field"><label>Zielgewicht (kg)</label><input id="pc_target" type="number" step="0.5" inputmode="decimal" value="60" oninput="doPlate()"></div>
+    <div class="field"><label>Zielgewicht (kg)</label><input id="pc_target" type="number" step="0.5" inputmode="decimal" min="0" max="1000" value="60" oninput="doPlate()"></div>
     <div class="field"><label>Stange (kg)</label><select id="pc_bar" onchange="doPlate()"><option value="20">20 (Standard)</option><option value="15">15 (Frauen)</option><option value="10">10 (kurz)</option><option value="0">ohne Stange</option></select></div>
   </div>
   <div id="pc_out"></div>`);doPlate();}
@@ -1899,6 +1996,16 @@ function startHintObserver(){
   applyHintControls();
 }
 startHintObserver();
+
+// Globaler Eingabeschutz: KEIN Zahlenfeld darf negativ werden (Standard-Minimum 0);
+// vorhandene min/max-Attribute werden eingehalten. Greift für alle <input type="number">.
+document.addEventListener('input',e=>{
+  const el=e.target;if(!el||el.tagName!=='INPUT'||el.type!=='number'||el.value==='')return;
+  const n=parseFloat(el.value);if(isNaN(n))return;
+  const min=el.getAttribute('min')!=null?parseFloat(el.getAttribute('min')):0; // Standard: nicht negativ
+  const max=el.getAttribute('max')!=null?parseFloat(el.getAttribute('max')):null;
+  if(n<min)el.value=min;else if(max!=null&&n>max)el.value=max;
+},true);
 // Abgelehnte Lebensmittel des eigenen Profils (für Rezept-Filter)
 function myDisliked(){try{const v=ME?.disliked_foods;return Array.isArray(v)?v:JSON.parse(v||'[]');}catch(e){return [];}}
 function esc(s){return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;');}
