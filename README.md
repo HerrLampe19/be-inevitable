@@ -398,3 +398,22 @@ Keine Schema-Änderung – alles wird aus vorhandenen Daten abgeleitet (null Mig
 - **Teilen – Athlet:** kann eigene Rezepte mit anderen Athleten **desselben Coaches** teilen (einzeln auswählbar). Empfänger bekommt eine Benachrichtigung.
 - **Teilen – Coach:** kann einzeln teilen ODER ein Rezept **für alle eigenen Athleten** freigeben (`shared_scope='athletes'`).
 - **Rechte (serverseitig erzwungen, getestet):** Fremde Athleten (anderer Coach) sehen geteilte/freigegebene Rezepte NICHT; nur Eigentümer kann teilen/bearbeiten/löschen; Athleten können NICHT „an alle" broadcasten. Teilen ist einzeln widerrufbar.
+
+## User-Feedback-Runde (Profil, Avatar, Analyse-Ziele, Ernährungs-Details)
+**Navigation zusammengelegt:** Das Profil-Icon oben rechts öffnet jetzt ALLES – Profildaten, Profilbild, Passwort, „Hinweise wieder anzeigen" und Abmelden. Der „Mehr"-Tab unten ist entfernt (Athlet, Coach, Admin).
+
+**Profilbild (Avatar):** Im Profil ein Bild aufnehmen/auswählen – wird clientseitig quadratisch auf 256 px skaliert. Erscheint im Header-Icon statt der Initiale. Schema `users.avatar`; in `/me` nur ein `has_avatar`-Flag (Bild separat über `/api/avatar/:id`). Coach sieht Avatare seiner Athleten.
+
+**Kalender-Widget-Sync (endgültig):** Die eigentliche Frust-Ursache war, dass das Widget sich nach einer Kalender-Änderung NICHT neu zeichnete (Home im Hintergrund blieb veraltet). Jetzt lädt jede Kalender-Änderung das Widget sofort neu (`refreshHomeIfActive`), und der „Heute"-Hero kommt aus derselben Quelle wie das Widget (`preview[0]`). Mit Server-Test über alle Tagtyp-Wechsel abgesichert (11/11).
+
+**Ernährung – Mahlzeit-Details:** Eine als „ganze Mahlzeit" geloggte Mahlzeit ist im Tagesprotokoll antippbar und zeigt die einzelnen Zutaten (Schema `food_log.details` als JSON). Einzel-Lebensmittel (z.B. Banane) bleiben wie bisher einfach.
+
+**Ernährung – lesbare Makros:** Überall „X g Eiweiß · Y g Carbs · Z g Fett" statt kryptischem „P12 K30 F8" (Tagesprotokoll, Plan, Rezept-Liste).
+
+**Makro-Rechner – direkt eintragen:** Neuer Button „🍽️ Direkt als gegessen eintragen" – fügt das berechnete Lebensmittel + Menge sofort ins Tagesprotokoll ein.
+
+**Analyse – Achsen & Ziel-Linien:** Neue `metricChart`-Funktion mit beschrifteten X- (Datum) und Y-Achsen (Einheit). Schlaf/Schritte/Wasser zeigen jetzt eine grün gestrichelte Ziel-Linie (Defaults: 8 h / 10.000 / 3 L); die Ist-Kurve ist grün, wo sie das Ziel erreicht, sonst rot.
+
+**Supplements-Formatierung:** Karten haben jetzt seitlichen Innenabstand (Name/Dosis kleben nicht mehr am Rand).
+
+**Mehr Anfänger-Hilfen:** Zusätzliche ausblendbare Info-Boxen an Analyse, Tagesprotokoll, Makro-Rechner und Hantelrechner.
