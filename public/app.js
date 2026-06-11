@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.1.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.1.1'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -300,13 +300,14 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
     html+=`<div class="chart-card" style="padding:16px" onclick="openCalendar()">
       <div class="ch-h" style="margin-bottom:12px"><div class="t">Dein Plan</div><div class="v">Kalender öffnen ›</div></div>
       <div style="display:flex;gap:5px">`;
+    const base=TODAY?.date?new Date(TODAY.date+'T00:00'):new Date();
     TODAY.preview.slice(0,7).forEach((d,i)=>{
-      const dt=new Date();dt.setDate(dt.getDate()+i);
-      const isTrain=d.type==='train';
-      const lbl=isTrain?(d.dayName||'Training'):'Rest';
+      const dt=new Date(base);dt.setDate(base.getDate()+i);
+      const isTrain=d.type==='train';const isSick=d.type==='sick';
+      const lbl=isTrain?(d.dayName||'Training'):isSick?'Krank':'Rest';
       html+=`<div style="flex:1 1 0;min-width:0;text-align:center">
         <div style="font-size:10px;color:var(--ink3);margin-bottom:5px">${i===0?'Heute':wd[dt.getDay()]}</div>
-        <div style="aspect-ratio:1;box-sizing:border-box;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:clamp(13px,4.2vw,18px);line-height:1;background:${isTrain?'var(--red)':'var(--surface2)'};color:${isTrain?'#fff':'var(--ink3)'};box-shadow:${i===0?'inset 0 0 0 2px var(--ink)':'none'}">${isTrain?'🏋️':'😴'}</div>
+        <div style="aspect-ratio:1;box-sizing:border-box;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:clamp(13px,4.2vw,18px);line-height:1;background:${isTrain?'var(--red)':'var(--surface2)'};color:${isTrain?'#fff':'var(--ink3)'};box-shadow:${i===0?'inset 0 0 0 2px var(--ink)':'none'}">${isTrain?'🏋️':isSick?'🤒':'😴'}</div>
         <div style="font-size:9px;color:var(--ink2);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lbl}</div>
       </div>`;});
     html+='</div></div>';
@@ -682,7 +683,7 @@ function logSet(exId,setNo,field,value,autoTimer){const key=exId+'_'+setNo;
     if(r.status===200&&r.data?.pr){logSet.prDone=logSet.prDone||{};
       if(!logSet.prDone[key]){logSet.prDone[key]=1;toast('🎉 NEUER REKORD: '+logSet.cache[key].weight+' kg!');}}
     setSaveStatus(exId, r.status===200?'saved':'error');
-    if(r.status===200)refreshAchievements();
+    if(r.status===200){refreshAchievements();TODAY=null;/* Server hat ggf. heute als Trainingstag bestätigt -> Widget/Tabs laden frisch */}
   },500);
   // Beim Eintragen der Reps automatisch Pausen-Timer starten (wenn ein Wert da ist)
   if(autoTimer&&value!==''&&parseFloat(value)>0&&restInt===null)startRest(90);}
@@ -1982,6 +1983,10 @@ async function applyAvatar(){const el=document.getElementById('avatar');if(!el||
   el.style.backgroundImage='';el.textContent=(ME.name||'?').charAt(0).toUpperCase();}
 function refreshHomeIfActive(){const cur=document.querySelector('.navbtn.on')?.dataset?.p;
   if(cur==='home'){const v=document.getElementById('views');if(v)renderHome(v);}}
+// Kommt die App aus dem Hintergrund zurück (Handy entsperrt, Tab gewechselt), Plan-Daten
+// frisch laden – damit das Widget NIE einen veralteten Stand zeigt.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'&&ME){TODAY=null;refreshHomeIfActive();}});
 
 async function openRhythmus(){
   const me=await API.get('/me');try{RHY=JSON.parse(me.data.user.pattern);}catch{RHY=null;}

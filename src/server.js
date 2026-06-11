@@ -284,7 +284,7 @@ app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
 });
 
 // Versionsnummer – zum Prüfen, ob das aktuelle Deployment live ist (auch ohne Login abrufbar)
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 app.get('/api/version', (req, res) => res.json({ version: APP_VERSION }));
 
 function pubUser(u) {

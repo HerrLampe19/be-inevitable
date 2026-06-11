@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+- Kalender-Widget: Krank-Tage werden als 🤒 „Krank" angezeigt (vorher als Rest)
+- Kalender-Widget-Härtung gegen veraltete Anzeige:
+  - Auto-Refresh, sobald die App aus dem Hintergrund zurückkommt (Handy entsperrt / Tab gewechselt)
+  - Satz-Loggen invalidiert den Plan-Stand (Server bestätigt heute als Trainingstag -> Folgetage ändern sich)
+  - Widget-Datumslabels am Server-Datum verankert (kein Versatz um Mitternacht/Zeitzonen)
+
 ## 1.1.0
 - Sichtbare Versionsnummer (Login + Profil) + /api/version-Endpoint + Cache-Buster für app.js
 - index.html wird nicht mehr gecacht (löst „Update kommt nicht an")
