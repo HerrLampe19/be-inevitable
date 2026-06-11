@@ -68,7 +68,13 @@ app.set('trust proxy', 1); // korrekte Client-IP hinter Reverse-Proxy (Hosting/H
 const clampSets = (v, fb = 3) => { let n = parseInt(v); if (isNaN(n)) n = fb; return Math.max(1, Math.min(10, n)); };
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// index.html nie cachen, damit der ?v=-Cache-Buster für app.js immer aktuell ist.
+// Übrige statische Dateien (app.js?v=… etc.) dürfen normal gecacht werden.
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  }
+}));
 
 const PORT = process.env.PORT || 3000;
 
@@ -277,9 +283,32 @@ app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
   res.json({ ok: true });
 });
 
+// Versionsnummer – zum Prüfen, ob das aktuelle Deployment live ist (auch ohne Login abrufbar)
+const APP_VERSION = '1.1.0';
+app.get('/api/version', (req, res) => res.json({ version: APP_VERSION }));
+
 function pubUser(u) {
-  const { password_hash, ...rest } = u; return rest;
+  const { password_hash, avatar, ...rest } = u;
+  return { ...rest, has_avatar: !!avatar }; // Bild separat laden, nicht in jede Antwort packen
 }
+
+// Eigenes Profilbild setzen (base64, clientseitig klein skaliert) oder entfernen (null)
+app.post('/api/avatar', auth, (req, res) => {
+  const a = req.body.avatar;
+  if (a === null || a === '') { db.run('UPDATE users SET avatar=NULL WHERE id=?', [req.user.id]); return res.json({ ok: true, removed: true }); }
+  if (typeof a !== 'string' || !a.startsWith('data:image/')) return res.status(400).json({ error: 'Ungültiges Bild' });
+  if (a.length > 800000) return res.status(400).json({ error: 'Bild zu groß (max. ~0,5 MB)' });
+  db.run('UPDATE users SET avatar=? WHERE id=?', [a, req.user.id]);
+  res.json({ ok: true });
+});
+
+// Profilbild abrufen (eigenes, oder von einem Athleten, den man als Coach betreut)
+app.get('/api/avatar/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const row = db.get('SELECT avatar FROM users WHERE id=?', [uid]);
+  res.json({ avatar: row?.avatar || null });
+});
 
 /* ---------------- ONBOARDING ---------------- */
 // Vorschau der Empfehlung (ohne Speichern) – für den letzten Onboarding-Schritt
@@ -1673,9 +1702,13 @@ app.post('/api/foodlog/frommeal/:mealId', auth, (req, res) => {
   // Als EINE Mahlzeit eintragen (summierte Nährwerte), nicht als einzelne Zutaten.
   const sum = items.reduce((a, it) => ({ kcal: a.kcal + (it.kcal || 0), fat: a.fat + (it.fat || 0), carbs: a.carbs + (it.carbs || 0), protein: a.protein + (it.protein || 0) }), { kcal: 0, fat: 0, carbs: 0, protein: 0 });
   const label = meal.label || ('Mahlzeit ' + meal.meal_no);
-  db.run(`INSERT INTO food_log(user_id,date,meal_slot,food,amount,kcal,fat,carbs,protein) VALUES(?,?,?,?,?,?,?,?,?)`,
+  // Zutaten als Details mitspeichern, damit man die Mahlzeit später aufschlüsseln kann
+  const details = JSON.stringify(items.map(it => ({ food: it.food, amount: it.amount,
+    kcal: Math.round(it.kcal || 0), protein: Math.round((it.protein || 0) * 10) / 10,
+    carbs: Math.round((it.carbs || 0) * 10) / 10, fat: Math.round((it.fat || 0) * 10) / 10 })));
+  db.run(`INSERT INTO food_log(user_id,date,meal_slot,food,amount,kcal,fat,carbs,protein,details) VALUES(?,?,?,?,?,?,?,?,?,?)`,
     [meal.user_id, date, label, label, null,
-     Math.round(sum.kcal), Math.round(sum.fat * 10) / 10, Math.round(sum.carbs * 10) / 10, Math.round(sum.protein * 10) / 10]);
+     Math.round(sum.kcal), Math.round(sum.fat * 10) / 10, Math.round(sum.carbs * 10) / 10, Math.round(sum.protein * 10) / 10, details]);
   res.json({ ok: true, added: 1, label });
 });
 
@@ -1739,6 +1772,7 @@ app.get('/api/recovery/:userId', auth, (req, res) => {
 
 // Fallback: alle anderen Routen -> index.html (SPA)
 app.get('*', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 

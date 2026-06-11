@@ -252,6 +252,7 @@ svg.spark{width:100%;height:120px;display:block}
     <button class="btn" id="authBtn" onclick="doAuth()">Anmelden</button>
     <div class="switch" id="switchLink">Noch kein Konto? <a onclick="toggleAuth()">Registrieren</a></div>
     <div class="switch" id="forgotLink" style="margin-top:8px"><a onclick="openForgot()">Passwort vergessen?</a></div>
+    <div id="loginVersion" style="text-align:center;color:var(--ink3);font-size:11px;margin-top:24px"></div>
   </div>
 </div>
 
@@ -277,6 +278,6 @@ svg.spark{width:100%;height:120px;display:block}
     <button onclick="restStop()" style="background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:600">Fertig</button>
   </div>
 </div>
-<script src="/app.js"></script>
+<script src="/app.js?v=1.1.0"></script>
 </body>
 </html>

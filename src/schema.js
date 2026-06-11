@@ -148,6 +148,7 @@ export function initSchema() {
     food TEXT NOT NULL,
     amount REAL,
     kcal REAL, fat REAL, carbs REAL, protein REAL,
+    details TEXT,                            -- JSON-Zutatenliste bei aggregierten Mahlzeiten
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
@@ -278,6 +279,11 @@ export function initSchema() {
   addCol('last_health_import', 'TEXT');
   addCol('health_reminder', 'INTEGER DEFAULT 0');
   addCol('diet_type', "TEXT DEFAULT 'all'");   // 'all' | 'vegetarian' | 'vegan'
+  addCol('avatar', 'TEXT');                      // optionales Profilbild (base64 Data-URL)
+
+  // food_log: Zutaten-Details bei aggregierten Mahlzeiten nachrüsten
+  const flCols = db.all("PRAGMA table_info(food_log)").map(c => c.name);
+  if (!flCols.includes('details')) { try { db.run("ALTER TABLE food_log ADD COLUMN details TEXT"); } catch (e) {} }
 
   // recipes: Ernährungsweise-Tag nachrüsten (bestehende DBs)
   const recCols = db.all("PRAGMA table_info(recipes)").map(c => c.name);
