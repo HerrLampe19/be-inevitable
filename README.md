@@ -417,3 +417,13 @@ Keine Schema-Änderung – alles wird aus vorhandenen Daten abgeleitet (null Mig
 **Supplements-Formatierung:** Karten haben jetzt seitlichen Innenabstand (Name/Dosis kleben nicht mehr am Rand).
 
 **Mehr Anfänger-Hilfen:** Zusätzliche ausblendbare Info-Boxen an Analyse, Tagesprotokoll, Makro-Rechner und Hantelrechner.
+
+## Teilen per Link (WhatsApp & Co.) – v1.2.0
+- **Rezepte:** In der Rezept-Detailansicht „🔗 Per Link teilen" – funktioniert für jedes sichtbare Rezept.
+- **Übungen:** In jeder Übungskarte der 🔗-Button neben ⚙️.
+- **Empfänger-Flow:** Link öffnen → App fragt nach Login/Registrierung → „Möchtest du es übernehmen?" → Rezept landet in den eigenen Rezepten, Übung im gewählten Trainingstag. Der Teilen-Token übersteht den Login (localStorage).
+- **Technik:** Tabelle `share_links` (Token + JSON-Schnappschuss). Schnappschuss statt Referenz: Link funktioniert auch nach Löschen des Originals und kann nie mehr preisgeben als den geteilten Inhalt. Vorschau-Route ist bewusst ohne Login abrufbar (`GET /api/share/:token`), Übernahme erfordert Login.
+- **Bewusst NICHT gebaut:** Community/Freundesliste/Chat – zu groß für den aktuellen Produktstand (Moderation, Privatsphäre, Echtzeit). Der Link-Flow deckt den Kern-Anwendungsfall ab.
+
+## Feature-Paket v1.3.0
+Push-Erinnerungen (sw.js NUR für Push, bewusst ohne Caching; VAPID auto-generiert in `settings`), Barcode-Scanner (Open Food Facts, BarcodeDetector mit Eingabe-Fallback), Plan-Vorlagen für Coaches (`plan_templates`, JSON-Schnappschuss, apply ersetzt aktiven Plan), Übungs-Verlaufskurve (⚙️-Menü), Workout-Abschluss-Screen, Wochenrückblick-Mail (sonntags via stündlichem Zeitgeber, manuell: POST /api/admin/weekly), DSGVO-Datenexport (GET /api/export/:userId, nur selbst/Admin). Hinweis Render: stündlicher Zeitgeber läuft nur, solange der Dienst wach ist – beim Free-Tier mit Schlafmodus können Erinnerungen ausfallen.

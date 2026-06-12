@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.1.1'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.3.1'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -179,6 +179,7 @@ async function startApp(){
   document.getElementById('appView').classList.remove('hidden');
   document.body.classList.add('has-nav');
   applyAvatar();
+  setTimeout(checkPendingShare,700); // wartender Teilen-Link? -> Übernehmen-Dialog
   API.get('/foods').then(r=>FOODS=r.data?.foods||[]);
   fetch('/api/definitions').then(r=>r.json()).then(d=>DEFS=d.definitions||[]);
   COACH_CONTEXT=null;
@@ -543,6 +544,9 @@ async function renderWorkout(v){if(!PLAN)await loadPlan();if(!TODAY)await loadTo
   const dateStr=new Date().toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long'});
   v.innerHTML=`<div class="page on">
     <div class="h1">Training</div><div class="sub">${cap(dateStr)}</div>
+    ${(ME.role==='coach'||ME.role==='admin')&&COACH_CONTEXT?`<div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="minibtn" onclick="saveAsTemplate()">💾 Als Vorlage speichern</button>
+      <button class="minibtn" onclick="openTemplates()">📋 Vorlage anwenden</button></div>`:''}
     <div class="seg" style="margin-bottom:16px">
       <button id="wt_strength" class="on" onclick="workoutTab('strength')">Kraft</button>
       <button id="wt_cardio" onclick="workoutTab('cardio')">Cardio</button>
@@ -618,6 +622,7 @@ async function renderEx(){const day=curDayObj();const el=document.getElementById
           <button class="minibtn video" onclick="openVideo('${esc(ex.name)}','${esc(ex.video_url||'')}')">▶ Ausführung</button>
           <button class="minibtn" onclick="openExNote(${ex.id},'${esc(ex.name)}')">📝 Notiz</button>
           <button class="minibtn" onclick="exGear(${ex.id},'${esc(ex.name)}')">⚙️</button>
+          <button class="minibtn" onclick="shareViaLink('exercise',${ex.id})" title="Übung teilen">🔗</button>
         </div>
       </div></div></div>`;}).join('');
   // Fortschritts-Banner: wie viele Sätze sind eingetragen?
@@ -630,8 +635,29 @@ async function renderEx(){const day=curDayObj();const el=document.getElementById
     <div style="height:10px;background:var(--line);border-radius:5px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--green);border-radius:5px;transition:.3s"></div></div>`;
   if(pct>=100)banner+=`<div style="text-align:center;margin-top:12px;font-weight:600;color:var(--green)">🎉 Alle Sätze geschafft – stark!</div>`;
   else if(doneSets>0)banner+=`<div style="text-align:center;margin-top:10px;color:var(--ink2);font-size:13px">Weiter so – ${totalSets-doneSets} Sätze noch!</div>`;
+  if(doneSets>0)banner+=`<button class="btn ${pct>=100?'':'sec'}" style="margin-top:12px" onclick="openWorkoutSummary()">🏁 Training abschließen</button>`;
   banner+=`</div>`;
   el.innerHTML=banner+el.innerHTML;}
+// Abschluss-Screen: Zusammenfassung des heutigen Trainings (Sätze, Volumen, Top-Übung, PRs)
+async function openWorkoutSummary(){openSheet('🏁 Training beendet','<div class="spinner"></div>');
+  const r=await API.get('/logs/'+VIEW_USER+'?date='+today());
+  const logs=(r.data?.logs||[]).filter(l=>l.weight!=null||l.reps!=null);
+  const exName={};(PLAN?.days||[]).forEach(d=>(d.exercises||[]).forEach(e=>exName[e.id]=e.name));
+  const volume=Math.round(logs.reduce((a,l)=>a+(l.weight||0)*(l.reps||0),0));
+  const exIds=[...new Set(logs.map(l=>l.exercise_id))];
+  const prs=Object.keys(logSet.prDone||{}).length;
+  let top=null;for(const l of logs){if(!top||((l.weight||0)>(top.weight||0)))top=l;}
+  openSheet('🏁 Training beendet',`
+    <div style="text-align:center;font-size:44px;margin:6px 0 14px">${prs>0?'🏆':'💪'}</div>
+    <div class="surface pad" style="margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr;gap:14px;text-align:center">
+      <div><div style="font-size:22px;font-weight:700">${logs.length}</div><div style="font-size:12px;color:var(--ink3)">Sätze</div></div>
+      <div><div style="font-size:22px;font-weight:700">${exIds.length}</div><div style="font-size:12px;color:var(--ink3)">Übungen</div></div>
+      <div><div style="font-size:22px;font-weight:700">${volume.toLocaleString('de-DE')} kg</div><div style="font-size:12px;color:var(--ink3)">Gesamt bewegt</div></div>
+      <div><div style="font-size:22px;font-weight:700;color:${prs?'var(--green)':'inherit'}">${prs}</div><div style="font-size:12px;color:var(--ink3)">Neue Rekorde</div></div></div>
+    ${top&&top.weight?`<div class="info">💥 Schwerster Satz: <b>${esc2(exName[top.exercise_id]||'Übung')}</b> mit ${top.weight} kg × ${top.reps||'?'}</div>`:''}
+    <div style="text-align:center;color:var(--ink2);font-size:14px;margin:10px 0 14px">${prs>0?'Rekord-Tag! Genau so wächst man. 🔥':'Sauber durchgezogen – Erholung nicht vergessen!'}</div>
+    <button class="btn" onclick="closeModal();go('home')">Fertig</button>`);
+  refreshAchievements();}
 function toggleEx(id){const el=document.getElementById('ex-'+id);const wasOpen=el.classList.contains('open');
   // alle anderen schließen, dann die getippte umschalten (immer nur eine offen)
   document.querySelectorAll('.ex.open').forEach(x=>{if(x!==el)x.classList.remove('open');});
@@ -657,22 +683,6 @@ async function saveExNote(exId,name){const note=val('en_note');if(!note)return t
   const flag=document.getElementById('en_flag').checked;
   const r=await API.post('/exercise-notes',{user_id:VIEW_USER,exercise_id:exId,note,flagged:flag});
   if(r.status===200){toast('Gespeichert ✓');openExNote(exId,name);}else toast('Fehler');}
-async function openExHistory(exId){openSheet('Lädt…','<div class="spinner"></div>');
-  const r=await API.get('/exercise-history/'+VIEW_USER+'/'+exId);if(r.status!==200)return toast('Fehler');
-  const d=r.data;const p=d.prs;
-  let h='';
-  if(!p||!p.hasData){h='<div class="empty"><div class="ei">📊</div>Noch keine Daten. Trag ein paar Sätze ein, dann erscheinen hier deine Rekorde und dein Fortschritt.</div>';}
-  else{
-    h+=`<div class="surface pad" style="margin-bottom:14px"><div style="font-weight:600;margin-bottom:10px">🏆 Deine Rekorde</div>
-      <div class="row" style="padding:8px 0"><div class="rl">Bestes Gewicht</div><div class="rr"><b>${p.maxWeight} kg</b> × ${p.maxWeightReps}</div></div>
-      <div class="row" style="padding:8px 0"><div class="rl">Geschätztes 1RM</div><div class="rr"><b>${p.best1RM} kg</b></div></div>
-      <div class="row" style="padding:8px 0;border:none"><div class="rl">Meiste Reps</div><div class="rr"><b>${p.maxReps}</b> @ ${p.maxRepsWeight} kg</div></div></div>`;
-    if(d.history.length>=2){
-      h+=`<div class="chart-card"><div class="ch-h"><div class="t">Fortschritt</div><div class="v">${d.history.length} Einheiten</div></div>${lineChart2(d.history.map(x=>({date:x.date,v1:x.weight,v2:x.reps})),'Gewicht','kg','Wdh.','x')}<div style="font-size:12px;color:var(--ink3);margin-top:8px">Rote Linie = bestes Gewicht je Einheit, blaue Linie = zugehörige Wiederholungen. Beide dürfen schwanken – wichtig ist der Trend über Wochen.</div></div>`;}
-    else h+='<div class="info">Ab dem zweiten Trainingstag siehst du hier deine Fortschrittskurve.</div>';
-  }
-  openSheet(d.name,h);}
-let logTimers={};
 function logSet(exId,setNo,field,value,autoTimer){const key=exId+'_'+setNo;
   if(!logSet.cache)logSet.cache={};
   logSet.cache[key]={...(logSet.cache[key]||{}),user_id:VIEW_USER,exercise_id:exId,date:today(),set_no:setNo,[field]:value===''?null:parseFloat(value)};
@@ -730,8 +740,24 @@ async function confirmAddExercise(){const body={day_id:CUR_DAY,muscle:val('ex_mu
   if(r.status===200){closeModal();await loadPlan();renderEx();toast('Hinzugefügt ✓');}}
 // Zahnrad-Menü pro Übung: bündelt die selteneren Aktionen (Bearbeiten/Löschen)
 function exGear(id,name){openSheet(name,`
+  <button class="btn sec" style="margin-bottom:10px" onclick="openExHistory(${id},'${esc(name)}')">📈 Verlauf ansehen</button>
   <button class="btn sec" style="margin-bottom:10px" onclick="editExercise(${id})">✏️ Übung bearbeiten</button>
   <button class="btn sec" style="color:var(--red)" onclick="delExercise(${id})">🗑️ Übung löschen</button>`);}
+// Gewichts-Verlauf einer Übung: höchstes Gewicht pro Trainingstag als Kurve
+async function openExHistory(exId,name){name=name||'Übung';openSheet('📈 '+name,'<div class="spinner"></div>');
+  const r=await API.get('/logs/'+VIEW_USER);
+  const logs=(r.data?.logs||[]).filter(l=>l.exercise_id===exId&&l.weight>0);
+  if(logs.length<1){openSheet('📈 '+name,'<div class="empty"><div class="ei">📊</div>Noch keine Sätze mit Gewicht geloggt.<br>Ab dem ersten Training entsteht hier deine Kurve.</div>');return;}
+  const byDate={};logs.forEach(l=>{if(!byDate[l.date]||l.weight>byDate[l.date])byDate[l.date]=l.weight;});
+  const rows=Object.entries(byDate).map(([date,value])=>({date,value})).sort((a,b)=>a.date<b.date?-1:1);
+  const best=Math.max(...rows.map(x=>x.value));const first=rows[0].value,lastV=rows[rows.length-1].value;
+  const diff=Math.round((lastV-first)*10)/10;
+  openSheet('📈 '+name,`
+    <div class="surface pad" style="margin-bottom:14px;display:flex;justify-content:space-around;text-align:center">
+      <div><div style="font-size:20px;font-weight:700">${best} kg</div><div style="font-size:12px;color:var(--ink3)">Bestleistung</div></div>
+      <div><div style="font-size:20px;font-weight:700;color:${diff>=0?'var(--green)':'var(--red)'}">${diff>0?'+':''}${diff} kg</div><div style="font-size:12px;color:var(--ink3)">seit Beginn</div></div>
+      <div><div style="font-size:20px;font-weight:700">${rows.length}</div><div style="font-size:12px;color:var(--ink3)">Einheiten</div></div></div>
+    ${rows.length>=2?`<div class="chart-card"><div class="ch-h"><div class="t">Top-Gewicht pro Einheit</div><div class="v">kg nach Datum</div></div>${metricChart(rows,'kg')}</div>`:'<div class="info">Ab der zweiten Einheit erscheint hier die Kurve.</div>'}`);}
 function editExercise(id){const ex=curDayObj().exercises.find(e=>e.id===id);
   EX_FORM_CTX={id:id,draft:null};
   openSheet('Übung bearbeiten',(ex.coach_locked&&ME.role!=='coach'?`<div class="warn">⚠️ Diese Übung stammt von deinem Coach. Änderst du sie, weicht dein Plan von der Vorgabe ab.</div>`:'')+exForm(ex)+`<button class="btn" onclick="confirmEditExercise(${id})">Speichern</button>`);}
@@ -786,7 +812,8 @@ function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const su
   // Schnell-Aktionen
   h+=`<div style="display:flex;gap:10px;margin-bottom:16px">
     <button class="btn" onclick="openLogFood()">+ Lebensmittel</button>
-    <button class="btn sec" onclick="dietTab('plan')">Aus Plan übernehmen</button></div>`;
+    <button class="btn sec" onclick="openBarcodeScanner()">📷 Barcode</button>
+    <button class="btn sec" onclick="dietTab('plan')">Aus Plan</button></div>`;
   // gegessene Items
   if(!items.length){h+='<div class="empty"><div class="ei">🍽️</div>Noch nichts getrackt heute.<br>Füge dein erstes Lebensmittel hinzu.</div>';}
   else{h+='<div class="section-label">Heute gegessen</div><div class="rows">';
@@ -906,6 +933,7 @@ async function openRecipe(id){let rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)ret
   h+=macroRow(rc.kcal,rc.protein,rc.carbs,rc.fat);
   h+=`<div style="color:var(--ink2);font-size:13px;margin:4px 0 16px">${rc.meal_type||'Mahlzeit'} · ${badge}${rc.category?' · '+esc2(rc.category):''}${dpill}${(rc.owner_id&&!isMine)?' · <span style="color:var(--red)">geteilt</span>':''}</div>`;
   h+=`<button class="btn" onclick="logRecipe(${rc.id})">🍽️ Als gegessen eintragen</button>`;
+  h+=`<button class="btn sec" style="margin-top:10px" onclick="shareViaLink('recipe',${rc.id})">🔗 Per Link teilen (WhatsApp & Co.)</button>`;
   if(rc.link)h+=`<a class="btn sec" style="margin-top:10px;display:block;text-align:center;text-decoration:none" href="${esc(rc.link)}" target="_blank" rel="noopener">▶ Rezept ansehen (extern)</a>`;
   if(rc.ingredients){h+=`<div class="section-label">Zutaten</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.ingredients)}</div>`;}
   if(rc.steps){h+=`<div class="section-label">Zubereitung</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.steps)}</div>`;}
@@ -1181,7 +1209,7 @@ async function drawAnaTraining(){const b=document.getElementById('anaBody');b.in
   if(a.exercises.length){h+='<div class="rows">'+a.exercises.map(e=>{
       const tr=Math.round((e.lastWeight-e.firstWeight)*10)/10;
       const trTxt=e.sessions<2?'<span style="color:var(--ink3)">neu</span>':(tr>0?`<span style="color:var(--green)">▲ +${tr} kg</span>`:tr<0?`<span style="color:var(--amber)">▼ ${tr} kg</span>`:'<span style="color:var(--ink3)">→ stabil</span>');
-      return `<div class="row" style="cursor:pointer" onclick="openExHistory(${e.id})"><div class="rl">${esc2(e.name)}<small>${e.sessions} Einheiten${e.muscle?' · '+esc2(e.muscle):''} · 1RM ~${e.best1rm} kg</small></div><div class="rr">${trTxt} ›</div></div>`;}).join('')+'</div>';
+      return `<div class="row" style="cursor:pointer" onclick="openExHistory(${e.id},'${esc(e.name)}')"><div class="rl">${esc2(e.name)}<small>${e.sessions} Einheiten${e.muscle?' · '+esc2(e.muscle):''} · 1RM ~${e.best1rm} kg</small></div><div class="rr">${trTxt} ›</div></div>`;}).join('')+'</div>';
   }else h+='<div class="info">Noch keine Übungen mit Sätzen.</div>';
   if(a.muscles.length){const max=Math.max(...a.muscles.map(m=>m.volume))||1;
     h+=`<div class="section-label">Volumen nach Muskelgruppe</div><div class="surface pad">`+
@@ -1822,6 +1850,11 @@ function openProfile(){const u=ME;
   </div>`;
   // Gemeinsamer Footer: Einstellungen + Abmelden – damit ALLES unter dem Profil-Icon liegt
   const accountFooter=`
+    <div class="section-label">Benachrichtigungen & Daten</div>
+    <div class="rows" style="margin-bottom:14px">
+      <div class="row" onclick="enablePush()"><div class="rl">🔔 Push-Erinnerungen aktivieren<small>Trainings-Erinnerung & Coach-Nachrichten aufs Handy (iPhone: erst „Zum Home-Bildschirm" hinzufügen)</small></div><div class="rr">›</div></div>
+      <div class="row" onclick="exportMyData()"><div class="rl">⬇️ Meine Daten exportieren<small>Alle deine Daten als JSON-Datei (DSGVO)</small></div><div class="rr">›</div></div>
+    </div>
     <div class="section-label">Anzeige</div>
     <div class="rows" style="margin-bottom:14px"><div class="row" onclick="resetHints()"><div class="rl">Hinweise wieder anzeigen<small>Alle ausgeblendeten Info-Boxen zurückholen</small></div><div class="rr">↺</div></div></div>
     <button class="btn sec" style="color:var(--red)" onclick="logout()">Abmelden</button>
@@ -1988,6 +2021,144 @@ function refreshHomeIfActive(){const cur=document.querySelector('.navbtn.on')?.d
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&ME){TODAY=null;refreshHomeIfActive();}});
 
+// ===== TEILEN PER LINK (WhatsApp & Co.) =====
+// Erstellt einen Link und öffnet den nativen Teilen-Dialog (Handy) bzw. kopiert ihn.
+async function shareViaLink(kind,id){const r=await API.post('/share',{kind,id});
+  if(r.status!==200)return toast(r.data?.error||'Fehler beim Erstellen des Links');
+  const url=location.origin+'/?share='+r.data.token;
+  const what=kind==='recipe'?'dieses Rezept':'diese Übung';
+  if(navigator.share){try{await navigator.share({title:'BE INEVITABLE',text:`Schau dir ${what} an:`,url});return;}catch(e){if(e&&e.name==='AbortError')return;}}
+  try{await navigator.clipboard.writeText(url);toast('Link kopiert ✓ – einfach per WhatsApp & Co. verschicken');}
+  catch(e){openSheet('Link teilen',`<div class="info">Kopiere diesen Link und schicke ihn z.B. per WhatsApp:</div><div class="surface pad" style="word-break:break-all;font-size:13px;user-select:all">${esc2(url)}</div>`);}}
+
+// Prüft nach dem Start, ob die App über einen Teilen-Link geöffnet wurde -> Übernehmen-Dialog
+async function checkPendingShare(){const tok=localStorage.getItem('be_pending_share');if(!tok||!ME)return;
+  if(ME.role!=='athlete'){localStorage.removeItem('be_pending_share');return;}
+  const r=await API.get('/share/'+tok);
+  if(r.status!==200){localStorage.removeItem('be_pending_share');toast('Geteilter Link ist ungültig');return;}
+  const d=r.data,it=d.item||{};
+  if(d.kind==='recipe'){
+    openSheet('🍽️ Geteiltes Rezept',`
+      <div class="info"><b>${esc2(d.sharedBy)}</b> hat ein Rezept mit dir geteilt. Möchtest du es übernehmen?</div>
+      ${it.photo?`<img src="${it.photo}" style="width:100%;border-radius:14px;margin-bottom:12px">`:''}
+      <div class="surface pad" style="margin-bottom:14px"><b>${esc2(it.name||'Rezept')}</b><br>
+        <span style="color:var(--ink2);font-size:13px">${Math.round(it.kcal||0)} kcal · ${Math.round(it.protein||0)} g Eiweiß · ${Math.round(it.carbs||0)} g Carbs · ${Math.round(it.fat||0)} g Fett</span>
+        ${it.ingredients?`<div style="white-space:pre-line;font-size:13px;color:var(--ink2);margin-top:8px">${esc2(it.ingredients)}</div>`:''}</div>
+      <button class="btn" onclick="acceptShare('${tok}')">✓ Zu meinen Rezepten hinzufügen</button>
+      <button class="btn sec" style="margin-top:10px" onclick="declineShare()">Nein danke</button>`);
+  } else if(d.kind==='exercise'){
+    if(!PLAN)await loadPlan();
+    const days=(PLAN?.days||[]);
+    openSheet('🏋️ Geteilte Übung',`
+      <div class="info"><b>${esc2(d.sharedBy)}</b> hat eine Übung mit dir geteilt.</div>
+      <div class="surface pad" style="margin-bottom:14px"><b>${esc2(it.name||'Übung')}</b><br>
+        <span style="color:var(--ink2);font-size:13px">${esc2(it.muscle||'')} · ${it.target_sets||3} Sätze · ${esc2(it.target_reps||'8-12')} Wdh.</span></div>
+      ${days.length?`<div class="section-label">Zu welchem Trainingstag hinzufügen?</div>`+
+        days.map(dd=>`<button class="btn sec" style="margin-bottom:8px" onclick="acceptShare('${tok}',${dd.id})">🏋️ ${esc2(dd.name)}</button>`).join(''):
+        `<div class="info">Du hast noch keinen Trainingsplan – schließe zuerst das Onboarding ab.</div>`}
+      <button class="btn sec" style="margin-top:6px" onclick="declineShare()">Nein danke</button>`);
+  } else {localStorage.removeItem('be_pending_share');}}
+async function acceptShare(tok,dayId){const r=await API.post('/share/'+tok+'/accept',dayId?{day_id:dayId}:{});
+  localStorage.removeItem('be_pending_share');closeModal();
+  if(r.status===200){toast('Übernommen ✓ Viel Spaß!');
+    if(r.data.kind==='recipe'){RECIPE_FILTER.goal='all';RECIPE_FILTER.meal='all';go('diet');}
+    else{PLAN=null;go('workout');}}
+  else toast(r.data?.error||'Fehler');}
+function declineShare(){localStorage.removeItem('be_pending_share');closeModal();toast('Okay, nicht übernommen');}
+
+// ===== PUSH-ERINNERUNGEN =====
+function urlB64ToUint8(s){const pad='='.repeat((4-s.length%4)%4);const b=atob((s+pad).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...b].map(c=>c.charCodeAt(0)));}
+async function enablePush(){
+  if(!('serviceWorker' in navigator)||!('PushManager' in window)){toast('Push wird von diesem Browser nicht unterstützt');return;}
+  try{
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted'){toast('Benachrichtigungen wurden nicht erlaubt');return;}
+    const reg=await navigator.serviceWorker.register('/sw.js');
+    const kr=await API.get('/push/pubkey');
+    if(kr.status!==200){toast(kr.data?.error||'Push auf dem Server nicht eingerichtet');return;}
+    const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8(kr.data.key)});
+    const r=await API.post('/push/subscribe',{subscription:sub.toJSON()});
+    if(r.status===200){closeModal();toast('🔔 Erinnerungen aktiviert ✓');}else toast('Fehler beim Aktivieren');
+  }catch(e){console.error('[push]',e);toast('Push konnte nicht aktiviert werden');}}
+function exportMyData(){window.open('/api/export/'+ME.id,'_blank');toast('Export wird heruntergeladen…');}
+
+// ===== BARCODE-SCANNER (Open Food Facts) =====
+let BC_STREAM=null,BC_RUNNING=false;
+function openBarcodeScanner(){
+  const hasDetector='BarcodeDetector' in window;
+  openSheet('📷 Barcode scannen',`
+    ${hasDetector?`<div id="bc_cam" style="border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px"><video id="bc_video" playsinline style="width:100%;display:block"></video></div>
+      <div id="bc_status" style="text-align:center;color:var(--ink3);font-size:13px;margin-bottom:14px">Kamera startet… halte den Strichcode ins Bild.</div>`:
+      `<div class="info">Dein Browser unterstützt keinen Kamera-Scan (z.B. iPhone-Safari). Gib die Nummer unter dem Strichcode einfach ein – der Rest geht automatisch.</div>`}
+    <div class="field"><label>Barcode-Nummer (EAN)</label><input id="bc_code" type="text" inputmode="numeric" placeholder="z.B. 4337185272363"></div>
+    <button class="btn" onclick="lookupBarcode()">Produkt suchen</button>`);
+  if(hasDetector)startBarcodeCam();}
+async function startBarcodeCam(){
+  try{
+    BC_STREAM=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    const v=document.getElementById('bc_video');if(!v){stopBarcodeCam();return;}
+    v.srcObject=BC_STREAM;await v.play();
+    const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});
+    BC_RUNNING=true;
+    const scan=async()=>{
+      if(!BC_RUNNING||!document.getElementById('bc_video'))return stopBarcodeCam();
+      try{const codes=await det.detect(v);
+        if(codes.length){const code=codes[0].rawValue;stopBarcodeCam();
+          const inp=document.getElementById('bc_code');if(inp)inp.value=code;lookupBarcode(code);return;}}catch(e){}
+      requestAnimationFrame(scan);};
+    scan();
+  }catch(e){const st=document.getElementById('bc_status');if(st)st.textContent='Kamera nicht verfügbar – Nummer unten eintippen.';}}
+function stopBarcodeCam(){BC_RUNNING=false;if(BC_STREAM){BC_STREAM.getTracks().forEach(t=>t.stop());BC_STREAM=null;}}
+async function lookupBarcode(codeArg){
+  const code=(codeArg||val('bc_code')||'').replace(/\D/g,'');
+  if(code.length<8)return toast('Bitte gültige Barcode-Nummer eingeben');
+  stopBarcodeCam();openSheet('📷 Barcode','<div class="spinner"></div>');
+  try{
+    const resp=await fetch('https://world.openfoodfacts.org/api/v2/product/'+code+'.json?fields=product_name,brands,nutriments');
+    const d=await resp.json();
+    if(!d.product||d.status===0){openSheet('📷 Barcode',`<div class="empty"><div class="ei">🔍</div>Produkt nicht in der Datenbank gefunden.<br>Du kannst es über „+ Lebensmittel" manuell anlegen.</div><button class="btn sec" onclick="openBarcodeScanner()">Nochmal scannen</button>`);return;}
+    const n=d.product.nutriments||{};
+    const per100={name:(d.product.product_name||'Produkt')+(d.product.brands?' ('+d.product.brands.split(',')[0]+')':''),
+      kcal:Math.round(n['energy-kcal_100g']||((n.energy_100g||0)/4.184)),protein:n.proteins_100g||0,carbs:n.carbohydrates_100g||0,fat:n.fat_100g||0};
+    BC_PRODUCT=per100;
+    openSheet('✓ Gefunden',`
+      <div class="surface pad" style="margin-bottom:14px"><b>${esc2(per100.name)}</b><br>
+        <span style="color:var(--ink2);font-size:13px">pro 100 g: ${per100.kcal} kcal · ${Math.round(per100.protein)} g Eiweiß · ${Math.round(per100.carbs)} g Carbs · ${Math.round(per100.fat)} g Fett</span></div>
+      <div class="field"><label>Wie viel hast du gegessen? (g/ml)</label><input id="bc_amt" type="number" inputmode="decimal" min="0" max="3000" value="100"></div>
+      <button class="btn" onclick="logBarcodeProduct()">🍽️ Eintragen</button>
+      <button class="btn sec" style="margin-top:10px" onclick="openBarcodeScanner()">Anderes Produkt scannen</button>`);
+  }catch(e){openSheet('📷 Barcode',`<div class="info">Produktsuche fehlgeschlagen (keine Internetverbindung zur Lebensmittel-Datenbank?).</div><button class="btn sec" onclick="openBarcodeScanner()">Nochmal versuchen</button>`);}}
+// ===== PLAN-VORLAGEN (Coach) =====
+function saveAsTemplate(){
+  openSheet('💾 Als Vorlage speichern',`
+    <div class="info">Speichert den aktuellen Plan dieses Athleten als wiederverwendbare Vorlage – z.B. „Push/Pull/Legs Anfänger". Du kannst sie dann jedem Athleten mit einem Klick zuweisen.</div>
+    <div class="field"><label>Name der Vorlage</label><input id="tpl_name" placeholder="z.B. Oberkörper/Unterkörper 4x"></div>
+    <button class="btn" onclick="doSaveTemplate()">Speichern</button>`);}
+async function doSaveTemplate(){const name=val('tpl_name');if(!name)return toast('Name fehlt');
+  const r=await API.post('/templates',{name,from_user_id:VIEW_USER});
+  if(r.status===200){closeModal();toast('Vorlage gespeichert ✓ ('+r.data.days+' Tage)');}else toast(r.data?.error||'Fehler');}
+async function openTemplates(){openSheet('📋 Vorlagen','<div class="spinner"></div>');
+  const r=await API.get('/templates');const list=r.data?.templates||[];
+  if(!list.length){openSheet('📋 Vorlagen','<div class="empty"><div class="ei">📋</div>Noch keine Vorlagen.<br>Speichere zuerst einen Plan als Vorlage („💾").</div>');return;}
+  openSheet('📋 Vorlage anwenden',`
+    <div class="warn">⚠️ Beim Anwenden wird der aktuelle Plan des Athleten ersetzt (der alte bleibt deaktiviert erhalten). Geloggte Sätze gehen nicht verloren.</div>
+    <div class="rows">`+list.map(t=>`<div class="row"><div class="rl" style="cursor:pointer" onclick="applyTemplate(${t.id},'${esc(t.name)}')">${esc2(t.name)}<small>${t.days} Tage · ${t.exercises} Übungen</small></div><div class="rr"><button class="minibtn red" onclick="event.stopPropagation();delTemplate(${t.id})">✕</button></div></div>`).join('')+`</div>`);}
+async function applyTemplate(id,name){
+  if(!window.confirm('Vorlage „'+name+'" auf diesen Athleten anwenden? Der aktuelle Plan wird ersetzt.'))return;
+  const r=await API.post('/templates/'+id+'/apply/'+VIEW_USER,{});
+  if(r.status===200){closeModal();PLAN=null;TODAY=null;toast('Plan zugewiesen ✓');go('workout');}else toast(r.data?.error||'Fehler');}
+async function delTemplate(id){if(!window.confirm('Vorlage löschen?'))return;
+  await API.del('/templates/'+id);openTemplates();}
+
+let BC_PRODUCT=null;
+async function logBarcodeProduct(){if(!BC_PRODUCT)return;const a=(num('bc_amt')||0);
+  if(a<=0)return toast('Menge angeben');
+  const f=BC_PRODUCT,k=a/100;
+  const r=await API.post('/foodlog',{user_id:VIEW_USER,date:today(),meal_slot:'',food:f.name,amount:a,
+    kcal:Math.round(f.kcal*k),protein:Math.round(f.protein*k*10)/10,carbs:Math.round(f.carbs*k*10)/10,fat:Math.round(f.fat*k*10)/10});
+  if(r.status===200){closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;drawTrack();toast('Eingetragen ✓');}
+  else toast(r.data?.error||'Fehler');}
+
 async function openRhythmus(){
   const me=await API.get('/me');try{RHY=JSON.parse(me.data.user.pattern);}catch{RHY=null;}
   if(!Array.isArray(RHY)||!RHY.length)RHY=['train','train','rest'];
@@ -2124,7 +2295,7 @@ const INFO_TEXTS={
 function openInfo(key){const i=INFO_TEXTS[key];if(!i)return;
   openSheet(i.t,`<div style="font-size:15px;line-height:1.6;color:var(--ink2)">${i.b}</div><button class="btn" style="margin-top:18px" onclick="closeModal()">Verstanden</button>`);}
 function openSheet(title,html){document.getElementById('sheet').innerHTML=`<div class="sheet-grip"></div><div class="sheet-h"><h3>${title}</h3><button class="sheet-x" onclick="closeModal()">✕</button></div>${html}`;document.getElementById('modal').classList.add('on');}
-function closeModal(){document.getElementById('modal').classList.remove('on');}
+function closeModal(){document.getElementById('modal').classList.remove('on');if(typeof stopBarcodeCam==='function')stopBarcodeCam();}
 // ===== REST-TIMER =====
 let restInt=null,restLeft=0;
 function startRest(seconds){restLeft=seconds;document.getElementById('restBar').classList.remove('hidden');drawRest();
@@ -2238,6 +2409,9 @@ function isAdvanced(){return (ME?.experience)==='advanced';}
     console.warn('[Version] Frontend',APP_VERSION,'≠ Backend',vr.data.version,'– bitte hart neu laden (Cache).');
   }}catch(e){}
   const params=new URLSearchParams(location.search);
+  // Teilen-Link: Token merken (übersteht Login/Registrierung), URL säubern
+  const shareTok=params.get('share');
+  if(shareTok){localStorage.setItem('be_pending_share',shareTok);history.replaceState(null,'',location.pathname);}
   // Reset-Link aus E-Mail: Formular zeigen, KEIN Auto-Login nötig
   const resetTok=params.get('reset');
   if(resetTok){showResetForm(resetTok);return;}

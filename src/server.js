@@ -284,8 +284,10 @@ app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
 });
 
 // Versionsnummer – zum Prüfen, ob das aktuelle Deployment live ist (auch ohne Login abrufbar)
-const APP_VERSION = '1.1.1';
-app.get('/api/version', (req, res) => res.json({ version: APP_VERSION }));
+const APP_VERSION = '1.3.1';
+app.get('/api/version', (req, res) => res.json({ version: APP_VERSION,
+  mail: process.env.EMAIL_HOST ? 'konfiguriert' : 'log-fallback',
+  app_url: process.env.APP_URL ? 'gesetzt' : 'FEHLT (Links in Mails zeigen ins Leere!)' }));
 
 function pubUser(u) {
   const { password_hash, avatar, ...rest } = u;
@@ -1159,6 +1161,266 @@ app.delete('/api/recipes/:id/share/:userId', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ===== TEILEN PER LINK (WhatsApp & Co.) =====
+// Erstellt einen Teilen-Link: Schnappschuss des Inhalts hinter einem zufälligen Token.
+app.post('/api/share', auth, (req, res) => {
+  const { kind, id } = req.body;
+  let payload = null;
+  const sharedBy = db.get('SELECT name FROM users WHERE id=?', [req.user.id])?.name || 'Jemand';
+  if (kind === 'recipe') {
+    const rec = db.get('SELECT * FROM recipes WHERE id=?', [id]);
+    if (!rec) return res.status(404).json({ error: 'Rezept nicht gefunden' });
+    const me = db.get('SELECT coach_id FROM users WHERE id=?', [req.user.id]);
+    const visible = rec.owner_id == null || rec.owner_id === req.user.id
+      || db.get('SELECT 1 x FROM recipe_shares WHERE recipe_id=? AND shared_with=?', [rec.id, req.user.id])
+      || (rec.shared_scope === 'athletes' && rec.owner_id === (me?.coach_id || -1));
+    if (!visible) return res.status(403).json({ error: 'Kein Zugriff auf dieses Rezept' });
+    payload = { name: rec.name, goal: rec.goal, meal_type: rec.meal_type, kcal: rec.kcal, protein: rec.protein,
+      carbs: rec.carbs, fat: rec.fat, ingredients: rec.ingredients, steps: rec.steps, link: rec.link,
+      diet: rec.diet || '', category: rec.category, photo: rec.photo || null };
+  } else if (kind === 'exercise') {
+    const ex = db.get(`SELECT e.*, p.user_id AS plan_user FROM exercises e
+      JOIN training_days d ON d.id=e.day_id JOIN plans p ON p.id=d.plan_id WHERE e.id=?`, [id]);
+    if (!ex || ex.deleted) return res.status(404).json({ error: 'Übung nicht gefunden' });
+    if (!canAccess(req.user, ex.plan_user)) return res.status(403).json({ error: 'Kein Zugriff auf diese Übung' });
+    payload = { name: ex.name, muscle: ex.muscle, technique: ex.technique, video_url: ex.video_url,
+      target_sets: ex.target_sets, target_reps: ex.target_reps, notes: ex.notes };
+  } else return res.status(400).json({ error: 'Unbekannter Typ' });
+  const token = crypto.randomBytes(12).toString('hex');
+  db.run('INSERT INTO share_links(token,kind,payload,created_by) VALUES(?,?,?,?)',
+    [token, kind, JSON.stringify({ sharedBy, item: payload }), req.user.id]);
+  res.json({ ok: true, token });
+});
+
+// Vorschau eines geteilten Inhalts – OHNE Login abrufbar (der Empfänger ist evtl. noch kein Nutzer)
+app.get('/api/share/:token', (req, res) => {
+  const row = db.get('SELECT * FROM share_links WHERE token=?', [req.params.token]);
+  if (!row) return res.status(404).json({ error: 'Link ungültig oder abgelaufen' });
+  let data = {}; try { data = JSON.parse(row.payload); } catch (e) {}
+  res.json({ kind: row.kind, sharedBy: data.sharedBy || 'Jemand', item: data.item || {} });
+});
+
+// Geteilten Inhalt ins eigene Profil übernehmen
+app.post('/api/share/:token/accept', auth, (req, res) => {
+  const row = db.get('SELECT * FROM share_links WHERE token=?', [req.params.token]);
+  if (!row) return res.status(404).json({ error: 'Link ungültig oder abgelaufen' });
+  let data = {}; try { data = JSON.parse(row.payload); } catch (e) {}
+  const it = data.item || {};
+  if (row.kind === 'recipe') {
+    db.run(`INSERT INTO recipes(name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,owner_id,diet,category,photo,shared_scope)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'private')`,
+      [it.name || 'Geteiltes Rezept', it.goal || null, it.meal_type || null, it.kcal || 0, it.protein || 0,
+       it.carbs || 0, it.fat || 0, it.ingredients || '', it.steps || '', it.link || '', req.user.id,
+       it.diet || '', it.category || null, it.photo || null]);
+  } else if (row.kind === 'exercise') {
+    const dayId = Number(req.body.day_id);
+    const day = db.get('SELECT d.id FROM training_days d JOIN plans p ON p.id=d.plan_id WHERE d.id=? AND p.user_id=? AND p.active=1', [dayId, req.user.id]);
+    if (!day) return res.status(403).json({ error: 'Wähle einen deiner eigenen Trainingstage' });
+    const pos = db.get('SELECT COALESCE(MAX(position),0)+1 p FROM exercises WHERE day_id=?', [dayId]).p;
+    db.run(`INSERT INTO exercises(day_id,muscle,name,technique,video_url,target_sets,target_reps,notes,position,source)
+      VALUES(?,?,?,?,?,?,?,?,?,'athlete')`,
+      [dayId, it.muscle || null, it.name || 'Geteilte Übung', it.technique || null, it.video_url || null,
+       it.target_sets || 3, it.target_reps || '8-12', it.notes || null, pos]);
+  } else return res.status(400).json({ error: 'Unbekannter Typ' });
+  db.run('UPDATE share_links SET uses=uses+1 WHERE id=?', [row.id]);
+  res.json({ ok: true, kind: row.kind });
+});
+
+// ===== DATEN-EXPORT (DSGVO) =====
+// Der Nutzer lädt alle eigenen Daten als JSON-Datei herunter. Fotos optional (groß).
+app.get('/api/export/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (uid !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ error: 'Nur die eigenen Daten' });
+  const withPhotos = req.query.photos === '1';
+  const u = getUserFull(uid); if (!u) return res.status(404).json({ error: 'Nicht gefunden' });
+  const { password_hash, avatar, ...profile } = u;
+  const data = {
+    exported_at: new Date().toISOString(), app_version: APP_VERSION,
+    profile, checkins: db.all('SELECT * FROM checkins WHERE user_id=? ORDER BY date', [uid]),
+    day_log: db.all('SELECT * FROM day_log WHERE user_id=? ORDER BY date', [uid]),
+    set_logs: db.all('SELECT * FROM set_logs WHERE user_id=? ORDER BY date', [uid]),
+    cardio: db.all('SELECT * FROM cardio_log WHERE user_id=? ORDER BY date', [uid]),
+    measurements: db.all('SELECT * FROM measurements WHERE user_id=? ORDER BY date', [uid]),
+    food_log: db.all('SELECT * FROM food_log WHERE user_id=? ORDER BY date', [uid]),
+    meals: db.all('SELECT m.*, (SELECT json_group_array(json_object(\'food\',mi.food,\'amount\',mi.amount)) FROM meal_items mi WHERE mi.meal_id=m.id) items FROM meals m WHERE m.user_id=?', [uid]),
+    recipes_own: db.all('SELECT id,name,goal,meal_type,kcal,protein,carbs,fat,ingredients,steps,link,diet,category FROM recipes WHERE owner_id=?', [uid]),
+    exercise_notes: db.all('SELECT * FROM exercise_notes WHERE user_id=?', [uid]),
+  };
+  if (withPhotos) data.progress_photos = db.all('SELECT date,pose,image FROM progress_photos WHERE user_id=?', [uid]);
+  res.setHeader('Content-Disposition', `attachment; filename="be-inevitable-export-${uid}-${new Date().toISOString().slice(0,10)}.json"`);
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify(data, null, 2));
+});
+
+// ===== PLAN-VORLAGEN (Coach) =====
+app.get('/api/templates', auth, requireCoach, (req, res) => {
+  const rows = db.all('SELECT id,name,created_at,data FROM plan_templates WHERE coach_id=? ORDER BY name', [req.user.id]);
+  res.json({ templates: rows.map(t => { let d = {}; try { d = JSON.parse(t.data); } catch (e) {}
+    return { id: t.id, name: t.name, created_at: t.created_at, days: (d.days || []).length,
+      exercises: (d.days || []).reduce((a, x) => a + (x.exercises || []).length, 0) }; }) });
+});
+
+// Vorlage aus dem aktiven Plan eines Athleten erstellen (Schnappschuss)
+app.post('/api/templates', auth, requireCoach, (req, res) => {
+  const { name, from_user_id } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name fehlt' });
+  const a = db.get('SELECT * FROM users WHERE id=?', [from_user_id]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff auf diesen Athleten' });
+  const plan = db.get('SELECT id FROM plans WHERE user_id=? AND active=1', [a.id]);
+  if (!plan) return res.status(404).json({ error: 'Athlet hat keinen aktiven Plan' });
+  const days = db.all('SELECT id,name,position FROM training_days WHERE plan_id=? ORDER BY position', [plan.id]).map(d => ({
+    name: d.name,
+    exercises: db.all('SELECT muscle,name,technique,video_url,target_sets,target_reps,notes FROM exercises WHERE day_id=? AND deleted=0 ORDER BY position', [d.id])
+  }));
+  const r = db.run('INSERT INTO plan_templates(coach_id,name,data) VALUES(?,?,?)', [req.user.id, name.trim(), JSON.stringify({ days })]);
+  res.json({ ok: true, id: r.lastInsertRowid, days: days.length });
+});
+
+// Vorlage auf einen Athleten anwenden: alter Plan wird deaktiviert (bleibt erhalten), neuer Plan entsteht
+app.post('/api/templates/:id/apply/:userId', auth, requireCoach, (req, res) => {
+  const t = db.get('SELECT * FROM plan_templates WHERE id=? AND coach_id=?', [req.params.id, req.user.id]);
+  if (!t) return res.status(404).json({ error: 'Vorlage nicht gefunden' });
+  const a = db.get('SELECT * FROM users WHERE id=?', [req.params.userId]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff auf diesen Athleten' });
+  let d = {}; try { d = JSON.parse(t.data); } catch (e) {}
+  const days = d.days || [];
+  if (!days.length) return res.status(400).json({ error: 'Vorlage ist leer' });
+  db.run('UPDATE plans SET active=0 WHERE user_id=?', [a.id]);
+  const plan = db.run('INSERT INTO plans(user_id,title,active) VALUES(?,?,1)', [a.id, t.name]);
+  days.forEach((day, i) => {
+    const td = db.run('INSERT INTO training_days(plan_id,name,position) VALUES(?,?,?)', [plan.lastInsertRowid, day.name || ('Tag ' + (i + 1)), i]);
+    (day.exercises || []).forEach((ex, j) => {
+      db.run(`INSERT INTO exercises(day_id,muscle,name,technique,video_url,target_sets,target_reps,notes,position,source,coach_locked)
+        VALUES(?,?,?,?,?,?,?,?,?,'coach',1)`,
+        [td.lastInsertRowid, ex.muscle || null, ex.name || 'Übung', ex.technique || null, ex.video_url || null,
+         ex.target_sets || 3, ex.target_reps || '8-12', ex.notes || null, j]);
+    });
+  });
+  db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+    [a.id, req.user.id, 'message', '📋 Neuer Trainingsplan', `Dein Coach hat dir den Plan „${t.name}" zugewiesen. Schau ihn dir im Training-Tab an!`]);
+  sendPush(a.id, { title: '📋 Neuer Trainingsplan', body: `„${t.name}" wartet auf dich!` });
+  res.json({ ok: true, days: days.length });
+});
+
+app.delete('/api/templates/:id', auth, requireCoach, (req, res) => {
+  db.run('DELETE FROM plan_templates WHERE id=? AND coach_id=?', [req.params.id, req.user.id]);
+  res.json({ ok: true });
+});
+
+// ===== WEB-PUSH (Erinnerungen) =====
+// web-push wird lazy geladen (wie nodemailer): fehlt das Modul, wird Push einfach übersprungen.
+let _webpush = null, _webpushTried = false;
+async function getWebpush() {
+  if (_webpushTried) return _webpush;
+  _webpushTried = true;
+  try {
+    const m = await import('web-push'); _webpush = m.default || m;
+    let pub = db.get("SELECT value FROM settings WHERE key='vapid_public'")?.value;
+    let priv = db.get("SELECT value FROM settings WHERE key='vapid_private'")?.value;
+    if (!pub || !priv) { // einmalig erzeugen und dauerhaft speichern (kein Env-Setup nötig)
+      const keys = _webpush.generateVAPIDKeys(); pub = keys.publicKey; priv = keys.privateKey;
+      db.run("INSERT OR REPLACE INTO settings(key,value) VALUES('vapid_public',?)", [pub]);
+      db.run("INSERT OR REPLACE INTO settings(key,value) VALUES('vapid_private',?)", [priv]);
+    }
+    _webpush.setVapidDetails('mailto:' + (process.env.EMAIL_FROM || 'coach@be-inevitable.app'), pub, priv);
+  } catch (e) { console.log('[push] web-push nicht verfügbar – Push deaktiviert (' + e.message + ')'); }
+  return _webpush;
+}
+// Push an alle Geräte eines Nutzers (best effort; tote Abos werden aufgeräumt)
+async function sendPush(userId, { title, body, url = '/' }) {
+  try {
+    const wp = await getWebpush(); if (!wp) return;
+    const subs = db.all('SELECT * FROM push_subscriptions WHERE user_id=?', [userId]);
+    for (const s of subs) {
+      wp.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        JSON.stringify({ title, body, url }))
+        .catch(err => { if (err.statusCode === 410 || err.statusCode === 404) db.run('DELETE FROM push_subscriptions WHERE id=?', [s.id]); });
+    }
+  } catch (e) {}
+}
+app.get('/api/push/pubkey', auth, async (req, res) => {
+  const wp = await getWebpush();
+  if (!wp) return res.status(503).json({ error: 'Push auf dem Server nicht verfügbar' });
+  res.json({ key: db.get("SELECT value FROM settings WHERE key='vapid_public'")?.value });
+});
+app.post('/api/push/subscribe', auth, (req, res) => {
+  const s = req.body.subscription;
+  if (!s?.endpoint || !s?.keys?.p256dh || !s?.keys?.auth) return res.status(400).json({ error: 'Ungültiges Abo' });
+  db.run('INSERT OR REPLACE INTO push_subscriptions(user_id,endpoint,p256dh,auth) VALUES(?,?,?,?)',
+    [req.user.id, s.endpoint, s.keys.p256dh, s.keys.auth]);
+  res.json({ ok: true });
+});
+app.delete('/api/push/subscribe', auth, (req, res) => {
+  if (req.body.endpoint) db.run('DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?', [req.user.id, req.body.endpoint]);
+  else db.run('DELETE FROM push_subscriptions WHERE user_id=?', [req.user.id]);
+  res.json({ ok: true });
+});
+
+// ===== WOCHENRÜCKBLICK PER E-MAIL + TÄGLICHE TRAININGS-ERINNERUNG =====
+function weeklyStats(uid) {
+  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const trains = db.get("SELECT COUNT(*) c FROM day_log WHERE user_id=? AND type='train' AND date>=?", [uid, weekAgo]).c;
+  const sets = db.get('SELECT COUNT(*) c FROM set_logs WHERE user_id=? AND date>=?', [uid, weekAgo]).c;
+  const cis = db.all('SELECT date,weight FROM checkins WHERE user_id=? AND date>=? ORDER BY date', [uid, weekAgo]);
+  const w0 = cis.find(c => c.weight)?.weight, w1 = [...cis].reverse().find(c => c.weight)?.weight;
+  return { trains, sets, checkins: cis.length, weightDelta: (w0 && w1) ? Math.round((w1 - w0) * 10) / 10 : null };
+}
+function sendWeeklyReviews() {
+  const athletes = db.all("SELECT * FROM users WHERE role='athlete' AND email_notifications=1 AND email IS NOT NULL");
+  let sent = 0;
+  for (const a of athletes) {
+    const s = weeklyStats(a.id);
+    if (!s.trains && !s.sets && !s.checkins) continue; // inaktive Woche -> keine Mail
+    const delta = s.weightDelta == null ? '' : `<li>Gewicht: ${s.weightDelta > 0 ? '+' : ''}${s.weightDelta} kg</li>`;
+    sendEmail({ to: a.email, subject: '💪 Dein Wochenrückblick – BE INEVITABLE',
+      text: `Deine Woche: ${s.trains} Trainings, ${s.sets} Sätze, ${s.checkins} Check-ins.`,
+      html: `<h2>Starke Woche, ${a.name}!</h2><ul><li>🏋️ ${s.trains} Trainings</li><li>📊 ${s.sets} Sätze</li><li>✅ ${s.checkins} Check-ins</li>${delta}</ul><p>Weiter so – dranbleiben zahlt sich aus. Dein BE INEVITABLE Team</p>` }).catch(() => {});
+    sent++;
+  }
+  return sent;
+}
+// Test-Mail an die eigene Adresse – zum Prüfen der SMTP-Konfiguration nach dem Deploy
+app.post('/api/admin/testmail', auth, async (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'coach') return res.status(403).json({ error: 'Nur Coach/Admin' });
+  const me = db.get('SELECT email,name FROM users WHERE id=?', [req.user.id]);
+  if (!me?.email) return res.status(400).json({ error: 'Kein E-Mail im Profil' });
+  const r = await sendEmail({ to: me.email, subject: '✅ Testmail – BE INEVITABLE',
+    text: 'Wenn du das liest, funktioniert der Mailversand.',
+    html: `<h2>Es funktioniert! ✅</h2><p>Hallo ${me.name}, der Mailversand deiner App ist korrekt eingerichtet.</p>` });
+  res.json({ ok: true, configured: !!process.env.EMAIL_HOST, sent: !!r?.sent,
+    hint: process.env.EMAIL_HOST ? (r?.sent ? 'Mail wurde versendet – Postfach prüfen (auch Spam).' : 'SMTP gesetzt, aber Versand fehlgeschlagen – Render-Logs prüfen (Zugangsdaten/Port?).')
+      : 'EMAIL_HOST nicht gesetzt – Mail wurde nur ins Server-Log geschrieben.' });
+});
+
+// Manueller Auslöser für Tests/Admin
+app.post('/api/admin/weekly', auth, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'coach') return res.status(403).json({ error: 'Nur Coach/Admin' });
+  res.json({ ok: true, sent: sendWeeklyReviews() });
+});
+// Stündlicher Zeitgeber: sonntags 18 Uhr Wochenrückblick; täglich ~7 Uhr Trainings-Push
+setInterval(() => {
+  try {
+    const now = new Date(); const today = now.toISOString().slice(0, 10);
+    const get = k => db.get('SELECT value FROM settings WHERE key=?', [k])?.value;
+    const set = (k, v) => db.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', [k, v]);
+    if (now.getUTCDay() === 0 && now.getUTCHours() >= 16 && get('weekly_last') !== today) { set('weekly_last', today); sendWeeklyReviews(); }
+    if (now.getUTCHours() >= 5 && get('remind_last') !== today) {
+      set('remind_last', today);
+      const athletes = db.all("SELECT id FROM users WHERE role='athlete'");
+      for (const a of athletes) {
+        try {
+          const u = getUserFull(a.id); if (!u) continue;
+          const existing = db.get('SELECT id FROM day_log WHERE user_id=? AND date=?', [a.id, today]);
+          if (existing) continue; // Tag schon bestätigt -> keine Erinnerung
+          const pattern = u.pattern ? JSON.parse(u.pattern) : buildPattern(u.days_per_week || 4);
+          const sug = suggestForToday({ pattern, trainingDays: getTrainingDayNames(a.id), history: getHistory(a.id).filter(h => h.date < today) });
+          if (sug.type === 'train') sendPush(a.id, { title: 'Heute ist Trainingstag! 💪', body: sug.dayName ? ('Auf dem Plan: ' + sug.dayName) : 'Dein Training wartet.' });
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+}, 60 * 60 * 1000);
+
 // Eigenes Rezept löschen (nur eigene)
 app.delete('/api/recipes/:id', auth, (req, res) => {
   const rec = db.get('SELECT * FROM recipes WHERE id=?', [req.params.id]);
@@ -1535,6 +1797,7 @@ app.post('/api/messages/broadcast', auth, requireCoach, (req, res) => {
   for (const a of list) {
     db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
       [a.id, req.user.id, 'message', title || 'Nachricht vom Coach', body.trim()]);
+    sendPush(a.id, { title: title || 'Nachricht vom Coach', body: body.trim().slice(0, 120) });
     if (a.email_notifications && a.email) {
       const c = notifyMessageContent(a.name, coach?.name, body.trim().slice(0, 200));
       sendEmail({ to: a.email, ...c }).catch(() => {});
@@ -1644,6 +1907,7 @@ app.post('/api/messages', auth, requireCoach, (req, res) => {
   if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
   db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
     [user_id, req.user.id, 'message', title || 'Nachricht vom Coach', body || '']);
+  sendPush(user_id, { title: title || 'Nachricht vom Coach', body: (body || '').slice(0, 120) });
   // Optionale E-Mail-Benachrichtigung (nur wenn der Athlet sie aktiviert hat; best effort)
   if (a.email_notifications && a.email) {
     const coach = db.get('SELECT name FROM users WHERE id=?', [req.user.id]);

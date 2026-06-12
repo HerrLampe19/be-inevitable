@@ -1,50 +1,59 @@
-# E-Mail einrichten (Verifizierung, Passwort-Reset, Benachrichtigungen)
+# E-Mail einrichten (Verifizierung, Passwort-Reset, Benachrichtigungen, Wochenrückblick)
 
-Die App kann E-Mails verschicken: Adress-Bestätigung bei der Registrierung,
-Passwort-Zurücksetzen per Link und optionale Benachrichtigungen. Dafür brauchst
-du **einen E-Mail-Versanddienst** – das kann eine Web-App technisch nicht selbst.
+**Kurzantwort auf „Geht das auf Render?": JA, direkt.** Render erlaubt ausgehende
+SMTP-Verbindungen auf Port **587** und **465** (nur Port 25 ist gesperrt – den
+braucht man nicht). Du musst nichts auslagern – du brauchst nur ein Konto bei
+einem Mail-Versanddienst und trägst dessen Zugangsdaten als Umgebungsvariablen ein.
+Der gesamte Code (Verifizierungs-Mail, Reset-Mail, Benachrichtigungen, Wochenrückblick)
+ist fertig und springt automatisch von „Log-Modus" auf echten Versand um, sobald
+die Variablen gesetzt sind.
 
-> Ohne Konfiguration funktioniert die App normal weiter. Statt zu versenden,
-> schreibt der Server die Mail samt Link nur ins Log (sichtbar in den Render-Logs).
-> So kannst du alles testen, bevor du einen Maildienst anbindest.
+---
 
-## Variante A – SMTP (z. B. Zoho, Gmail, dein Hoster)
-Setze auf Render unter **Environment** diese Variablen:
+## Empfehlung: Brevo (kostenlos, 300 Mails/Tag, in 10 Minuten fertig)
 
-| Variable      | Beispiel                                   |
-|---------------|--------------------------------------------|
-| `EMAIL_HOST`  | `smtp.zoho.eu` / `smtp.gmail.com`          |
-| `EMAIL_PORT`  | `465` (SSL) oder `587` (STARTTLS)          |
-| `EMAIL_USER`  | `no-reply@deine-domain.de`                 |
-| `EMAIL_PASS`  | dein SMTP- bzw. App-Passwort               |
-| `EMAIL_FROM`  | `BE INEVITABLE <no-reply@deine-domain.de>` |
-| `APP_URL`     | `https://deine-app.onrender.com`           |
+1. Konto anlegen auf **brevo.com** (ehem. Sendinblue), E-Mail bestätigen.
+2. Oben rechts → **SMTP & API** → Reiter **SMTP** → „SMTP-Schlüssel generieren".
+   Dort stehen: Server (`smtp-relay.brevo.com`), Port (`587`), Login (deine
+   Brevo-Anmelde-Mail) und der generierte Schlüssel (= Passwort).
+3. Render-Dashboard → dein Service → **Environment** → diese Variablen anlegen:
 
-`APP_URL` ist wichtig – daraus werden die Links in den Mails gebaut.
+   | Variable     | Wert                                              |
+   |--------------|---------------------------------------------------|
+   | `EMAIL_HOST` | `smtp-relay.brevo.com`                            |
+   | `EMAIL_PORT` | `587`                                             |
+   | `EMAIL_USER` | deine Brevo-Login-Mail                            |
+   | `EMAIL_PASS` | der generierte SMTP-Schlüssel                     |
+   | `EMAIL_FROM` | `BE INEVITABLE <deine-bestätigte-absender-mail>`  |
+   | `APP_URL`    | `https://DEINE-APP.onrender.com`                  |
 
-**Gmail-Hinweis:** Mit normalem Passwort geht es nicht. Du brauchst ein
-„App-Passwort" (erfordert aktivierte 2-Faktor-Anmeldung im Google-Konto).
+   ⚠️ `EMAIL_FROM` muss eine in Brevo **verifizierte Absenderadresse** sein
+   (Brevo → Senders & IP → Absender hinzufügen + bestätigen).
+   ⚠️ `APP_URL` nicht vergessen – daraus werden die Klick-Links in den Mails gebaut!
+4. **Save Changes** → Render startet den Dienst neu.
 
-## Variante B – Transaktionsmail-Dienst (empfohlen für Zustellbarkeit)
-Dienste wie **Resend, Mailgun, SendGrid, Postmark, AWS SES** bieten ebenfalls
-SMTP-Zugangsdaten – einfach dieselben Variablen oben mit deren Werten füllen.
-Vorteil: bessere Zustellbarkeit (weniger Spam), wenn du zusätzlich deine Domain
-verifizierst (SPF/DKIM – Anleitung beim jeweiligen Anbieter).
+## Funktioniert es? – In 30 Sekunden prüfen
+1. `https://DEINE-APP.onrender.com/api/version` aufrufen →
+   muss `"mail":"konfiguriert"` und `"app_url":"gesetzt"` zeigen.
+2. Als Coach/Admin eingeloggt diesen Aufruf machen (z.B. per Browser-Konsole):
+   `fetch('/api/admin/testmail',{method:'POST'}).then(r=>r.json()).then(console.log)`
+   → Antwort sagt dir klar, ob versendet wurde, und die Testmail landet in deinem
+   Postfach (Spam-Ordner mitprüfen!).
 
-## Nach dem Einrichten
-1. Variablen speichern, App neu deployen/neustarten.
-2. Neu registrieren → es kommt eine Bestätigungs-Mail.
-3. „Passwort vergessen?" auf der Anmeldeseite testen.
+## Alternative: Gmail (nur zum Testen okay)
+`EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORT=587`, `EMAIL_USER=deine@gmail.com`,
+`EMAIL_PASS=App-Passwort` (Google-Konto → Sicherheit → 2FA aktivieren →
+„App-Passwörter"; das normale Passwort funktioniert NICHT). Nachteil: Tageslimit
+und Mails von Gmail-Absendern landen bei fremden Empfängern öfter im Spam –
+für echte Nutzer lieber Brevo.
 
-## Was die App genau verschickt
-- **Bestätigungs-Mail** bei Registrierung (Link 48 Std. gültig). Nicht-blockierend:
-  Login klappt auch ohne Bestätigung, es erscheint nur ein Hinweis.
-- **Passwort-Reset** über „Passwort vergessen?" (Link 1 Std. gültig, einmalig).
-  Aus Sicherheitsgründen verrät die App nie, ob eine Adresse registriert ist.
-- **Benachrichtigung** bei neuer Coach-Nachricht – nur wenn der Athlet das in
-  „Mehr → Profil" aktiviert hat.
+## Später (wenn die App wächst): eigene Domain
+Für beste Zustellbarkeit eine eigene Domain bei Brevo verifizieren
+(SPF/DKIM-DNS-Einträge, Brevo zeigt sie an) und `EMAIL_FROM` auf
+`no-reply@deine-domain.de` stellen. Kein Code-Änderungsbedarf.
 
-## Sicherheit
-- Tokens sind zufällig (32 Byte), laufen ab und sind nach einmaliger Nutzung ungültig.
-- Beim Passwort-Reset werden alle übrigen offenen Reset-Links des Kontos entwertet.
-- JWT-Secret muss in Produktion über `JWT_SECRET` gesetzt sein (separat von E-Mail).
+## Was die App automatisch verschickt (sobald konfiguriert)
+- Bestätigungs-Mail bei Registrierung (Verifizierungs-Link)
+- „Passwort vergessen"-Mail mit Reset-Link
+- Benachrichtigung bei Coach-Nachricht (wenn der Athlet es im Profil aktiviert hat)
+- Wochenrückblick sonntags (gleiche Profil-Einstellung; inaktive Wochen = keine Mail)

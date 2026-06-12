@@ -221,6 +221,46 @@ export function initSchema() {
     FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
   );
 
+  -- Teilen per Link (WhatsApp & Co.): Schnappschuss des Inhalts hinter einem Token.
+  -- Schnappschuss statt Referenz: funktioniert auch, wenn das Original gelöscht/geändert wird,
+  -- und der Link gibt nie mehr preis als den geteilten Inhalt selbst.
+  CREATE TABLE IF NOT EXISTS share_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL,                      -- 'recipe' | 'exercise'
+    payload TEXT NOT NULL,                   -- JSON-Schnappschuss
+    created_by INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    uses INTEGER DEFAULT 0
+  );
+
+  -- Schlüssel/Wert-Einstellungen des Systems (z.B. VAPID-Schlüssel für Push, Cron-Marker)
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+
+  -- Web-Push-Abos der Nutzer (ein Nutzer kann mehrere Geräte haben)
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Plan-Vorlagen des Coaches (JSON-Schnappschuss: Tage + Übungen)
+  CREATE TABLE IF NOT EXISTS plan_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    coach_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    data TEXT NOT NULL,                      -- JSON {days:[{name,exercises:[...]}]}
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (coach_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS exercise_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
