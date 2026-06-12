@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.3.2'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.4.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
