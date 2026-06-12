@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.3.1'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.3.2'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -916,11 +916,14 @@ function openRecipeFilter(){const f=RECIPE_FILTER;const meals=['Frühstück','Mi
 async function setDietType(v){const r=await API.post('/disliked/'+VIEW_USER,{disliked:myDisliked(),diet_type:v});
   if(r.status===200){if(VIEW_USER===ME.id)ME.diet_type=v;else if(VIEW_USER_PROFILE)VIEW_USER_PROFILE.diet_type=v;
     const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];
-    closeModal();drawRecipes();toast('Ernährungsweise: '+({all:'Alle',vegetarian:'Vegetarisch',vegan:'Vegan'}[v])+' ✓');}
+    drawRecipes();if(document.getElementById('modal')?.classList.contains('on'))openRecipeFilter();toast('Ernährungsweise: '+({all:'Alle',vegetarian:'Vegetarisch',vegan:'Vegan'}[v])+' ✓');}
   else toast('Fehler');}
 let RECIPES_CACHE=[];let RECIPE_CATS=[];
 async function loadRecipeCats(){try{const r=await API.get('/recipes/categories');if(r.status===200)RECIPE_CATS=r.data.categories||[];}catch(e){}}
-function recipeFilter(key,val){RECIPE_FILTER[key]=val;drawRecipes();}
+function recipeFilter(key,val){RECIPE_FILTER[key]=val;drawRecipes();
+  // Ist das Filter-Sheet gerade offen, sofort neu zeichnen -> Auswahl färbt sich SOFORT
+  // (vorher blieb das Overlay stehen und zeigte den alten Zustand bis zum Wiederöffnen).
+  if(document.getElementById('modal')?.classList.contains('on'))openRecipeFilter();}
 async function openRecipe(id){let rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)return;
   openSheet(rc.name,'<div class="spinner"></div>');
   // volle Daten inkl. Foto nachladen
