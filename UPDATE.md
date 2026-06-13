@@ -64,19 +64,11 @@ So kannst du im unwahrscheinlichen Problemfall jederzeit zurück.
   im Zweifel läuft die alte Funktion weiter.
 - Schick mir die Log-Zeile, dann finde ich die Ursache.
 
-## Hinweis zu diesem Update (Apple Health Import)
-Dieses Update fügt der `users`-Tabelle zwei neue Spalten hinzu (`last_health_import`,
-`health_reminder`) und zwei neue Tabellen für frühere Features. Das geschieht
-**automatisch und datenschonend** beim ersten Start nach dem Deploy:
-- Neue Spalten werden per `ALTER TABLE` ergänzt, falls sie fehlen – bestehende Zeilen behalten ihre Werte.
-- Es werden keine Spalten entfernt oder umbenannt.
-Du musst nichts manuell tun. Wie immer gilt: vorher ein kurzes Backup schadet nicht
-(`cp /var/data/data.db /var/data/backup-$(date +%F).db`).
+## Hinweis zu neuen Abhängigkeiten
+Wenn ein Update neue npm-Pakete braucht (z.B. `nodemailer`, `web-push`), installiert
+Render sie beim Deploy automatisch über die `package.json`. Du musst nichts manuell tun.
 
-## Update-Hinweis (E-Mail-Funktionen)
-Dieses Update fügt eine Tabelle (`auth_tokens`) und zwei Spalten
-(`users.email_verified`, `users.email_notifications`) automatisch hinzu – ohne
-Datenverlust. Für echten E-Mail-Versand die Variablen aus EMAIL-SETUP.md setzen;
-ohne sie funktioniert die App normal weiter (Mails landen nur im Log).
-Neue Abhängigkeit `nodemailer`: Render installiert sie beim Deploy automatisch
-über die package.json.
+## Prüfen, ob das Update live ist
+Nach dem Deploy `https://DEINE-APP.onrender.com/api/version` öffnen – die angezeigte
+Versionsnummer muss zur neuen Version passen (siehe CHANGELOG.md). Mehr dazu in
+DEPLOY-PRUEFEN.md.

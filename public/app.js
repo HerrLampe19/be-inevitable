@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.4.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.7.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -180,6 +180,7 @@ async function startApp(){
   document.body.classList.add('has-nav');
   applyAvatar();
   setTimeout(checkPendingShare,700); // wartender Teilen-Link? -> Übernehmen-Dialog
+  maybeStartTour(); // beim allerersten Mal: kurze Einführungs-Tour
   API.get('/foods').then(r=>FOODS=r.data?.foods||[]);
   fetch('/api/definitions').then(r=>r.json()).then(d=>DEFS=d.definitions||[]);
   COACH_CONTEXT=null;
@@ -217,6 +218,7 @@ function go(p){
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('on',b.dataset.p===p));
   document.getElementById('hdrTitle').textContent=(COACH_CONTEXT?COACH_CONTEXT+' · ':'')+(TITLES[p]||'');window.scrollTo(0,0);
   const v=document.getElementById('views');
+  if(['workout','diet','tracker'].includes(p))maybeStartTabTour(p); // beim ersten Besuch: kurze Tab-Tour
   if(p==='admin')return renderAdmin(v);
   if(p==='athletes')return renderAthletes(v);
   if(p==='home')return renderHome(v);
@@ -269,7 +271,7 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   const dayName=eff.type==='sick'?'Erholung':(isTrain?(eff.dayName||'Training'):'Rest Day');
 
   let html='<div class="page on">';
-  html+=`<div style="text-align:center;margin:0 0 18px"><div style="display:inline-block;background:#000;border-radius:14px;padding:13px 20px;box-shadow:var(--shadow)"><img src="/logo.jpg" alt="BE INEVITABLE" style="display:block;width:100%;max-width:210px;height:auto"></div></div>`;
+  html+=`<div style="text-align:center;margin:0 0 10px"><img src="/logo-wide.jpg?v=1.6.1" alt="BE INEVITABLE" style="display:inline-block;width:100%;max-width:200px;height:auto"></div>`;
   // Einstiegs-Banner, wenn noch kein Plan/Ziel existiert (nur eigenes Konto)
   if(VIEW_USER===ME.id && !PLAN?.days?.length && !TODAY?.kcal?.train){
     html+=`<div class="today" style="background:linear-gradient(135deg,var(--red),#b00500);color:#fff">
@@ -314,69 +316,11 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
     html+='</div></div>';
   }
 
-  // KALORIEN-RING (echte gegessene kcal vs Ziel)
-  if(kcalTarget){
-    const consumed=foodSummary.consumed||0;const rem=foodSummary.remaining;
-    const statusTxt=foodSummary.status==='over'?'über dem Ziel':foodSummary.status==='onTarget'?'im Ziel ✓':(rem!=null?rem+' kcal übrig':'');
-    html+=`<div class="surface pad ring-card" style="margin-bottom:16px" onclick="go('diet')">
-      ${ring(consumed,kcalTarget)}
-      <div class="ring-info">
-        <div class="big">${consumed}<em> / ${kcalTarget} kcal</em></div>
-        <div class="lbl">${goalTxt} · ${isTrain?'Trainingstag':'Ruhetag'}</div>
-        <div class="kcal-left">${statusTxt} · ${foodSummary.macros?.protein||0}g Protein →</div>
-      </div></div>`;
-  }
-  // FORTSCHRITTS-KARTE: Startgewicht -> aktuell, mit Bewertung je nach Ziel
-  // WOCHENRÜCKBLICK + ERFOLGE (nur eigenes Athleten-Konto)
-  if(VIEW_USER===ME.id&&ME.role==='athlete'){
-    try{const ir=await API.get('/insights/'+ME.id);const INS=ir.data;LAST_INSIGHTS=INS;
-      const w=INS?.week;
-      if(INS&&w){
-        const dv=w.lastWeek.volume>0?Math.round((w.thisWeek.volume-w.lastWeek.volume)/w.lastWeek.volume*100):null;
-        const dTxt=dv==null?(w.thisWeek.volume>0?'<span style="color:var(--ink3)">neu</span>':''):(dv>0?`<span style="color:var(--green)">▲ +${dv}%</span>`:dv<0?`<span style="color:var(--amber)">▼ ${dv}%</span>`:`<span style="color:var(--ink3)">→ ±0%</span>`);
-        const wg=INS.weekGoal||{target:0,done:0};
-        const dots=wg.target?Array.from({length:wg.target},(_,i)=>`<span style="color:${i<wg.done?'var(--red)':'var(--line)'}">●</span>`).join(''):'';
-        const wgOk=wg.done>=wg.target;
-        const lp=INS.levelProgress||{pct:0};
-        html+=`<div class="surface pad" style="margin-bottom:16px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-weight:700">📊 Deine Woche</div><button class="minibtn" onclick="openAchievements()">🏅 Erfolge</button></div>
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:4px">
-            <div>⭐ <b>Level ${INS.level}</b> · ${esc2(INS.levelTitle||'')}</div><div style="color:var(--ink3);font-size:12px">🔥 ${INS.streaks?.checkin||0} Tage Streak · ${INS.xp} XP</div></div>
-          <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-bottom:10px"><div style="height:100%;width:${lp.pct}%;background:var(--red);border-radius:3px"></div></div>
-          <div style="font-size:14px;color:var(--ink2);margin-bottom:8px">🎯 Wochenziel: <b style="color:var(--ink)">${wg.done}/${wg.target}</b> Einheiten ${dots} ${wgOk?'<span style="color:var(--green)">✓ geschafft!</span>':''}${INS.streaks?.weekGoal>=2?` <span style="color:var(--ink3)">· ${INS.streaks.weekGoal} Wochen in Serie 🔥</span>`:''}</div>
-          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--ink2)">
-            <div><b style="color:var(--ink)">${w.thisWeek.sessions}</b> Einheiten <span style="color:var(--ink3)">(Vorwoche: ${w.lastWeek.sessions})</span></div>
-            <div><b style="color:var(--ink)">${(w.thisWeek.volume/1000).toFixed(1).replace('.',',')} t</b> Volumen ${dTxt}</div>
-          </div></div>`;
-        // Neu freigeschalteten Erfolg feiern – zentrale Funktion (greift überall)
-        checkNewAchievements(INS);
-      }
-    }catch(e){}
-  }
-  const startW=ME.start_weight;const curW=last?.weight;
-  if(startW&&curW){
-    const diff=Math.round((curW-startW)*10)/10;
-    // Ziel eindeutig bestimmen: eigenes Konto -> ME.goal (immer aktuell);
-    // Coach betrachtet Athlet -> dessen Profil. TODAY.goal ist hier unzuverlässig.
-    const goal=(VIEW_USER===ME.id?ME.goal:(VIEW_USER_PROFILE?.goal))||ME.goal;
-    // Bewertung: passt die Richtung zum Ziel?
-    let verdict,vColor;
-    if(goal==='muscle'){if(diff>0){verdict='+'+diff+' kg aufgebaut 💪';vColor='var(--green)';}else if(diff<0){verdict=diff+' kg – Richtung stimmt noch nicht';vColor='var(--amber)';}else{verdict='Noch keine Veränderung';vColor='var(--ink2)';}}
-    else if(goal==='fatloss'){if(diff<0){verdict=Math.abs(diff)+' kg verloren 🔥';vColor='var(--green)';}else if(diff>0){verdict='+'+diff+' kg – Richtung stimmt noch nicht';vColor='var(--amber)';}else{verdict='Noch keine Veränderung';vColor='var(--ink2)';}}
-    else{verdict=(diff>0?'+':'')+diff+' kg seit Start';vColor='var(--ink2)';}
-    html+=`<div class="surface pad" style="margin-bottom:16px">
-      <div style="font-weight:600;margin-bottom:14px">Dein Fortschritt</div>
-      <div style="display:flex;align-items:center;justify-content:space-between;text-align:center">
-        <div style="flex:1"><div style="font-size:13px;color:var(--ink3)">Start</div><div style="font-size:22px;font-weight:700">${startW}<span style="font-size:13px;color:var(--ink2)"> kg</span></div></div>
-        <div style="flex:0 0 40px;color:var(--ink3);font-size:20px">→</div>
-        <div style="flex:1"><div style="font-size:13px;color:var(--ink3)">Heute</div><div style="font-size:26px;font-weight:700;color:var(--red)">${curW}<span style="font-size:13px;color:var(--ink2)"> kg</span></div></div>
-      </div>
-      <div style="text-align:center;margin-top:12px;font-weight:600;font-size:14px;color:${vColor}">${verdict}</div>
-    </div>`;
-  }
-  // SCHNELL-CHECKIN (Gewicht, Schlaf, Schritte, Wasser – das Tägliche an einem Ort)
-  html+=`<div class="section-label">Fast Check-in</div>
-    <div class="surface pad">
+  // ===== Reihenfolge nach Wichtigkeit: HEUTE (Hero+Kalender oben) -> CHECK-IN -> ERNÄHRUNG -> FORTSCHRITT =====
+
+  // SCHNELL-CHECKIN (das Tägliche, Platz 2)
+  html+=`<div class="section-label">Heute eintragen</div>
+    <div class="surface pad" style="margin-bottom:8px" id="homeCheckin">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="0" max="500" placeholder="${last?.weight||'63.5'}"></div>
         <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" min="0" max="24" placeholder="${last?.sleep||'8'}"></div>
@@ -386,13 +330,110 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
       <button class="btn" onclick="quickCheckin()">Check-in speichern</button>
       <div style="font-size:12px;color:var(--ink3);text-align:center;margin-top:8px">Leer lassen ist okay – trag ein, was du hast.</div>
     </div>`;
-  // ADAPTIV: Profis bekommen Maße + Fotos direkt griffbereit auf der Home
-  if(isAdvanced()&&VIEW_USER===ME.id){
-    html+=`<div class="section-label">Physik tracken</div>
-      <div class="quick">
-        <button class="qcard" onclick="openMeasure()"><span class="ic">📏</span><div class="t">Körpermaße</div><div class="d">Schnell eintragen</div></button>
-        <button class="qcard" onclick="openPhotos()"><span class="ic">📸</span><div class="t">Foto</div><div class="d">Physik festhalten</div></button>
-      </div>`;
+
+  // ERNÄHRUNG: kompakte Streifen-Karte mit Ring (Platz 3) – Details per Tap
+  if(kcalTarget){
+    const consumed=foodSummary.consumed||0;const rem=foodSummary.remaining;
+    const statusTxt=foodSummary.status==='over'?'über dem Ziel':foodSummary.status==='onTarget'?'im Ziel ✓':(rem!=null?rem+' kcal übrig · '+(foodSummary.macros?.protein||0)+'g Eiweiß':'');
+    html+=`<div class="section-label">Ernährung</div>
+      <div class="surface pad ring-card" style="margin-bottom:8px" onclick="go('diet')">
+      ${ring(consumed,kcalTarget)}
+      <div class="ring-info">
+        <div class="big">${consumed}<em> / ${kcalTarget} kcal</em></div>
+        <div class="lbl">${goalTxt} · ${isTrain?'Trainingstag':'Ruhetag'}</div>
+        <div class="kcal-left">${statusTxt} →</div>
+      </div></div>`;
+  }
+
+  // SUPPLEMENTS-TAGESWIDGET (eigener Bereich, nichts mit Nährwerten): heutige Abhakliste
+  if(VIEW_USER===ME.id&&ME.role==='athlete'){
+    try{const sr=await API.get('/supplement-intake/'+ME.id+'?date='+today());
+      if(sr.status===200){const sd=sr.data;const items=[...sd.plan,...sd.extras];
+        if(items.length){
+          const allDone=sd.done>=(sd.total||items.length)&&items.length>0;
+          html+=`<div class="section-label">Supplements heute</div>
+            <div class="surface pad" style="margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-weight:600">${sd.done}/${sd.total||items.length} genommen ${allDone?'<span style="color:var(--green)">✓</span>':''}</div>
+                <button class="minibtn" onclick="openSupp()">Alle ›</button>
+              </div>`;
+          html+=items.slice(0,4).map(p=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+            <div onclick="toggleIntakeHome(event,${p.supplement_id??'null'},${p.intake_id??'null'},'${esc(p.name)}')" style="flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;${p.taken?'background:var(--green);color:#fff':'background:var(--surface2);box-shadow:inset 0 0 0 1.5px var(--line)'}">${p.taken?'✓':''}</div>
+            <div style="flex:1;min-width:0"><span style="font-weight:500${p.taken?';color:var(--ink3);text-decoration:line-through':''}">${esc2(p.name)}</span> <span style="font-size:12px;color:var(--ink3)">${p.dose?esc2(p.dose):''}</span></div>
+          </div>`).join('');
+          if(items.length>4)html+=`<div style="text-align:center;margin-top:8px"><button class="minibtn" onclick="openSupp()">+${items.length-4} weitere</button></div>`;
+          html+=`</div>`;
+        }
+      }
+    }catch(e){}
+  }
+
+
+  // FORTSCHRITT & ERFOLGE (Platz 4) – als kompakte, antippbare Streifen statt großer Blöcke
+  if(VIEW_USER===ME.id&&ME.role==='athlete'){
+    try{const ir=await API.get('/insights/'+ME.id);const INS=ir.data;LAST_INSIGHTS=INS;
+      const w=INS?.week;
+      if(INS){
+        html+=`<div class="section-label">Dein Fortschritt</div>`;
+        // Streifen 1: Level/XP/Streak -> öffnet Erfolge
+        const lp=INS.levelProgress||{pct:0};
+        html+=`<div class="stat-strip" onclick="openAchievements()">
+          <div class="si">⭐</div>
+          <div class="sc"><div class="st">Level ${INS.level} · ${esc2(INS.levelTitle||'')}</div>
+            <div class="ss">🔥 ${INS.streaks?.checkin||0} Tage Streak · ${INS.xp} XP</div>
+            <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:7px"><div style="height:100%;width:${lp.pct}%;background:var(--red);border-radius:3px"></div></div></div>
+          <div class="sx">🏅</div></div>`;
+        // Streifen 2: Wochenziel (kurzfristig) -> Analyse
+        if(w){
+          const wg=INS.weekGoal||{target:0,done:0};const wgOk=wg.done>=wg.target&&wg.target>0;
+          html+=`<div class="stat-strip" onclick="go('tracker')">
+            <div class="si">🎯</div>
+            <div class="sc"><div class="st">Diese Woche: ${wg.done}/${wg.target} Trainings ${wgOk?'<span style="color:var(--green)">✓</span>':''}</div>
+              <div class="ss">${(w.thisWeek.volume/1000).toFixed(1).replace('.',',')} t Volumen</div></div>
+            <div class="sx">›</div></div>`;
+        }
+        // Streifen 3: Monatsziel (die große Linie) -> öffnet den Monatsziel-Screen
+        try{const mg=await API.get('/monthly/'+ME.id);const MG=mg.data;
+          if(MG&&MG.parts){
+            const reached=MG.reachedCount,total=MG.parts.length;
+            const done=MG.allReached;
+            html+=`<div class="stat-strip" onclick="openMonthlyGoal()">
+              <div class="si">${done?'🏆':'📅'}</div>
+              <div class="sc"><div class="st">Monatsziel: ${reached}/${total} erreicht ${done?'<span style="color:var(--green)">✓</span>':''}${MG.custom?' <span class="pill" style="background:var(--red-soft);color:var(--red)">Coach</span>':''}</div>
+                <div class="ss">Gesamt-Fortschritt ${MG.overallPct}%</div>
+                <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:7px"><div style="height:100%;width:${MG.overallPct}%;background:${done?'var(--green)':'var(--red)'};border-radius:3px"></div></div></div>
+              <div class="sx">›</div></div>`;
+            if(MG.justClaimed&&MG.award)setTimeout(()=>celebrateMonthly(MG.award,MG.bonusXp),600);
+          }
+        }catch(e){}
+        checkNewAchievements(INS);
+      }
+    }catch(e){}
+  }
+  // Gewichts-Streifen (Start -> Heute), kompakt
+  const startW2=ME.start_weight;const curW2=last?.weight;
+  if(startW2&&curW2){
+    const diff=Math.round((curW2-startW2)*10)/10;
+    const goal=(VIEW_USER===ME.id?ME.goal:(VIEW_USER_PROFILE?.goal))||ME.goal;
+    let verdict,vColor;
+    if(goal==='muscle'){if(diff>0){verdict='+'+diff+' kg aufgebaut 💪';vColor='var(--green)';}else if(diff<0){verdict=diff+' kg – Richtung beobachten';vColor='var(--amber)';}else{verdict='Noch keine Veränderung';vColor='var(--ink3)';}}
+    else if(goal==='fatloss'){if(diff<0){verdict=Math.abs(diff)+' kg verloren 🔥';vColor='var(--green)';}else if(diff>0){verdict='+'+diff+' kg – Richtung beobachten';vColor='var(--amber)';}else{verdict='Noch keine Veränderung';vColor='var(--ink3)';}}
+    else{verdict=(diff>0?'+':'')+diff+' kg seit Start';vColor='var(--ink2)';}
+    html+=`<div class="stat-strip" onclick="go('tracker')">
+      <div class="si">📈</div>
+      <div class="sc"><div class="st">${startW2} kg → <span style="color:var(--red)">${curW2} kg</span></div>
+        <div class="ss" style="color:${vColor}">${verdict}</div></div>
+      <div class="sx">›</div></div>`;
+  }
+  // Schnellzugriffe (Supplements immer erreichbar; Maße/Fotos für Profis)
+  if(VIEW_USER===ME.id&&ME.role==='athlete'){
+    html+=`<div class="section-label">Mehr</div><div class="quick">
+      <button class="qcard" onclick="openSupp()"><span class="ic">💊</span><div class="t">Supplements</div><div class="d">Tages-Check</div></button>`;
+    if(isAdvanced()){
+      html+=`<button class="qcard" onclick="openMeasure()"><span class="ic">📏</span><div class="t">Körpermaße</div><div class="d">Eintragen</div></button>
+        <button class="qcard" onclick="openPhotos()"><span class="ic">📸</span><div class="t">Foto</div><div class="d">Festhalten</div></button>`;
+    }
+    html+=`</div>`;
   }
   html+='</div>';
   v.innerHTML=html;
@@ -560,11 +601,11 @@ function workoutTab(t){renderWorkout.tab=t;
   if(t==='strength')drawStrength();else drawCardioTab();}
 function drawStrength(){const b=document.getElementById('workoutBody');
   b.innerHTML=`${isBeginner()?infoBox('workout_intro','👋 Tippe eine Übung an, um sie zu öffnen. Trag bei jedem Satz dein Gewicht und die Wiederholungen ein. Der grüne, gelbe oder graue Hinweis sagt dir, ob du nächstes Mal mehr Gewicht nehmen solltest.'):''}
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button class="btn sec" style="flex:1" onclick="startRest(90)">⏱️ Pause (90s)</button>
-      <button class="btn sec" style="flex:1" onclick="openPlateCalc()">🏋️ Hantelrechner</button>
+    <div class="chip-row" id="daysel" style="margin-bottom:12px"></div>
+    <div class="work-tools" id="workoutTools">
+      <button class="minibtn" onclick="startRest(90)">⏱️ Pause 90s</button>
+      <button class="minibtn" onclick="openPlateCalc()">🏋️ Hantelrechner</button>
     </div>
-    <div class="chip-row" id="daysel" style="margin-bottom:18px"></div>
     <div id="exlist"></div>
     <button class="btn sec" id="addExBtn" style="margin-top:4px" onclick="addExercise()">+ Übung hinzufügen</button>`;
   renderDaySel();renderEx();}
@@ -776,8 +817,11 @@ async function delExercise(id,confirm){const ex=curDayObj().exercises.find(e=>e.
 async function renderDiet(v){if(!TODAY)await loadToday();
   const eff=TODAY?.confirmed||TODAY?.suggestion;DIET=(eff?.type==='train')?'training':'rest';
   v.innerHTML=`<div class="page on"><div class="h1">Ernährung</div>
-    <div class="sub">${DIET==='training'?'Heute ist ein Trainingstag':'Heute ist ein Ruhetag'} – automatisch gewählt</div>
-    <div class="seg">
+    <div id="dietDayBadge" class="day-badge ${DIET==='training'?'train':'rest'}">
+      <span class="dbi">${DIET==='training'?'🏋️':'😴'}</span>
+      <span>${DIET==='training'?'Trainingstag':'Ruhetag'} <small>· Werte automatisch angepasst</small></span>
+    </div>
+    <div class="seg" id="dietSeg">
       <button id="dt_track" class="on" onclick="dietTab('track')">Heute</button>
       <button id="dt_plan" onclick="dietTab('plan')">Plan</button>
       <button id="dt_recipes" onclick="dietTab('recipes')">Rezepte</button>
@@ -801,14 +845,15 @@ function macroRow(kc,p,c,f,target){return `<div class="macro-row">
 function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const sum=fl.summary||{};
   const items=fl.items||[];
   const el=document.getElementById('dietBody');
-  let h=macroRow(sum.consumed||0,sum.macros?.protein||0,sum.macros?.carbs||0,sum.macros?.fat||0,sum.target);
-  h+=infoBox('track_intro','🍽️ Oben siehst du, wie viele Kalorien & Makros du heute schon hast. Hast du eine ganze Mahlzeit eingetragen, tippe sie an, um die einzelnen Zutaten zu sehen.');
-  // Fortschrittsbalken
+  // Eine zusammenhängende „Heute"-Karte: Makros + Fortschrittsbalken (vorher zwei separate Blöcke mit doppelter kcal-Angabe)
+  let h='<div class="surface pad" style="margin-bottom:14px">';
+  h+=macroRow(sum.consumed||0,sum.macros?.protein||0,sum.macros?.carbs||0,sum.macros?.fat||0,sum.target);
   if(sum.target){const pct=Math.min(100,Math.round((sum.consumed/sum.target)*100));
     const col=sum.status==='over'?'var(--red)':sum.status==='onTarget'?'var(--green)':'var(--red)';
-    h+=`<div style="background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px"><span style="color:var(--ink2)">${sum.consumed} von ${sum.target} kcal</span><span style="font-weight:600;color:${col}">${sum.remaining>=0?sum.remaining+' übrig':Math.abs(sum.remaining)+' drüber'}</span></div>
-      <div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${col};border-radius:4px;transition:.3s"></div></div></div>`;}
+    h+=`<div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:14px"><div style="height:100%;width:${pct}%;background:${col};border-radius:4px;transition:.3s"></div></div>
+      <div style="text-align:right;font-size:13px;font-weight:600;color:${col};margin-top:6px">${sum.remaining>=0?sum.remaining+' kcal übrig':Math.abs(sum.remaining)+' kcal drüber'}</div>`;}
+  h+='</div>';
+  h+=infoBox('track_intro','🍽️ Oben siehst du, wie viele Kalorien & Makros du heute schon hast. Hast du eine ganze Mahlzeit eingetragen, tippe sie an, um die einzelnen Zutaten zu sehen.');
   // Schnell-Aktionen
   h+=`<div style="display:flex;gap:10px;margin-bottom:16px">
     <button class="btn" onclick="openLogFood()">+ Lebensmittel</button>
@@ -825,10 +870,10 @@ function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const su
         <div class="rl">${it.food}${isMeal?' 🔎':''}<small>${amt}</small><br>${macros}</div>
         <div class="rr">${Math.round(it.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="event.stopPropagation();delFood(${it.id})">Entfernen</button></div></div>`;});
     h+='</div>';}
-  // Ernährungs-Tools
+  // Ernährungs-Tools (Supplements sind bewusst NICHT hier – sie haben einen eigenen Bereich)
   h+=`<div class="section-label">Hilfsmittel</div><div class="quick">
     <button class="qcard" onclick="openCalc()"><span class="ic">🧮</span><div class="t">Makro-Rechner</div><div class="d">Aus Lebensmitteln</div></button>
-    <button class="qcard" onclick="openSupp()"><span class="ic">💊</span><div class="t">Supplements</div><div class="d">Dein Protokoll</div></button>
+    <button class="qcard" onclick="openBarcodeScanner()"><span class="ic">📷</span><div class="t">Barcode</div><div class="d">Produkt scannen</div></button>
   </div>`;
   el.innerHTML=h;}
 
@@ -871,15 +916,26 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
   if(dt==='vegan')recipes=recipes.filter(rc=>rc.diet==='vegan');
   else if(dt==='vegetarian')recipes=recipes.filter(rc=>rc.diet==='veg'||rc.diet==='vegan');
   const meals=['Frühstück','Mittag','Abend','Snack'];
+  // „Mahlzeit tauschen": nach Nähe zum Ziel-Kalorienwert sortieren (ähnlichste zuerst)
+  if(f.simKcal){recipes=[...recipes].sort((a,b)=>Math.abs((a.kcal||0)-f.simKcal)-Math.abs((b.kcal||0)-f.simKcal));}
   let h=infoBox('recipes_intro','Fertige Mahlzeiten mit Nährwerten – mit einem Tipp ins Tagesprotokoll übernehmen. Kein lästiges Einzel-Tracken.');
-  // Kopfzeile mit kompaktem Filter-Symbol + „Eigenes Rezept"
+  // Kopfzeile: Filter-Symbol (für Ernährungsweise/Quelle/Budget) + sichtbare Pills für Ziel & Mahlzeit
   const dietLbl={all:'',vegetarian:'🥕 Vegetarisch',vegan:'🌱 Vegan'}[dt];
-  const activeBits=[];if(f.goal!=='all')activeBits.push(({muscle:'Aufbau',fatloss:'Definition',health:'Gesundheit'})[f.goal]);
-  if(f.meal!=='all')activeBits.push(f.meal);if(dietLbl)activeBits.push(dietLbl);if(dis.length)activeBits.push(dis.length+' ausgeschlossen');
-  h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-    <button class="minibtn" onclick="openRecipeFilter()" style="display:flex;align-items:center;gap:6px"><span style="font-size:15px">⚙️</span> Filter</button>
-    <button class="minibtn" onclick="openNewRecipe()">+ Eigenes Rezept</button></div>`;
-  if(activeBits.length)h+=`<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Aktiv: ${activeBits.map(esc2).join(' · ')}</div>`;
+  const goalLbl=({muscle:'💪 Aufbau',fatloss:'🔥 Definition',health:'❤️ Gesundheit'})[f.goal];
+  // verstecktes (hinter dem Filter-Symbol): Ernährungsweise, Quelle, Budget, Ausschlüsse -> als Punkt am Symbol
+  const hiddenActive=(dietLbl?1:0)+(f.source&&f.source!=='all'?1:0)+(f.fit?1:0)+(dis.length?1:0);
+  h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <button class="minibtn" onclick="openRecipeFilter()" style="display:flex;align-items:center;gap:6px;position:relative">
+      <span style="font-size:15px">⚙️</span> Filter${hiddenActive?`<span style="position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px">${hiddenActive}</span>`:''}
+    </button>
+    <button class="minibtn" onclick="openNewRecipe()">+ Eigenes</button>
+  </div>`;
+  // Sichtbare Filter-Pills: zeigen klar, dass Mahlzeiten für Zeit & Ziel angezeigt werden. Tippen = ändern.
+  h+=`<div class="filter-pills">
+    <button class="fpill ${f.meal!=='all'?'on':''}" onclick="openRecipeFilter()">${f.meal!=='all'?'🍽️ '+esc2(f.meal):'🍽️ Alle Mahlzeiten'}</button>
+    <button class="fpill ${f.goal!=='all'?'on':''}" onclick="openRecipeFilter()">${goalLbl||'🎯 Jedes Ziel'}</button>
+    ${dietLbl?`<button class="fpill on" onclick="openRecipeFilter()">${dietLbl}</button>`:''}
+  </div>`;
   // Liste
   if(!recipes.length)h+='<div class="empty"><div class="ei">🍳</div>Keine Rezepte für diese Filter.</div>';
   else{RECIPES_CACHE=recipes;h+='<div class="rows">'+recipes.map(rc=>{
@@ -920,7 +976,8 @@ async function setDietType(v){const r=await API.post('/disliked/'+VIEW_USER,{dis
   else toast('Fehler');}
 let RECIPES_CACHE=[];let RECIPE_CATS=[];
 async function loadRecipeCats(){try{const r=await API.get('/recipes/categories');if(r.status===200)RECIPE_CATS=r.data.categories||[];}catch(e){}}
-function recipeFilter(key,val){RECIPE_FILTER[key]=val;drawRecipes();
+function recipeFilter(key,val){RECIPE_FILTER[key]=val;RECIPE_FILTER.simKcal=null; // manueller Filter hebt „Tauschen"-Sortierung auf
+  drawRecipes();
   // Ist das Filter-Sheet gerade offen, sofort neu zeichnen -> Auswahl färbt sich SOFORT
   // (vorher blieb das Overlay stehen und zeigte den alten Zustand bis zum Wiederöffnen).
   if(document.getElementById('modal')?.classList.contains('on'))openRecipeFilter();}
@@ -935,8 +992,12 @@ async function openRecipe(id){let rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)ret
   if(rc.photo)h+=`<img src="${rc.photo}" style="width:100%;border-radius:14px;margin-bottom:14px">`;
   h+=macroRow(rc.kcal,rc.protein,rc.carbs,rc.fat);
   h+=`<div style="color:var(--ink2);font-size:13px;margin:4px 0 16px">${rc.meal_type||'Mahlzeit'} · ${badge}${rc.category?' · '+esc2(rc.category):''}${dpill}${(rc.owner_id&&!isMine)?' · <span style="color:var(--red)">geteilt</span>':''}</div>`;
-  h+=`<button class="btn" onclick="logRecipe(${rc.id})">🍽️ Als gegessen eintragen</button>`;
-  h+=`<button class="btn sec" style="margin-top:10px" onclick="shareViaLink('recipe',${rc.id})">🔗 Per Link teilen (WhatsApp & Co.)</button>`;
+  // Primär-Aktionen oben, nebeneinander, gut erreichbar (nicht unten links am Rand)
+  h+=`<div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="btn" style="flex:1" onclick="logRecipe(${rc.id})">🍽️ Als gegessen</button>
+    <button class="btn sec" style="flex:1" onclick="findSimilarRecipes(${rc.kcal||0},'${esc(rc.meal_type||'')}')">🔄 Mahlzeit tauschen</button>
+  </div>`;
+  h+=`<button class="btn sec" style="margin-bottom:4px" onclick="shareViaLink('recipe',${rc.id})">🔗 Per Link teilen (WhatsApp & Co.)</button>`;
   if(rc.link)h+=`<a class="btn sec" style="margin-top:10px;display:block;text-align:center;text-decoration:none" href="${esc(rc.link)}" target="_blank" rel="noopener">▶ Rezept ansehen (extern)</a>`;
   if(rc.ingredients){h+=`<div class="section-label">Zutaten</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.ingredients)}</div>`;}
   if(rc.steps){h+=`<div class="section-label">Zubereitung</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.steps)}</div>`;}
@@ -1096,6 +1157,35 @@ async function logFromMeal(mealId){const r=await API.post('/foodlog/frommeal/'+m
   closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;
   dietTab('track');toast('Als gegessen eingetragen ✓');}
 
+// Eine Mahlzeit gegen ein passendes Rezept tauschen: zeigt Rezepte derselben Kategorie
+// (Frühstück/Mittag/Abend/Snack), sortiert nach Kalorien-Nähe.
+async function swapMeal(mealId,mealKcal,mealLabel){
+  openSheet('🔄 Mahlzeit tauschen','<div class="spinner"></div>');
+  // Mahlzeit-Label (z.B. "Mittagessen", "Snack 2") auf die Rezept-Kategorie abbilden
+  const lbl=(mealLabel||'').toLowerCase();
+  let cat=null;
+  if(lbl.includes('frühstück'))cat='Frühstück';
+  else if(lbl.includes('mittag'))cat='Mittag';
+  else if(lbl.includes('abend'))cat='Abend';
+  else if(lbl.includes('snack'))cat='Snack';
+  const r=await API.get('/recipes'+(cat?'?meal='+encodeURIComponent(cat):''));
+  let recipes=r.data?.recipes||[];
+  // Ernährungsweise berücksichtigen (vegan/vegetarisch)
+  const dt=(VIEW_USER===ME.id?ME.diet_type:VIEW_USER_PROFILE?.diet_type)||'all';
+  if(dt==='vegan')recipes=recipes.filter(rc=>rc.diet==='vegan');
+  else if(dt==='vegetarian')recipes=recipes.filter(rc=>rc.diet==='veg'||rc.diet==='vegan');
+  // nach Kalorien-Nähe zur aktuellen Mahlzeit sortieren
+  recipes=[...recipes].sort((a,b)=>Math.abs((a.kcal||0)-mealKcal)-Math.abs((b.kcal||0)-mealKcal)).slice(0,20);
+  if(!recipes.length){openSheet('🔄 Tauschen',`<div class="empty"><div class="ei">🍳</div>Keine passenden ${cat||''}-Rezepte gefunden.${dt!=='all'?'<br><small>(Ernährungsweise-Filter aktiv)</small>':''}</div>`);return;}
+  let h=`<div class="info">Wähle ein${cat?' '+cat+'s':''}-Rezept, das diese Mahlzeit (≈${mealKcal} kcal) ersetzt. Sortiert nach Kalorien-Ähnlichkeit.</div><div class="rows">`;
+  h+=recipes.map(rc=>{const diff=Math.round((rc.kcal||0)-mealKcal);const dpill=rc.diet==='vegan'?' 🌱':rc.diet==='veg'?' 🥕':'';
+    return `<div class="row" onclick="doSwapMeal(${mealId},${rc.id})" style="cursor:pointer"><div class="rl">${esc2(rc.name)}${dpill}<small>${Math.round(rc.protein)} g Eiweiß · ${Math.round(rc.carbs)} g Carbs · ${Math.round(rc.fat)} g Fett</small></div><div class="rr">${Math.round(rc.kcal)} kcal<br><span style="color:var(--ink3);font-size:11px">${diff>0?'+':''}${diff} kcal</span></div></div>`;}).join('')+`</div>`;
+  openSheet('🔄 Mahlzeit tauschen',h);}
+async function doSwapMeal(mealId,recipeId){
+  const r=await API.post('/meals/'+mealId+'/swap',{recipe_id:recipeId});
+  if(r.status===200){closeModal();const mr=await API.get('/meals/'+VIEW_USER);renderDiet.meals=mr.data?.meals||[];drawDiet();toast('Mahlzeit getauscht ✓');}
+  else toast(r.data?.error||'Fehler');}
+
 function setDiet(t){DIET=t;drawDiet();}
 function dietTargetKcal(){const prof=(VIEW_USER===ME.id?ME:(VIEW_USER_PROFILE||ME));
   return DIET==='training'?(prof.kcal_target_train||0):(prof.kcal_target_rest||0);}
@@ -1119,8 +1209,11 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
     h+=`<div class="info" style="margin-bottom:14px">Plan: <b>${Math.round(kc)} kcal</b> · Ziel: <b>${target} kcal</b> ${Math.abs(diff)<=120?'– passt 👍':(diff>0?`(${diff} drüber)`:`(${Math.abs(diff)} drunter)`)}</div>`;}
   h+=meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);const mp=m.items.reduce((s,it)=>s+(it.protein||0),0);
     return `<div class="meal"><div class="meal-h"><div class="ml"><div class="n">Mahlzeit ${m.meal_no}</div><div class="t">${m.label||''}</div></div><div class="kc">${Math.round(mk)}<em>kcal · ${Math.round(mp)}g P</em></div></div>
-      ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount} g/ml</div></div><div class="fmac">${Math.round(it.kcal||0)} kcal<br><span style="color:var(--ink3)">${r1(it.protein)} g Eiweiß · ${r1(it.carbs)} g Carbs · ${r1(it.fat)} g Fett</span></div></div>`).join('')}
-      <button class="minibtn" style="margin-top:8px" onclick="logFromMeal(${m.id})">✓ als gegessen eintragen</button></div>`;}).join('');
+      ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount?it.amount+' g/ml':''}</div></div><div class="fmac">${Math.round(it.kcal||0)} kcal<br><span style="color:var(--ink3)">${r1(it.protein)} g Eiweiß · ${r1(it.carbs)} g Carbs · ${r1(it.fat)} g Fett</span></div></div>`).join('')}
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="minibtn" style="flex:1" onclick="logFromMeal(${m.id})">✓ als gegessen</button>
+        <button class="minibtn" style="flex:1" onclick="swapMeal(${m.id},${Math.round(mk)},'${esc(m.label||'')}')">🔄 Mahlzeit tauschen</button>
+      </div></div>`;}).join('');
   h+=infoBox('dietplan_note','Der Plan ist ein Vorschlag, der dein kcal- und Proteinziel trifft. Mengen sind Richtwerte – tausche Lebensmittel im „Heute"-Tab frei aus.');
   el.innerHTML=h;}
 
@@ -1155,12 +1248,12 @@ async function saveDislikes(){closeModal();const el=document.getElementById('die
 
 // ===== ANALYSE (vormals Verlauf): Körper + Training =====
 function renderTracker(v){
-  v.innerHTML=`<div class="page on"><div class="h1">Analyse</div><div class="sub">Deine Entwicklung in Zahlen</div>
+  v.innerHTML=`<div class="page on"><div id="trackerHead"><div class="h1">Analyse</div><div class="sub">Deine Entwicklung in Zahlen</div></div>
     <div class="seg" style="margin-bottom:16px">
       <button id="an_k" onclick="anaTab('koerper')">Körper</button>
       <button id="an_t" onclick="anaTab('training')">Training</button>
     </div>
-    <div id="anaBody"></div></div>`;
+    <div id="anaBody" data-tour="trackerBody"></div></div>`;
   anaTab(renderTracker.tab||'koerper');}
 function anaTab(t){renderTracker.tab=t;
   document.getElementById('an_k').classList.toggle('on',t==='koerper');
@@ -1174,7 +1267,7 @@ async function drawAnaKoerper(){const box=document.getElementById('anaBody');box
   h+=infoBox('ana_intro','📈 Hier siehst du deine Trends auf einen Blick. Die grün gestrichelte Linie ist dein Ziel (z.B. 8 h Schlaf). Liegt deine Kurve darüber, bist du im grünen Bereich – darunter ist noch Luft nach oben.');
   if(checkins.length<2){h+=`<div class="info" style="margin-bottom:16px">📊 Deine Auswertungen erscheinen hier, sobald du ein paar Tage Check-ins gemacht hast (auf der Startseite: Gewicht, Schlaf, Schritte, Wasser).</div>`;}
   if(wWeights.length>=2){const diff=(wWeights[0].weight-wWeights[wWeights.length-1].weight);
-    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewicht</div><div class="v">${diff>0?'+':''}${diff.toFixed(1)} kg gesamt</div></div>${lineChart(wWeights.map(c=>({date:c.date,value:c.weight})),'kg')}</div>`;}
+    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewicht</div><div class="v">${diff>0?'+':''}${diff.toFixed(1)} kg gesamt</div></div>${metricChart(wWeights.map(c=>({date:c.date,value:c.weight})),'kg')}</div>`;}
   // Gesundheits-Richtwerte als Ziel-Linien (allgemein anerkannte Defaults)
   const GOAL_SLEEP=8, GOAL_STEPS=10000, GOAL_WATER=3;
   const sl=checkins.filter(c=>c.sleep).slice(0,30).reverse();
@@ -1640,6 +1733,7 @@ async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></di
     <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSupp(${id},'${esc(a.name)}')">💊 Supplements</button></div>
   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
     <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','tracker')">📈 Volle Analyse</button>
+    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachMonthly(${id},'${esc(a.name)}')">🎯 Monatsziel</button>
     <button class="btn sec" style="flex:1;min-width:120px" onclick="openPhotos(${id})">📸 Fortschrittsfotos</button>
     <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','home')">👁️ Alles ansehen</button>
     <button class="btn sec" style="flex:1;min-width:120px" onclick="aiSummary(${id})">🤖 KI-Analyse</button></div>`;
@@ -1839,7 +1933,7 @@ function renderMore(v){
     <button class="qcard" onclick="openChangePw()"><span class="ic">🔒</span><div class="t">Passwort</div><div class="d">Ändern</div></button>
   </div>
   <div class="section-label">Anzeige</div>
-  <div class="rows"><div class="row" onclick="resetHints()"><div class="rl">Hinweise wieder anzeigen<small>Alle ausgeblendeten Info-Boxen zurückholen</small></div><div class="rr">↺</div></div></div>
+  <div class="rows"><div class="row" onclick="resetHints()"><div class="rl">Hinweise wieder anzeigen<small>Alle ausgeblendeten Info-Boxen zurückholen</small></div><div class="rr">↺</div></div><div class="row" onclick="restartTour()"><div class="rl">Einführung erneut ansehen<small>Die kurze Tour über die App</small></div><div class="rr">›</div></div></div>
   <div class="section-label">Konto</div>
   <div class="rows"><div class="row" onclick="logout()"><div class="rl" style="color:var(--red)">Abmelden</div><div class="rr">›</div></div></div>
   </div>`;}
@@ -1859,7 +1953,7 @@ function openProfile(){const u=ME;
       <div class="row" onclick="exportMyData()"><div class="rl">⬇️ Meine Daten exportieren<small>Alle deine Daten als JSON-Datei (DSGVO)</small></div><div class="rr">›</div></div>
     </div>
     <div class="section-label">Anzeige</div>
-    <div class="rows" style="margin-bottom:14px"><div class="row" onclick="resetHints()"><div class="rl">Hinweise wieder anzeigen<small>Alle ausgeblendeten Info-Boxen zurückholen</small></div><div class="rr">↺</div></div></div>
+    <div class="rows" style="margin-bottom:14px"><div class="row" onclick="resetHints()"><div class="rl">Hinweise wieder anzeigen<small>Alle ausgeblendeten Info-Boxen zurückholen</small></div><div class="rr">↺</div></div><div class="row" onclick="restartTour()"><div class="rl">Einführung erneut ansehen<small>Die kurze Tour über die App</small></div><div class="rr">›</div></div></div>
     <button class="btn sec" style="color:var(--red)" onclick="logout()">Abmelden</button>
     <div id="versionLine" style="text-align:center;color:var(--ink3);font-size:12px;margin-top:16px">Version ${APP_VERSION}</div>`;
   // Coach/Admin brauchen keine Trainings-/Ernährungsdaten – nur administratives Profil
@@ -2069,6 +2163,150 @@ async function acceptShare(tok,dayId){const r=await API.post('/share/'+tok+'/acc
   else toast(r.data?.error||'Fehler');}
 function declineShare(){localStorage.removeItem('be_pending_share');closeModal();toast('Okay, nicht übernommen');}
 
+// „Mahlzeit tauschen": wechselt zum Rezepte-Tab und zeigt Rezepte mit ähnlichen Kalorien
+// (±20%) für dieselbe Mahlzeit – so kann man eine Mahlzeit gegen eine gleichwertige ersetzen.
+function findSimilarRecipes(kcal,mealType){
+  closeModal();
+  if(!RECIPE_FILTER)RECIPE_FILTER=defaultRecipeFilter();
+  RECIPE_FILTER.meal=mealType||'all';
+  RECIPE_FILTER.simKcal=kcal||null; // weicher Kalorien-Anker für die Sortierung
+  renderDiet.tab='recipes';
+  go('diet');
+  setTimeout(()=>{if(kcal)toast('Ähnliche '+(mealType||'Mahlzeiten')+' nach Kalorien sortiert');},500);
+}
+
+// ===== MONATSZIEL-SCREEN =====
+async function openMonthlyGoal(){openSheet('📅 Monatsziel','<div class="spinner"></div>');
+  const uid=VIEW_USER||ME.id;
+  const r=await API.get('/monthly/'+uid);
+  if(r.status!==200){openSheet('Monatsziel',`<div class="info">${esc2(r.data?.error||'Fehler')}</div>`);return;}
+  const m=r.data;
+  const monthName=new Date(m.month+'-01').toLocaleDateString('de-DE',{month:'long',year:'numeric'});
+  const ring=(pct,reached)=>`<svg viewBox="0 0 36 36" style="width:54px;height:54px"><circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface2)" stroke-width="3"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="${reached?'var(--green)':'var(--red)'}" stroke-width="3" stroke-dasharray="${pct} 100" stroke-linecap="round" transform="rotate(-90 18 18)"/></svg>`;
+  let h=`<div style="text-align:center;margin-bottom:6px;color:var(--ink3);font-size:13px">${cap(monthName)}${m.custom?' · 🎖️ vom Coach gesetzt':''}</div>`;
+  h+=`<div style="text-align:center;font-size:46px;margin:4px 0 6px">${m.allReached?'🏆':'📅'}</div>
+    <div style="text-align:center;font-weight:700;font-size:18px;margin-bottom:4px">${m.allReached?'Monatsziel erreicht!':m.reachedCount+' von '+m.parts.length+' geschafft'}</div>
+    <div style="text-align:center;color:var(--ink2);font-size:14px;margin-bottom:18px">${m.allReached?'Stark durchgezogen – das zahlt sich aus.':'Noch '+(m.parts.length-m.reachedCount)+' Ziel(e) bis zur Auszeichnung.'}</div>`;
+  h+=m.parts.map(p=>`<div class="surface pad" style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
+    <div style="position:relative;flex:0 0 auto">${ring(p.pct,p.reached)}<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px">${p.reached?'✓':p.icon}</div></div>
+    <div style="flex:1"><div style="font-weight:600">${p.label}</div>
+      <div style="font-size:13px;color:var(--ink2)">${p.key==='volume'?p.done.toLocaleString('de-DE'):p.done} / ${p.key==='volume'?p.target.toLocaleString('de-DE'):p.target}${p.reached?' <span style="color:var(--green)">erreicht</span>':''}</div>
+      <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:6px"><div style="height:100%;width:${p.pct}%;background:${p.reached?'var(--green)':'var(--red)'};border-radius:3px"></div></div></div></div>`).join('');
+  if((ME.role==='coach'||ME.role==='admin')&&COACH_CONTEXT){
+    h+=`<button class="btn sec" style="margin-top:8px" onclick="openEditMonthly('${m.month}',${m.parts.find(p=>p.key==='trainings').target},${m.parts.find(p=>p.key==='checkins').target},${m.parts.find(p=>p.key==='volume').target})">🎯 Ziel für diesen Athleten anpassen</button>`;
+  }
+  if(m.history&&m.history.length){h+=`<div class="section-label">Geschaffte Monate</div><div style="display:flex;gap:8px;flex-wrap:wrap">`+
+    m.history.map(x=>`<span class="pill" style="background:var(--surface2);color:var(--ink2)">${x.custom?'🎖️':'🏆'} ${new Date(x.month+'-01').toLocaleDateString('de-DE',{month:'short',year:'2-digit'})}</span>`).join('')+`</div>`;}
+  openSheet('📅 Monatsziel',h);}
+
+function celebrateMonthly(award,bonusXp){
+  openSheet('',`<div style="text-align:center;padding:10px 0">
+    <div style="font-size:64px;margin-bottom:8px">${award.icon}</div>
+    <div style="font-family:var(--font-head);font-size:30px;margin-bottom:6px">${esc2(award.title)}</div>
+    <div style="color:var(--ink2);font-size:15px;margin-bottom:14px">${esc2(award.desc)}</div>
+    <div class="pill" style="background:var(--red);color:#fff;font-size:15px;padding:8px 18px">+${bonusXp} XP</div>
+    <button class="btn" style="margin-top:22px" onclick="closeModal()">Weiter so! 💪</button>
+  </div>`);}
+// Coach öffnet das Monatsziel eines Athleten (setzt Kontext, damit „anpassen" sichtbar wird)
+function coachMonthly(id,name){COACH_CONTEXT=name;VIEW_USER=id;openMonthlyGoal();}
+
+function openEditMonthly(month,t,c,v){
+  openSheet('🎯 Monatsziel anpassen',`
+    <div class="info">Setze ein persönliches Monatsziel für diesen Athleten. Erreicht er es, gibt es <b>doppelte XP</b> und eine besondere Auszeichnung. Anspruchsvoll, aber machbar wählen!</div>
+    <div class="field"><label>Trainings im Monat</label><input id="mg_t" type="number" inputmode="numeric" min="0" max="31" value="${t}"></div>
+    <div class="field"><label>Check-ins im Monat</label><input id="mg_c" type="number" inputmode="numeric" min="0" max="31" value="${c}"></div>
+    <div class="field"><label>Gesamt-Volumen (kg)</label><input id="mg_v" type="number" inputmode="numeric" min="0" value="${v}"></div>
+    <button class="btn" onclick="saveMonthly('${month}')">Ziel setzen</button>`);}
+async function saveMonthly(month){
+  const r=await API.put('/monthly/'+(VIEW_USER||ME.id),{month,target_trainings:num('mg_t'),target_checkins:num('mg_c'),target_volume:num('mg_v')});
+  if(r.status===200){closeModal();toast('Monatsziel gesetzt ✓ – Athlet wurde benachrichtigt');}else toast(r.data?.error||'Fehler');}
+
+// ===== TOUR-SYSTEM (mehrseitig: eigene kurze Einführung je Tab) =====
+const TOUR_DEFS={
+  home:[
+    {sel:'.today',title:'Dein Tag',body:'Hier siehst du sofort, ob heute Training oder Ruhetag ist – und startest mit einem Tipp.',pos:'below'},
+    {sel:'#homeCheckin',title:'Schnell eintragen',body:'Gewicht, Schlaf, Schritte, Wasser – trag ein was du hast, der Rest bleibt leer. Dauert 10 Sekunden.',pos:'below'},
+    {sel:'#navBar',title:'Alles per Tab',body:'Training, Ernährung und Analyse erreichst du jederzeit hier unten. Tippe dich ruhig durch.',pos:'above'},
+    {sel:'#avatar',title:'Dein Profil',body:'Profil, Einstellungen, Push-Erinnerungen und Abmelden findest du hier oben.',pos:'below'}
+  ],
+  workout:[
+    {sel:'#daysel',title:'Deine Trainingstage',body:'Wechsle hier zwischen deinen Trainingstagen. Der hervorgehobene ist für heute vorgeschlagen.',pos:'below'},
+    {sel:'#workoutTools',title:'Pause & Hantelrechner',body:'Diese beiden Helfer scrollen mit dir mit – Pausen-Timer und der Rechner für die Hantelscheiben sind immer griffbereit.',pos:'below'},
+    {sel:'#exlist',title:'Übungen loggen',body:'Tippe eine Übung an, trag Gewicht und Wiederholungen ein. Der farbige Hinweis sagt dir, ob du steigern solltest.',pos:'above'}
+  ],
+  diet:[
+    {sel:'#dietDayBadge',title:'Trainings- oder Ruhetag',body:'Oben siehst du, für welchen Tag die Werte gelten – an Trainingstagen brauchst du mehr Energie.',pos:'below'},
+    {sel:'#dietSeg',title:'Heute · Plan · Rezepte',body:'„Heute" zeigt was du gegessen hast, „Plan" deinen Ernährungsplan zum Anpassen, „Rezepte" die Datenbank.',pos:'below'},
+    {sel:'#dietBody',title:'Essen eintragen',body:'Trag Lebensmittel manuell ein, scanne einen Barcode oder übernimm Mahlzeiten aus deinem Plan.',pos:'above'}
+  ],
+  tracker:[
+    {sel:'#trackerHead',title:'Deine Entwicklung',body:'Hier werden alle deine Daten zu Diagrammen – Gewicht, Schlaf, Schritte, Wasser, Kraftwerte.',pos:'below'},
+    {sel:'#anaBody',title:'Ziel-Linien',body:'Die grün gestrichelte Linie ist dein Zielwert. Liegt deine Kurve darüber, bist du im grünen Bereich.',pos:'above'}
+  ]
+};
+let TOUR_STEP=0,TOUR_STEPS=[],TOUR_NAME='';
+function maybeStartTour(){ // Home-Tour beim allerersten App-Start
+  if(!ME||ME.role!=='athlete')return; // Touren nur für Athleten
+  if(localStorage.getItem('be_tour_home'))return;
+  setTimeout(()=>runTour('home'),800);
+}
+// Tab-Touren: beim ersten Besuch des jeweiligen Tabs automatisch starten
+function maybeStartTabTour(tab){
+  if(!ME||ME.role!=='athlete')return;
+  if(!TOUR_DEFS[tab]||tab==='home')return;
+  if(localStorage.getItem('be_tour_'+tab))return;
+  if(document.getElementById('tourOv'))return; // keine zwei Touren gleichzeitig
+  setTimeout(()=>{if(!document.getElementById('tourOv'))runTour(tab);},700);
+}
+function runTour(name){
+  if(document.getElementById('tourOv'))return;
+  TOUR_NAME=name;TOUR_STEPS=TOUR_DEFS[name]||[];TOUR_STEP=0;
+  if(!TOUR_STEPS.length)return;
+  const ov=document.createElement('div');ov.className='tour-ov';ov.id='tourOv';
+  ov.innerHTML=`<div class="tour-hole" id="tourHole"></div>
+    <div class="tour-card" id="tourCard">
+      <div class="tt" id="tourTitle"></div><div class="td" id="tourBody"></div>
+      <div class="tb">
+        <div class="tdots" id="tourDots"></div>
+        <div class="tbtns">
+          <button class="tour-skip" onclick="endTour()">Überspringen</button>
+          <button class="btn" style="width:auto;padding:9px 18px" id="tourNext" onclick="tourNext()">Weiter</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>{ov.classList.add('on');drawTourStep();});
+  window.addEventListener('resize',drawTourStep);
+}
+function drawTourStep(){
+  const step=TOUR_STEPS[TOUR_STEP];if(!step)return;
+  const el=document.querySelector(step.sel);
+  const hole=document.getElementById('tourHole'),card=document.getElementById('tourCard');
+  if(!hole||!card)return;
+  document.getElementById('tourTitle').textContent=step.title;
+  document.getElementById('tourBody').textContent=step.body;
+  document.getElementById('tourDots').innerHTML=TOUR_STEPS.map((_,i)=>`<span class="${i===TOUR_STEP?'on':''}"></span>`).join('');
+  document.getElementById('tourNext').textContent=TOUR_STEP===TOUR_STEPS.length-1?'Los geht’s':'Weiter';
+  if(el){
+    el.scrollIntoView({block:'center',behavior:'smooth'});
+    setTimeout(()=>{
+      const r=el.getBoundingClientRect();const pad=8;
+      hole.style.left=(r.left-pad)+'px';hole.style.top=(r.top-pad)+'px';
+      hole.style.width=(r.width+pad*2)+'px';hole.style.height=(r.height+pad*2)+'px';
+      const below=step.pos!=='above';
+      if(below)card.style.top=Math.min(r.bottom+16,window.innerHeight-220)+'px';
+      else card.style.top=Math.max(r.top-card.offsetHeight-16,16)+'px';
+    },300);
+  }else{hole.style.width='0';hole.style.height='0';card.style.top='50%';}
+}
+function tourNext(){if(TOUR_STEP<TOUR_STEPS.length-1){TOUR_STEP++;drawTourStep();}else endTour();}
+function endTour(){if(TOUR_NAME)localStorage.setItem('be_tour_'+TOUR_NAME,'1');
+  const ov=document.getElementById('tourOv');if(ov){ov.classList.remove('on');setTimeout(()=>ov.remove(),250);}
+  window.removeEventListener('resize',drawTourStep);}
+// Alle Touren zurücksetzen und mit der Home-Tour neu beginnen
+function restartTour(){['home','workout','diet','tracker'].forEach(t=>localStorage.removeItem('be_tour_'+t));
+  closeModal();go('home');setTimeout(()=>runTour('home'),600);}
+
 // ===== PUSH-ERINNERUNGEN =====
 function urlB64ToUint8(s){const pad='='.repeat((4-s.length%4)%4);const b=atob((s+pad).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...b].map(c=>c.charCodeAt(0)));}
 async function enablePush(){
@@ -2261,24 +2499,81 @@ function doPlate(){const target=parseFloat(val('pc_target'))||0;const bar=parseF
   el.innerHTML=h;}
 // Supplements des angesehenen Nutzers: Pflicht oben hervorgehoben, Details auf Tippen.
 let SUPP_CACHE=[];
-async function openSupp(){openSheet('Supplements','<div class="spinner"></div>');
-  const r=await API.get('/supplements/'+VIEW_USER);
-  const list=r.data?.supplements||[];SUPP_CACHE=list;const personalized=r.data?.personalized;
-  const mand=list.filter(s=>s.mandatory),opt=list.filter(s=>!s.mandatory);
+async function openSupp(){openSheet('💊 Supplements','<div class="spinner"></div>');
+  await drawSuppSheet();}
+let SUPP_TODAY=null;
+async function drawSuppSheet(){
+  const uid=VIEW_USER||ME.id;const T=today();
+  const r=await API.get('/supplement-intake/'+uid+'?date='+T);
+  if(r.status!==200){openSheet('Supplements',`<div class="info">${esc2(r.data?.error||'Fehler')}</div>`);return;}
+  SUPP_TODAY=r.data;const {plan,extras,done,total}=r.data;
+  const isOwn=(uid===ME.id);
   let h='';
-  if(!personalized)h+=`<div class="info">Dein Coach hat dir noch keine Supplements zugewiesen. Hier siehst du gängige Empfehlungen zur Orientierung – tippe für Details.</div>`;
-  else h+=`<div class="info">Dein persönliches Protokoll. <b>Pflicht</b> hat dein Coach für dich festgelegt. Tippe ein Supplement für Dosierung, Timing und Einnahme.</div>`;
-  const card=s=>`<button class="def" style="display:block;width:100%;text-align:left;border:none;background:var(--surface2);margin-bottom:8px;border-radius:12px;cursor:pointer;padding:13px 16px" onclick="suppDetail(${s.id})">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <div style="font-weight:600">${esc2(s.name)}${s.mandatory?' <span class="pill coach">Pflicht</span>':''}</div>
-        <div style="color:var(--ink2);font-size:14px;white-space:nowrap">${esc2(s.dose||'')}</div></div>
-      <div style="color:var(--ink3);font-size:12px;margin-top:3px">${esc2(s.category||'')}${s.timing?' · '+esc2(s.timing):''}</div>
-    </button>`;
-  if(mand.length){h+=`<div class="section-label">Pflicht (vom Coach)</div>`+mand.map(card).join('');}
-  if(opt.length){h+=`<div class="section-label">${personalized?'Optional':'Empfehlungen'}</div>`+opt.map(card).join('');}
-  if(!list.length)h+='<div class="empty"><div class="ei">💊</div>Keine Supplements hinterlegt.</div>';
-  openSheet('Supplements',h);}
-function suppDetail(id){const s=SUPP_CACHE.find(x=>x.id===id);if(!s)return;
+  // Fortschritts-Kopf
+  if(total>0){const pct=Math.round(done/total*100);
+    h+=`<div class="surface pad" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-weight:700">Heute</div><div style="font-weight:700;color:${done===total?'var(--green)':'var(--ink)'}">${done}/${total} genommen</div></div>
+      <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${done===total?'var(--green)':'var(--red)'};border-radius:4px;transition:.3s"></div></div></div>`;}
+  if(!plan.length&&!extras.length){
+    h+=`<div class="empty"><div class="ei">💊</div><div style="font-weight:600;margin-bottom:4px">Keine Supplements für heute</div><div style="color:var(--ink2);font-size:14px">${isOwn?'Dein Coach kann dir welche zuweisen – oder füge unten selbst hinzu, was du genommen hast.':'Diesem Athleten sind keine Supplements zugewiesen.'}</div></div>`;
+  }
+  // Plan-Supps (zugewiesen) als Checkliste
+  if(plan.length){h+=`<div class="section-label">Dein Protokoll</div>`;
+    h+=plan.map(p=>suppRow(p,isOwn)).join('');}
+  // Spontan genommene
+  if(extras.length){h+=`<div class="section-label">Zusätzlich genommen</div>`;
+    h+=extras.map(p=>suppRow(p,isOwn)).join('');}
+  // Eigenes hinzufügen (nur eigenes Konto)
+  if(isOwn)h+=`<button class="btn sec" style="margin-top:14px" onclick="openAddIntake()">+ Supplement hinzufügen</button>`;
+  h+=infoBox('supp_check','Hier hakst du ab, was du heute genommen hast. Die Menge kannst du antippen und anpassen. Was dein Coach festgelegt hat, steht oben – eigene Ergänzungen darunter.');
+  openSheet('💊 Supplements',h);}
+// eine Checklisten-Zeile (abhakbar, Menge & Detail antippbar)
+function suppRow(p,isOwn){
+  const checked=p.taken;
+  const box=isOwn?`<div onclick="toggleIntake(event,${p.supplement_id??'null'},${p.intake_id??'null'},'${esc(p.name)}')" style="flex:0 0 auto;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;${checked?'background:var(--green);color:#fff':'background:var(--surface2);box-shadow:inset 0 0 0 1.5px var(--line)'}">${checked?'✓':''}</div>`
+    :`<div style="flex:0 0 auto;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;${checked?'background:var(--green);color:#fff':'background:var(--surface2)'}">${checked?'✓':''}</div>`;
+  return `<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:var(--surface);border-radius:12px;margin-bottom:8px;box-shadow:var(--shadow)">
+    ${box}
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600">${esc2(p.name)}${p.mandatory?' <span class="pill coach">Pflicht</span>':''}</div>
+      <div style="font-size:13px;color:var(--ink3)">${p.dose?esc2(p.dose):'Menge offen'}${p.category?' · '+esc2(p.category):''}</div>
+    </div>
+    ${isOwn&&checked?`<button class="minibtn" onclick="editIntakeDose(${p.intake_id},'${esc(p.name)}','${esc(p.dose||'')}')" style="flex:0 0 auto">Menge</button>`:''}
+    ${p.supplement_id?`<button class="minibtn" onclick="suppDetail(${p.supplement_id})" style="flex:0 0 auto">ⓘ</button>`:(isOwn?`<button class="minibtn red" onclick="removeIntake(${p.intake_id})" style="flex:0 0 auto">✕</button>`:'')}
+  </div>`;}
+async function toggleIntake(ev,sid,intakeId,name){ev.stopPropagation();
+  const uid=VIEW_USER||ME.id;
+  if(intakeId){await API.del('/supplement-intake/'+uid+'/'+intakeId);}
+  else{await API.post('/supplement-intake/'+uid,{supplement_id:sid===null?undefined:sid,name,date:today()});}
+  await drawSuppSheet();}
+// Abhaken direkt aus dem Home-Widget -> nur Home neu zeichnen
+async function toggleIntakeHome(ev,sid,intakeId,name){ev.stopPropagation();
+  if(intakeId){await API.del('/supplement-intake/'+ME.id+'/'+intakeId);}
+  else{await API.post('/supplement-intake/'+ME.id,{supplement_id:sid===null?undefined:sid,name,date:today()});}
+  refreshHomeIfActive();}
+async function removeIntake(intakeId){const uid=VIEW_USER||ME.id;await API.del('/supplement-intake/'+uid+'/'+intakeId);await drawSuppSheet();
+  if(typeof refreshHomeIfActive==='function')refreshHomeIfActive();}
+function editIntakeDose(intakeId,name,dose){
+  openSheet('Menge anpassen',`<div class="field"><label>Wie viel von „${esc2(name)}" hast du genommen?</label><input id="intake_dose" value="${esc(dose)}" placeholder="z.B. 10 g, 2 Kapseln"></div>
+    <button class="btn" onclick="saveIntakeDose(${intakeId},'${esc(name)}')">Speichern</button>`);}
+async function saveIntakeDose(intakeId,name){const uid=VIEW_USER||ME.id;
+  // bestehenden Eintrag finden, um supplement_id zu erhalten
+  const row=[...(SUPP_TODAY?.plan||[]),...(SUPP_TODAY?.extras||[])].find(p=>p.intake_id===intakeId);
+  await API.post('/supplement-intake/'+uid,{supplement_id:row?.supplement_id??undefined,name,dose:val('intake_dose'),date:today()});
+  await drawSuppSheet();}
+function openAddIntake(){
+  openSheet('+ Supplement hinzufügen',`
+    <div class="info">Trag ein, was du zusätzlich genommen hast. Es wird für heute als genommen vermerkt.</div>
+    <div class="field"><label>Name</label><input id="add_supp_name" placeholder="z.B. Magnesium"></div>
+    <div class="field"><label>Menge (optional)</label><input id="add_supp_dose" placeholder="z.B. 400 mg"></div>
+    <button class="btn" onclick="saveAddIntake()">Als genommen eintragen</button>`);}
+async function saveAddIntake(){const name=val('add_supp_name');if(!name)return toast('Name fehlt');
+  const uid=VIEW_USER||ME.id;
+  await API.post('/supplement-intake/'+uid,{name,dose:val('add_supp_dose'),date:today()});
+  await drawSuppSheet();toast('Eingetragen ✓');}
+async function suppDetail(id){
+  const r=await API.get('/supplements/'+(VIEW_USER||ME.id));
+  const s=(r.data?.supplements||[]).find(x=>x.id===id);if(!s){toast('Details nicht verfügbar');return;}
   openSheet(s.name,`
     ${s.mandatory?'<div class="info" style="background:var(--red-soft);color:var(--red)">⚠️ Pflicht – von deinem Coach festgelegt.</div>':''}
     <div class="rows" style="margin-bottom:14px">

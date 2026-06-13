@@ -193,6 +193,19 @@ export function initSchema() {
     FOREIGN KEY (supplement_id) REFERENCES supplements(id) ON DELETE CASCADE
   );
 
+  -- Tägliche Einnahme-Abhakliste. Ein Eintrag = an diesem Tag genommen.
+  -- supplement_id kann NULL sein (spontan hinzugefügtes Supp, das nicht im Katalog steht).
+  CREATE TABLE IF NOT EXISTS supplement_intake (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    supplement_id INTEGER,                   -- NULL bei freiem Eintrag
+    name TEXT NOT NULL,                      -- Name (auch für freie Einträge)
+    dose TEXT,                               -- tatsächlich genommene Menge (anpassbar)
+    date TEXT NOT NULL,                      -- 'YYYY-MM-DD'
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS recipes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -259,6 +272,24 @@ export function initSchema() {
     data TEXT NOT NULL,                      -- JSON {days:[{name,exercises:[...]}]}
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (coach_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Monatsziele: pro Athlet & Monat ein Ziel mit drei Teilzielen (Trainings/Check-ins/Volumen).
+  -- Automatisch generiert; vom Coach überschreibbar (custom=1 -> mehr XP bei Erfüllung).
+  -- claimed=1 sobald die Belohnung gutgeschrieben wurde (verhindert Doppel-Vergabe).
+  CREATE TABLE IF NOT EXISTS monthly_goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    month TEXT NOT NULL,                     -- 'YYYY-MM'
+    target_trainings INTEGER NOT NULL,
+    target_checkins INTEGER NOT NULL,
+    target_volume INTEGER NOT NULL,
+    custom INTEGER DEFAULT 0,                -- vom Coach angepasst?
+    set_by INTEGER,                          -- welcher Coach (falls custom)
+    claimed INTEGER DEFAULT 0,               -- Belohnung schon vergeben?
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, month),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS exercise_notes (

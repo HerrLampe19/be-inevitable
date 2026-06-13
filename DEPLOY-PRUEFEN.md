@@ -2,30 +2,30 @@
 
 ## NEU: Versionsnummer in der App
 Unten im **Profil-Menü** (Profil-Icon oben rechts) und auf dem **Login-Screen** steht jetzt
-die Versionsnummer. Aktuelle Version: **1.1.0**
+die Versionsnummer. Die jeweils aktuelle Nummer steht in CHANGELOG.md.
 
 **So prüfst du in 5 Sekunden, ob das Update live ist:**
 1. App öffnen (oder Login-Screen ansehen).
-2. Steht dort **„Version 1.1.0"**? → neue Version ist live. ✓
+2. Steht dort die **erwartete Versionsnummer** (laut CHANGELOG.md)? → neue Version ist live. ✓
 3. Steht eine ältere Nummer (oder gar keine)? → der Deploy ist NICHT durchgekommen.
 
 Wenn Frontend und Server auseinanderlaufen, zeigt der Login-Screen automatisch
-„App 1.1.0 · Server X – neu laden" mit einem Klick-Link.
+„App X · Server Y – neu laden" mit einem Klick-Link, falls Frontend und Server auseinanderlaufen.
 
 Du kannst die Version auch direkt abfragen: **https://DEINE-URL/api/version**
-→ liefert `{"version":"1.1.0"}`. Zeigt das eine alte Nummer, läuft auf Render alter Code.
+→ liefert die laufende Versionsnummer. Zeigt das eine alte Nummer, läuft auf Render noch alter Code.
 
 ## Cache ist jetzt kein Problem mehr
 - `index.html` wird nicht mehr gecacht (no-cache-Header).
-- `app.js` wird über `?v=1.1.0` geladen – bei jeder neuen Version eine neue URL,
+- `app.js` wird über einen `?v=`-Parameter mit der Versionsnummer geladen – bei jeder neuen Version eine neue URL,
   d.h. der Browser lädt garantiert die neue Datei. Kein hartes Neuladen mehr nötig.
 
 ## Deploy-Schritte (Render)
 1. Code als ZIP hochladen / per Git pushen.
 2. Render-Dashboard → Service → **Manual Deploy** → **Clear build cache & deploy**.
 3. Warten bis Status „Live".
-4. **https://DEINE-URL/api/version** öffnen → muss `1.1.0` zeigen.
-   - Zeigt es 1.1.0 → alles gut, App neu öffnen.
+4. **https://DEINE-URL/api/version** öffnen → muss die neue Versionsnummer zeigen.
+   - Zeigt es die neue Nummer → alles gut, App neu öffnen.
    - Zeigt es etwas anderes → der Build wurde nicht übernommen. Prüfe, ob die richtige
      ZIP/der richtige Branch deployt wurde und ob Render Fehler im Log zeigt.
 

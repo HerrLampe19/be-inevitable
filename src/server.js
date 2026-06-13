@@ -284,7 +284,7 @@ app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
 });
 
 // Versionsnummer – zum Prüfen, ob das aktuelle Deployment live ist (auch ohne Login abrufbar)
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.7.0';
 app.get('/api/version', (req, res) => res.json({ version: APP_VERSION,
   mail: process.env.EMAIL_HOST ? 'konfiguriert' : 'log-fallback',
   app_url: process.env.APP_URL ? 'gesetzt' : 'FEHLT (Links in Mails zeigen ins Leere!)' }));
@@ -1503,6 +1503,61 @@ app.delete('/api/supplements/:userId/:suppId', auth, requireCoach, (req, res) =>
   res.json({ ok: true });
 });
 
+/* ---------- SUPPLEMENT-EINNAHME (Tages-Abhakliste) ---------- */
+// Tages-Status: zugewiesene Supplements + Abhak-Zustand für ein Datum + freie Einträge des Tages.
+app.get('/api/supplement-intake/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  // zugewiesene (Plan-)Supps
+  const assigned = db.all(`SELECT s.id, s.name, COALESCE(a.custom_dose,s.dose) dose, s.category, a.mandatory
+    FROM athlete_supplements a JOIN supplements s ON s.id=a.supplement_id
+    WHERE a.user_id=? ORDER BY a.mandatory DESC, s.sort, s.name`, [uid]);
+  const taken = db.all('SELECT * FROM supplement_intake WHERE user_id=? AND date=?', [uid, date]);
+  const takenBySid = {}; taken.forEach(t => { if (t.supplement_id != null) takenBySid[t.supplement_id] = t; });
+  const plan = assigned.map(s => {
+    const t = takenBySid[s.id];
+    return { supplement_id: s.id, name: s.name, dose: t?.dose || s.dose, category: s.category,
+      mandatory: !!s.mandatory, taken: !!t, intake_id: t?.id || null };
+  });
+  // freie (spontane) Einträge ohne Katalog-Bezug
+  const extras = taken.filter(t => t.supplement_id == null)
+    .map(t => ({ supplement_id: null, name: t.name, dose: t.dose, taken: true, intake_id: t.id, mandatory: false }));
+  const total = plan.length, done = plan.filter(p => p.taken).length;
+  res.json({ date, plan, extras, total, done });
+});
+
+// Abhaken (genommen). Für Katalog-Supps via supplement_id, für freie via name.
+app.post('/api/supplement-intake/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const date = req.body.date || new Date().toISOString().slice(0, 10);
+  const sid = req.body.supplement_id != null ? Number(req.body.supplement_id) : null;
+  let name = (req.body.name || '').trim();
+  let dose = (req.body.dose || '').trim() || null;
+  if (sid != null) {
+    const s = db.get('SELECT name, dose FROM supplements WHERE id=?', [sid]);
+    if (!s) return res.status(404).json({ error: 'Supplement nicht gefunden' });
+    if (!name) name = s.name; if (!dose) dose = s.dose;
+    // schon abgehakt? -> nur Dosis aktualisieren
+    const ex = db.get('SELECT id FROM supplement_intake WHERE user_id=? AND date=? AND supplement_id=?', [uid, date, sid]);
+    if (ex) { db.run('UPDATE supplement_intake SET dose=? WHERE id=?', [dose, ex.id]); return res.json({ ok: true, intake_id: ex.id }); }
+    const r = db.run('INSERT INTO supplement_intake(user_id,supplement_id,name,dose,date) VALUES(?,?,?,?,?)', [uid, sid, name, dose, date]);
+    return res.json({ ok: true, intake_id: r.lastInsertRowid });
+  }
+  if (!name) return res.status(400).json({ error: 'Name fehlt' });
+  const r = db.run('INSERT INTO supplement_intake(user_id,supplement_id,name,dose,date) VALUES(?,NULL,?,?,?)', [uid, name, dose, date]);
+  res.json({ ok: true, intake_id: r.lastInsertRowid });
+});
+
+// Haken entfernen / Eintrag löschen
+app.delete('/api/supplement-intake/:userId/:intakeId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  db.run('DELETE FROM supplement_intake WHERE id=? AND user_id=?', [Number(req.params.intakeId), uid]);
+  res.json({ ok: true });
+});
+
 /* ---------------- TODAY / RHYTHMUS ---------------- */
 function getUserFull(id) { return db.get('SELECT * FROM users WHERE id=?', [id]); }
 function getHistory(uid) {
@@ -1726,9 +1781,15 @@ app.get('/api/insights/:userId', auth, (req, res) => {
   const weekTarget = Math.max(1, Math.min(7, Number(u?.days_per_week) || 3));
   const weekGoalStreak = weeklyGoalStreak(trDates, weekTarget, today);
 
+  // Monatsziel-Boni: erreichte Monate geben dauerhaft XP (250 normal, 500 bei Coach-Ziel)
+  const claimedMonths = db.all('SELECT custom FROM monthly_goals WHERE user_id=? AND claimed=1', [uid]);
+  const monthlyBonusXp = claimedMonths.reduce((s, m) => s + (m.custom ? 500 : 250), 0);
+  const monthsReached = claimedMonths.length;
+  const coachChallengesWon = claimedMonths.filter(m => m.custom).length;
+
   // XP & Level: alles Sinnvolle zahlt ein – Konstanz und echte Rekorde am meisten
   const xp = trDates.length * 10 + totalSets * 2 + ciDates.length * 5 + cardioCount * 10
-    + photoCount * 15 + measCount * 10 + foodDays * 3 + prCount * 25;
+    + photoCount * 15 + measCount * 10 + foodDays * 3 + prCount * 25 + monthlyBonusXp;
   const need = n => 50 * n * (n - 1); // kumulierte XP-Schwelle für Level n (progressiv)
   let level = 1; while (level < 99 && xp >= need(level + 1)) level++;
   const LEVEL_TITLES = [[50, 'UNAUFHALTBAR'], [40, 'Legende'], [30, 'Elite'], [25, 'Maschine'], [20, 'Beast'],
@@ -1765,11 +1826,126 @@ app.get('/api/insights/:userId', auth, (req, res) => {
     A('mealplan', '🍽️', 'Ernährungsplan aktiv', 'Plan erstellt', mealCount > 0),
     A('level_5', '⭐', 'Level 5', 'Aufsteiger-Status erreicht', level >= 5, level, 5),
     A('level_10', '🌟', 'Level 10', 'Zweistellig!', level >= 10, level, 10),
+    A('month_1', '🏆', 'Erstes Monatsziel', 'Einen ganzen Monat durchgezogen', monthsReached >= 1),
+    A('month_3', '📅', '3 Monatsziele', 'Drei Monate volle Leistung', monthsReached >= 3, monthsReached, 3),
+    A('month_6', '💎', '6 Monatsziele', 'Ein halbes Jahr Disziplin', monthsReached >= 6, monthsReached, 6),
+    A('coach_challenge', '🎖️', 'Coach-Challenge', 'Ein vom Coach gesetztes Monatsziel gemeistert', coachChallengesWon >= 1),
   ];
   res.json({ streaks: { checkin: checkinStreak, weekGoal: weekGoalStreak }, week,
     weekGoal: { target: weekTarget, done: week.thisWeek.sessions },
     xp, level, levelTitle, levelProgress, achievements,
     totals: { sets: totalSets, volume: totalVolume, sessions: trDates.length, prs: prCount } });
+});
+
+/* ---------------- MONATSZIELE ---------------- */
+// Erfahrungsstufe -> Basis-Anspruch; skaliert zusätzlich mit dem Vormonat (Fortschritt fordert mehr).
+function defaultMonthlyTargets(u, lastMonthActual) {
+  const exp = (u?.experience || 'beginner');
+  const base = exp === 'advanced' ? { t: 16, c: 24, v: 80000 }
+    : exp === 'intermediate' ? { t: 12, c: 20, v: 50000 }
+    : { t: 8, c: 16, v: 25000 };
+  // Wer letzten Monat mehr geschafft hat, bekommt etwas mehr (max +30%), nie weniger als Basis.
+  const bump = (baseVal, actual) => Math.max(baseVal, Math.round(Math.min(actual * 1.1, baseVal * 1.3)));
+  if (lastMonthActual) return {
+    target_trainings: bump(base.t, lastMonthActual.trainings),
+    target_checkins: bump(base.c, lastMonthActual.checkins),
+    target_volume: bump(base.v, lastMonthActual.volume),
+  };
+  return { target_trainings: base.t, target_checkins: base.c, target_volume: base.v };
+}
+// Ist-Werte eines Monats ('YYYY-MM')
+function monthActual(uid, month) {
+  const from = month + '-01';
+  const d = new Date(from + 'T00:00:00'); d.setMonth(d.getMonth() + 1);
+  const to = d.toISOString().slice(0, 10);
+  const trainings = db.get("SELECT COUNT(DISTINCT date) c FROM set_logs WHERE user_id=? AND date>=? AND date<?", [uid, from, to]).c;
+  const checkins = db.get("SELECT COUNT(*) c FROM checkins WHERE user_id=? AND date>=? AND date<?", [uid, from, to]).c;
+  const volume = Math.round(db.get("SELECT COALESCE(SUM(weight*reps),0) v FROM set_logs WHERE user_id=? AND date>=? AND date<?", [uid, from, to]).v || 0);
+  return { trainings, checkins, volume };
+}
+// Holt das Monatsziel (legt es bei Bedarf automatisch an) und berechnet Fortschritt + Belohnung.
+function getOrCreateMonthlyGoal(uid, month) {
+  let g = db.get('SELECT * FROM monthly_goals WHERE user_id=? AND month=?', [uid, month]);
+  if (!g) {
+    const u = getUserFull(uid);
+    // Vormonat als Referenz
+    const pm = new Date(month + '-01T00:00:00'); pm.setMonth(pm.getMonth() - 1);
+    const prevMonth = pm.toISOString().slice(0, 7);
+    const last = monthActual(uid, prevMonth);
+    const hadActivity = last.trainings || last.checkins || last.volume;
+    const t = defaultMonthlyTargets(u, hadActivity ? last : null);
+    db.run('INSERT INTO monthly_goals(user_id,month,target_trainings,target_checkins,target_volume) VALUES(?,?,?,?,?)',
+      [uid, month, t.target_trainings, t.target_checkins, t.target_volume]);
+    g = db.get('SELECT * FROM monthly_goals WHERE user_id=? AND month=?', [uid, month]);
+  }
+  return g;
+}
+function monthlyGoalView(uid, month) {
+  const g = getOrCreateMonthlyGoal(uid, month);
+  const act = monthActual(uid, month);
+  const parts = [
+    { key: 'trainings', label: 'Trainings', icon: '🏋️', done: act.trainings, target: g.target_trainings },
+    { key: 'checkins', label: 'Check-ins', icon: '✅', done: act.checkins, target: g.target_checkins },
+    { key: 'volume', label: 'Volumen (kg)', icon: '🏋️', done: act.volume, target: g.target_volume },
+  ].map(p => ({ ...p, pct: Math.min(100, Math.round(p.done / Math.max(1, p.target) * 100)), reached: p.done >= p.target }));
+  const reachedCount = parts.filter(p => p.reached).length;
+  const allReached = reachedCount === parts.length;
+  return { month, custom: !!g.custom, claimed: !!g.claimed, parts, reachedCount, allReached,
+    overallPct: Math.round(parts.reduce((s, p) => s + p.pct, 0) / parts.length) };
+}
+// Belohnung gutschreiben, wenn alle drei Teilziele erreicht sind (einmalig pro Monat).
+// Rückgabe sagt dem Frontend, ob gerade frisch freigeschaltet wurde (für die Feier-Animation).
+function claimMonthlyIfDone(uid, month) {
+  const g = getOrCreateMonthlyGoal(uid, month);
+  if (g.claimed) return { justClaimed: false };
+  const v = monthlyGoalView(uid, month);
+  if (!v.allReached) return { justClaimed: false };
+  db.run('UPDATE monthly_goals SET claimed=1 WHERE id=?', [g.id]);
+  const bonusXp = g.custom ? 500 : 250; // Coach-Ziel gibt doppelt
+  return { justClaimed: true, custom: !!g.custom, bonusXp,
+    award: g.custom ? { icon: '🎖️', title: 'Coach-Challenge gemeistert', desc: 'Das vom Coach gesetzte Monatsziel erreicht!' }
+      : { icon: '🏆', title: 'Monatsziel erreicht', desc: `Alle Ziele im Monat ${month} geschafft!` } };
+}
+
+app.get('/api/monthly/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const month = (req.query.month || new Date().toISOString().slice(0, 7));
+  const view = monthlyGoalView(uid, month);
+  const claim = claimMonthlyIfDone(uid, month); // schreibt Belohnung gut, falls fällig
+  // kleine Historie: die letzten erreichten Monate
+  const history = db.all("SELECT month, claimed, custom FROM monthly_goals WHERE user_id=? AND claimed=1 ORDER BY month DESC LIMIT 6", [uid]);
+  res.json({ ...view, justClaimed: claim.justClaimed, award: claim.award || null, bonusXp: claim.bonusXp || 0, history });
+});
+
+// Eine einzelne Mahlzeit im Plan gegen ein Rezept tauschen (alle Items -> das Rezept als ein Item)
+app.post('/api/meals/:mealId/swap', auth, (req, res) => {
+  const meal = db.get('SELECT * FROM meals WHERE id=?', [req.params.mealId]);
+  if (!meal) return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });
+  if (!canAccess(req.user, meal.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const rec = db.get('SELECT * FROM recipes WHERE id=?', [req.body.recipe_id]);
+  if (!rec) return res.status(404).json({ error: 'Rezept nicht gefunden' });
+  db.run('DELETE FROM meal_items WHERE meal_id=?', [meal.id]);
+  db.run('INSERT INTO meal_items(meal_id,food,amount,kcal,fat,carbs,protein) VALUES(?,?,?,?,?,?,?)',
+    [meal.id, rec.name, null, Math.round(rec.kcal || 0), rec.fat || 0, rec.carbs || 0, rec.protein || 0]);
+  db.run('UPDATE meals SET label=? WHERE id=?', [rec.name, meal.id]);
+  res.json({ ok: true });
+});
+app.put('/api/monthly/:userId', auth, requireCoach, (req, res) => {
+  const uid = Number(req.params.userId);
+  const a = db.get('SELECT coach_id, name FROM users WHERE id=?', [uid]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff auf diesen Athleten' });
+  const month = (req.body.month || new Date().toISOString().slice(0, 7));
+  const t = Math.max(0, Math.min(31, Number(req.body.target_trainings) || 0));
+  const c = Math.max(0, Math.min(31, Number(req.body.target_checkins) || 0));
+  const v = Math.max(0, Number(req.body.target_volume) || 0);
+  getOrCreateMonthlyGoal(uid, month); // sicherstellen, dass eine Zeile existiert
+  db.run('UPDATE monthly_goals SET target_trainings=?,target_checkins=?,target_volume=?,custom=1,set_by=?,claimed=0 WHERE user_id=? AND month=?',
+    [t, c, v, req.user.id, uid, month]);
+  db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+    [uid, req.user.id, 'message', '🎯 Neues Monatsziel', `Dein Coach hat dir für diesen Monat ein persönliches Ziel gesetzt: ${t} Trainings, ${c} Check-ins, ${v.toLocaleString('de-DE')} kg Volumen. Schaffst du das?`]);
+  sendPush(uid, { title: '🎯 Neues Monatsziel vom Coach', body: `${t} Trainings · ${c} Check-ins · ${v.toLocaleString('de-DE')} kg` });
+  res.json({ ok: true });
 });
 
 /* ---------------- COACH: ATHLETEN-AMPEL ---------------- */
