@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.13.0
+- **Streak-Joker (Streak-Schutz):** Vergisst du einen Tag, springt automatisch ein Joker ein und rettet deine Serie – sie reißt nicht. Du startest mit 1 Joker und bekommst pro aktiver Woche +1 dazu (max. 2). Der aktuelle Stand steht als 🛡️-Badge neben der Streak auf der Startseite (antippen für Erklärung). Wird ein Joker eingesetzt, gibt es eine Push-Mitteilung. Alternativ kannst du vergessene Tage weiterhin selbst nachtragen.
+- Neue Tabelle `streak_freeze_log` + Spalten `streak_freezes`/`freeze_last_grant` in `users` (automatische Migration). Die Streak zählt geschützte Tage wie Check-ins.
+
+## 1.12.0
+- **Tage nachtragen:** Vergangene Tage lassen sich jetzt für Gewicht/Schlaf/Schritte/Wasser nachpflegen. Im „Werte eintragen"-Bereich auf der Startseite die letzten 7 Tage als Chips wählbar (mit ✓-Markierung für bereits ausgefüllte Tage) – schließt auch Lücken in der Streak.
+- **Tägliche Ziele „Heute geschafft":** Drei kleine Ringe auf der Startseite (Check-in · Ernährung · Supplements). Sobald alle drei voll sind, gibt es eine kleine Feier – der tägliche Motivations-Anker.
+- **Streak aufgewertet:** Der Tages-Streak ist prominenter, zeigt „heute schon dran ✓" bzw. „in Gefahr", wenn noch nichts eingetragen ist. Abends (~19 Uhr) gibt es bei aktiver Streak ohne heutigen Eintrag eine „Streak in Gefahr"-Push. Nach einer Pause begrüßt ein „Willkommen zurück" und holt sanft in den Rhythmus zurück.
+- **Feier-Momente:** Konfetti + Pop-Animation bei Level-up, Streak-Meilensteinen (7/30/100 …) und neuen Erfolgen.
+- Bewusst KEIN XP-Abzug bei Inaktivität: XP werden aus echter Aktivität berechnet und nur die Streak reißt – das motiviert, ohne zu bestrafen.
+
+## 1.11.0
+- **Dark Mode als fester Standard:** Die App ist jetzt durchgehend dunkel (unabhängig von der System-Einstellung) – passt zur Marke und ist überall einheitlich.
+- **Kalender-Widget-Bug behoben:** Home-Widget („Dein Plan") und der volle Kalender konnten für denselben Tag Unterschiedliches anzeigen (z.B. Widget „Ruhetag", Kalender „Upper 1"), wenn ein Ruhetag auf einen Trainingstag fiel. Beide nutzen jetzt EXAKT dieselbe Engine (`rhythmRange`, am frühesten Eintrag verankert) – sie stimmen immer überein und reagieren gleichzeitig auf Tag-Änderungen. Mit Tests abgesichert.
+- **Supplements aufgeräumt:** Auf der Startseite gibt es nur noch die Tages-Checkliste (der doppelte „Supplements"-Button ist weg; die Liste ist immer erreichbar, auch ohne zugewiesene Supplements). Aus dem Ernährungs-Plan sind Supplements raus – sie gehören nicht zu den Nährwerten, sondern in ihren eigenen Bereich.
+- **Ernährung:** Die Buttons „als gegessen" und „Mahlzeit tauschen" sitzen in den Plan-Mahlzeiten nicht mehr am Kartenrand, sondern mit Abstand und mittig.
+- **Coach-Athleten-Dashboard überarbeitet:** Statt einer Wand aus 10 Buttons jetzt Identitäts-Pills + Schnell-Status (Gewicht, letztes Training), zwei Primäraktionen (Plan/Nachricht) und zwei aufgeräumte iOS-Listen („Verwalten", „Ansehen").
+- **Als App aufs iPhone (PWA):** Einmaliger, schließbarer Hinweis auf iOS, wie man die App über „Teilen → Zum Home-Bildschirm" installiert (erscheint nur in Safari und nur, solange nicht schon installiert). Neue Anleitung APP-INSTALLIEREN.md. Web und installierte App teilen Konto und Daten.
+
+## 1.10.0
+- **Apple-Designsprache:** Durchgängig auf die System-Schrift (SF Pro / system-ui) umgestellt, die großen Titel sind jetzt iOS-„Large Titles" (statt der schmalen Versal-Schrift). Feinere iOS-Farben, Abstände, Radien, weichere Schatten und ein neuer Segment-Umschalter. Gilt automatisch für alle Bildschirme.
+- **Coach-Übersicht aufgeräumt & handlungsorientiert:** „Braucht Aufmerksamkeit" steht jetzt ganz oben (mit positivem „Alles im grünen Bereich"-Zustand, wenn nichts ansteht), darunter kompakte Kennzahlen und direkt die Athletenliste. Jede Athleten-Zeile hat jetzt Direkt-Aktionen (✉️ Nachricht, ✏️ Plan), Einblicke (Trend/Ziele/Aktivität) und Rundnachricht sind nach unten gewandert.
+- **Ernährung „Heute" neu gedacht:** Großer Kalorien-Ring (zeigt die verbleibenden kcal) mit farbigen Makro-Balken (Protein/Carbs/Fett vs. Ziel), eine klare Primäraktion „+ Essen hinzufügen" plus drei schnelle Wege (Barcode/Plan/Rezepte). Das Tagesprotokoll ist jetzt nach Mahlzeit gruppiert (Frühstück/Mittag/Abend …) mit kcal-Summe je Mahlzeit – übersichtlicher als eine lange Liste.
+- **Training mit Fortschritts-Ring:** Der „Heutiges Training"-Kopf zeigt jetzt einen Ring mit Prozent erledigter Sätze (grün bei 100 %) – dieselbe Ring-Sprache wie bei der Ernährung – samt „Training abschließen".
+- **Analyse mit Glance-Karten (Apple-Health-Stil):** Oben im Körper-Tab vier Karten (Gewicht, Ø Schlaf, Ø Schritte, Ø Wasser) mit grünem Punkt, sobald das persönliche Ziel erreicht ist – die ausführlichen Verlaufs-Charts folgen darunter.
+
+## 1.9.0
+- **Coach-Schnellaktionen:** In der „Braucht Aufmerksamkeit"-Liste gibt es jetzt direkte Aktionen je Athlet – ✉️ Schnellnachricht (ohne erst das Dashboard zu öffnen) und ✏️ Sprung direkt in die Plan-Bearbeitung.
+- **Supplements nach Tageszeit gruppiert:** Die Tages-Checkliste ordnet zugewiesene Supplements jetzt nach Kategorie/Tageszeit (Morgens, Pre-Workout, Nach dem Training, Abends …) statt als eine lange Liste.
+- **Individuelle Gesundheitsziele:** Schlaf-, Schritte- und Wasser-Ziel sind pro Nutzer im Profil einstellbar und erscheinen als Ziel-Linien in der Analyse (leer = Standard 8 h / 10.000 / 3 L). Der Coach sieht die individuellen Ziele im Athleten-Verlauf.
+- **Push-Zeitpunkt pro Nutzer:** Die Uhrzeit der täglichen Trainings-Erinnerung lässt sich im Profil wählen (Standard 6 Uhr Serverzeit). Die Erinnerung wird pro Nutzer genau einmal am Tag und nur an Trainingstagen verschickt.
+- Neue Spalten in `users`: sleep_goal, steps_goal, water_goal, push_hour (automatische Migration).
+
+## 1.8.0
+- **Excel-Import für Coaches (neu):** Bestehende Trainings- und Ernährungspläne lassen sich direkt aus einer Excel-Datei (.xlsx) importieren. Der Coach öffnet einen Athleten → „📥 Aus Excel importieren", wählt die Datei, ordnet die Spalten zu (die App rät die Zuordnung automatisch) und sieht eine Vorschau, bevor er übernimmt.
+- Flexible Spalten-Zuordnung: funktioniert mit unterschiedlich aufgebauten Tabellen, nicht nur einer festen Vorlage. Leere Tag-/Mahlzeit-Zellen werden automatisch dem vorherigen Block zugeordnet (wie in echten Coach-Tabellen üblich).
+- Deckt Training (Übung, Sätze, Wdh., Gewicht, Notiz) und Ernährung (Mahlzeit, Lebensmittel, Menge, kcal, Makros) ab.
+- Anleitung dazu in EXCEL-IMPORT.md.
+- Neue Abhängigkeit: xlsx (SheetJS) – wird beim Deploy automatisch installiert.
+
+## 1.7.1
+- Einführungs-Tour: Während die Tour läuft, ist das Scrollen (und Tippen) im Hintergrund jetzt gesperrt. Vorher konnte man die Seite hinter dem Spotlight verschieben, wodurch der rote Rahmen nicht mehr zum erklärten Element passte. Scrollen innerhalb der Hinweis-Karte (bei langem Text) bleibt möglich.
+
 ## 1.7.0
 - **Supplements komplett neu als Tages-Checkliste:** Supplements sind nicht mehr zwischen den Mahlzeiten (wo Nährwerte zählten, was bei Supps unpassend war), sondern haben einen eigenen Bereich. Man hakt täglich ab, was man genommen hat, kann die Menge pro Eintrag anpassen und spontan eigene Supplements ergänzen, die man zusätzlich genommen hat.
 - **Supplement-Widget auf der Startseite:** Zeigt die heutige Abhakliste mit Fortschritt (z.B. „2/4 genommen") – direkt von der Home abhakbar, ohne in einen Unterbereich zu wechseln.

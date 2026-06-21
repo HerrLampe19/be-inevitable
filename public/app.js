@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.7.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.13.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -181,6 +181,7 @@ async function startApp(){
   applyAvatar();
   setTimeout(checkPendingShare,700); // wartender Teilen-Link? -> Übernehmen-Dialog
   maybeStartTour(); // beim allerersten Mal: kurze Einführungs-Tour
+  setTimeout(maybeShowInstallHint,1600); // iOS: Hinweis „Zum Home-Bildschirm" (einmalig)
   API.get('/foods').then(r=>FOODS=r.data?.foods||[]);
   fetch('/api/definitions').then(r=>r.json()).then(d=>DEFS=d.definitions||[]);
   COACH_CONTEXT=null;
@@ -248,14 +249,80 @@ let msgPoll=null;
 function startMsgPolling(){clearInterval(msgPoll);msgPoll=setInterval(()=>{if(ME)loadMessages();},30000);}
 
 // ===== HOME =====
+// ===== Check-in / Nachtragen: Datum wählbar (letzte 7 Tage) =====
+let CHECKIN_DATE=null, HOME_CIS=[];
+function homeCheckinHTML(){
+  const tdy=today(); if(!CHECKIN_DATE)CHECKIN_DATE=tdy;
+  const ci=(HOME_CIS||[]).find(c=>c.date===CHECKIN_DATE)||{};
+  const last=(HOME_CIS||[])[0]||{};
+  let chips='<div class="chip-row" style="margin-bottom:12px">';
+  for(let i=0;i<7;i++){const d=new Date(tdy+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-i);const iso=fmt(d);
+    const has=(HOME_CIS||[]).some(c=>c.date===iso&&(c.weight!=null||c.sleep!=null||c.steps!=null||c.water!=null));
+    const lbl=i===0?'Heute':i===1?'Gestern':d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',timeZone:'UTC'});
+    chips+=`<button class="daychip ${iso===CHECKIN_DATE?'now':''}" onclick="setCheckinDate('${iso}')">${has?'✓ ':''}${lbl}</button>`;}
+  chips+='</div>';
+  const past=CHECKIN_DATE!==tdy;
+  const val=k=>ci[k]!=null?ci[k]:'';
+  return chips+
+    `${past?`<div class="info" style="margin-bottom:10px">📅 Du trägst für <b>${new Date(CHECKIN_DATE+'T00:00:00Z').toLocaleDateString('de-DE',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'})}</b> nach – schließt auch Streak-Lücken.</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="0" max="500" value="${val('weight')}" placeholder="${last.weight||'63.5'}"></div>
+      <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" min="0" max="24" value="${val('sleep')}" placeholder="${last.sleep||'8'}"></div>
+      <div class="field"><label>Schritte</label><input id="qc_steps" type="number" inputmode="numeric" min="0" max="200000" value="${val('steps')}" placeholder="${last.steps||'8000'}"></div>
+      <div class="field"><label>Wasser (L)</label><input id="qc_water" type="number" step="0.1" inputmode="decimal" min="0" max="30" value="${val('water')}" placeholder="${last.water||'3'}"></div>
+    </div>
+    <button class="btn" onclick="quickCheckin()">${past?'Nachtragen':'Check-in speichern'}</button>
+    <div style="font-size:12px;color:var(--ink3);text-align:center;margin-top:8px">Leer lassen ist okay – trag ein, was du hast.</div>`;
+}
+function setCheckinDate(d){CHECKIN_DATE=d;const el=document.getElementById('homeCheckin');if(el)el.innerHTML=homeCheckinHTML();}
+
+// ===== Feier-Momente: Konfetti + Pop =====
+function confettiBurst(n=46){const cols=['#e10600','#30d158','#ffd60a','#0a84ff','#ff9f0a','#ff375f','#bf5af2'];
+  for(let i=0;i<n;i++){const p=document.createElement('div');p.className='confetti-pc';
+    p.style.left=Math.random()*100+'vw';p.style.background=cols[i%cols.length];
+    const dur=1.6+Math.random()*1.3;p.style.animation=`confettiFall ${dur}s linear ${(Math.random()*0.3).toFixed(2)}s forwards`;
+    p.style.opacity=String((.7+Math.random()*.3).toFixed(2));document.body.appendChild(p);
+    setTimeout(()=>p.remove(),(dur+0.6)*1000);}
+}
+function celebrate(icon,title,sub){
+  try{confettiBurst();
+    const el=document.createElement('div');el.className='celebrate-pop';
+    el.innerHTML=`<div style="font-size:54px;line-height:1;margin-bottom:8px">${icon}</div>
+      <div style="font-family:var(--font-head);font-size:24px;font-weight:700;letter-spacing:-.02em">${esc2(title)}</div>
+      ${sub?`<div style="color:var(--ink2);font-size:14px;margin-top:6px">${esc2(sub)}</div>`:''}`;
+    document.body.appendChild(el);
+    requestAnimationFrame(()=>el.classList.add('on'));
+    setTimeout(()=>{el.classList.remove('on');setTimeout(()=>el.remove(),400);},2500);
+  }catch(e){}
+}
+
+// Streak-Joker erklären (Tippen auf das 🛡️-Badge)
+function openStreakInfo(){
+  const f=(LAST_INSIGHTS&&LAST_INSIGHTS.freezes)||{};const fb=f.balance==null?1:f.balance,mx=f.max||2;
+  openSheet('🛡️ Streak-Joker',`
+    <div style="text-align:center;padding:6px 0 14px"><div style="font-size:48px">🛡️</div><div style="font-size:28px;font-weight:700;margin-top:4px">${fb} / ${mx}</div><div style="color:var(--ink2);font-size:14px">Joker verfügbar</div></div>
+    <div class="info">Ein <b>Streak-Joker</b> rettet automatisch einen Tag, an dem du nichts eingetragen hast – deine Serie reißt dann nicht.</div>
+    <div class="rows" style="margin-bottom:8px">
+      <div class="row"><div class="rl">Automatischer Einsatz<small>Vergisst du einen Tag, springt ein Joker ein</small></div><div class="rr">🛡️</div></div>
+      <div class="row"><div class="rl">Nachschub<small>+1 Joker pro aktiver Woche (max. ${mx})</small></div><div class="rr">📅</div></div>
+      <div class="row"><div class="rl">Selbst nachtragen<small>Vergessene Tage kannst du auch manuell nachpflegen</small></div><div class="rr">✍️</div></div>
+    </div>
+    <button class="btn sec" onclick="closeModal()">Verstanden</button>`);
+}
+
 async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinner"></div></div>';
   await Promise.all([loadToday(),PLAN?Promise.resolve():loadPlan()]);
-  const [cr,flr]=await Promise.all([
+  const isOwnAthlete=(VIEW_USER===ME.id&&ME.role==='athlete');
+  const [cr,flr,suppR,insR]=await Promise.all([
     API.get('/checkins/'+VIEW_USER),
-    API.get('/foodlog/'+VIEW_USER+'?date='+today())
+    API.get('/foodlog/'+VIEW_USER+'?date='+today()),
+    isOwnAthlete?API.get('/supplement-intake/'+ME.id+'?date='+today()):Promise.resolve(null),
+    isOwnAthlete?API.get('/insights/'+ME.id):Promise.resolve(null)
   ]);
-  const cis=cr.data?.checkins||[];const last=cis[0];
+  const cis=cr.data?.checkins||[];const last=cis[0];HOME_CIS=cis;
   const foodSummary=flr.data?.summary||{consumed:0,target:null,remaining:null,macros:{}};
+  const suppData=(suppR&&suppR.status===200)?suppR.data:null;
+  const INS=(insR&&insR.status===200)?insR.data:null; if(INS)LAST_INSIGHTS=INS;
   // streak
   let streak=0;if(cis.length){const ds=new Set(cis.map(c=>c.date));let d=new Date();d.setHours(0,0,0,0);
     if(!ds.has(fmt(d)))d.setDate(d.getDate()-1);while(ds.has(fmt(d))){streak++;d.setDate(d.getDate()-1);}}
@@ -287,6 +354,16 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   const greet=hour<11?'Guten Morgen':hour<17?'Hallo':'Guten Abend';
   const greetLine=(VIEW_USER===ME.id)?`<div style="font-size:15px;color:var(--ink2);margin-bottom:14px">${greet}, ${ME.name.split(' ')[0]} 👋</div>`:'';
   html+=greetLine;
+  // Comeback-Gruß nach Pause (≥3 Tage ohne Check-in) – sanft zurück in den Rhythmus holen
+  if(isOwnAthlete && cis.length){
+    const dSince=Math.floor((Date.parse(today()+'T00:00:00Z')-Date.parse(cis[0].date+'T00:00:00Z'))/864e5);
+    if(dSince>=3){
+      html+=`<div class="surface pad" style="margin-bottom:14px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--red) 35%,transparent)">
+        <div style="font-weight:700;margin-bottom:4px">Willkommen zurück, ${esc2(ME.name.split(' ')[0])}! 💪</div>
+        <div style="color:var(--ink2);font-size:14px;margin-bottom:12px">${dSince} Tage Pause – kein Problem. Trag heute kurz etwas ein und komm wieder in deinen Rhythmus.</div>
+        <button class="btn" onclick="document.getElementById('homeCheckin')?.scrollIntoView({behavior:'smooth',block:'center'})">Jetzt eintragen</button></div>`;
+    }
+  }
   html+=`<div class="today">
     <div class="eyebrow">◎ ${cap(dateStr)}</div>
     <div class="daytype">${dayName}</div>
@@ -318,18 +395,44 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
 
   // ===== Reihenfolge nach Wichtigkeit: HEUTE (Hero+Kalender oben) -> CHECK-IN -> ERNÄHRUNG -> FORTSCHRITT =====
 
-  // SCHNELL-CHECKIN (das Tägliche, Platz 2)
-  html+=`<div class="section-label">Heute eintragen</div>
-    <div class="surface pad" style="margin-bottom:8px" id="homeCheckin">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="0" max="500" placeholder="${last?.weight||'63.5'}"></div>
-        <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" min="0" max="24" placeholder="${last?.sleep||'8'}"></div>
-        <div class="field"><label>Schritte</label><input id="qc_steps" type="number" inputmode="numeric" min="0" max="200000" placeholder="${last?.steps||'8000'}"></div>
-        <div class="field"><label>Wasser (L)</label><input id="qc_water" type="number" step="0.1" inputmode="decimal" min="0" max="30" placeholder="${last?.water||'3'}"></div>
-      </div>
-      <button class="btn" onclick="quickCheckin()">Check-in speichern</button>
-      <div style="font-size:12px;color:var(--ink3);text-align:center;margin-top:8px">Leer lassen ist okay – trag ein, was du hast.</div>
-    </div>`;
+  // ===== TÄGLICHE ZIELE „Heute geschafft" + Streak (Motivations-Anker, Platz 2) =====
+  if(isOwnAthlete){
+    const tdy=today();
+    const ciToday=(cis||[]).find(c=>c.date===tdy)||null;
+    const gCheckin=!!(ciToday&&(ciToday.weight!=null||ciToday.sleep!=null||ciToday.steps!=null||ciToday.water!=null));
+    const gFood=(foodSummary.consumed||0)>0;
+    const sTot=suppData?suppData.total||0:0,sDone=suppData?suppData.done||0:0;
+    const gSupp=sTot===0?true:sDone>=sTot;
+    const goals=[{ic:'📝',l:'Check-in',done:gCheckin,act:"document.getElementById('homeCheckin')?.scrollIntoView({behavior:'smooth',block:'center'})"},
+      {ic:'🍽️',l:'Ernährung',done:gFood,act:"go('diet')"},
+      {ic:'💊',l:'Supplements',done:gSupp,act:"openSupp()"}];
+    const doneN=goals.filter(g=>g.done).length,allDone=doneN===goals.length;
+    const streak=INS?.streaks?.checkin||0;
+    const miniRing=done=>{const R=15,C=2*Math.PI*R;return `<svg width="46" height="46" viewBox="0 0 40 40"><circle cx="20" cy="20" r="${R}" fill="none" stroke="var(--surface2)" stroke-width="4"/><circle cx="20" cy="20" r="${R}" fill="none" stroke="${done?'var(--green)':'var(--line2)'}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${done?0:C}" transform="rotate(-90 20 20)" style="transition:stroke-dashoffset .5s"/></svg>`;};
+    html+=`<div class="section-label" style="display:flex;justify-content:space-between"><span>Heute geschafft</span><span style="text-transform:none;letter-spacing:0;font-weight:700;color:${allDone?'var(--green)':'var(--ink3)'}">${doneN}/${goals.length}${allDone?' 🎉':''}</span></div>
+      <div class="surface pad" style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-around;text-align:center">`+
+        goals.map(g=>`<div onclick="${g.act}" style="cursor:pointer">
+          <div style="position:relative;display:inline-flex;align-items:center;justify-content:center">${miniRing(g.done)}<span style="position:absolute;font-size:17px">${g.done?'✅':g.ic}</span></div>
+          <div style="font-size:12px;margin-top:4px;color:${g.done?'var(--ink)':'var(--ink2)'};font-weight:${g.done?'600':'400'}">${g.l}</div>
+        </div>`).join('')+`</div>`;
+    const fb=INS?.freezes?.balance||0;
+    const jokerBadge=`<span onclick="event.stopPropagation();openStreakInfo()" style="font-size:13px;color:var(--ink2);white-space:nowrap;cursor:pointer" title="Streak-Joker">🛡️ ${fb}</span>`;
+    if(streak>0){const danger=!gCheckin;
+      html+=`<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:.5px solid var(--line)">
+        <span style="font-size:20px">🔥</span>
+        <div style="flex:1;font-size:14px"><b>${streak} Tage Streak</b>${danger?' <span style="color:var(--amber)">· heute noch nicht eingecheckt</span>':' <span style="color:var(--green)">· heute schon dran ✓</span>'}</div>${jokerBadge}</div>`;
+    } else {
+      html+=`<div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:.5px solid var(--line)"><div style="flex:1;font-size:13px;color:var(--ink2)">🔥 Starte heute deine Streak – jeder Tag mit Eintrag zählt.</div>${jokerBadge}</div>`;
+    }
+    html+=`</div>`;
+    if(allDone){const key='be_daily_'+tdy;if(!localStorage.getItem(key)){localStorage.setItem(key,'1');setTimeout(()=>celebrate('🎉','Tag komplett!','Check-in, Ernährung & Supplements – alles erledigt.'),700);}}
+  }
+
+  // SCHNELL-CHECKIN / NACHTRAGEN (Platz 3)
+  CHECKIN_DATE=today();
+  html+=`<div class="section-label">Werte eintragen</div>
+    <div class="surface pad" style="margin-bottom:8px" id="homeCheckin">${homeCheckinHTML()}</div>`;
 
   // ERNÄHRUNG: kompakte Streifen-Karte mit Ring (Platz 3) – Details per Tap
   if(kcalTarget){
@@ -345,14 +448,13 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
       </div></div>`;
   }
 
-  // SUPPLEMENTS-TAGESWIDGET (eigener Bereich, nichts mit Nährwerten): heutige Abhakliste
-  if(VIEW_USER===ME.id&&ME.role==='athlete'){
-    try{const sr=await API.get('/supplement-intake/'+ME.id+'?date='+today());
-      if(sr.status===200){const sd=sr.data;const items=[...sd.plan,...sd.extras];
+  // SUPPLEMENTS-TAGESWIDGET (eigener Bereich): heutige Abhakliste (Daten oben schon geladen)
+  if(isOwnAthlete && suppData){
+      {const sd=suppData;const items=[...sd.plan,...sd.extras];
+        html+=`<div class="section-label">Supplements heute</div>`;
         if(items.length){
           const allDone=sd.done>=(sd.total||items.length)&&items.length>0;
-          html+=`<div class="section-label">Supplements heute</div>
-            <div class="surface pad" style="margin-bottom:8px">
+          html+=`<div class="surface pad" style="margin-bottom:8px">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                 <div style="font-weight:600">${sd.done}/${sd.total||items.length} genommen ${allDone?'<span style="color:var(--green)">✓</span>':''}</div>
                 <button class="minibtn" onclick="openSupp()">Alle ›</button>
@@ -363,17 +465,21 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
           </div>`).join('');
           if(items.length>4)html+=`<div style="text-align:center;margin-top:8px"><button class="minibtn" onclick="openSupp()">+${items.length-4} weitere</button></div>`;
           html+=`</div>`;
+        } else {
+          // Immer erreichbar (ersetzt den früheren separaten Supplements-Button)
+          html+=`<div class="surface pad" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div style="color:var(--ink2);font-size:14px">Heute noch nichts abgehakt.</div>
+            <button class="minibtn" onclick="openSupp()">Tages-Check öffnen ›</button></div>`;
         }
       }
-    }catch(e){}
   }
 
 
   // FORTSCHRITT & ERFOLGE (Platz 4) – als kompakte, antippbare Streifen statt großer Blöcke
-  if(VIEW_USER===ME.id&&ME.role==='athlete'){
-    try{const ir=await API.get('/insights/'+ME.id);const INS=ir.data;LAST_INSIGHTS=INS;
+  if(isOwnAthlete && INS){
+    try{
       const w=INS?.week;
-      if(INS){
+      {
         html+=`<div class="section-label">Dein Fortschritt</div>`;
         // Streifen 1: Level/XP/Streak -> öffnet Erfolge
         const lp=INS.levelProgress||{pct:0};
@@ -425,15 +531,12 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
         <div class="ss" style="color:${vColor}">${verdict}</div></div>
       <div class="sx">›</div></div>`;
   }
-  // Schnellzugriffe (Supplements immer erreichbar; Maße/Fotos für Profis)
-  if(VIEW_USER===ME.id&&ME.role==='athlete'){
+  // Schnellzugriffe für Profis (Supplements sind bereits oben als Tages-Checkliste)
+  if(VIEW_USER===ME.id&&ME.role==='athlete'&&isAdvanced()){
     html+=`<div class="section-label">Mehr</div><div class="quick">
-      <button class="qcard" onclick="openSupp()"><span class="ic">💊</span><div class="t">Supplements</div><div class="d">Tages-Check</div></button>`;
-    if(isAdvanced()){
-      html+=`<button class="qcard" onclick="openMeasure()"><span class="ic">📏</span><div class="t">Körpermaße</div><div class="d">Eintragen</div></button>
-        <button class="qcard" onclick="openPhotos()"><span class="ic">📸</span><div class="t">Foto</div><div class="d">Festhalten</div></button>`;
-    }
-    html+=`</div>`;
+      <button class="qcard" onclick="openMeasure()"><span class="ic">📏</span><div class="t">Körpermaße</div><div class="d">Eintragen</div></button>
+      <button class="qcard" onclick="openPhotos()"><span class="ic">📸</span><div class="t">Foto</div><div class="d">Festhalten</div></button>
+    </div>`;
   }
   html+='</div>';
   v.innerHTML=html;
@@ -563,9 +666,10 @@ function weightTrend(cis){const w=cis.filter(c=>c.weight).map(c=>c.weight);if(w.
   return `<div class="trend ${diff>0?'up':'down'}">${diff>0?'↑':'↓'} ${Math.abs(diff).toFixed(1)} kg</div>`;}
 async function quickCheckin(){const w=num('qc_weight'),sl=num('qc_sleep'),st=num('qc_steps'),wa=num('qc_water');
   if(w==null&&sl==null&&st==null&&wa==null)return toast('Bitte mindestens einen Wert eingeben');
-  const body={user_id:VIEW_USER,date:today()};
+  const d=CHECKIN_DATE||today();
+  const body={user_id:VIEW_USER,date:d};
   if(w!=null)body.weight=w;if(sl!=null)body.sleep=sl;if(st!=null)body.steps=st;if(wa!=null)body.water=wa;
-  await API.post('/checkins',body);toast('Check-in gespeichert ✓');refreshAchievements();go('home');}
+  await API.post('/checkins',body);toast(d===today()?'Check-in gespeichert ✓':'Nachgetragen ✓');CHECKIN_DATE=today();refreshAchievements();go('home');}
 
 // ===== TAG-PICKER =====
 function openDayPicker(){const days=(PLAN?.days||[]);
@@ -671,13 +775,19 @@ async function renderEx(){const day=curDayObj();const el=document.getElementById
   day.exercises.forEach(ex=>{const s=ex.target_sets||3;totalSets+=s;
     for(let i=1;i<=s;i++){const lg=logFor(ex.id,i);if(lg.weight!=null||lg.reps!=null)doneSets++;}});
   const pct=totalSets?Math.round(doneSets/totalSets*100):0;
-  let banner=`<div class="surface pad" style="margin-bottom:14px">
-    <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:8px"><span style="font-weight:600">Heutiges Training</span><span style="color:var(--ink2)">${doneSets} / ${totalSets} Sätze</span></div>
-    <div style="height:10px;background:var(--line);border-radius:5px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--green);border-radius:5px;transition:.3s"></div></div>`;
-  if(pct>=100)banner+=`<div style="text-align:center;margin-top:12px;font-weight:600;color:var(--green)">🎉 Alle Sätze geschafft – stark!</div>`;
-  else if(doneSets>0)banner+=`<div style="text-align:center;margin-top:10px;color:var(--ink2);font-size:13px">Weiter so – ${totalSets-doneSets} Sätze noch!</div>`;
-  if(doneSets>0)banner+=`<button class="btn ${pct>=100?'':'sec'}" style="margin-top:12px" onclick="openWorkoutSummary()">🏁 Training abschließen</button>`;
-  banner+=`</div>`;
+  const done=pct>=100;const Rr=26,Cc=2*Math.PI*Rr,offR=Cc*(1-(totalSets?doneSets/totalSets:0));
+  const ringSvg=`<svg width="74" height="74" viewBox="0 0 64 64" style="display:block">
+    <circle cx="32" cy="32" r="${Rr}" fill="none" stroke="var(--surface2)" stroke-width="7"/>
+    <circle cx="32" cy="32" r="${Rr}" fill="none" stroke="${done?'var(--green)':'var(--red)'}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${Cc}" stroke-dashoffset="${offR}" transform="rotate(-90 32 32)" style="transition:stroke-dashoffset .5s cubic-bezier(.4,0,.2,1)"/>
+    <text x="32" y="38" text-anchor="middle" font-size="16" font-weight="700" fill="var(--ink)">${pct}%</text></svg>`;
+  const sub=done?'🎉 Alle Sätze geschafft – stark!':(doneSets>0?`${doneSets} / ${totalSets} Sätze · noch ${totalSets-doneSets}`:`${totalSets} Sätze geplant – leg los`);
+  let banner=`<div class="surface pad" style="margin-bottom:14px;display:flex;align-items:center;gap:16px">
+    <div style="flex:0 0 auto">${ringSvg}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:16px">Heutiges Training</div>
+      <div style="color:var(--ink2);font-size:14px;margin-top:2px">${sub}</div>
+      ${doneSets>0?`<button class="btn ${done?'':'sec'}" style="margin-top:10px;padding:10px" onclick="openWorkoutSummary()">🏁 Training abschließen</button>`:''}
+    </div></div>`;
   el.innerHTML=banner+el.innerHTML;}
 // Abschluss-Screen: Zusammenfassung des heutigen Trainings (Sätze, Volumen, Top-Übung, PRs)
 async function openWorkoutSummary(){openSheet('🏁 Training beendet','<div class="spinner"></div>');
@@ -841,40 +951,67 @@ function macroRow(kc,p,c,f,target){return `<div class="macro-row">
     <div class="macro"><div class="v">${Math.round(c)}<em>g</em></div><div class="k">Carbs</div></div>
     <div class="macro"><div class="v">${Math.round(f)}<em>g</em></div><div class="k">Fett</div></div></div>`;}
 
-// HEUTE getrackt: was wurde gegessen, vs Ziel, mit Hinzufügen
+// Großer Kalorien-Ring (Apple-Fitness-Stil): zeigt die verbleibenden kcal in der Mitte.
+function calorieRing(consumed,target){
+  const rem=target?Math.round(target-consumed):0;
+  const pct=target?Math.min(1,consumed/target):0;
+  const over=target&&consumed>target*1.05;
+  const R=52,C=2*Math.PI*R,off=C*(1-pct);
+  const col=over?'var(--amber)':'var(--red)';
+  return `<svg width="148" height="148" viewBox="0 0 130 130" style="display:block">
+    <circle cx="65" cy="65" r="${R}" fill="none" stroke="var(--surface2)" stroke-width="11"/>
+    <circle cx="65" cy="65" r="${R}" fill="none" stroke="${col}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 65 65)" style="transition:stroke-dashoffset .5s cubic-bezier(.4,0,.2,1)"/>
+    <text x="65" y="61" text-anchor="middle" font-size="30" font-weight="700" letter-spacing="-1" fill="var(--ink)">${target?Math.abs(rem):Math.round(consumed)}</text>
+    <text x="65" y="83" text-anchor="middle" font-size="12" font-weight="600" fill="var(--ink2)">${target?(rem>=0?'kcal übrig':'kcal drüber'):'kcal'}</text>
+  </svg>`;}
+// Makro-Fortschrittsbalken (gegessen vs. Ziel)
+function macroBar(label,val,target,color){
+  const pct=target?Math.min(100,Math.round(val/target*100)):0;
+  return `<div style="margin-bottom:11px">
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><span style="font-weight:600">${label}</span><span style="color:var(--ink2)">${Math.round(val)}${target?' / '+target:''} g</span></div>
+    <div style="height:7px;background:var(--surface2);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:.4s"></div></div></div>`;}
+// HEUTE: Kalorien-Ring + Makro-Balken, prominentes Hinzufügen, Protokoll nach Mahlzeit gruppiert
 function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const sum=fl.summary||{};
-  const items=fl.items||[];
-  const el=document.getElementById('dietBody');
-  // Eine zusammenhängende „Heute"-Karte: Makros + Fortschrittsbalken (vorher zwei separate Blöcke mit doppelter kcal-Angabe)
-  let h='<div class="surface pad" style="margin-bottom:14px">';
-  h+=macroRow(sum.consumed||0,sum.macros?.protein||0,sum.macros?.carbs||0,sum.macros?.fat||0,sum.target);
-  if(sum.target){const pct=Math.min(100,Math.round((sum.consumed/sum.target)*100));
-    const col=sum.status==='over'?'var(--red)':sum.status==='onTarget'?'var(--green)':'var(--red)';
-    h+=`<div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:14px"><div style="height:100%;width:${pct}%;background:${col};border-radius:4px;transition:.3s"></div></div>
-      <div style="text-align:right;font-size:13px;font-weight:600;color:${col};margin-top:6px">${sum.remaining>=0?sum.remaining+' kcal übrig':Math.abs(sum.remaining)+' kcal drüber'}</div>`;}
-  h+='</div>';
-  h+=infoBox('track_intro','🍽️ Oben siehst du, wie viele Kalorien & Makros du heute schon hast. Hast du eine ganze Mahlzeit eingetragen, tippe sie an, um die einzelnen Zutaten zu sehen.');
-  // Schnell-Aktionen
-  h+=`<div style="display:flex;gap:10px;margin-bottom:16px">
-    <button class="btn" onclick="openLogFood()">+ Lebensmittel</button>
-    <button class="btn sec" onclick="openBarcodeScanner()">📷 Barcode</button>
-    <button class="btn sec" onclick="dietTab('plan')">Aus Plan</button></div>`;
-  // gegessene Items
-  if(!items.length){h+='<div class="empty"><div class="ei">🍽️</div>Noch nichts getrackt heute.<br>Füge dein erstes Lebensmittel hinzu.</div>';}
-  else{h+='<div class="section-label">Heute gegessen</div><div class="rows">';
-    items.forEach(it=>{
-      const isMeal=!!it.details;
-      const amt=it.amount?`${it.amount} g/ml`:(isMeal?'ganze Mahlzeit · zum Aufschlüsseln tippen':'');
-      const macros=`<span style="color:var(--ink3);font-size:12px">${Math.round(it.protein||0)} g Eiweiß · ${Math.round(it.carbs||0)} g Carbs · ${Math.round(it.fat||0)} g Fett</span>`;
-      h+=`<div class="row" ${isMeal?`onclick="showMealDetails(${it.id})" style="cursor:pointer"`:''}>
-        <div class="rl">${it.food}${isMeal?' 🔎':''}<small>${amt}</small><br>${macros}</div>
-        <div class="rr">${Math.round(it.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="event.stopPropagation();delFood(${it.id})">Entfernen</button></div></div>`;});
-    h+='</div>';}
-  // Ernährungs-Tools (Supplements sind bewusst NICHT hier – sie haben einen eigenen Bereich)
-  h+=`<div class="section-label">Hilfsmittel</div><div class="quick">
-    <button class="qcard" onclick="openCalc()"><span class="ic">🧮</span><div class="t">Makro-Rechner</div><div class="d">Aus Lebensmitteln</div></button>
-    <button class="qcard" onclick="openBarcodeScanner()"><span class="ic">📷</span><div class="t">Barcode</div><div class="d">Produkt scannen</div></button>
-  </div>`;
+  const items=fl.items||[];const el=document.getElementById('dietBody');
+  const consumed=Math.round(sum.consumed||0), target=sum.target||0;const mac=sum.macros||{};
+  // Ziel-Makros aus dem Profil ableiten (wie der Plan-Generator: Protein g/kg, Fett 25%, Rest Carbs)
+  const prof=(VIEW_USER===ME.id)?ME:(VIEW_USER_PROFILE||{});
+  const wt=prof.start_weight||75, goal=prof.goal;
+  const ppk=goal==='muscle'?2.0:goal==='fatloss'?2.2:1.8;
+  const tP=target?Math.round(wt*ppk):0, tF=target?Math.round(target*0.25/9):0;
+  const tC=target?Math.max(0,Math.round((target-tP*4-tF*9)/4)):0;
+  // HERO: Ring + Makro-Balken
+  let h=`<div class="surface" style="padding:20px;margin-bottom:14px;display:flex;gap:18px;align-items:center">
+    <div style="flex:0 0 auto">${calorieRing(consumed,target)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;color:var(--ink2);margin-bottom:12px">${consumed}${target?' / '+target:''} kcal gegessen</div>
+      ${macroBar('Protein',mac.protein||0,tP,'var(--red)')}
+      ${macroBar('Carbs',mac.carbs||0,tC,'var(--amber)')}
+      ${macroBar('Fett',mac.fat||0,tF,'var(--blue)')}
+    </div></div>`;
+  // SCHNELL HINZUFÜGEN: eine klare Primäraktion + drei Wege
+  h+=`<button class="btn" style="margin-bottom:10px" onclick="openLogFood()">+ Essen hinzufügen</button>
+    <div class="quick" style="grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px">
+      <button class="qcard" style="text-align:center;padding:15px 8px" onclick="openBarcodeScanner()"><span class="ic" style="margin-bottom:5px">📷</span><div class="t" style="font-size:14px">Barcode</div></button>
+      <button class="qcard" style="text-align:center;padding:15px 8px" onclick="dietTab('plan')"><span class="ic" style="margin-bottom:5px">📋</span><div class="t" style="font-size:14px">Aus Plan</div></button>
+      <button class="qcard" style="text-align:center;padding:15px 8px" onclick="dietTab('recipes')"><span class="ic" style="margin-bottom:5px">🍳</span><div class="t" style="font-size:14px">Rezepte</div></button>
+    </div>
+    <div style="text-align:center;margin-bottom:16px"><button class="minibtn" onclick="openCalc()">🧮 Makro-Rechner</button></div>`;
+  // PROTOKOLL nach Mahlzeit gruppiert (wie die besten Tracker – aber aufgeräumter)
+  if(!items.length){h+='<div class="empty"><div class="ei">🍽️</div>Noch nichts getrackt heute.<br>Tippe „+ Essen hinzufügen".</div>';}
+  else{
+    const order=['Frühstück','Mittag','Mittagessen','Abend','Abendessen','Snack'];
+    const groups={};items.forEach(it=>{const k=it.meal_slot||'Sonstiges';(groups[k]=groups[k]||[]).push(it);});
+    const keys=Object.keys(groups).sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
+    keys.forEach(k=>{const g=groups[k];const kc=g.reduce((a,it)=>a+(it.kcal||0),0);
+      h+=`<div class="section-label" style="display:flex;justify-content:space-between"><span>${esc2(k)}</span><span style="color:var(--ink3);text-transform:none;letter-spacing:0;font-weight:600">${Math.round(kc)} kcal</span></div><div class="rows" style="margin-bottom:12px">`;
+      g.forEach(it=>{const isMeal=!!it.details;
+        const amt=it.amount?`${it.amount} g/ml`:(isMeal?'ganze Mahlzeit · tippen':'');
+        h+=`<div class="row" ${isMeal?`onclick="showMealDetails(${it.id})" style="cursor:pointer"`:''}>
+          <div class="rl">${esc2(it.food)}${isMeal?' 🔎':''}<small>${amt} · ${Math.round(it.protein||0)}P · ${Math.round(it.carbs||0)}C · ${Math.round(it.fat||0)}F</small></div>
+          <div class="rr">${Math.round(it.kcal||0)} kcal<br><button class="minibtn red" style="padding:3px 10px;margin-top:4px" onclick="event.stopPropagation();delFood(${it.id})">Entfernen</button></div></div>`;});
+      h+='</div>';});
+  }
   el.innerHTML=h;}
 
 async function delFood(id){await API.del('/foodlog/'+id);const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;drawTrack();toast('Entfernt');}
@@ -1189,7 +1326,7 @@ async function doSwapMeal(mealId,recipeId){
 function setDiet(t){DIET=t;drawDiet();}
 function dietTargetKcal(){const prof=(VIEW_USER===ME.id?ME:(VIEW_USER_PROFILE||ME));
   return DIET==='training'?(prof.kcal_target_train||0):(prof.kcal_target_rest||0);}
-function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DIET);
+function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DIET && !/supplement/i.test(m.label||''));
   let kc=0,f=0,c=0,p=0;meals.forEach(m=>m.items.forEach(it=>{kc+=it.kcal||0;f+=it.fat||0;c+=it.carbs||0;p+=it.protein||0;}));
   const el=document.getElementById('dietBody');
   const target=dietTargetKcal();
@@ -1210,9 +1347,9 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
   h+=meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);const mp=m.items.reduce((s,it)=>s+(it.protein||0),0);
     return `<div class="meal"><div class="meal-h"><div class="ml"><div class="n">Mahlzeit ${m.meal_no}</div><div class="t">${m.label||''}</div></div><div class="kc">${Math.round(mk)}<em>kcal · ${Math.round(mp)}g P</em></div></div>
       ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount?it.amount+' g/ml':''}</div></div><div class="fmac">${Math.round(it.kcal||0)} kcal<br><span style="color:var(--ink3)">${r1(it.protein)} g Eiweiß · ${r1(it.carbs)} g Carbs · ${r1(it.fat)} g Fett</span></div></div>`).join('')}
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="minibtn" style="flex:1" onclick="logFromMeal(${m.id})">✓ als gegessen</button>
-        <button class="minibtn" style="flex:1" onclick="swapMeal(${m.id},${Math.round(mk)},'${esc(m.label||'')}')">🔄 Mahlzeit tauschen</button>
+      <div style="display:flex;gap:8px;padding:12px 14px 14px">
+        <button class="minibtn" style="flex:1;justify-content:center" onclick="logFromMeal(${m.id})">✓ als gegessen</button>
+        <button class="minibtn" style="flex:1;justify-content:center" onclick="swapMeal(${m.id},${Math.round(mk)},'${esc(m.label||'')}')">🔄 Mahlzeit tauschen</button>
       </div></div>`;}).join('');
   h+=infoBox('dietplan_note','Der Plan ist ein Vorschlag, der dein kcal- und Proteinziel trifft. Mengen sind Richtwerte – tausche Lebensmittel im „Heute"-Tab frei aus.');
   el.innerHTML=h;}
@@ -1264,12 +1401,26 @@ function anaTab(t){renderTracker.tab=t;
 async function drawAnaKoerper(){const box=document.getElementById('anaBody');box.innerHTML='<div class="spinner"></div>';
   const ci=await API.get('/checkins/'+VIEW_USER);const checkins=(ci.data?.checkins||[]);
   let h='';const wWeights=checkins.filter(c=>c.weight);
-  h+=infoBox('ana_intro','📈 Hier siehst du deine Trends auf einen Blick. Die grün gestrichelte Linie ist dein Ziel (z.B. 8 h Schlaf). Liegt deine Kurve darüber, bist du im grünen Bereich – darunter ist noch Luft nach oben.');
-  if(checkins.length<2){h+=`<div class="info" style="margin-bottom:16px">📊 Deine Auswertungen erscheinen hier, sobald du ein paar Tage Check-ins gemacht hast (auf der Startseite: Gewicht, Schlaf, Schritte, Wasser).</div>`;}
+  // Ziele (individuell, sonst Standard) – auch für die Glance-Karten genutzt
+  const _gp=(VIEW_USER===ME.id)?ME:(VIEW_USER_PROFILE||{});
+  const GOAL_SLEEP=_gp.sleep_goal||8, GOAL_STEPS=_gp.steps_goal||10000, GOAL_WATER=_gp.water_goal||3;
+  // GLANCE-KARTEN (Apple-Health-Stil): aktueller Stand & 7-Tage-Schnitt vs. Ziel (grüner Punkt = Ziel erreicht)
+  if(checkins.length){
+    const last=checkins[0]||{};
+    const avgOf=(key,n=7)=>{const xs=checkins.filter(c=>c[key]!=null).slice(0,n);return xs.length?xs.reduce((a,c)=>a+c[key],0)/xs.length:null;};
+    const aSleep=avgOf('sleep'),aSteps=avgOf('steps'),aWater=avgOf('water');
+    const dot=(v,goal)=>v==null?'':(v>=goal?' <span style="color:var(--green)">●</span>':' <span style="color:var(--ink3)">●</span>');
+    const tile=(label,val,unit,extra)=>`<div class="tile"><div class="v">${val}${unit?`<em> ${unit}</em>`:''}</div><div class="l">${label}${extra||''}</div></div>`;
+    h+=`<div class="tiles" style="margin-bottom:16px">
+      ${tile('Gewicht', last.weight!=null?last.weight:'–', last.weight!=null?'kg':'', '')}
+      ${tile('Ø Schlaf', aSleep!=null?aSleep.toFixed(1):'–', aSleep!=null?'h':'', dot(aSleep,GOAL_SLEEP))}
+      ${tile('Ø Schritte', aSteps!=null?Math.round(aSteps).toLocaleString('de-DE'):'–', '', dot(aSteps,GOAL_STEPS))}
+      ${tile('Ø Wasser', aWater!=null?aWater.toFixed(1):'–', aWater!=null?'L':'', dot(aWater,GOAL_WATER))}
+    </div>`;
+  }
+  if(checkins.length<2){h+=`<div class="info" style="margin-bottom:16px">📊 Mehr Auswertungen erscheinen, sobald du ein paar Tage Check-ins gemacht hast (Startseite: Gewicht, Schlaf, Schritte, Wasser). Der grüne Punkt zeigt, ob du dein Ziel triffst.</div>`;}
   if(wWeights.length>=2){const diff=(wWeights[0].weight-wWeights[wWeights.length-1].weight);
     h+=`<div class="chart-card"><div class="ch-h"><div class="t">Gewicht</div><div class="v">${diff>0?'+':''}${diff.toFixed(1)} kg gesamt</div></div>${metricChart(wWeights.map(c=>({date:c.date,value:c.weight})),'kg')}</div>`;}
-  // Gesundheits-Richtwerte als Ziel-Linien (allgemein anerkannte Defaults)
-  const GOAL_SLEEP=8, GOAL_STEPS=10000, GOAL_WATER=3;
   const sl=checkins.filter(c=>c.sleep).slice(0,30).reverse();
   if(sl.length>=2){const avg=(sl.reduce((a,b)=>a+b.sleep,0)/sl.length).toFixed(1);
     h+=`<div class="chart-card"><div class="ch-h"><div class="t">Schlaf</div><div class="v">Ø ${avg} h · Ziel ${GOAL_SLEEP} h</div></div>${metricChart(sl.map(c=>({date:c.date,value:c.sleep})),'h',GOAL_SLEEP)}</div>`;}
@@ -1640,34 +1791,33 @@ async function renderAthletes(v){v.innerHTML=`<div class="page on"><div class="h
   const [ov,al]=await Promise.all([API.get('/coach/overview'),API.get('/athletes')]);
   const o=ov.data||{};const list=al.data?.athletes||[];ATHLETES_CACHE=list;
   let h='';
-  // KENNZAHLEN-KACHELN
-  h+=`<div class="tiles" style="margin-bottom:8px">
+  // 1) ZUERST: Wer braucht Aufmerksamkeit – der wichtigste Blick des Coaches
+  h+=`<div id="attBox"></div>`;
+  // 2) Kompakte Kennzahlen
+  h+=`<div class="tiles" style="margin-bottom:20px">
     <div class="tile"><div class="v">${o.totalAthletes||0}</div><div class="l">Athleten</div></div>
     <div class="tile"><div class="v">${o.activeThisWeek||0}<em> aktiv</em></div><div class="l">diese Woche</div></div>
-    <div class="tile"><div class="v" style="color:${o.attention?'var(--red)':'var(--ink)'}">${o.attention||0}</div><div class="l">brauchen Aufmerksamkeit</div></div>
+    <div class="tile"><div class="v" style="color:${o.attention?'var(--red)':'var(--green)'}">${o.attention||0}</div><div class="l">brauchen Aufmerksamkeit</div></div>
     <div class="tile"><div class="v">${o.trainingsThisWeek||0}</div><div class="l">Trainings/Woche</div></div>
   </div>`;
-  // RUNDNACHRICHT + AMPEL-DETAILS
-  h+=`<button class="btn sec" style="margin:4px 0 12px" onclick="openBroadcast()">📢 Nachricht an alle Athleten</button>`;
-  h+=`<div id="attBox"></div>`;
-  // WOCHEN-TREND
+  // 3) ATHLETEN-LISTE mit Suche – das tägliche Arbeitswerkzeug, je Zeile direkte Aktionen
+  h+=`<div class="section-label">Alle Athleten (${list.length})</div>`;
+  if(list.length>5)h+=`<input id="athSearch" placeholder="🔍 Athlet suchen…" oninput="filterAthletes(this.value)" style="width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px">`;
+  h+=`<div id="athList"></div>
+    <button class="btn sec" style="margin-top:12px" onclick="addAthlete()">+ Athlet hinzufügen</button>`;
+  // 4) EINBLICKE (sekundär, weiter unten)
   if(o.weeklyTrend&&o.weeklyTrend.some(x=>x>0)){
-    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Trainings-Aktivität</div><div class="v">letzte 8 Wochen</div></div>${barchart(o.weeklyTrend)}</div>`;}
-  // ZIEL-VERTEILUNG
+    h+=`<div class="section-label" style="margin-top:28px">Einblicke</div><div class="chart-card"><div class="ch-h"><div class="t">Trainings-Aktivität</div><div class="v">letzte 8 Wochen</div></div>${barchart(o.weeklyTrend)}</div>`;}
   const gc=o.goalCounts||{};const totalG=(gc.muscle||0)+(gc.fatloss||0)+(gc.health||0);
   if(totalG>0){h+=`<div class="surface pad" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:12px">Ziele deiner Athleten</div>`;
     const goalBar=(label,n,col)=>{const pct=totalG?Math.round(n/totalG*100):0;return `<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>${label}</span><span style="color:var(--ink2)">${n}</span></div><div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${col};border-radius:4px"></div></div></div>`;};
     h+=goalBar('💪 Muskelaufbau',gc.muscle||0,'var(--red)')+goalBar('🔥 Definition',gc.fatloss||0,'var(--amber)')+goalBar('❤️ Gesundheit',gc.health||0,'var(--green)');
     h+=`</div>`;}
-  // JÜNGSTE AKTIVITÄT
   if(o.recentActivity&&o.recentActivity.length){h+=`<div class="section-label">Jüngste Aktivität</div><div class="rows" style="margin-bottom:16px">`+
     o.recentActivity.map(a=>{const dt=new Date(a.date+'T00:00').toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'});
       return `<div class="row"><div class="rl">${a.name}<small>${a.dayName||'Training'} · ${dt}</small></div><div class="rr">${a.sets} Sätze</div></div>`;}).join('')+`</div>`;}
-  // ATHLETEN-LISTE mit Suche
-  h+=`<div class="section-label">Alle Athleten (${list.length})</div>`;
-  if(list.length>5)h+=`<input id="athSearch" placeholder="🔍 Athlet suchen…" oninput="filterAthletes(this.value)" style="width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px">`;
-  h+=`<div id="athList"></div>
-    <button class="btn sec" style="margin-top:12px" onclick="addAthlete()">+ Athlet hinzufügen</button>`;
+  // 5) Rundnachricht an alle (sekundäre Aktion, unten)
+  h+=`<button class="btn sec" style="margin-top:10px" onclick="openBroadcast()">📢 Nachricht an alle Athleten</button>`;
   document.getElementById('ovBox').innerHTML=h;
   loadAttention();
   drawAthleteList(list);}
@@ -1678,13 +1828,16 @@ function drawAthleteList(list){const el=document.getElementById('athList');if(!e
   el.innerHTML=list.map(a=>{
     const dot=a.attention?'var(--red)':a.trainsThisWeek>0?'var(--green)':'var(--amber)';
     const statusTxt=a.lastTrain?(a.daysSinceTrain===0?'heute trainiert':a.daysSinceTrain===1?'gestern trainiert':'vor '+a.daysSinceTrain+' Tagen'):'noch kein Training';
-    return `<div class="surface pad" style="margin-bottom:11px;display:flex;align-items:center;gap:14px" onclick="openDashboard(${a.id})">
+    return `<div class="surface pad" style="margin-bottom:11px;display:flex;align-items:center;gap:13px" onclick="openDashboard(${a.id})">
       <div style="flex-shrink:0;width:10px;height:10px;border-radius:50%;background:${dot}"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:16px">${a.name}${a.attention?' <span class="pill" style="background:var(--red-soft);color:var(--red)">Achtung</span>':''}</div>
-        <div style="color:var(--ink2);font-size:13px;margin-top:2px">${statusTxt} · ${a.trainsThisWeek}× diese Woche · ${goalLabel(a.goal)}</div>
+        <div style="font-weight:600;font-size:16px">${esc2(a.name)}${a.attention?' <span class="pill" style="background:var(--red-soft);color:var(--red)">Achtung</span>':''}</div>
+        <div style="color:var(--ink2);font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${statusTxt} · ${a.trainsThisWeek}× · ${goalLabel(a.goal)}${a.lastWeight?' · '+a.lastWeight+' kg':''}</div>
       </div>
-      <div style="text-align:right;color:var(--ink2);font-size:13px">${a.lastWeight?a.lastWeight+' kg':'–'}<br><span style="color:var(--ink3);font-size:11px">${phaseLabel(a.phase)}</span></div>
+      <div style="flex:0 0 auto;display:flex;gap:6px" onclick="event.stopPropagation()">
+        <button class="minibtn" title="Nachricht" onclick="coachQuickMessage(${a.id},'${esc(a.name)}')">✉️</button>
+        <button class="minibtn" title="Plan bearbeiten" onclick="coachOpenPlan(${a.id},'${esc(a.name)}')">✏️</button>
+      </div>
     </div>`;}).join('');}
 function phaseLabel(p){return{offseason:'Offseason',prep:'Prep',maintain:'Maintain'}[p]||'';}
 function addAthlete(){openSheet('Athlet hinzufügen',`
@@ -1715,8 +1868,17 @@ async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></di
   if(r.status!==200)return toast('Fehler beim Laden');
   const d=r.data;const a=d.athlete;const flagged=fn.data?.notes||[];
   let h='';
-  // Kopf mit Eckdaten
-  h+=`<div class="info" style="margin-bottom:14px"><b>${goalLabel(a.goal)}</b> · ${phaseLabel(a.phase)||'keine Phase'} · ${a.days_per_week||'–'}×/Woche · ${({beginner:'Anfänger',intermediate:'Fortgeschritten',advanced:'Profi'}[a.experience]||'')}</div>`;
+  // Identitäts-Pills
+  const pill=t=>t?`<span class="pill" style="background:var(--surface2);color:var(--ink2);margin:0">${t}</span>`:'';
+  h+=`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px">
+    ${pill(goalLabel(a.goal))}${pill(phaseLabel(a.phase)||'keine Phase')}${pill((a.days_per_week||'–')+'×/Woche')}${pill({beginner:'Anfänger',intermediate:'Fortgeschritten',advanced:'Profi'}[a.experience])}</div>`;
+  // Schnell-Status (aktuelles Gewicht, letztes Training)
+  const lastW=d.weights[0]?.weight;const lastTrain=d.sessions[0]?.date;
+  const dSince=lastTrain?Math.floor((Date.now()-Date.parse(lastTrain+'T00:00'))/864e5):null;
+  h+=`<div class="tiles" style="margin-bottom:16px">
+    <div class="tile"><div class="v">${lastW!=null?lastW:'–'}<em> kg</em></div><div class="l">aktuelles Gewicht</div></div>
+    <div class="tile"><div class="v">${dSince==null?'–':dSince===0?'heute':dSince===1?'gestern':dSince+' Tage'}</div><div class="l">letztes Training</div></div>
+  </div>`;
   // OFFENE BESCHWERDEN (rot hervorgehoben) – haben Priorität
   if(flagged.length){h+=`<div style="background:var(--red-soft);border-radius:14px;padding:14px;margin-bottom:16px">
     <div style="font-weight:700;color:var(--red);margin-bottom:8px">⚠️ ${flagged.length} offene Beschwerde${flagged.length>1?'n':''}</div>`+
@@ -1725,18 +1887,22 @@ async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></di
         <div style="font-size:13px;color:var(--ink2)">${n.exercise_name} · ${dt}</div>
         <div style="font-size:14px;margin:3px 0 6px">${n.note}</div>
         <button class="minibtn" onclick="resolveNote(${n.id},${id})">✓ Als erledigt markieren</button></div>`;}).join('')+`</div>`;}
-  // Aktionen
-  h+=`<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-    <button class="btn" style="flex:1;min-width:120px" onclick="coachOpenPlan(${id},'${esc(a.name)}')">Plan bearbeiten</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachMessage(${id})">Nachricht</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSetPhase(${id},'${a.phase||'offseason'}')">Phase/Ziele</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachSupp(${id},'${esc(a.name)}')">💊 Supplements</button></div>
-  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','tracker')">📈 Volle Analyse</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachMonthly(${id},'${esc(a.name)}')">🎯 Monatsziel</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="openPhotos(${id})">📸 Fortschrittsfotos</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="coachOpenView(${id},'${esc(a.name)}','home')">👁️ Alles ansehen</button>
-    <button class="btn sec" style="flex:1;min-width:120px" onclick="aiSummary(${id})">🤖 KI-Analyse</button></div>`;
+  // Primäraktionen (die zwei häufigsten Coach-Tätigkeiten)
+  h+=`<div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn" style="flex:1" onclick="coachOpenPlan(${id},'${esc(a.name)}')">✏️ Plan bearbeiten</button>
+    <button class="btn sec" style="flex:1" onclick="coachMessage(${id})">✉️ Nachricht</button></div>`;
+  // Übrige Aktionen als aufgeräumte iOS-Listen
+  const actRow=(icon,label,onclick)=>`<div class="row" style="cursor:pointer" onclick="${onclick}"><div class="rl">${icon}&nbsp; ${label}</div><div class="rr">›</div></div>`;
+  h+=`<div class="section-label">Verwalten</div><div class="rows" style="margin-bottom:16px">`+
+    actRow('🎯','Phase &amp; Ziele',`coachSetPhase(${id},'${a.phase||'offseason'}')`)+
+    actRow('🏆','Monatsziel',`coachMonthly(${id},'${esc(a.name)}')`)+
+    actRow('💊','Supplements',`coachSupp(${id},'${esc(a.name)}')`)+
+    actRow('📥','Aus Excel importieren',`openImport(${id},'${esc(a.name)}')`)+
+    actRow('📸','Fortschrittsfotos',`openPhotos(${id})`)+`</div>`;
+  h+=`<div class="section-label">Ansehen</div><div class="rows" style="margin-bottom:16px">`+
+    actRow('📈','Volle Analyse',`coachOpenView(${id},'${esc(a.name)}','tracker')`)+
+    actRow('👁️','Im Athleten-Kontext öffnen',`coachOpenView(${id},'${esc(a.name)}','home')`)+
+    actRow('🤖','KI-Analyse',`aiSummary(${id})`)+`</div>`;
   // Gewichtsverlauf
   if(d.weights.length>=2){const w=d.weights.slice().reverse().map(x=>x.weight);
     h+=`<div class="section-label">Gewichtsverlauf</div><div class="chart-card">${sparkline(w)}<div style="display:flex;justify-content:space-between;color:var(--ink2);font-size:13px;margin-top:8px"><span>${w[0]} kg</span><span>jetzt: ${w[w.length-1]} kg</span></div></div>`;}
@@ -1777,11 +1943,25 @@ async function coachOpenView(id,name,tab){closeModal();COACH_CONTEXT=name;VIEW_U
 // ===== COACH: ATHLETEN-AMPEL (wer braucht Aufmerksamkeit – mit Gründen) =====
 async function loadAttention(){const box=document.getElementById('attBox');if(!box)return;
   const r=await API.get('/coach/attention');const list=(r.data?.athletes||[]).filter(a=>a.status!=='ok');
-  if(!list.length){box.innerHTML='';return;}
+  if(!list.length){box.innerHTML=`<div class="surface pad" style="margin-bottom:20px;display:flex;align-items:center;gap:12px"><span style="font-size:22px">✅</span><div><div style="font-weight:600">Alles im grünen Bereich</div><div style="color:var(--ink2);font-size:13px">Kein Athlet braucht gerade besondere Aufmerksamkeit.</div></div></div>`;return;}
   const col={alert:'var(--red)',watch:'var(--amber)'};
-  box.innerHTML=`<div class="section-label">🚦 Braucht Aufmerksamkeit</div><div class="rows" style="margin-bottom:8px">`+
+  box.innerHTML=`<div class="section-label">🚦 Braucht Aufmerksamkeit</div><div class="rows" style="margin-bottom:20px">`+
     list.map(a=>`<div class="row" style="cursor:pointer;border-left:3px solid ${col[a.status]}" onclick="openDashboard(${a.id})">
-      <div class="rl">${esc2(a.name)}<small>${a.reasons.map(esc2).join(' · ')}</small></div><div class="rr">›</div></div>`).join('')+`</div>`;}
+      <div class="rl">${esc2(a.name)}<small>${a.reasons.map(esc2).join(' · ')}</small></div>
+      <div class="rr" style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
+        <button class="minibtn" title="Schnellnachricht" onclick="coachQuickMessage(${a.id},'${esc(a.name)}')">✉️</button>
+        <button class="minibtn" title="Plan bearbeiten" onclick="coachOpenPlan(${a.id},'${esc(a.name)}')">✏️</button>
+        <span style="color:var(--ink3)">›</span>
+      </div></div>`).join('')+`</div>`;}
+// Coach: Schnellnachricht aus der Aufmerksamkeits-Liste (ohne erst das Dashboard zu öffnen)
+function coachQuickMessage(id,name){openSheet('✉️ Nachricht an '+name,`
+  <div class="info">Schnellnachricht direkt an <b>${esc2(name)}</b> (plus Push/E-Mail, falls aktiviert).</div>
+  <div class="field"><label>Titel (optional)</label><input id="qm_title" placeholder="z.B. Kurzer Check-in"></div>
+  <div class="field"><label>Nachricht</label><textarea id="qm_body" rows="4" placeholder="Wie läuft's bei dir?"></textarea></div>
+  <button class="btn" onclick="sendQuickMessage(${id})">Senden</button>`);}
+async function sendQuickMessage(id){const body=val('qm_body');if(!body)return toast('Bitte Nachricht eingeben');
+  const r=await API.post('/messages',{user_id:id,title:val('qm_title'),body});
+  if(r.status===200){closeModal();toast('Nachricht gesendet ✓');}else toast(r.data?.error||'Fehler');}
 
 // ===== COACH: RUNDNACHRICHT AN ALLE =====
 function openBroadcast(){openSheet('Nachricht an alle Athleten',`
@@ -1838,12 +2018,26 @@ async function openAchievements(){
 function checkNewAchievements(INS){
   if(!INS||VIEW_USER!==ME.id||ME.role!=='athlete')return;
   LAST_INSIGHTS=INS;
-  try{const prev=JSON.parse(localStorage.getItem('be_ach')||'[]');
+  try{
+    let celebrated=false;
+    // Level-Up feiern (Konfetti)
+    const prevLevel=parseInt(localStorage.getItem('be_level')||'0');
+    if(prevLevel&&INS.level>prevLevel){celebrate('⭐','Level '+INS.level+'!',INS.levelTitle||'');celebrated=true;}
+    localStorage.setItem('be_level',String(INS.level));
+    // Streak-Meilenstein feiern
+    const prevStreak=parseInt(localStorage.getItem('be_streak')||'-1');
+    const cur=INS.streaks?.checkin||0;
+    if(prevStreak>=0){const hit=[7,14,30,50,100,200,365].find(m=>cur>=m&&prevStreak<m);
+      if(hit){if(celebrated)setTimeout(()=>celebrate('🔥',hit+' Tage Streak!','Nicht abreißen lassen!'),1500);else{celebrate('🔥',hit+' Tage Streak!','Nicht abreißen lassen!');celebrated=true;}}}
+    localStorage.setItem('be_streak',String(cur));
+    // Neue Erfolge: den ersten feiern, weitere als Toast
+    const prev=JSON.parse(localStorage.getItem('be_ach')||'[]');
     const now=(INS.achievements||[]).filter(a=>a.done).map(a=>a.id);
     const fresh=now.filter(id=>!prev.includes(id));
     if(prev.length&&fresh.length){
-      // Mehrere gleichzeitig? Nacheinander feiern.
-      fresh.forEach((id,i)=>{const a=INS.achievements.find(x=>x.id===id);if(a)setTimeout(()=>toast('🏅 Neuer Erfolg: '+a.title+'!'),600+i*1900);});
+      fresh.forEach((id,i)=>{const a=INS.achievements.find(x=>x.id===id);if(!a)return;
+        if(i===0&&!celebrated){celebrated=true;setTimeout(()=>celebrate(a.icon,a.title,'Neuer Erfolg!'),celebrated?700:0);}
+        else setTimeout(()=>toast('🏅 Neuer Erfolg: '+a.title+'!'),700+i*1700);});
     }
     localStorage.setItem('be_ach',JSON.stringify(now));
   }catch(e){}
@@ -1995,8 +2189,18 @@ function openProfile(){const u=ME;
       <div class="field"><label>kcal Trainingstag</label><input id="p_kt" type="number" min="0" max="15000" value="${u.kcal_target_train||''}" placeholder="z.B. 3000"></div>
       <div class="field"><label>kcal Ruhetag</label><input id="p_kr" type="number" min="0" max="15000" value="${u.kcal_target_rest||''}" placeholder="z.B. 2600"></div>
     </div>
+    <div class="section-label" style="margin-top:6px">Persönliche Ziele</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="field"><label>Schlaf (h)</label><input id="p_sleepg" type="number" step="0.5" min="0" max="24" value="${u.sleep_goal||''}" placeholder="8"></div>
+      <div class="field"><label>Schritte</label><input id="p_stepsg" type="number" min="0" max="100000" value="${u.steps_goal||''}" placeholder="10000"></div>
+      <div class="field"><label>Wasser (L)</label><input id="p_waterg" type="number" step="0.1" min="0" max="30" value="${u.water_goal||''}" placeholder="3"></div>
+    </div>
+    <div class="info">Diese Ziele erscheinen als grüne Linie in deiner Analyse. Leer lassen = Standard (8 h · 10.000 Schritte · 3 L).</div>
     <div class="info">Die Trainingsfrequenz legt deinen Rhythmus fest (z.B. 2 Tage Training, 1 Ruhetag) – nicht feste Wochentage. So machst du nach Pausen nahtlos weiter.</div>
     <label style="display:flex;align-items:center;gap:10px;margin:4px 0 14px;font-size:14px"><input type="checkbox" id="p_notif" ${u.email_notifications?'checked':''} onchange="toggleEmailNotif(this.checked)" style="width:auto"> Benachrichtigungen auch per E-Mail</label>
+    <div class="field"><label>Tägliche Trainings-Erinnerung um</label><select id="p_pushhour">
+      ${[5,6,7,8,9,10,11,12].map(hh=>`<option value="${hh}"${(u.push_hour==null?6:u.push_hour)===hh?' selected':''}>${hh}:00 Uhr</option>`).join('')}</select></div>
+    <div class="info" style="margin-top:-6px">Uhrzeit der Push-Erinnerung an Trainingstagen (ungefähr, Serverzeit). Wirkt nur, wenn du Push aktiviert hast.</div>
     <button class="btn" onclick="saveProfile()">Speichern</button>
     <button class="btn sec" style="margin-top:10px;margin-bottom:8px" onclick="openChangePw()">🔒 Passwort ändern</button>`+accountFooter);}
 async function toggleEmailNotif(on){await API.post('/notifications',{email_notifications:on});if(ME)ME.email_notifications=on?1:0;
@@ -2032,7 +2236,7 @@ async function saveProfile(){const newDays=num('p_days');
   if(newDays&&newDays!==ME.days_per_week){
     if(!window.confirm('Du änderst die Trainingstage pro Woche von '+(ME.days_per_week||'?')+' auf '+newDays+'.\n\nDadurch wird dein Trainingsrhythmus neu berechnet – manuell im Kalender geplante Tage gehen dabei verloren.\n\nFortfahren?'))return;
   }
-  const body={name:val('p_name'),height_cm:num('p_height'),goal:val('p_goal'),phase:val('p_phase'),experience:val('p_exp'),days_per_week:newDays,kcal_target_train:num('p_kt'),kcal_target_rest:num('p_kr'),dob:ME.dob,gender:ME.gender,start_weight:ME.start_weight,diet_type:val('p_diet')};
+  const body={name:val('p_name'),height_cm:num('p_height'),goal:val('p_goal'),phase:val('p_phase'),experience:val('p_exp'),days_per_week:newDays,kcal_target_train:num('p_kt'),kcal_target_rest:num('p_kr'),dob:ME.dob,gender:ME.gender,start_weight:ME.start_weight,diet_type:val('p_diet'),sleep_goal:num('p_sleepg'),steps_goal:num('p_stepsg'),water_goal:num('p_waterg'),push_hour:num('p_pushhour')};
   const r=await API.put('/profile',body);if(r.status===200){Object.assign(ME,body);
     applyAvatar();
     TODAY=null;closeModal();toast('Profil gespeichert ✓');go('home');}}
@@ -2210,6 +2414,85 @@ function celebrateMonthly(award,bonusXp){
 // Coach öffnet das Monatsziel eines Athleten (setzt Kontext, damit „anpassen" sichtbar wird)
 function coachMonthly(id,name){COACH_CONTEXT=name;VIEW_USER=id;openMonthlyGoal();}
 
+// ===== EXCEL-IMPORT (Coach) =====
+let IMPORT={athleteId:null,athleteName:'',sheets:[],sheetIdx:0,type:'training',mapping:{},headerIdx:0};
+function openImport(id,name){
+  IMPORT={athleteId:id,athleteName:name,sheets:[],sheetIdx:0,type:'training',mapping:{},headerIdx:0};
+  openSheet('📥 Excel-Import',`
+    <div class="info">Importiere einen bestehenden Plan aus einer Excel-Datei (.xlsx) für <b>${esc2(name)}</b>. Du kannst danach die Spalten zuordnen und alles vor dem Übernehmen prüfen.</div>
+    <label class="btn" style="cursor:pointer;text-align:center;display:block">📂 Excel-Datei wählen
+      <input type="file" accept=".xlsx,.xls" style="display:none" onchange="importPick(event)"></label>
+    <div style="font-size:12px;color:var(--ink3);text-align:center;margin-top:10px">Tipp: Eine Spalte je Angabe (Übung, Sätze, Wdh., Gewicht). Tagesnamen wie „Push" in eine eigene Spalte.</div>`);
+}
+async function importPick(ev){
+  const file=ev.target.files&&ev.target.files[0];if(!file)return;
+  if(file.size>6_000_000)return toast('Datei zu groß (max. 6 MB)');
+  openSheet('📥 Import','<div class="spinner"></div><div style="text-align:center;color:var(--ink3);margin-top:10px">Datei wird gelesen…</div>');
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const r=await API.post('/import/parse',{file:e.target.result});
+    if(r.status!==200){openSheet('📥 Import',`<div class="info">${esc2(r.data?.error||'Fehler beim Lesen')}</div><button class="btn sec" onclick="openImport(${IMPORT.athleteId},'${esc(IMPORT.athleteName)}')">Zurück</button>`);return;}
+    IMPORT.sheets=r.data.sheets;IMPORT.sheetIdx=0;
+    applySheetGuess();
+    drawImportMapping();
+  };
+  reader.readAsDataURL(file);
+}
+function applySheetGuess(){const sh=IMPORT.sheets[IMPORT.sheetIdx];IMPORT.headerIdx=sh.headerIdx;
+  IMPORT.mapping=IMPORT.type==='training'?{...sh.guessTraining}:{...sh.guessFood};}
+function importSelectSheet(i){IMPORT.sheetIdx=+i;applySheetGuess();drawImportMapping();}
+function importSetType(t){IMPORT.type=t;applySheetGuess();drawImportMapping();}
+function importSetCol(role,val){IMPORT.mapping[role]=val===''?null:+val;drawImportMapping();}
+function drawImportMapping(){
+  const sh=IMPORT.sheets[IMPORT.sheetIdx];const headers=sh.headers;
+  const colOpts=(sel)=>`<option value="">– keine –</option>`+headers.map((h,i)=>`<option value="${i}" ${sel===i?'selected':''}>${esc2(h||('Spalte '+(i+1)))}</option>`).join('');
+  const roles=IMPORT.type==='training'
+    ? [['exercise','Übung *'],['day','Tag/Einheit'],['sets','Sätze'],['reps','Wiederholungen'],['weight','Gewicht'],['notes','Notiz']]
+    : [['food','Lebensmittel *'],['meal','Mahlzeit'],['amount','Menge'],['kcal','kcal'],['protein','Eiweiß'],['carbs','KH'],['fat','Fett']];
+  let h='';
+  // Sheet-Wahl (wenn mehrere)
+  if(IMPORT.sheets.length>1){h+=`<div class="field"><label>Tabellenblatt</label><select onchange="importSelectSheet(this.value)" style="width:100%">${IMPORT.sheets.map((s,i)=>`<option value="${i}" ${i===IMPORT.sheetIdx?'selected':''}>${esc2(s.name)} (${s.rowCount} Zeilen)</option>`).join('')}</select></div>`;}
+  // Typ-Umschalter
+  h+=`<div class="seg" style="margin-bottom:14px"><button class="${IMPORT.type==='training'?'on':''}" onclick="importSetType('training')">🏋️ Training</button><button class="${IMPORT.type==='nutrition'?'on':''}" onclick="importSetType('nutrition')">🍽️ Ernährung</button></div>`;
+  // Spalten-Zuordnung
+  h+=`<div class="section-label">Spalten zuordnen</div>`;
+  h+=roles.map(([role,label])=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><div style="flex:0 0 42%;font-size:14px">${label}</div><select onchange="importSetCol('${role}',this.value)" style="flex:1">${colOpts(IMPORT.mapping[role]??'')}</select></div>`).join('');
+  // Vorschau (erste paar Datenzeilen)
+  const dataRows=sh.rows.slice(IMPORT.headerIdx+1).filter(r=>r.some(c=>c.trim()!=='')).slice(0,5);
+  h+=`<div class="section-label">Vorschau (erste Zeilen)</div><div style="overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin-bottom:14px"><table style="border-collapse:collapse;font-size:12px;white-space:nowrap">
+    <tr>${headers.map(hd=>`<th style="padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;color:var(--ink2)">${esc2(hd)}</th>`).join('')}</tr>
+    ${dataRows.map(r=>`<tr>${headers.map((_,i)=>`<td style="padding:6px 10px;border-bottom:1px solid var(--line)">${esc2(r[i]||'')}</td>`).join('')}</tr>`).join('')}
+  </table></div>`;
+  // Bei Ernährung: für welchen Tagtyp?
+  if(IMPORT.type==='nutrition'){h+=`<div class="field"><label>Gilt für</label><select id="imp_daytype" style="width:100%"><option value="training">Trainingstag</option><option value="rest">Ruhetag</option></select></div>`;}
+  const req=IMPORT.type==='training'?IMPORT.mapping.exercise!=null:IMPORT.mapping.food!=null;
+  h+=`<button class="btn" ${req?'':'disabled style="opacity:.5"'} onclick="doImport()">✓ Plan übernehmen</button>
+    <button class="btn sec" style="margin-top:10px" onclick="openImport(${IMPORT.athleteId},'${esc(IMPORT.athleteName)}')">Andere Datei</button>
+    ${req?'':'<div style="font-size:12px;color:var(--red);text-align:center;margin-top:8px">Bitte die Pflichtspalte (*) zuordnen.</div>'}`;
+  openSheet('📥 Import – '+esc2(IMPORT.athleteName),h);
+}
+async function doImport(){
+  const sh=IMPORT.sheets[IMPORT.sheetIdx];
+  openSheet('📥 Import','<div class="spinner"></div>');
+  let r;
+  if(IMPORT.type==='training'){
+    r=await API.post('/import/apply-training/'+IMPORT.athleteId,{rows:sh.rows,mapping:IMPORT.mapping,headerIdx:IMPORT.headerIdx,planName:'Import: '+sh.name});
+  }else{
+    const dayType=document.getElementById('imp_daytype')?.value||'training';
+    r=await API.post('/import/apply-nutrition/'+IMPORT.athleteId,{rows:sh.rows,mapping:IMPORT.mapping,headerIdx:IMPORT.headerIdx,dayType});
+  }
+  if(r.status!==200){openSheet('📥 Import',`<div class="info">${esc2(r.data?.error||'Fehler')}</div><button class="btn sec" onclick="drawImportMapping()">Zurück</button>`);return;}
+  const d=r.data;
+  openSheet('✓ Import erfolgreich',`<div style="text-align:center;padding:10px 0">
+    <div style="font-size:54px;margin-bottom:8px">✅</div>
+    <div style="font-family:var(--font-head);font-size:26px;margin-bottom:6px">Übernommen!</div>
+    <div style="color:var(--ink2);font-size:15px;margin-bottom:8px">${IMPORT.type==='training'?`${d.days} Trainingstage mit ${d.exercises} Übungen`:`${d.meals} Mahlzeiten mit ${d.items} Lebensmitteln`} für ${esc2(IMPORT.athleteName)}.</div>
+    <div style="color:var(--ink3);font-size:13px;margin-bottom:18px">${IMPORT.type==='training'?'Der Athlet wurde benachrichtigt.':''}</div>
+    <button class="btn" onclick="closeModal();openDashboard(${IMPORT.athleteId})">Fertig</button>
+  </div>`);
+  toast('Import erfolgreich ✓');
+}
+
 function openEditMonthly(month,t,c,v){
   openSheet('🎯 Monatsziel anpassen',`
     <div class="info">Setze ein persönliches Monatsziel für diesen Athleten. Erreicht er es, gibt es <b>doppelte XP</b> und eine besondere Auszeichnung. Anspruchsvoll, aber machbar wählen!</div>
@@ -2245,6 +2528,30 @@ const TOUR_DEFS={
   ]
 };
 let TOUR_STEP=0,TOUR_STEPS=[],TOUR_NAME='';
+// iOS-Installhinweis: Safari zeigt keinen automatischen „Installieren"-Prompt. Einmaliger,
+// schließbarer Hinweis, wie man die App zum Home-Bildschirm hinzufügt. Nur auf iOS und nur,
+// solange die App noch NICHT als PWA läuft (kein Standalone).
+function maybeShowInstallHint(){
+  try{
+    const standalone = window.navigator.standalone===true || window.matchMedia('(display-mode: standalone)').matches;
+    if(standalone) return;                              // läuft schon als installierte App
+    const isIOS = /iphone|ipod|ipad/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+    if(!isIOS) return;                                  // Hinweis nur auf iOS nötig
+    if(localStorage.getItem('be_ios_install_dismissed')) return;
+    if(document.getElementById('iosInstallHint')) return;
+    if(document.body.classList.contains('tour-active')) return; // nicht während der Einführungs-Tour
+    const bar=document.createElement('div');
+    bar.id='iosInstallHint';
+    bar.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(74px + var(--safe-b));z-index:80;width:min(520px,calc(100vw - 24px));background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:14px 16px;display:flex;align-items:center;gap:12px;opacity:0;transition:opacity .3s';
+    bar.innerHTML=`<span style="font-size:22px;flex:0 0 auto">📲</span>
+      <div style="flex:1;min-width:0;font-size:14px;line-height:1.45">Als App nutzen: in Safari unten auf das <b>Teilen-Symbol</b> (Quadrat mit Pfeil ↑) tippen → <b>„Zum Home-Bildschirm"</b>.</div>
+      <button onclick="dismissInstallHint()" style="flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:var(--surface2);color:var(--ink2);font-size:14px">✕</button>`;
+    document.body.appendChild(bar);
+    requestAnimationFrame(()=>{bar.style.opacity='1';});
+  }catch(e){}
+}
+function dismissInstallHint(){try{localStorage.setItem('be_ios_install_dismissed','1');}catch(e){}const b=document.getElementById('iosInstallHint');if(b)b.remove();}
+
 function maybeStartTour(){ // Home-Tour beim allerersten App-Start
   if(!ME||ME.role!=='athlete')return; // Touren nur für Athleten
   if(localStorage.getItem('be_tour_home'))return;
@@ -2262,6 +2569,7 @@ function runTour(name){
   if(document.getElementById('tourOv'))return;
   TOUR_NAME=name;TOUR_STEPS=TOUR_DEFS[name]||[];TOUR_STEP=0;
   if(!TOUR_STEPS.length)return;
+  lockTourScroll(); // Hintergrund-Scrollen/Tippen blockieren, damit der Spotlight-Rahmen nie verrutscht
   const ov=document.createElement('div');ov.className='tour-ov';ov.id='tourOv';
   ov.innerHTML=`<div class="tour-hole" id="tourHole"></div>
     <div class="tour-card" id="tourCard">
@@ -2301,8 +2609,31 @@ function drawTourStep(){
 }
 function tourNext(){if(TOUR_STEP<TOUR_STEPS.length-1){TOUR_STEP++;drawTourStep();}else endTour();}
 function endTour(){if(TOUR_NAME)localStorage.setItem('be_tour_'+TOUR_NAME,'1');
+  unlockTourScroll();
   const ov=document.getElementById('tourOv');if(ov){ov.classList.remove('on');setTimeout(()=>ov.remove(),250);}
   window.removeEventListener('resize',drawTourStep);}
+// Scroll-Sperre: fängt Wheel/Touch-Move ab (Koordinaten der Elemente bleiben dadurch stabil,
+// anders als bei position:fixed, das die Seite verschieben würde).
+let _tourScrollBlocker=null;
+function lockTourScroll(){
+  document.body.classList.add('tour-active');
+  _tourScrollBlocker=e=>{
+    // Scrollen INNERHALB der Tour-Karte (falls Text lang) erlauben, sonst alles blocken
+    const card=document.getElementById('tourCard');
+    if(card&&card.contains(e.target))return;
+    e.preventDefault();e.stopPropagation();
+  };
+  window.addEventListener('wheel',_tourScrollBlocker,{passive:false,capture:true});
+  window.addEventListener('touchmove',_tourScrollBlocker,{passive:false,capture:true});
+}
+function unlockTourScroll(){
+  document.body.classList.remove('tour-active');
+  if(_tourScrollBlocker){
+    window.removeEventListener('wheel',_tourScrollBlocker,{capture:true});
+    window.removeEventListener('touchmove',_tourScrollBlocker,{capture:true});
+    _tourScrollBlocker=null;
+  }
+}
 // Alle Touren zurücksetzen und mit der Home-Tour neu beginnen
 function restartTour(){['home','workout','diet','tracker'].forEach(t=>localStorage.removeItem('be_tour_'+t));
   closeModal();go('home');setTimeout(()=>runTour('home'),600);}
@@ -2517,9 +2848,13 @@ async function drawSuppSheet(){
   if(!plan.length&&!extras.length){
     h+=`<div class="empty"><div class="ei">💊</div><div style="font-weight:600;margin-bottom:4px">Keine Supplements für heute</div><div style="color:var(--ink2);font-size:14px">${isOwn?'Dein Coach kann dir welche zuweisen – oder füge unten selbst hinzu, was du genommen hast.':'Diesem Athleten sind keine Supplements zugewiesen.'}</div></div>`;
   }
-  // Plan-Supps (zugewiesen) als Checkliste
-  if(plan.length){h+=`<div class="section-label">Dein Protokoll</div>`;
-    h+=plan.map(p=>suppRow(p,isOwn)).join('');}
+  // Plan-Supps (zugewiesen) als Checkliste – nach Tageszeit/Kategorie gruppiert
+  if(plan.length){
+    const groups={};plan.forEach(p=>{const c=p.category||'Sonstige';(groups[c]=groups[c]||[]).push(p);});
+    const order=['Morgens','Pre-Workout','Intra-Workout','Nach dem Training','Zu einer Mahlzeit','Täglich','Abends','Bei Bedarf'];
+    const cats=Object.keys(groups).sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
+    cats.forEach(c=>{h+=`<div class="section-label">${esc2(c)}</div>`+groups[c].map(p=>suppRow(p,isOwn)).join('');});
+  }
   // Spontan genommene
   if(extras.length){h+=`<div class="section-label">Zusätzlich genommen</div>`;
     h+=extras.map(p=>suppRow(p,isOwn)).join('');}

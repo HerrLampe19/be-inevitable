@@ -1,6 +1,6 @@
 {
   "name": "be-inevitable",
-  "version": "1.7.0",
+  "version": "1.13.0",
   "description": "BE INEVITABLE - Coaching App (Backend + Frontend)",
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "nodemailer": "^6.9.14",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "xlsx": "^0.18.5"
   }
 }

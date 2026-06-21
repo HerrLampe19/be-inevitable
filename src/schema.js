@@ -325,6 +325,17 @@ export function initSchema() {
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  -- Streak-Joker (Streak-Freeze): protokolliert Tage, die automatisch durch einen Joker
+  -- geschützt wurden. Diese Tage zählen wie ein Check-in für die Streak-Berechnung.
+  CREATE TABLE IF NOT EXISTS streak_freeze_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    date TEXT NOT NULL,                      -- der geschützte Tag 'YYYY-MM-DD'
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, date),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_setlogs ON set_logs(user_id, exercise_id, date);
   CREATE INDEX IF NOT EXISTS idx_checkins ON checkins(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_foodlog ON food_log(user_id, date);
@@ -366,6 +377,13 @@ export function initSchema() {
   addCol('disliked_foods', 'TEXT');
   addCol('email_verified', 'INTEGER DEFAULT 0');
   addCol('email_notifications', 'INTEGER DEFAULT 1');
+  // Individuelle Gesundheitsziele (NULL = App-Standard 8 h / 10.000 / 3 L) + Push-Uhrzeit
+  addCol('sleep_goal', 'REAL');           // Ziel Schlaf in Stunden
+  addCol('steps_goal', 'INTEGER');        // Ziel Schritte/Tag
+  addCol('water_goal', 'REAL');           // Ziel Wasser in Litern
+  addCol('push_hour', 'INTEGER');         // Stunde (UTC/Serverzeit) der täglichen Trainings-Erinnerung; NULL = 6
+  addCol('streak_freezes', 'INTEGER DEFAULT 1'); // verfügbare Streak-Joker (Start 1, max 2)
+  addCol('freeze_last_grant', 'TEXT');    // Datum der letzten Joker-Gutschrift
 
   // exercise_notes: Autor-Spalten nachrüsten (bestehende DBs)
   const enCols = db.all("PRAGMA table_info(exercise_notes)").map(c => c.name);

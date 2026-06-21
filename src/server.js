@@ -66,7 +66,7 @@ try {
 const app = express();
 app.set('trust proxy', 1); // korrekte Client-IP hinter Reverse-Proxy (Hosting/HTTPS)
 const clampSets = (v, fb = 3) => { let n = parseInt(v); if (isNaN(n)) n = fb; return Math.max(1, Math.min(10, n)); };
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use(cookieParser());
 // index.html nie cachen, damit der ?v=-Cache-Buster für app.js immer aktuell ist.
 // Übrige statische Dateien (app.js?v=… etc.) dürfen normal gecacht werden.
@@ -284,7 +284,7 @@ app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
 });
 
 // Versionsnummer – zum Prüfen, ob das aktuelle Deployment live ist (auch ohne Login abrufbar)
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.13.0';
 app.get('/api/version', (req, res) => res.json({ version: APP_VERSION,
   mail: process.env.EMAIL_HOST ? 'konfiguriert' : 'log-fallback',
   app_url: process.env.APP_URL ? 'gesetzt' : 'FEHLT (Links in Mails zeigen ins Leere!)' }));
@@ -369,9 +369,11 @@ app.put('/api/profile', auth, (req, res) => {
     pattern = JSON.stringify(buildPattern(Number(f.days_per_week)));
   }
   db.run(`UPDATE users SET name=?,dob=?,gender=?,height_cm=?,start_weight=?,goal=?,days_per_week=?,
-    pattern=COALESCE(?,pattern),phase=COALESCE(?,phase),kcal_target_train=?,kcal_target_rest=?,experience=COALESCE(?,experience),diet_type=COALESCE(?,diet_type) WHERE id=?`,
+    pattern=COALESCE(?,pattern),phase=COALESCE(?,phase),kcal_target_train=?,kcal_target_rest=?,experience=COALESCE(?,experience),diet_type=COALESCE(?,diet_type),
+    sleep_goal=COALESCE(?,sleep_goal),steps_goal=COALESCE(?,steps_goal),water_goal=COALESCE(?,water_goal),push_hour=COALESCE(?,push_hour) WHERE id=?`,
     [f.name, f.dob, f.gender, clampNum(f.height_cm, 50, 260), clampNum(f.start_weight, 20, 500), f.goal, clampNum(f.days_per_week, 1, 7, true),
-     pattern, f.phase, clampNum(f.kcal_target_train, 0, 15000, true), clampNum(f.kcal_target_rest, 0, 15000, true), f.experience, (['all','vegetarian','vegan'].includes(f.diet_type)?f.diet_type:null), req.user.id]);
+     pattern, f.phase, clampNum(f.kcal_target_train, 0, 15000, true), clampNum(f.kcal_target_rest, 0, 15000, true), f.experience, (['all','vegetarian','vegan'].includes(f.diet_type)?f.diet_type:null),
+     clampNum(f.sleep_goal, 0, 24), clampNum(f.steps_goal, 0, 100000, true), clampNum(f.water_goal, 0, 30), clampNum(f.push_hour, 0, 23, true), req.user.id]);
   res.json({ ok: true });
 });
 
@@ -603,7 +605,8 @@ app.get('/api/dashboard/:userId', auth, requireCoach, (req, res) => {
   res.json({
     athlete: { id: a.id, name: a.name, email: a.email, goal: a.goal, phase: a.phase,
       days_per_week: a.days_per_week, experience: a.experience, start_weight: a.start_weight,
-      kcal_target_train: a.kcal_target_train, kcal_target_rest: a.kcal_target_rest },
+      kcal_target_train: a.kcal_target_train, kcal_target_rest: a.kcal_target_rest,
+      sleep_goal: a.sleep_goal, steps_goal: a.steps_goal, water_goal: a.water_goal },
     sessions, weights, checkins, cardio, volume,
   });
 });
@@ -1397,6 +1400,12 @@ app.post('/api/admin/weekly', auth, (req, res) => {
   if (req.user.role !== 'admin' && req.user.role !== 'coach') return res.status(403).json({ error: 'Nur Coach/Admin' });
   res.json({ ok: true, sent: sendWeeklyReviews() });
 });
+// Manueller Auslöser für die tägliche Streak-Joker-Verarbeitung (Test/Admin).
+app.post('/api/admin/process-freezes', auth, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'coach') return res.status(403).json({ error: 'Nur Coach/Admin' });
+  processStreakFreezes(new Date().toISOString().slice(0, 10));
+  res.json({ ok: true });
+});
 // Stündlicher Zeitgeber: sonntags 18 Uhr Wochenrückblick; täglich ~7 Uhr Trainings-Push
 setInterval(() => {
   try {
@@ -1404,17 +1413,38 @@ setInterval(() => {
     const get = k => db.get('SELECT value FROM settings WHERE key=?', [k])?.value;
     const set = (k, v) => db.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', [k, v]);
     if (now.getUTCDay() === 0 && now.getUTCHours() >= 16 && get('weekly_last') !== today) { set('weekly_last', today); sendWeeklyReviews(); }
-    if (now.getUTCHours() >= 5 && get('remind_last') !== today) {
-      set('remind_last', today);
-      const athletes = db.all("SELECT id FROM users WHERE role='athlete'");
+    // Streak-Joker: einmal täglich (nach 5 Uhr UTC) gutschreiben + verpasste Vortage automatisch schützen.
+    if (now.getUTCHours() >= 5 && get('freeze_last') !== today) { set('freeze_last', today); try { processStreakFreezes(today); } catch (e) {} }
+    // Tägliche Trainings-Erinnerung zur vom Nutzer gewählten Stunde (push_hour, Standard 6 Uhr UTC/Serverzeit).
+    // Dedup pro Nutzer & Tag über settings-Key remind_<id>, damit jeder genau einmal erinnert wird.
+    const hour = now.getUTCHours();
+    const athletes = db.all("SELECT id, push_hour FROM users WHERE role='athlete'");
+    for (const a of athletes) {
+      const ph = (a.push_hour == null ? 6 : a.push_hour);
+      if (hour !== ph) continue;
+      const rkey = 'remind_' + a.id;
+      if (get(rkey) === today) continue; // heute schon erinnert
+      set(rkey, today);
+      try {
+        const u = getUserFull(a.id); if (!u) continue;
+        const existing = db.get('SELECT id FROM day_log WHERE user_id=? AND date=?', [a.id, today]);
+        if (existing) continue; // Tag schon bestätigt -> keine Erinnerung
+        const pattern = u.pattern ? JSON.parse(u.pattern) : buildPattern(u.days_per_week || 4);
+        const sug = suggestForToday({ pattern, trainingDays: getTrainingDayNames(a.id), history: getHistory(a.id).filter(h => h.date < today) });
+        if (sug.type === 'train') sendPush(a.id, { title: 'Heute ist Trainingstag! 💪', body: sug.dayName ? ('Auf dem Plan: ' + sug.dayName) : 'Dein Training wartet.' });
+      } catch (e) {}
+    }
+    // Abends (~19 Uhr UTC): „Streak in Gefahr"-Push für aktive Streaks ohne heutigen Check-in.
+    if (hour === 19) {
       for (const a of athletes) {
+        const skey = 'streakwarn_' + a.id;
+        if (get(skey) === today) continue;
+        set(skey, today); // einmal pro Tag prüfen
         try {
-          const u = getUserFull(a.id); if (!u) continue;
-          const existing = db.get('SELECT id FROM day_log WHERE user_id=? AND date=?', [a.id, today]);
-          if (existing) continue; // Tag schon bestätigt -> keine Erinnerung
-          const pattern = u.pattern ? JSON.parse(u.pattern) : buildPattern(u.days_per_week || 4);
-          const sug = suggestForToday({ pattern, trainingDays: getTrainingDayNames(a.id), history: getHistory(a.id).filter(h => h.date < today) });
-          if (sug.type === 'train') sendPush(a.id, { title: 'Heute ist Trainingstag! 💪', body: sug.dayName ? ('Auf dem Plan: ' + sug.dayName) : 'Dein Training wartet.' });
+          const ciDates = db.all('SELECT date FROM checkins WHERE user_id=? ORDER BY date DESC LIMIT 60', [a.id]).map(r => r.date);
+          if (ciDates.includes(today)) continue; // heute schon eingecheckt
+          const streak = streakDays(ciDates, today);
+          if (streak >= 2) sendPush(a.id, { title: '🔥 Deine Streak ist in Gefahr!', body: `${streak} Tage in Folge – logge heute kurz etwas, damit die Serie nicht reißt.` });
         } catch (e) {}
       }
     }
@@ -1569,23 +1599,70 @@ function getTrainingDayNames(uid) {
   return db.all('SELECT name FROM training_days WHERE plan_id=? ORDER BY position,id', [plan.id]).map(d => d.name);
 }
 
+// ---- Streak-Joker (Streak-Freeze) ----
+const MAX_FREEZES = 2;
+const isoAddDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5);
+function frozenDatesOf(uid) { return db.all('SELECT date FROM streak_freeze_log WHERE user_id=?', [uid]).map(r => r.date); }
+
+// Einmal täglich: Joker gutschreiben (wöchentlich, max MAX_FREEZES, nur aktive Nutzer) und
+// einen verpassten Vortag automatisch schützen, solange Joker da sind.
+function processStreakFreezes(today) {
+  const yest = isoAddDays(today, -1), dby = isoAddDays(today, -2);
+  const athletes = db.all("SELECT id, streak_freezes, freeze_last_grant FROM users WHERE role='athlete'");
+  for (const a of athletes) {
+    try {
+      let bal = a.streak_freezes == null ? 1 : a.streak_freezes;
+      // 1) Wöchentliche Gutschrift für aktive Nutzer (Check-in in den letzten 14 Tagen)
+      const active = db.get('SELECT COUNT(*) c FROM checkins WHERE user_id=? AND date>=?', [a.id, isoAddDays(today, -14)]).c > 0;
+      if (active && (!a.freeze_last_grant || daysBetween(a.freeze_last_grant, today) >= 7)) {
+        bal = Math.min(MAX_FREEZES, bal + 1);
+        db.run('UPDATE users SET freeze_last_grant=? WHERE id=?', [today, a.id]);
+      }
+      // 2) Verpassten Vortag (gestern) schützen, wenn die Streak durch vorgestern noch lief
+      const ci = new Set(db.all('SELECT date FROM checkins WHERE user_id=?', [a.id]).map(r => r.date));
+      const fz = new Set(frozenDatesOf(a.id));
+      const has = d => ci.has(d) || fz.has(d);
+      if (!has(yest) && has(dby) && bal > 0) {
+        bal -= 1;
+        db.run('INSERT OR IGNORE INTO streak_freeze_log(user_id,date) VALUES(?,?)', [a.id, yest]);
+        sendPush(a.id, { title: '🛡️ Streak-Joker eingesetzt', body: 'Gestern war nichts eingetragen – ein Joker hat deine Streak gerettet!' });
+      }
+      db.run('UPDATE users SET streak_freezes=? WHERE id=?', [bal, a.id]);
+    } catch (e) {}
+  }
+}
+
+// Gemeinsame Rhythmus-Berechnung für Home-Widget UND vollen Kalender. Verankert am frühesten
+// day_log-Eintrag (spätestens am Startdatum), damit ALLE geloggten Tage durch dieselbe
+// (schicht-bewusste) calendarRange-Schleife laufen. Sonst zählt z.B. ein Ruhetag an einem
+// Trainingstag im Widget anders als im Kalender -> beide liefen auseinander.
+function rhythmRange(uid, startDate, days) {
+  const u = getUserFull(uid);
+  const pattern = u.pattern ? JSON.parse(u.pattern) : buildPattern(u.days_per_week || 4);
+  const trainingDays = getTrainingDayNames(uid);
+  const allLog = getHistory(uid); // bereits nach Datum sortiert
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const earliest = allLog.length ? allLog[0].date : startDate;
+  const anchor = earliest < startDate ? earliest : startDate;
+  const history = allLog.filter(h => h.date < anchor);
+  const planned = {};
+  for (const h of allLog.filter(h => h.date >= anchor)) planned[h.date] = { type: h.type, dayName: h.dayName };
+  const span = Math.round((new Date(startDate + 'T00:00') - new Date(anchor + 'T00:00')) / 864e5) + days;
+  const full = calendarRange({ pattern, trainingDays, history, startDate: anchor, days: span, planned, today: todayStr });
+  return full.filter(e => e.date >= startDate).slice(0, days);
+}
+
 // Was ist heute dran (Vorschlag aus Rhythmus, oder bereits bestätigt)
 app.get('/api/today/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
   const u = getUserFull(uid);
   const date = req.query.date || new Date().toISOString().slice(0, 10);
-  const pattern = u.pattern ? JSON.parse(u.pattern) : buildPattern(u.days_per_week || 4);
-  const trainingDays = getTrainingDayNames(uid);
-  const history = getHistory(uid).filter(h => h.date < date); // alles vor heute
   const existing = db.get('SELECT type,day_name as dayName FROM day_log WHERE user_id=? AND date=?', [uid, date]);
-  const suggestion = suggestForToday({ pattern, trainingDays, history });
-  // Vorschau über EXAKT dieselbe Engine wie der Kalender, damit Widget & Kalender niemals
-  // auseinanderlaufen: heutiger/künftiger day_log gilt als "planned" und verschiebt den Rhythmus.
-  const planned = {};
-  for (const h of getHistory(uid).filter(h => h.date >= date)) planned[h.date] = { type: h.type, dayName: h.dayName };
-  const preview = calendarRange({ pattern, trainingDays, history, startDate: date, days: 7, planned, today: date })
-    .map(e => ({ type: e.type, dayName: e.dayName }));
+  // Vorschau aus der gemeinsamen Engine; preview[0] = heute (deckt sich exakt mit dem Kalender).
+  const preview = rhythmRange(uid, date, 7).map(e => ({ type: e.type, dayName: e.dayName }));
+  const suggestion = preview[0] || { type: 'rest', dayName: null };
   res.json({ date, suggestion, confirmed: existing || null, preview, phase: u.phase, goal: u.goal,
     kcal: { train: u.kcal_target_train, rest: u.kcal_target_rest } });
 });
@@ -1602,24 +1679,14 @@ app.post('/api/today/:userId', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Interaktiver Kalender: Bereich ab `start` über `days` Tage, mit geplanten Tagen
+// Interaktiver Kalender: Bereich ab `start` über `days` Tage. Nutzt EXAKT dieselbe Engine
+// (rhythmRange) wie das Home-Widget, damit beide für jeden Tag identisch sind.
 app.get('/api/calendar/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const u = getUserFull(uid);
   const start = req.query.start || new Date().toISOString().slice(0, 10);
   const days = Math.min(90, Math.max(7, Number(req.query.days) || 35));
-  const pattern = u.pattern ? JSON.parse(u.pattern) : buildPattern(u.days_per_week || 4);
-  const trainingDays = getTrainingDayNames(uid);
-  // Historie = alles strikt vor dem Startdatum; planned = alle Einträge ab Start (heute + Zukunft)
-  const allLog = getHistory(uid);
-  const history = allLog.filter(h => h.date < start);
-  const planned = {};
-  for (const h of allLog.filter(h => h.date >= start)) {
-    planned[h.date] = { type: h.type, dayName: h.dayName };
-  }
-  const calendar = calendarRange({ pattern, trainingDays, history, startDate: start, days, planned,
-    today: new Date().toISOString().slice(0, 10) });
+  const calendar = rhythmRange(uid, start, days);
   res.json({ start, days, calendar });
 });
 
@@ -1755,7 +1822,9 @@ app.get('/api/insights/:userId', auth, (req, res) => {
     lastWeek: { ...sum(lastMon, thisMon), checkins: ciDates.filter(d => d >= lastMon && d < thisMon).length },
   };
 
-  const checkinStreak = streakDays(ciDates, today);
+  // Streak zählt Check-in-Tage UND durch Joker geschützte Tage zusammen.
+  const frozenDates = frozenDatesOf(uid);
+  const checkinStreak = streakDays([...new Set([...ciDates, ...frozenDates])], today);
   const totalSets = setRows.length;
   const totalVolume = Math.round(setRows.reduce((s, r) => s + (r.weight || 0) * (r.reps || 0), 0));
   const cnt = (q, p) => db.get(q, p).c;
@@ -1833,6 +1902,7 @@ app.get('/api/insights/:userId', auth, (req, res) => {
   ];
   res.json({ streaks: { checkin: checkinStreak, weekGoal: weekGoalStreak }, week,
     weekGoal: { target: weekTarget, done: week.thisWeek.sessions },
+    freezes: { balance: (u?.streak_freezes == null ? 1 : u.streak_freezes), max: MAX_FREEZES },
     xp, level, levelTitle, levelProgress, achievements,
     totals: { sets: totalSets, volume: totalVolume, sessions: trDates.length, prs: prCount } });
 });
@@ -1918,7 +1988,158 @@ app.get('/api/monthly/:userId', auth, (req, res) => {
   res.json({ ...view, justClaimed: claim.justClaimed, award: claim.award || null, bonusXp: claim.bonusXp || 0, history });
 });
 
-// Eine einzelne Mahlzeit im Plan gegen ein Rezept tauschen (alle Items -> das Rezept als ein Item)
+/* ---------------- EXCEL-IMPORT (Coach) ---------------- */
+let _xlsx = null, _xlsxTried = false;
+async function getXlsx() {
+  if (_xlsxTried) return _xlsx;
+  _xlsxTried = true;
+  try { const m = await import('xlsx'); _xlsx = m.default || m; }
+  catch (e) { console.log('[import] xlsx nicht verfügbar (' + e.message + ')'); }
+  return _xlsx;
+}
+// Spalten-Auto-Erkennung: rät anhand Header-Namen, welche Spalte welche Rolle hat.
+function guessColumns(headers) {
+  const norm = s => String(s || '').toLowerCase().trim();
+  const map = { day: null, exercise: null, sets: null, reps: null, weight: null, notes: null };
+  headers.forEach((h, i) => {
+    const n = norm(h);
+    if (map.day === null && /(^| )(tag|day|einheit|workout|split)/.test(n)) map.day = i;
+    else if (map.exercise === null && /(übung|uebung|exercise|movement|lift|name)/.test(n)) map.exercise = i;
+    else if (map.sets === null && /(sätze|saetze|sets|satz)/.test(n)) map.sets = i;
+    else if (map.reps === null && /(wdh|wiederhol|reps|rep|wiederholungen)/.test(n)) map.reps = i;
+    else if (map.weight === null && /(gewicht|weight|kg|last|load)/.test(n)) map.weight = i;
+    else if (map.notes === null && /(notiz|note|kommentar|hinweis|comment|rpe|tempo|pause)/.test(n)) map.notes = i;
+  });
+  return map;
+}
+function guessFoodColumns(headers) {
+  const norm = s => String(s || '').toLowerCase().trim();
+  const map = { meal: null, food: null, amount: null, kcal: null, protein: null, carbs: null, fat: null };
+  headers.forEach((h, i) => {
+    const n = norm(h);
+    if (map.meal === null && /(mahlzeit|meal|mahl)/.test(n)) map.meal = i;
+    else if (map.food === null && /(lebensmittel|food|zutat|nahrung|name)/.test(n)) map.food = i;
+    else if (map.amount === null && /(menge|amount|gramm|\bg\b|portion)/.test(n)) map.amount = i;
+    else if (map.kcal === null && /(kcal|kalorien|energie|calor)/.test(n)) map.kcal = i;
+    else if (map.protein === null && /(eiweiß|eiweiss|protein|ew)/.test(n)) map.protein = i;
+    else if (map.carbs === null && /(kohlenhydrate|carbs|kh|khd)/.test(n)) map.carbs = i;
+    else if (map.fat === null && /(fett|fat)/.test(n)) map.fat = i;
+  });
+  return map;
+}
+
+// Hochgeladene .xlsx parsen -> Sheets, Zeilen-Vorschau und Spalten-Vorschlag zurück
+app.post('/api/import/parse', auth, requireCoach, async (req, res) => {
+  const xlsx = await getXlsx();
+  if (!xlsx) return res.status(503).json({ error: 'Excel-Import auf dem Server nicht verfügbar' });
+  const b64 = req.body.file;
+  if (!b64 || typeof b64 !== 'string') return res.status(400).json({ error: 'Keine Datei' });
+  try {
+    const buf = Buffer.from(b64.split(',').pop(), 'base64');
+    if (buf.length > 6_000_000) return res.status(400).json({ error: 'Datei zu groß (max. ~6 MB)' });
+    const wb = xlsx.read(buf, { type: 'buffer' });
+    const sheets = wb.SheetNames.map(name => {
+      const rows = xlsx.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '' });
+      const trimmed = rows.slice(0, 200).map(r => r.map(c => (c == null ? '' : String(c))));
+      const headerIdx = trimmed.findIndex(r => r.some(c => c.trim() !== ''));
+      const headers = headerIdx >= 0 ? trimmed[headerIdx] : [];
+      return { name, headers, headerIdx: headerIdx < 0 ? 0 : headerIdx,
+        rows: trimmed, rowCount: rows.length,
+        guessTraining: guessColumns(headers), guessFood: guessFoodColumns(headers) };
+    });
+    // Plausibilität: mindestens ein Sheet mit echten Daten (Header + ≥1 Zeile)
+    const hasData = sheets.some(s => s.headers.length >= 2 && s.rows.length > s.headerIdx + 1);
+    if (!hasData) return res.status(400).json({ error: 'Keine verwertbare Tabelle gefunden. Ist es eine echte Excel-Datei mit Überschriften und Zeilen?' });
+    res.json({ ok: true, sheets });
+  } catch (e) {
+    res.status(400).json({ error: 'Datei konnte nicht gelesen werden (ist es eine gültige .xlsx?)' });
+  }
+});
+
+// Import anwenden: aus zugeordneten Spalten einen Trainingsplan bauen.
+// body: { sheet rows (2D), mapping {day,exercise,sets,reps,weight,notes}, headerIdx, planName }
+app.post('/api/import/apply-training/:userId', auth, requireCoach, (req, res) => {
+  const uid = Number(req.params.userId);
+  const a = db.get('SELECT coach_id FROM users WHERE id=?', [uid]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff auf diesen Athleten' });
+  const { rows, mapping, headerIdx = 0, planName } = req.body;
+  if (!Array.isArray(rows) || !mapping || mapping.exercise == null) return res.status(400).json({ error: 'Spalte für Übung fehlt' });
+  const dataRows = rows.slice(headerIdx + 1).filter(r => (r[mapping.exercise] || '').toString().trim() !== '');
+  if (!dataRows.length) return res.status(400).json({ error: 'Keine Übungszeilen gefunden' });
+  // Nach Tag gruppieren (wenn keine Tag-Spalte: alles in einen Tag)
+  const days = []; const dayIndex = {};
+  let lastDay = 'Tag 1';
+  for (const r of dataRows) {
+    let dn = mapping.day != null ? (r[mapping.day] || '').toString().trim() : '';
+    if (dn) lastDay = dn; else dn = lastDay; // leere Tag-Zelle erbt den vorherigen (typische Excel-Blöcke)
+    if (!(dn in dayIndex)) { dayIndex[dn] = days.length; days.push({ name: dn, exercises: [] }); }
+    days[dayIndex[dn]].exercises.push({
+      name: (r[mapping.exercise] || '').toString().trim(),
+      sets: mapping.sets != null ? parseInt(r[mapping.sets]) || null : null,
+      reps: mapping.reps != null ? (r[mapping.reps] || '').toString().trim() : null,
+      weight: mapping.weight != null ? (r[mapping.weight] || '').toString().trim() : null,
+      notes: mapping.notes != null ? (r[mapping.notes] || '').toString().trim() : null,
+    });
+  }
+  // Plan anlegen (alter aktiver Plan wird deaktiviert, bleibt erhalten)
+  db.run('UPDATE plans SET active=0 WHERE user_id=?', [uid]);
+  const plan = db.run('INSERT INTO plans(user_id,title,active) VALUES(?,?,1)', [uid, (planName || 'Importierter Plan').slice(0, 60)]);
+  days.forEach((day, i) => {
+    const td = db.run('INSERT INTO training_days(plan_id,name,position) VALUES(?,?,?)', [plan.lastInsertRowid, day.name || ('Tag ' + (i + 1)), i]);
+    day.exercises.forEach((ex, j) => {
+      const note = [ex.weight ? ('Gewicht: ' + ex.weight) : '', ex.notes || ''].filter(Boolean).join(' · ') || null;
+      db.run(`INSERT INTO exercises(day_id,name,target_sets,target_reps,notes,position,source,coach_locked)
+        VALUES(?,?,?,?,?,?,'coach',1)`,
+        [td.lastInsertRowid, ex.name, ex.sets || 3, ex.reps || '8-12', note, j]);
+    });
+  });
+  const exCount = days.reduce((s, d) => s + d.exercises.length, 0);
+  db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+    [uid, req.user.id, 'message', '📋 Neuer Trainingsplan', `Dein Coach hat dir einen neuen Plan zugewiesen (${days.length} Tage, ${exCount} Übungen).`]);
+  sendPush(uid, { title: '📋 Neuer Trainingsplan', body: `${days.length} Tage, ${exCount} Übungen` });
+  res.json({ ok: true, days: days.length, exercises: exCount });
+});
+
+// Import anwenden: Ernährungsplan (Mahlzeiten mit Makros) aus zugeordneten Spalten
+app.post('/api/import/apply-nutrition/:userId', auth, requireCoach, (req, res) => {
+  const uid = Number(req.params.userId);
+  const a = db.get('SELECT coach_id FROM users WHERE id=?', [uid]);
+  if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff auf diesen Athleten' });
+  const { rows, mapping, headerIdx = 0, dayType = 'training' } = req.body;
+  if (!Array.isArray(rows) || !mapping || mapping.food == null) return res.status(400).json({ error: 'Spalte für Lebensmittel fehlt' });
+  const dataRows = rows.slice(headerIdx + 1).filter(r => (r[mapping.food] || '').toString().trim() !== '');
+  if (!dataRows.length) return res.status(400).json({ error: 'Keine Lebensmittel-Zeilen gefunden' });
+  const num = v => { const n = parseFloat(String(v).replace(',', '.').replace(/[^0-9.]/g, '')); return isNaN(n) ? 0 : n; };
+  // Nach Mahlzeit gruppieren
+  const meals = []; const mealIndex = {}; let lastMeal = 'Mahlzeit 1';
+  for (const r of dataRows) {
+    let mn = mapping.meal != null ? (r[mapping.meal] || '').toString().trim() : '';
+    if (mn) lastMeal = mn; else mn = lastMeal;
+    if (!(mn in mealIndex)) { mealIndex[mn] = meals.length; meals.push({ label: mn, items: [] }); }
+    meals[mealIndex[mn]].items.push({
+      food: (r[mapping.food] || '').toString().trim(),
+      amount: mapping.amount != null ? num(r[mapping.amount]) : null,
+      kcal: mapping.kcal != null ? num(r[mapping.kcal]) : 0,
+      protein: mapping.protein != null ? num(r[mapping.protein]) : 0,
+      carbs: mapping.carbs != null ? num(r[mapping.carbs]) : 0,
+      fat: mapping.fat != null ? num(r[mapping.fat]) : 0,
+    });
+  }
+  // alte Mahlzeiten dieses Tagtyps ersetzen
+  const old = db.all('SELECT id FROM meals WHERE user_id=? AND day_type=?', [uid, dayType]);
+  old.forEach(m => { db.run('DELETE FROM meal_items WHERE meal_id=?', [m.id]); db.run('DELETE FROM meals WHERE id=?', [m.id]); });
+  meals.forEach((m, i) => {
+    const mid = db.run('INSERT INTO meals(user_id,day_type,meal_no,label,position) VALUES(?,?,?,?,?)', [uid, dayType, i + 1, m.label, i]);
+    m.items.forEach(it => {
+      db.run('INSERT INTO meal_items(meal_id,food,amount,kcal,fat,carbs,protein) VALUES(?,?,?,?,?,?,?)',
+        [mid.lastInsertRowid, it.food, it.amount, Math.round(it.kcal), it.fat, it.carbs, it.protein]);
+    });
+  });
+  const itemCount = meals.reduce((s, m) => s + m.items.length, 0);
+  res.json({ ok: true, meals: meals.length, items: itemCount, dayType });
+});
+
+// Eine Mahlzeit im Plan gegen ein Rezept tauschen (alle Items -> das Rezept als ein Item)
 app.post('/api/meals/:mealId/swap', auth, (req, res) => {
   const meal = db.get('SELECT * FROM meals WHERE id=?', [req.params.mealId]);
   if (!meal) return res.status(404).json({ error: 'Mahlzeit nicht gefunden' });

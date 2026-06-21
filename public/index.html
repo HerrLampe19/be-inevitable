@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BE INEVITABLE">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#000000">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" type="image/x-icon" href="/favicon.ico?v=1.4.0">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=1.4.0">
@@ -17,24 +17,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 <title>BE INEVITABLE</title>
 <style>
+/* BE INEVITABLE ist eine Dark-Mode-App: feste dunkle Palette, unabhängig vom System. */
 :root{
-  --bg:#f5f5f7;--surface:#ffffff;--surface2:#fbfbfd;
-  --ink:#1d1d1f;--ink2:#6e6e73;--ink3:#a1a1a6;
-  --line:#e8e8ed;--line2:#d2d2d7;
-  --red:#e10600;--red-soft:#ffeceb;
-  --green:#34c759;--amber:#ff9f0a;--blue:#0a84ff;
-  --font:'Nunito',-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
-  --font-head:'Bebas Neue','Nunito',sans-serif;
-  --r:18px;--r-sm:12px;--r-lg:24px;
-  --shadow:0 1px 3px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);
+  color-scheme:dark;
+  --bg:#000000;--surface:#1c1c1e;--surface2:#2c2c2e;
+  --ink:#f5f5f7;--ink2:#98989d;--ink3:#6c6c70;
+  --line:#38383a;--line2:#48484a;
+  --red:#e10600;--red-soft:#3a0f0e;
+  --green:#30d158;--amber:#ff9f0a;--blue:#0a84ff;
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,'Helvetica Neue',sans-serif;
+  --font-head:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',system-ui,sans-serif;
+  --r:16px;--r-sm:12px;--r-lg:22px;
+  --shadow:0 1px 3px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.45);
   --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);
 }
-@media (prefers-color-scheme:dark){:root{
-  --bg:#000000;--surface:#1c1c1e;--surface2:#2c2c2e;
-  --ink:#f5f5f7;--ink2:#98989d;--ink3:#636366;
-  --line:#38383a;--line2:#48484a;--red-soft:#3a0f0e;
-  --shadow:0 1px 3px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.4);
-}}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{background:var(--bg);color:var(--ink);font-family:var(--font);overscroll-behavior:none;-webkit-font-smoothing:antialiased;font-size:17px;line-height:1.47}
 ::selection{background:var(--red);color:#fff}
@@ -49,7 +45,7 @@ a{color:var(--blue);text-decoration:none}
 .login-brand{text-align:center;margin-bottom:40px}
 .login-brand .logo-wrap{display:inline-block;background:#000;border-radius:16px;padding:22px 26px;margin-bottom:22px;box-shadow:var(--shadow)}
 .login-brand .logo-img{display:block;width:100%;max-width:250px;height:auto}
-.login-brand h1{font-family:var(--font-head);font-size:36px;font-weight:400;letter-spacing:.015em;text-transform:uppercase;margin-top:4px;line-height:1}
+.login-brand h1{font-family:var(--font-head);font-size:34px;font-weight:700;letter-spacing:-.025em;margin-top:4px;line-height:1.05}
 .login-brand p{color:var(--ink2);font-size:15px;margin-top:10px}
 .card{background:var(--surface);border-radius:var(--r);padding:24px;box-shadow:var(--shadow)}
 .field{margin-bottom:14px}
@@ -57,7 +53,7 @@ a{color:var(--blue);text-decoration:none}
 .field input,.field select,.field textarea{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 14px;color:var(--ink);transition:.15s}
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--red);background:var(--surface)}
 .field textarea{resize:none}
-.btn{width:100%;background:var(--red);color:#fff;font-weight:600;font-size:17px;padding:15px;border-radius:var(--r-sm);transition:.15s;letter-spacing:-.01em}
+.btn{width:100%;background:var(--red);color:#fff;font-weight:600;font-size:17px;padding:15px;border-radius:14px;transition:transform .12s,opacity .12s;letter-spacing:-.01em}
 .btn:active{transform:scale(.98);opacity:.9}
 .btn:disabled{opacity:.4}
 .btn.sec{background:var(--surface2);color:var(--ink);border:1px solid var(--line)}
@@ -81,7 +77,7 @@ a{color:var(--blue);text-decoration:none}
 .page.on{display:block}
 @keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 body.has-nav{padding-bottom:calc(64px + var(--safe-b))}
-.h1{font-family:var(--font-head);font-size:34px;font-weight:400;letter-spacing:.015em;text-transform:uppercase;line-height:1;margin-bottom:4px}
+.h1{font-family:var(--font-head);font-size:32px;font-weight:700;letter-spacing:-.022em;line-height:1.08;margin-bottom:3px}
 .sub{color:var(--ink2);font-size:15px;margin-bottom:22px}
 .section-label{font-size:13px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em;margin:24px 4px 10px}
 /* Sichtbare Filter-Pills (Rezepte): zeigen aktiven Ziel/Mahlzeit-Filter */
@@ -115,7 +111,7 @@ body.has-nav{padding-bottom:calc(64px + var(--safe-b))}
 /* HOME: today hero */
 .today{background:var(--surface);border-radius:var(--r-lg);padding:24px;box-shadow:var(--shadow);margin-bottom:16px;position:relative;overflow:hidden}
 .today .eyebrow{font-size:13px;font-weight:600;color:var(--red);letter-spacing:.02em;display:flex;align-items:center;gap:7px}
-.today .daytype{font-family:var(--font-head);font-size:40px;font-weight:400;letter-spacing:.015em;text-transform:uppercase;margin-top:6px;line-height:1}
+.today .daytype{font-family:var(--font-head);font-size:34px;font-weight:700;letter-spacing:-.025em;margin-top:5px;line-height:1.04}
 .today .meta{color:var(--ink2);font-size:15px;margin-top:6px}
 .today-acts{display:flex;gap:10px;margin-top:18px}
 .today-acts .btn{flex:1;padding:13px}
@@ -193,9 +189,9 @@ body.has-nav{padding-bottom:calc(64px + var(--safe-b))}
 .minibtn.video{color:var(--blue)}
 
 /* DIET */
-.seg{display:flex;background:var(--surface2);border:1px solid var(--line);border-radius:11px;padding:3px;margin-bottom:18px}
-.seg button{flex:1;padding:9px;border-radius:9px;font-weight:500;font-size:14px;color:var(--ink2);transition:.15s}
-.seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.seg{display:flex;background:color-mix(in srgb,var(--ink) 7%,transparent);border-radius:10px;padding:2px;margin-bottom:18px;gap:2px}
+.seg button{flex:1;padding:8px;border-radius:8px;font-weight:600;font-size:14px;letter-spacing:-.01em;color:var(--ink2);transition:.18s cubic-bezier(.4,0,.2,1)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 2px 6px rgba(0,0,0,.1),0 0 0 .5px rgba(0,0,0,.04)}
 .seg button .auto{font-size:10px;color:var(--red);display:block;font-weight:600;margin-top:1px}
 .macro-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
 .macro{background:var(--surface);border-radius:var(--r-sm);padding:13px 8px;text-align:center;box-shadow:var(--shadow)}
@@ -237,7 +233,7 @@ svg.spark{width:100%;height:120px;display:block}
 @keyframes up{from{transform:translateY(100%)}to{transform:none}}
 .sheet-grip{width:36px;height:5px;background:var(--line2);border-radius:3px;margin:8px auto 16px}
 .sheet-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
-.sheet-h h3{font-family:var(--font-head);font-size:25px;font-weight:400;letter-spacing:.02em;text-transform:uppercase}
+.sheet-h h3{font-family:var(--font-head);font-size:22px;font-weight:700;letter-spacing:-.02em}
 .sheet-x{width:30px;height:30px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink2)}
 .info{background:var(--surface2);border-radius:var(--r-sm);padding:13px 15px;font-size:14px;color:var(--ink2);line-height:1.5;margin-bottom:16px}
 .warn{background:rgba(255,159,10,.12);border-radius:var(--r-sm);padding:14px 16px;font-size:14px;color:#9a5e00;line-height:1.5;margin-bottom:16px}
@@ -264,6 +260,8 @@ svg.spark{width:100%;height:120px;display:block}
 /* ===== Erstnutzer-Tour (Spotlight-Coachmarks) ===== */
 .tour-ov{position:fixed;inset:0;z-index:9999;background:transparent;opacity:0;transition:opacity .25s;pointer-events:auto}
 .tour-ov.on{opacity:1}
+body.tour-active{overflow:hidden !important;touch-action:none;overscroll-behavior:none}
+.tour-ov{touch-action:none;overscroll-behavior:none}
 .tour-hole{position:absolute;border-radius:16px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.72), 0 0 0 3px var(--red), 0 0 0 7px rgba(229,57,53,.35);transition:all .35s cubic-bezier(.4,0,.2,1);animation:tourPulse 2s ease-in-out infinite}
 @keyframes tourPulse{0%,100%{box-shadow:0 0 0 9999px rgba(0,0,0,.72), 0 0 0 3px var(--red), 0 0 0 7px rgba(229,57,53,.35)}50%{box-shadow:0 0 0 9999px rgba(0,0,0,.72), 0 0 0 3px var(--red), 0 0 0 12px rgba(229,57,53,.12)}}
 .tour-card{position:absolute;left:50%;transform:translateX(-50%);width:min(340px,calc(100vw - 40px));background:var(--surface);border-radius:18px;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.4);transition:all .3s}
@@ -275,6 +273,12 @@ svg.spark{width:100%;height:120px;display:block}
 .tour-card .tdots span.on{background:var(--red)}
 .tour-card .tbtns{display:flex;gap:8px}
 .tour-skip{background:none;border:none;color:var(--ink3);font-size:14px;cursor:pointer;padding:6px}
+
+/* ===== Feier-Momente: Konfetti + Pop ===== */
+@keyframes confettiFall{0%{transform:translateY(-12vh) rotate(0);opacity:1}100%{transform:translateY(112vh) rotate(680deg);opacity:.85}}
+.confetti-pc{position:fixed;top:0;width:9px;height:14px;z-index:9998;pointer-events:none;border-radius:2px}
+.celebrate-pop{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%) scale(.7);z-index:9999;background:var(--surface);border:1px solid var(--line);border-radius:22px;box-shadow:0 20px 60px rgba(0,0,0,.6);padding:26px 30px;text-align:center;opacity:0;transition:opacity .35s,transform .4s cubic-bezier(.2,1.3,.3,1);pointer-events:none;max-width:300px}
+.celebrate-pop.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
 </style>
 </head>
 <body>
@@ -319,6 +323,6 @@ svg.spark{width:100%;height:120px;display:block}
     <button onclick="restStop()" style="background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:600">Fertig</button>
   </div>
 </div>
-<script src="/app.js?v=1.7.0"></script>
+<script src="/app.js?v=1.13.0"></script>
 </body>
 </html>
