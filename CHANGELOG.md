@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.15.0
+- **Essen hinzufügen neu strukturiert:** Statt eines großen Barcode-Buttons gibt es im „+ Essen hinzufügen"-Sheet jetzt vier klare Reiter: **Liste** (suchen), **📷 Scan** (Barcode direkt mit Kamera), **Manuell** (Bezeichnung + Kalorien/Makros eintragen) und **Neu** (eigenes Lebensmittel anlegen). Der Scanner steckt direkt im „Scan"-Reiter.
+- **Barcode-Fokus verbessert:** Höhere Kamera-Auflösung + Anforderung von Dauer-Autofokus (hilft bei kleinen Codes; teils hardwareabhängig).
+- **Untere Tab-Leiste ruhiger:** Auf dem iPhone „wanderte" die Navigationsleiste beim Scrollen manchmal ein Stück mit – durch eine eigene GPU-Ebene behoben.
+- **Einkaufsliste überarbeitet:** Auswahl für **3 Tage / 5 Tage / 1 Woche** (Mengen werden passend skaliert) und **abhakbare** Einträge (durchgestrichen, Fortschrittsanzeige).
+- **Ernährungs-Plan-Buttons dezenter** (Einkaufsliste / Ausschließen / Plan neu erstellen als Pills).
+- **Rezepte:** Großer roter „+ Eigenes Rezept hinzufügen"-Button am Ende der Liste.
+- **Hinweis-Boxen:** Das Ausblenden ist jetzt überall ein dezentes ✕ (auch beim globalen Hinweis-Mechanismus, der vorher die klobige „− ✕"-Leiste einfügte).
+
 ## 1.14.0
 - **Barcode-Scanner auf dem iPhone:** Der Kamera-Scan funktioniert jetzt auch in iOS-Safari (das kein natives `BarcodeDetector` hat). Die Kamera öffnet sich, erkennt den Strichcode automatisch (über die nachgeladene ZXing-Bibliothek) und trägt die Nummer ein → Produktsuche startet. Auf Android läuft weiterhin der schnelle native Weg; manuelle Eingabe bleibt als Rückfall. (Hinweis: braucht HTTPS + Kamera-Erlaubnis; ZXing wird beim ersten Scan aus dem Netz geladen.)
 - **„Heute geschafft" jetzt zielbasiert:** Die Ringe werden erst grün, wenn das Ziel wirklich erreicht ist – Ernährung erst im Kalorien-Korridor (nicht schon beim ersten Eintrag), Check-in erst mit allen Werten + erreichten Schlaf-/Schritte-/Wasser-Zielen, Supplements erst komplett. An Trainingstagen kommt ein vierter Ring „Training" dazu (grün, wenn alle geplanten Sätze geloggt sind).

@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.14.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.15.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -1041,11 +1041,8 @@ function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const su
       ${macroBar('Carbs',mac.carbs||0,tC,'var(--amber)')}
       ${macroBar('Fett',mac.fat||0,tF,'var(--blue)')}
     </div></div>`;
-  // SCHNELL HINZUFÜGEN: Lebensmittel suchen oder Barcode scannen (Plan/Rezepte über die Reiter oben)
-  h+=`<div style="display:flex;gap:10px;margin-bottom:10px">
-      <button class="btn" style="flex:1" onclick="openLogFood()">+ Essen hinzufügen</button>
-      <button class="btn sec" style="flex:0 0 auto;padding:15px 18px" onclick="openBarcodeScanner()">📷 Barcode</button>
-    </div>
+  // HINZUFÜGEN: ein klarer Button (Liste/Scan/Manuell/Neu stecken im Sheet), Plan/Rezepte über die Reiter oben
+  h+=`<button class="btn" style="margin-bottom:10px" onclick="openLogFood()">+ Essen hinzufügen</button>
     <div style="text-align:center;margin-bottom:16px"><button class="minibtn" onclick="openCalc()">🧮 Makro-Rechner</button></div>`;
   // PROTOKOLL nach Mahlzeit gruppiert (wie die besten Tracker – aber aufgeräumter)
   if(!items.length){h+='<div class="empty"><div class="ei">🍽️</div>Noch nichts getrackt heute.<br>Tippe „+ Essen hinzufügen".</div>';}
@@ -1115,7 +1112,6 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
     <button class="minibtn" onclick="openRecipeFilter()" style="display:flex;align-items:center;gap:6px;position:relative">
       <span style="font-size:15px">⚙️</span> Filter${hiddenActive?`<span style="position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 4px">${hiddenActive}</span>`:''}
     </button>
-    <button class="minibtn" onclick="openNewRecipe()">+ Eigenes</button>
   </div>`;
   // Sichtbare Filter-Pills: zeigen klar, dass Mahlzeiten für Zeit & Ziel angezeigt werden. Tippen = ändern.
   h+=`<div class="filter-pills">
@@ -1135,6 +1131,7 @@ async function drawRecipes(){const el=document.getElementById('dietBody');el.inn
     // Thumbnails nachladen (Fotos sind nicht in der Liste enthalten)
     recipes.filter(rc=>rc.has_photo).forEach(async rc=>{const dr=await API.get('/recipes/'+rc.id);
       if(dr.status===200&&dr.data.recipe.photo){const box=document.querySelector(`[data-rcthumb="${rc.id}"]`);if(box)box.innerHTML=`<img src="${dr.data.recipe.photo}" style="width:100%;height:100%;object-fit:cover">`;}});}
+  h+=`<button class="btn" style="margin-top:18px" onclick="openNewRecipe()">+ Eigenes Rezept hinzufügen</button>`;
   el.innerHTML=h;}
 
 // Filter-Sheet: Ziel, Mahlzeit, Budget, Ernährungsweise, Unverträglichkeiten – an einem Ort
@@ -1261,12 +1258,14 @@ async function saveNewRecipe(){const shareAth=document.getElementById('nr_share_
 function openLogFood(){
   openSheet('Essen hinzufügen',`
     <div class="seg" style="margin-bottom:16px">
-      <button id="lf_t1" class="on" onclick="lfTab(1)">Aus Liste</button>
-      <button id="lf_t2" onclick="lfTab(2)">Schnell</button>
-      <button id="lf_t3" onclick="lfTab(3)">Neu anlegen</button>
+      <button id="lf_t1" class="on" onclick="lfTab(1)">Liste</button>
+      <button id="lf_t2" onclick="lfTab(2)">📷 Scan</button>
+      <button id="lf_t3" onclick="lfTab(3)">Manuell</button>
+      <button id="lf_t4" onclick="lfTab(4)">Neu</button>
     </div>
     <div id="lfBody"></div>`);lfTab(1);}
-function lfTab(t){[1,2,3].forEach(i=>document.getElementById('lf_t'+i).classList.toggle('on',i===t));
+function lfTab(t){if(typeof stopBarcodeCam==='function')stopBarcodeCam(); // Kamera stoppen, wenn man den Scan-Tab verlässt
+  [1,2,3,4].forEach(i=>{const el=document.getElementById('lf_t'+i);if(el)el.classList.toggle('on',i===t);});
   const b=document.getElementById('lfBody');const slot=`<div class="field"><label>Mahlzeit</label><select id="lf_slot"><option>Frühstück</option><option>Mittag</option><option>Abend</option><option>Snack</option><option>Pre/Post Workout</option></select></div>`;
   if(t===1){if(!FOODS.length){b.innerHTML='<div class="empty">Lädt…</div>';return;}
     LF_SELECTED=null;
@@ -1275,7 +1274,17 @@ function lfTab(t){[1,2,3].forEach(i=>document.getElementById('lf_t'+i).classList
       <div id="lf_list" style="max-height:230px;overflow-y:auto;margin-bottom:14px"></div>
       <div id="lf_chosen"></div>`;
     lfFilter();}
-  else if(t===2){b.innerHTML=`<div class="info">Schnell-Eintrag: Wenn du nur die Kalorien kennst (z.B. von der Verpackung), trag sie direkt ein. Makros optional.</div>
+  else if(t===2){b.innerHTML=`
+      <div class="info">Scanne den Strichcode – die Nährwerte werden automatisch geladen und eingetragen.</div>
+      <div id="bc_cam" style="border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px;position:relative">
+        <video id="bc_video" playsinline muted autoplay style="width:100%;display:block;max-height:280px;object-fit:cover"></video>
+        <div style="position:absolute;left:8%;right:8%;top:50%;height:2px;background:rgba(255,59,48,.9);box-shadow:0 0 10px rgba(255,59,48,.8)"></div>
+      </div>
+      <div id="bc_status" style="text-align:center;color:var(--ink3);font-size:13px;margin-bottom:14px">Kamera startet… halte den Strichcode ins Bild.</div>
+      <div class="field"><label>oder Nummer (EAN) eintippen</label><input id="bc_code" type="text" inputmode="numeric" placeholder="z.B. 4337185272363"></div>
+      <button class="btn" onclick="lookupBarcode()">Produkt suchen</button>`;
+    startBarcodeCam();}
+  else if(t===3){b.innerHTML=`<div class="info">Manuell eintragen: Bezeichnung, Kalorien und optional die Makros (z.B. von der Verpackung).</div>
       <div class="field"><label>Bezeichnung</label><input id="qf_name" placeholder="z.B. Restaurant-Pizza"></div>
       <div class="field"><label>Kalorien (kcal)</label><input id="qf_kcal" type="number" inputmode="numeric" placeholder="z.B. 650"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
@@ -1388,10 +1397,10 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
       <button class="btn sec" style="margin-top:10px" onclick="openDislikes()">Erst Lebensmittel ausschließen</button>`;
     el.innerHTML=h;return;}
   // Plan vorhanden: Mahlzeiten + Aktionen
-  h+=`<div style="display:flex;gap:8px;margin-bottom:14px">
-      <button class="btn sec" style="flex:1" onclick="genMealPlan()">🔄 Neu erstellen</button>
-      <button class="btn sec" style="flex:1" onclick="openDislikes()">🚫 Ausschließen</button>
-      <button class="btn sec" style="flex:1" onclick="openShoppingList()">🛒 Einkauf</button></div>`;
+  h+=`<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="minibtn" onclick="openShoppingList()">🛒 Einkaufsliste</button>
+      <button class="minibtn" onclick="openDislikes()">🚫 Ausschließen</button>
+      <button class="minibtn" onclick="genMealPlan()">🔄 Plan neu erstellen</button></div>`;
   if(target){const diff=Math.round(kc-target);
     h+=`<div class="info" style="margin-bottom:14px">Plan: <b>${Math.round(kc)} kcal</b> · Ziel: <b>${target} kcal</b> ${Math.abs(diff)<=120?'– passt 👍':(diff>0?`(${diff} drüber)`:`(${Math.abs(diff)} drunter)`)}</div>`;}
   h+=meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);const mp=m.items.reduce((s,it)=>s+(it.protein||0),0);
@@ -2040,16 +2049,31 @@ async function aiSummary(id){openSheet('🤖 KI-Analyse','<div class="spinner"><
   else openSheet('🤖 KI-Analyse',`<div class="info">${esc2(r.data?.error||'Fehler bei der Analyse.')}</div><button class="btn sec" onclick="closeModal()">OK</button>`);}
 
 // ===== ERNÄHRUNG: EINKAUFSLISTE =====
+let SHOP_DATA=null, SHOP_DAYS=7, SHOP_CHECKED=new Set();
 async function openShoppingList(){openSheet('🛒 Einkaufsliste','<div class="spinner"></div>');
   const r=await API.get('/shoppinglist/'+VIEW_USER);
   if(r.status!==200||!r.data.items.length){openSheet('🛒 Einkaufsliste','<div class="empty"><div class="ei">🛒</div>Noch kein Ernährungsplan – erst einen Plan erstellen.</div>');return;}
-  const d=r.data;
-  openSheet('🛒 Einkaufsliste (1 Woche)',`
-    <div class="info">Berechnet aus deinem Plan: ${d.trainDays} Trainingstage + ${d.restDays} Ruhetage. Mengen gerundet.</div>
-    <div class="rows">`+d.items.map(i=>{
+  SHOP_DATA=r.data;SHOP_DAYS=7;SHOP_CHECKED=new Set();drawShopping();}
+function shopDays(n){SHOP_DAYS=n;drawShopping();}
+function shopToggle(name){if(SHOP_CHECKED.has(name))SHOP_CHECKED.delete(name);else SHOP_CHECKED.add(name);drawShopping();}
+function drawShopping(){const d=SHOP_DATA;if(!d)return;const factor=SHOP_DAYS/7;
+  const dayChip=(n,l)=>`<button class="daychip ${SHOP_DAYS===n?'now':''}" onclick="shopDays(${n})">${l}</button>`;
+  const items=d.items.map(i=>({food:i.food,
+    amount:Math.max(5,Math.round((i.amount*factor)/5)*5),
+    pieces:i.pieces?Math.max(1,Math.round(i.pieces*factor)):null}));
+  const got=items.filter(i=>SHOP_CHECKED.has(i.food)).length;
+  let h=`<div class="info">Menge für <b>${SHOP_DAYS===7?'1 Woche':SHOP_DAYS+' Tage'}</b> – aus deinem Plan berechnet. Tippe einen Eintrag an, um ihn abzuhaken.</div>
+    <div style="margin-bottom:6px;font-size:13px;color:var(--ink2)">Für wie viele Tage einkaufen?</div>
+    <div class="chip-row" style="margin-bottom:14px">${dayChip(3,'3 Tage')}${dayChip(5,'5 Tage')}${dayChip(7,'1 Woche')}</div>
+    <div class="rows">`+items.map(i=>{
       const menge=i.amount>=1000?(i.amount/1000).toFixed(1).replace('.',',')+' kg':i.amount+' g';
       const stk=i.pieces?` <span style="color:var(--ink3);font-weight:400">≈ ${i.pieces} Stück</span>`:'';
-      return `<div class="row"><div class="rl">${esc2(i.food)}</div><div class="rr"><b>${menge}</b>${stk}</div></div>`;}).join('')+`</div>`);}
+      const done=SHOP_CHECKED.has(i.food);
+      return `<div class="row" style="cursor:pointer" onclick="shopToggle('${esc(i.food)}')">
+        <div class="rl" style="display:flex;align-items:center;gap:10px"><span style="flex:0 0 auto;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;${done?'background:var(--green);color:#fff':'background:var(--surface2);box-shadow:inset 0 0 0 1.5px var(--line)'}">${done?'✓':''}</span><span style="${done?'color:var(--ink3);text-decoration:line-through':''}">${esc2(i.food)}</span></div>
+        <div class="rr"><b style="${done?'color:var(--ink3)':''}">${menge}</b>${done?'':stk}</div></div>`;}).join('')+`</div>
+    <div style="text-align:center;color:var(--ink3);font-size:13px;margin-top:12px">${got}/${items.length} erledigt</div>`;
+  openSheet('🛒 Einkaufsliste',h);}
 
 // ===== ATHLET: ERFOLGE =====
 let LAST_INSIGHTS=null;
@@ -2757,6 +2781,14 @@ function loadZXing(){
   });
   return _zxingPromise;
 }
+// Höhere Auflösung hilft bei kleinen Barcodes; Dauer-Autofokus anfordern (best-effort, Hardware-abhängig).
+const BC_VIDEO_CONSTRAINTS={facingMode:'environment',width:{ideal:1920},height:{ideal:1080}};
+function tryContinuousFocus(){
+  setTimeout(()=>{try{const v=document.getElementById('bc_video');
+    const tr=v&&v.srcObject&&v.srcObject.getVideoTracks&&v.srcObject.getVideoTracks()[0];
+    if(tr&&tr.applyConstraints)tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+  }catch(e){}},900);
+}
 function openBarcodeScanner(){
   openSheet('📷 Barcode scannen',`
     <div id="bc_cam" style="border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px;position:relative">
@@ -2774,8 +2806,8 @@ async function startBarcodeCam(){
   // 1) Schneller nativer Weg (Android/Chrome): BarcodeDetector
   if('BarcodeDetector' in window){
     try{
-      BC_STREAM=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-      v.srcObject=BC_STREAM;await v.play();
+      BC_STREAM=await navigator.mediaDevices.getUserMedia({video:BC_VIDEO_CONSTRAINTS});
+      v.srcObject=BC_STREAM;await v.play();tryContinuousFocus();
       const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
       BC_RUNNING=true;if(st)st.textContent='Halte den Strichcode ins Bild.';
       const scan=async()=>{
@@ -2794,10 +2826,11 @@ async function startBarcodeCam(){
   try{
     BC_ZXING=new Z.BrowserMultiFormatReader();
     BC_RUNNING=true;if(st)st.textContent='Halte den Strichcode ins Bild.';
-    BC_ZXING.decodeFromConstraints({video:{facingMode:'environment'}},v,(result)=>{
+    BC_ZXING.decodeFromConstraints({video:BC_VIDEO_CONSTRAINTS},v,(result)=>{
       if(result&&BC_RUNNING){const code=result.getText();stopBarcodeCam();
         const inp=document.getElementById('bc_code');if(inp)inp.value=code;lookupBarcode(code);}
     });
+    tryContinuousFocus();
   }catch(e){if(st)st.textContent='Kamera-Zugriff verweigert – Nummer unten eintippen.';}}
 function stopBarcodeCam(){BC_RUNNING=false;
   if(BC_STREAM){BC_STREAM.getTracks().forEach(t=>t.stop());BC_STREAM=null;}
@@ -3118,15 +3151,12 @@ function applyHintControls(){
     const key=hintKey(txt);
     if(hintsDismissed()[key]){box.remove();return;}
     if(!box.style.position)box.style.position='relative';
-    box.style.paddingRight='56px';
-    const ctr=document.createElement('span');
-    ctr.style.cssText='position:absolute;top:6px;right:6px;display:flex;gap:3px;z-index:1';
-    const mk=(label,title)=>{const b=document.createElement('button');b.textContent=label;b.title=title;
-      b.style.cssText='border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:15px;line-height:1;cursor:pointer';return b;};
-    const bTemp=mk('−','Vorübergehend ausblenden'),bPerm=mk('✕','Komplett ausblenden – nicht mehr anzeigen');
-    bTemp.onclick=()=>box.remove();
-    bPerm.onclick=()=>{const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}box.remove();toast('Hinweis ausgeblendet – unter „Mehr" wieder aktivierbar.');};
-    ctr.appendChild(bTemp);ctr.appendChild(bPerm);box.appendChild(ctr);
+    box.style.paddingRight='30px';
+    const b=document.createElement('button');
+    b.textContent='✕';b.title='Hinweis ausblenden';b.setAttribute('aria-label','Ausblenden');
+    b.style.cssText='position:absolute;top:8px;right:8px;width:22px;height:22px;border:none;background:transparent;color:var(--ink3);font-size:14px;line-height:1;cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:1';
+    b.onclick=()=>{const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}box.remove();toast('Hinweis ausgeblendet – unter „Mehr" wieder aktivierbar.');};
+    box.appendChild(b);
   });
 }
 // Bei jeder DOM-Änderung (Seitenwechsel, Sheets) die Steuerelemente nachrüsten.
