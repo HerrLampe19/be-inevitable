@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.15.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.16.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -277,34 +277,44 @@ function homeCheckinHTML(){
 function setCheckinDate(d){CHECKIN_DATE=d;const el=document.getElementById('homeCheckin');if(el)el.innerHTML=homeCheckinHTML();}
 
 // Bulk-Nachtragen: mehrere vergangene Tage auf einmal eintragen
+let BULK_SEL=new Set(), BULK_CIS={};
+function bulkChipsHTML(){
+  const tdy=today();let chips='';
+  for(let i=0;i<14;i++){const d=new Date(tdy+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-i);const iso=fmt(d);
+    const c=BULK_CIS[iso]||{};const has=c.weight!=null||c.sleep!=null||c.steps!=null||c.water!=null;
+    const lbl=i===0?'Heute':i===1?'Gestern':d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',timeZone:'UTC'});
+    const on=BULK_SEL.has(iso);
+    chips+=`<button class="daychip ${on?'now':''}" onclick="bulkToggleDay('${iso}')">${on?'✓ ':has?'• ':''}${lbl}</button>`;}
+  return chips;
+}
+function bulkToggleDay(iso){if(BULK_SEL.has(iso))BULK_SEL.delete(iso);else BULK_SEL.add(iso);
+  const c=document.getElementById('bk_chips');if(c)c.innerHTML=bulkChipsHTML();
+  const b=document.getElementById('bk_apply');const n=BULK_SEL.size;
+  if(b){b.disabled=!n;b.style.opacity=n?'1':'.5';b.textContent=n?('Auf '+n+' Tag'+(n>1?'e':'')+' anwenden'):'Erst Tage auswählen';}
+}
 async function openBulkCheckin(){
   openSheet('📅 Mehrere Tage nachtragen','<div class="spinner"></div>');
   const r=await API.get('/checkins/'+VIEW_USER);const cis=r.data?.checkins||[];
-  const byDate={};cis.forEach(c=>byDate[c.date]=c);
-  const tdy=today();
-  const inp=(iso,f,ph,step)=>{const c=byDate[iso]||{};const v=c[f]!=null?c[f]:'';
-    return `<input data-bd="${iso}" data-bf="${f}" type="number" ${step?`step="${step}"`:''} inputmode="decimal" placeholder="${ph}" value="${v}" style="width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:8px 6px;text-align:center;font-size:14px;color:var(--ink)">`;};
-  let rows='';
-  for(let i=0;i<10;i++){const d=new Date(tdy+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-i);const iso=fmt(d);
-    const c=byDate[iso]||{};const has=c.weight!=null||c.sleep!=null||c.steps!=null||c.water!=null;
-    const lbl=i===0?'Heute':i===1?'Gestern':d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',timeZone:'UTC'});
-    rows+=`<div style="padding:10px 0;border-bottom:.5px solid var(--line)">
-      <div style="font-weight:600;font-size:13px;margin-bottom:6px">${lbl}${has?' <span style="color:var(--green)">✓</span>':''}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
-        ${inp(iso,'weight','kg','0.1')}${inp(iso,'sleep','h Schlaf','0.5')}${inp(iso,'steps','Schritte')}${inp(iso,'water','L Wasser','0.1')}
-      </div></div>`;}
+  BULK_CIS={};cis.forEach(c=>BULK_CIS[c.date]=c);BULK_SEL=new Set();
   openSheet('📅 Mehrere Tage nachtragen',`
-    <div class="info">Trag pro Tag ein, was du nachholen willst (Gewicht · Schlaf · Schritte · Wasser). Leere Felder bleiben unverändert.</div>
-    ${rows}
-    <button class="btn" style="margin-top:16px" onclick="saveBulkCheckin()">Alle speichern</button>`);
+    <div class="info">Werte eintragen, dann die Tage auswählen und mit einem Tipp auf alle übernehmen. Leere Felder bleiben unverändert.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field"><label>Gewicht (kg)</label><input id="bk_weight" type="number" step="0.1" inputmode="decimal" placeholder="z.B. 63"></div>
+      <div class="field"><label>Schlaf (h)</label><input id="bk_sleep" type="number" step="0.5" inputmode="decimal" placeholder="z.B. 8"></div>
+      <div class="field"><label>Schritte</label><input id="bk_steps" type="number" inputmode="numeric" placeholder="z.B. 9000"></div>
+      <div class="field"><label>Wasser (L)</label><input id="bk_water" type="number" step="0.1" inputmode="decimal" placeholder="z.B. 3"></div>
+    </div>
+    <div style="margin:6px 0;font-size:13px;color:var(--ink2)">Tage auswählen (• = schon Daten vorhanden, ✓ = ausgewählt)</div>
+    <div id="bk_chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${bulkChipsHTML()}</div>
+    <button class="btn" id="bk_apply" disabled style="opacity:.5" onclick="saveBulkCheckin()">Erst Tage auswählen</button>`);
 }
 async function saveBulkCheckin(){
-  const byDate={};
-  document.querySelectorAll('[data-bd]').forEach(el=>{const v=el.value.trim();if(v==='')return;
-    (byDate[el.dataset.bd]=byDate[el.dataset.bd]||{})[el.dataset.bf]=parseFloat(v);});
-  const dates=Object.keys(byDate);if(!dates.length)return toast('Nichts einzutragen');
-  let n=0;for(const d of dates){const r=await API.post('/checkins',{user_id:VIEW_USER,date:d,...byDate[d]});if(r.status===200)n++;}
-  closeModal();toast(n+' Tag(e) nachgetragen ✓');refreshAchievements();go('home');
+  if(!BULK_SEL.size)return toast('Bitte Tage auswählen');
+  const vals={};const w=num('bk_weight'),sl=num('bk_sleep'),st=num('bk_steps'),wa=num('bk_water');
+  if(w!=null)vals.weight=w;if(sl!=null)vals.sleep=sl;if(st!=null)vals.steps=st;if(wa!=null)vals.water=wa;
+  if(!Object.keys(vals).length)return toast('Bitte mindestens einen Wert eingeben');
+  let n=0;for(const d of BULK_SEL){const r=await API.post('/checkins',{user_id:VIEW_USER,date:d,...vals});if(r.status===200)n++;}
+  closeModal();toast(n+' Tag'+(n>1?'e':'')+' nachgetragen ✓');refreshAchievements();go('home');
 }
 
 // ===== Feier-Momente: Konfetti + Pop =====
@@ -433,11 +443,10 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
     const tdy=today();
     const ciToday=(cis||[]).find(c=>c.date===tdy)||null;
     const checkedInToday=!!(ciToday&&(ciToday.weight!=null||ciToday.sleep!=null||ciToday.steps!=null||ciToday.water!=null));
-    // Check-in: erst grün, wenn ALLE Werte da sind UND die persönlichen Ziele erreicht sind.
-    const sgl=ME.sleep_goal||8, stgl=ME.steps_goal||10000, wgl=ME.water_goal||3;
-    const gCheckin=!!(ciToday&&ciToday.weight!=null&&(ciToday.sleep||0)>=sgl&&(ciToday.steps||0)>=stgl&&(ciToday.water||0)>=wgl);
-    // Ernährung: erst grün, wenn das Kalorienziel erreicht ist (im Zielkorridor), nicht schon beim ersten Eintrag.
-    const gFood=foodSummary.target?(foodSummary.status==='onTarget'):((foodSummary.consumed||0)>0);
+    // Check-in: grün, sobald für heute überhaupt etwas eingetragen wurde.
+    const gCheckin=checkedInToday;
+    // Ernährung: grün, sobald das Kalorienziel erreicht ist (auch wenn drüber) – unabhängig von den Makros.
+    const gFood=foodSummary.target?(foodSummary.status==='onTarget'||foodSummary.status==='over'):((foodSummary.consumed||0)>0);
     const sTot=suppData?suppData.total||0:0,sDone=suppData?suppData.done||0:0;
     const gSupp=sTot===0?true:sDone>=sTot;
     const goals=[{ic:'📝',l:'Check-in',done:gCheckin,act:"document.getElementById('homeCheckin')?.scrollIntoView({behavior:'smooth',block:'center'})"},
@@ -981,16 +990,15 @@ async function renderDiet(v){if(!TODAY)await loadToday();
       <button id="dt_track" class="on" onclick="dietTab('track')">Heute</button>
       <button id="dt_plan" onclick="dietTab('plan')">Plan</button>
       <button id="dt_recipes" onclick="dietTab('recipes')">Rezepte</button>
+      ${VIEW_USER===ME.id?`<button id="dt_cart" onclick="dietTab('cart')">Einkauf</button>`:''}
     </div>
     <div id="dietBody"><div class="spinner"></div></div></div>`;
   const [mr,fr]=await Promise.all([API.get('/meals/'+VIEW_USER),API.get('/foodlog/'+VIEW_USER+'?date='+today())]);
   renderDiet.meals=mr.data?.meals||[];renderDiet.foodlog=fr.data||{items:[],summary:{}};
   dietTab('track');}
 function dietTab(t){renderDiet.tab=t;
-  document.getElementById('dt_track').classList.toggle('on',t==='track');
-  document.getElementById('dt_plan').classList.toggle('on',t==='plan');
-  document.getElementById('dt_recipes').classList.toggle('on',t==='recipes');
-  if(t==='track')drawTrack();else if(t==='plan')drawDiet();else drawRecipes();}
+  [['track','dt_track'],['plan','dt_plan'],['recipes','dt_recipes'],['cart','dt_cart']].forEach(([k,id])=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',t===k);});
+  if(t==='track')drawTrack();else if(t==='plan')drawDiet();else if(t==='cart')drawCart();else drawRecipes();}
 function macroRow(kc,p,c,f,target){return `<div class="macro-row">
     <div class="macro kcal"><div class="v">${Math.round(kc)}${target?`<em>/${target}</em>`:''}</div><div class="k">kcal</div></div>
     <div class="macro"><div class="v">${Math.round(p)}<em>g</em></div><div class="k">Protein</div></div>
@@ -1181,7 +1189,8 @@ async function openRecipe(id){let rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)ret
     <button class="btn" style="flex:1" onclick="logRecipe(${rc.id})">🍽️ Gegessen – ins Protokoll</button>
     <button class="btn sec" style="flex:1" onclick="findSimilarRecipes(${rc.kcal||0},'${esc(rc.meal_type||'')}')">🔄 Mahlzeit tauschen</button>
   </div>`;
-  h+=`<button class="btn sec" style="margin-bottom:4px" onclick="shareViaLink('recipe',${rc.id})">🔗 Per Link teilen (WhatsApp & Co.)</button>`;
+  h+=`<button class="btn sec" style="margin-bottom:10px" onclick="cartFromRecipe(${rc.id})">🛒 Zutaten in den Einkaufswagen</button>`;
+  h+=`<button class="btn sec" style="margin-bottom:4px" onclick="shareViaLink('recipe',${rc.id})">🔗 Per Link teilen</button>`;
   if(rc.link)h+=`<a class="btn sec" style="margin-top:10px;display:block;text-align:center;text-decoration:none" href="${esc(rc.link)}" target="_blank" rel="noopener">▶ Rezept ansehen (extern)</a>`;
   if(rc.ingredients){h+=`<div class="section-label">Zutaten</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.ingredients)}</div>`;}
   if(rc.steps){h+=`<div class="section-label">Zubereitung</div><div class="surface pad" style="white-space:pre-line;font-size:14px;line-height:1.7">${esc2(rc.steps)}</div>`;}
@@ -1397,10 +1406,7 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
       <button class="btn sec" style="margin-top:10px" onclick="openDislikes()">Erst Lebensmittel ausschließen</button>`;
     el.innerHTML=h;return;}
   // Plan vorhanden: Mahlzeiten + Aktionen
-  h+=`<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      <button class="minibtn" onclick="openShoppingList()">🛒 Einkaufsliste</button>
-      <button class="minibtn" onclick="openDislikes()">🚫 Ausschließen</button>
-      <button class="minibtn" onclick="genMealPlan()">🔄 Plan neu erstellen</button></div>`;
+  h+=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="minibtn" onclick="openPlanMenu()">⚙️ Plan-Optionen</button></div>`;
   if(target){const diff=Math.round(kc-target);
     h+=`<div class="info" style="margin-bottom:14px">Plan: <b>${Math.round(kc)} kcal</b> · Ziel: <b>${target} kcal</b> ${Math.abs(diff)<=120?'– passt 👍':(diff>0?`(${diff} drüber)`:`(${Math.abs(diff)} drunter)`)}</div>`;}
   h+=meals.map(m=>{const mk=m.items.reduce((s,it)=>s+(it.kcal||0),0);const mp=m.items.reduce((s,it)=>s+(it.protein||0),0);
@@ -2074,6 +2080,41 @@ function drawShopping(){const d=SHOP_DATA;if(!d)return;const factor=SHOP_DAYS/7;
         <div class="rr"><b style="${done?'color:var(--ink3)':''}">${menge}</b>${done?'':stk}</div></div>`;}).join('')+`</div>
     <div style="text-align:center;color:var(--ink3);font-size:13px;margin-top:12px">${got}/${items.length} erledigt</div>`;
   openSheet('🛒 Einkaufsliste',h);}
+
+// Plan-Optionen (dezentes Zahnrad-Menü statt großer Buttons)
+function openPlanMenu(){openSheet('Plan-Optionen',`
+  <div class="rows">
+    <div class="row" style="cursor:pointer" onclick="closeModal();genMealPlan()"><div class="rl">🔄 Plan neu erstellen<small>Automatisch aus Profil &amp; Ziel</small></div><div class="rr">›</div></div>
+    <div class="row" style="cursor:pointer" onclick="closeModal();openDislikes()"><div class="rl">🚫 Lebensmittel ausschließen<small>Was nicht im Plan landen soll</small></div><div class="rr">›</div></div>
+    <div class="row" style="cursor:pointer" onclick="closeModal();dietTab('cart')"><div class="rl">🛒 Zum Einkaufswagen<small>Einkaufsliste verwalten</small></div><div class="rr">›</div></div>
+  </div>`);}
+
+// ===== EINKAUFSWAGEN (eigener Reiter) =====
+async function drawCart(){const el=document.getElementById('dietBody');if(!el)return;el.innerHTML='<div class="spinner"></div>';
+  const r=await API.get('/cart');const items=r.data?.items||[];
+  let h=`<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="minibtn" onclick="cartFromPlan()">📋 Aus Plan übernehmen</button>
+      <button class="minibtn" onclick="cartAddManual()">+ Hinzufügen</button>
+      ${items.some(i=>i.checked)?`<button class="minibtn" onclick="cartClear(true)">Erledigte weg</button>`:''}
+      ${items.length?`<button class="minibtn red" onclick="cartClear(false)">Wagen leeren</button>`:''}
+    </div>`;
+  if(!items.length){h+=`<div class="empty"><div class="ei">🛒</div><div style="font-weight:600;margin-bottom:4px">Dein Einkaufswagen ist leer</div><div style="color:var(--ink2);font-size:14px">Übernimm deinen Plan, lege Rezept-Zutaten hinein oder füge selbst etwas hinzu.</div></div>`;
+    el.innerHTML=h;return;}
+  const open=items.filter(i=>!i.checked), done=items.filter(i=>i.checked);
+  const row=i=>`<div class="row" style="cursor:pointer" onclick="cartToggle(${i.id})">
+    <div class="rl" style="display:flex;align-items:center;gap:10px"><span style="flex:0 0 auto;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;${i.checked?'background:var(--green);color:#fff':'background:var(--surface2);box-shadow:inset 0 0 0 1.5px var(--line)'}">${i.checked?'✓':''}</span><span style="${i.checked?'color:var(--ink3);text-decoration:line-through':''}">${esc2(i.text)}</span></div>
+    <button class="minibtn red" style="flex:0 0 auto" onclick="event.stopPropagation();cartDelete(${i.id})">✕</button></div>`;
+  if(open.length)h+=`<div class="rows" style="margin-bottom:12px">`+open.map(row).join('')+`</div>`;
+  if(done.length)h+=`<div class="section-label">Erledigt (${done.length})</div><div class="rows">`+done.map(row).join('')+`</div>`;
+  h+=`<div style="text-align:center;color:var(--ink3);font-size:13px;margin-top:12px">${done.length}/${items.length} erledigt</div>`;
+  el.innerHTML=h;}
+async function cartFromPlan(){const r=await API.post('/cart/from-plan',{});if(r.status===200){toast((r.data.added||0)+' Artikel aus dem Plan ✓');drawCart();}else toast(r.data?.error||'Erst einen Ernährungsplan erstellen');}
+function cartAddManual(){openSheet('+ Zum Einkaufswagen',`<div class="field"><label>Was brauchst du?</label><input id="cart_text" placeholder="z.B. 6 Eier, Olivenöl, Haferflocken"></div><button class="btn" onclick="cartSaveManual()">Hinzufügen</button>`);}
+async function cartSaveManual(){const t=val('cart_text');if(!t)return toast('Bitte etwas eingeben');const r=await API.post('/cart/add',{text:t,source:'manual'});if(r.status===200){closeModal();dietTab('cart');}else toast('Fehler');}
+async function cartFromRecipe(id){const r=await API.post('/cart/from-recipe/'+id,{});if(r.status===200)toast((r.data.added||0)+' Zutaten im Einkaufswagen ✓');else toast(r.data?.error||'Fehler');}
+async function cartToggle(id){await API.post('/cart/'+id+'/toggle',{});drawCart();}
+async function cartDelete(id){await API.del('/cart/item/'+id);drawCart();}
+async function cartClear(checkedOnly){if(!checkedOnly&&!window.confirm('Den ganzen Einkaufswagen leeren?'))return;await API.post('/cart/clear',{checkedOnly});drawCart();}
 
 // ===== ATHLET: ERFOLGE =====
 let LAST_INSIGHTS=null;

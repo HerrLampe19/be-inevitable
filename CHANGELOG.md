@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.16.0
+- **Ernährung neu strukturiert:** Klare Reiter **Heute · Plan · Rezepte · Einkauf**. Jedes Feature hat jetzt einen festen Platz.
+- **Einkaufswagen (neu, eigener Reiter):** Persistente Einkaufsliste – Artikel aus dem Plan übernehmen („📋 Aus Plan übernehmen"), Zutaten aus Rezepten hineinlegen, selbst hinzufügen; alles abhakbar, einzeln löschbar, „Erledigte weg" / „Wagen leeren". Geräteübergreifend gespeichert (neue Tabelle `cart_items`, automatische Migration).
+- **Rezepte:** Neuer Button „🛒 Zutaten in den Einkaufswagen".
+- **Plan-Reiter aufgeräumt:** „Plan neu erstellen" und „Ausschließen" stecken jetzt in einem dezenten **⚙️ Plan-Optionen**-Menü statt als große Buttons.
+
+## 1.15.1
+- **Bug: untere Tab-Leiste verdeckt Inhalt** – mehr Abstand am Seitenende, sodass der letzte Inhalt immer über die Leiste gescrollt werden kann.
+- **„Heute geschafft": Ernährung** wird jetzt grün, **sobald das Kalorienziel erreicht ist** (auch wenn drüber) – unabhängig davon, ob Protein/Carbs/Fett schon passen.
+- **„Heute geschafft": Check-in** wird grün, **sobald für heute überhaupt etwas eingetragen** wurde (vorher blieb er praktisch immer offen).
+- **Mehrere Tage nachtragen neu:** Werte einmal eintragen, dann mehrere Tage auswählen und **gemeinsam** übernehmen (statt jeden Tag einzeln) – die Eingaben bleiben beim Auswählen erhalten.
+- Rezept-„Teilen"-Button heißt jetzt schlicht **„Per Link teilen"**.
+
 ## 1.15.0
 - **Essen hinzufügen neu strukturiert:** Statt eines großen Barcode-Buttons gibt es im „+ Essen hinzufügen"-Sheet jetzt vier klare Reiter: **Liste** (suchen), **📷 Scan** (Barcode direkt mit Kamera), **Manuell** (Bezeichnung + Kalorien/Makros eintragen) und **Neu** (eigenes Lebensmittel anlegen). Der Scanner steckt direkt im „Scan"-Reiter.
 - **Barcode-Fokus verbessert:** Höhere Kamera-Auflösung + Anforderung von Dauer-Autofokus (hilft bei kleinen Codes; teils hardwareabhängig).

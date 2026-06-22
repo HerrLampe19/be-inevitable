@@ -290,7 +290,7 @@ app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
 });
 
 // Versionsnummer – zum Prüfen, ob das aktuelle Deployment live ist (auch ohne Login abrufbar)
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.16.0';
 app.get('/api/version', (req, res) => res.json({ version: APP_VERSION,
   mail: process.env.EMAIL_HOST ? 'konfiguriert' : 'log-fallback',
   app_url: process.env.APP_URL ? 'gesetzt' : 'FEHLT (Links in Mails zeigen ins Leere!)' }));
@@ -2226,9 +2226,7 @@ app.get('/api/admin/stats', auth, requireAdmin, (req, res) => {
 
 /* ---------------- EINKAUFSLISTE AUS DEM ERNÄHRUNGSPLAN ---------------- */
 // Aggregiert die Mahlzeiten-Zutaten für eine Woche (Trainings- vs. Ruhetage nach Frequenz).
-app.get('/api/shoppinglist/:userId', auth, (req, res) => {
-  const uid = Number(req.params.userId);
-  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+function computeShoppingList(uid) {
   const u = getUserFull(uid);
   const trainDays = Math.max(1, Math.min(7, Number(u?.days_per_week) || 3));
   const restDays = 7 - trainDays;
@@ -2244,7 +2242,58 @@ app.get('/api/shoppinglist/:userId', auth, (req, res) => {
     const pi = pieceInfo(food);
     return pi ? { food, amount: a, pieces: Math.max(1, Math.round(a / pi.pieceG)) } : { food, amount: a };
   }).filter(i => i.amount > 0).sort((a, b) => b.amount - a.amount);
-  res.json({ items, trainDays, restDays });
+  return { items, trainDays, restDays };
+}
+app.get('/api/shoppinglist/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccess(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  res.json(computeShoppingList(uid));
+});
+
+/* ---------------- EINKAUFSWAGEN (persistent, pro Nutzer) ---------------- */
+function fmtShopItem(i) {
+  const menge = i.amount >= 1000 ? (i.amount / 1000).toFixed(1).replace('.', ',') + ' kg' : i.amount + ' g';
+  return i.food + ' – ' + menge + (i.pieces ? ' (≈ ' + i.pieces + ' Stück)' : '');
+}
+app.get('/api/cart', auth, (req, res) => {
+  res.json({ items: db.all('SELECT id,text,source,checked FROM cart_items WHERE user_id=? ORDER BY checked, id', [req.user.id]) });
+});
+app.post('/api/cart/add', auth, (req, res) => {
+  const texts = Array.isArray(req.body.texts) ? req.body.texts : (req.body.text ? [req.body.text] : []);
+  const source = ['plan', 'recipe', 'manual'].includes(req.body.source) ? req.body.source : 'manual';
+  let added = 0;
+  for (const t of texts) { const s = String(t || '').trim().slice(0, 200); if (!s) continue; db.run('INSERT INTO cart_items(user_id,text,source) VALUES(?,?,?)', [req.user.id, s, source]); added++; }
+  res.json({ ok: true, added });
+});
+// Aktuellen Plan in den Wagen übernehmen (ersetzt vorherige Plan-Einträge)
+app.post('/api/cart/from-plan', auth, (req, res) => {
+  const { items } = computeShoppingList(req.user.id);
+  db.run("DELETE FROM cart_items WHERE user_id=? AND source='plan'", [req.user.id]);
+  let added = 0;
+  for (const i of items) { db.run("INSERT INTO cart_items(user_id,text,source) VALUES(?,?,'plan')", [req.user.id, fmtShopItem(i)]); added++; }
+  res.json({ ok: true, added });
+});
+// Zutaten eines Rezepts in den Wagen legen
+app.post('/api/cart/from-recipe/:id', auth, (req, res) => {
+  const rec = db.get('SELECT ingredients FROM recipes WHERE id=? AND (owner_id IS NULL OR owner_id=?)', [req.params.id, req.user.id]);
+  if (!rec) return res.status(404).json({ error: 'Rezept nicht gefunden' });
+  const lines = String(rec.ingredients || '').split('\n').map(s => s.trim()).filter(Boolean);
+  let added = 0;
+  for (const l of lines) { db.run("INSERT INTO cart_items(user_id,text,source) VALUES(?,?,'recipe')", [req.user.id, l.slice(0, 200)]); added++; }
+  res.json({ ok: true, added });
+});
+app.post('/api/cart/:id/toggle', auth, (req, res) => {
+  db.run('UPDATE cart_items SET checked=1-checked WHERE id=? AND user_id=?', [req.params.id, req.user.id]);
+  res.json({ ok: true });
+});
+app.delete('/api/cart/item/:id', auth, (req, res) => {
+  db.run('DELETE FROM cart_items WHERE id=? AND user_id=?', [req.params.id, req.user.id]);
+  res.json({ ok: true });
+});
+app.post('/api/cart/clear', auth, (req, res) => {
+  if (req.body.checkedOnly) db.run('DELETE FROM cart_items WHERE user_id=? AND checked=1', [req.user.id]);
+  else db.run('DELETE FROM cart_items WHERE user_id=?', [req.user.id]);
+  res.json({ ok: true });
 });
 
 /* ---------------- KI-ANALYSE (optional, braucht ANTHROPIC_API_KEY) ---------------- */

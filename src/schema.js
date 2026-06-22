@@ -336,6 +336,18 @@ export function initSchema() {
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  -- Einkaufswagen: persistente Einkaufsliste pro Nutzer. Zeilen kommen aus dem Plan,
+  -- aus Rezepten (Zutaten) oder manuell. source erlaubt gezieltes Ersetzen (z.B. Plan neu übernehmen).
+  CREATE TABLE IF NOT EXISTS cart_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    text TEXT NOT NULL,                      -- Anzeigetext, z.B. "180 g Hähnchenbrust"
+    source TEXT DEFAULT 'manual',            -- 'plan' | 'recipe' | 'manual'
+    checked INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_setlogs ON set_logs(user_id, exercise_id, date);
   CREATE INDEX IF NOT EXISTS idx_checkins ON checkins(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_foodlog ON food_log(user_id, date);
