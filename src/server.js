@@ -271,6 +271,12 @@ app.post('/api/notifications', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Einführungs-Tour als gesehen markieren (einmalig pro Konto, geräteübergreifend)
+app.post('/api/tour-done', auth, (req, res) => {
+  db.run('UPDATE users SET tour_done=1 WHERE id=?', [req.user.id]);
+  res.json({ ok: true });
+});
+
 // Coach setzt Passwort eines Athleten zurück (Self-Service-Reset per E-Mail kommt später mit Mailversand)
 app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
   const a = db.get('SELECT coach_id FROM users WHERE id=?', [req.params.id]);
@@ -284,7 +290,7 @@ app.post('/api/athlete/:id/resetpw', auth, requireCoach, (req, res) => {
 });
 
 // Versionsnummer – zum Prüfen, ob das aktuelle Deployment live ist (auch ohne Login abrufbar)
-const APP_VERSION = '1.13.0';
+const APP_VERSION = '1.14.0';
 app.get('/api/version', (req, res) => res.json({ version: APP_VERSION,
   mail: process.env.EMAIL_HOST ? 'konfiguriert' : 'log-fallback',
   app_url: process.env.APP_URL ? 'gesetzt' : 'FEHLT (Links in Mails zeigen ins Leere!)' }));
@@ -444,8 +450,8 @@ app.get('/api/coach/overview', auth, requireCoach, (req, res) => {
 app.get('/api/athletes', auth, requireCoach, (req, res) => {
   // Coach sieht seine Athleten; Admin sieht alle Athleten im System
   const list = req.user.role === 'admin'
-    ? db.all("SELECT id,name,email,goal,phase,days_per_week,start_weight FROM users WHERE role='athlete' ORDER BY name")
-    : db.all('SELECT id,name,email,goal,phase,days_per_week,start_weight FROM users WHERE coach_id=? ORDER BY name', [req.user.id]);
+    ? db.all("SELECT id,name,email,goal,phase,days_per_week,start_weight,(avatar IS NOT NULL) AS has_avatar FROM users WHERE role='athlete' ORDER BY name")
+    : db.all('SELECT id,name,email,goal,phase,days_per_week,start_weight,(avatar IS NOT NULL) AS has_avatar FROM users WHERE coach_id=? ORDER BY name', [req.user.id]);
   // Pro Athlet: letzte Aktivität + Trainings diese Woche + ungelesene Coach-relevante Infos
   const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
   for (const a of list) {

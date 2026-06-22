@@ -384,6 +384,7 @@ export function initSchema() {
   addCol('push_hour', 'INTEGER');         // Stunde (UTC/Serverzeit) der täglichen Trainings-Erinnerung; NULL = 6
   addCol('streak_freezes', 'INTEGER DEFAULT 1'); // verfügbare Streak-Joker (Start 1, max 2)
   addCol('freeze_last_grant', 'TEXT');    // Datum der letzten Joker-Gutschrift
+  addCol('tour_done', 'INTEGER DEFAULT 0'); // Einführungs-Tour einmalig pro Konto gesehen?
 
   // exercise_notes: Autor-Spalten nachrüsten (bestehende DBs)
   const enCols = db.all("PRAGMA table_info(exercise_notes)").map(c => c.name);

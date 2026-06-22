@@ -9,7 +9,7 @@ const API={async req(m,p,b){try{const o={method:m,headers:{},credentials:'same-o
 
 // ===== STATE =====
 let ME=null,VIEW_USER=null,PLAN=null,CUR_DAY=null,DIET='training',FOODS=[],DEFS=[],authMode='login';
-const APP_VERSION='1.13.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
+const APP_VERSION='1.14.0'; // bei jeder Änderungs-Runde hochzählen -> zeigt an, ob die neue Version live ist
 let TODAY=null,UNREAD=0;
 const today=()=>new Date().toISOString().slice(0,10);
 
@@ -272,9 +272,40 @@ function homeCheckinHTML(){
       <div class="field"><label>Wasser (L)</label><input id="qc_water" type="number" step="0.1" inputmode="decimal" min="0" max="30" value="${val('water')}" placeholder="${last.water||'3'}"></div>
     </div>
     <button class="btn" onclick="quickCheckin()">${past?'Nachtragen':'Check-in speichern'}</button>
-    <div style="font-size:12px;color:var(--ink3);text-align:center;margin-top:8px">Leer lassen ist okay – trag ein, was du hast.</div>`;
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px"><span style="font-size:12px;color:var(--ink3)">Leer lassen ist okay.</span><button class="minibtn" onclick="openBulkCheckin()">📅 Mehrere Tage</button></div>`;
 }
 function setCheckinDate(d){CHECKIN_DATE=d;const el=document.getElementById('homeCheckin');if(el)el.innerHTML=homeCheckinHTML();}
+
+// Bulk-Nachtragen: mehrere vergangene Tage auf einmal eintragen
+async function openBulkCheckin(){
+  openSheet('📅 Mehrere Tage nachtragen','<div class="spinner"></div>');
+  const r=await API.get('/checkins/'+VIEW_USER);const cis=r.data?.checkins||[];
+  const byDate={};cis.forEach(c=>byDate[c.date]=c);
+  const tdy=today();
+  const inp=(iso,f,ph,step)=>{const c=byDate[iso]||{};const v=c[f]!=null?c[f]:'';
+    return `<input data-bd="${iso}" data-bf="${f}" type="number" ${step?`step="${step}"`:''} inputmode="decimal" placeholder="${ph}" value="${v}" style="width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:8px 6px;text-align:center;font-size:14px;color:var(--ink)">`;};
+  let rows='';
+  for(let i=0;i<10;i++){const d=new Date(tdy+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-i);const iso=fmt(d);
+    const c=byDate[iso]||{};const has=c.weight!=null||c.sleep!=null||c.steps!=null||c.water!=null;
+    const lbl=i===0?'Heute':i===1?'Gestern':d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',timeZone:'UTC'});
+    rows+=`<div style="padding:10px 0;border-bottom:.5px solid var(--line)">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">${lbl}${has?' <span style="color:var(--green)">✓</span>':''}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">
+        ${inp(iso,'weight','kg','0.1')}${inp(iso,'sleep','h Schlaf','0.5')}${inp(iso,'steps','Schritte')}${inp(iso,'water','L Wasser','0.1')}
+      </div></div>`;}
+  openSheet('📅 Mehrere Tage nachtragen',`
+    <div class="info">Trag pro Tag ein, was du nachholen willst (Gewicht · Schlaf · Schritte · Wasser). Leere Felder bleiben unverändert.</div>
+    ${rows}
+    <button class="btn" style="margin-top:16px" onclick="saveBulkCheckin()">Alle speichern</button>`);
+}
+async function saveBulkCheckin(){
+  const byDate={};
+  document.querySelectorAll('[data-bd]').forEach(el=>{const v=el.value.trim();if(v==='')return;
+    (byDate[el.dataset.bd]=byDate[el.dataset.bd]||{})[el.dataset.bf]=parseFloat(v);});
+  const dates=Object.keys(byDate);if(!dates.length)return toast('Nichts einzutragen');
+  let n=0;for(const d of dates){const r=await API.post('/checkins',{user_id:VIEW_USER,date:d,...byDate[d]});if(r.status===200)n++;}
+  closeModal();toast(n+' Tag(e) nachgetragen ✓');refreshAchievements();go('home');
+}
 
 // ===== Feier-Momente: Konfetti + Pop =====
 function confettiBurst(n=46){const cols=['#e10600','#30d158','#ffd60a','#0a84ff','#ff9f0a','#ff375f','#bf5af2'];
@@ -313,16 +344,18 @@ function openStreakInfo(){
 async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinner"></div></div>';
   await Promise.all([loadToday(),PLAN?Promise.resolve():loadPlan()]);
   const isOwnAthlete=(VIEW_USER===ME.id&&ME.role==='athlete');
-  const [cr,flr,suppR,insR]=await Promise.all([
+  const [cr,flr,suppR,insR,logsR]=await Promise.all([
     API.get('/checkins/'+VIEW_USER),
     API.get('/foodlog/'+VIEW_USER+'?date='+today()),
     isOwnAthlete?API.get('/supplement-intake/'+ME.id+'?date='+today()):Promise.resolve(null),
-    isOwnAthlete?API.get('/insights/'+ME.id):Promise.resolve(null)
+    isOwnAthlete?API.get('/insights/'+ME.id):Promise.resolve(null),
+    isOwnAthlete?API.get('/logs/'+ME.id+'?date='+today()):Promise.resolve(null)
   ]);
   const cis=cr.data?.checkins||[];const last=cis[0];HOME_CIS=cis;
   const foodSummary=flr.data?.summary||{consumed:0,target:null,remaining:null,macros:{}};
   const suppData=(suppR&&suppR.status===200)?suppR.data:null;
   const INS=(insR&&insR.status===200)?insR.data:null; if(INS)LAST_INSIGHTS=INS;
+  const todayLogs=(logsR&&logsR.status===200)?(logsR.data?.logs||[]):[];
   // streak
   let streak=0;if(cis.length){const ds=new Set(cis.map(c=>c.date));let d=new Date();d.setHours(0,0,0,0);
     if(!ds.has(fmt(d)))d.setDate(d.getDate()-1);while(ds.has(fmt(d))){streak++;d.setDate(d.getDate()-1);}}
@@ -399,13 +432,26 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
   if(isOwnAthlete){
     const tdy=today();
     const ciToday=(cis||[]).find(c=>c.date===tdy)||null;
-    const gCheckin=!!(ciToday&&(ciToday.weight!=null||ciToday.sleep!=null||ciToday.steps!=null||ciToday.water!=null));
-    const gFood=(foodSummary.consumed||0)>0;
+    const checkedInToday=!!(ciToday&&(ciToday.weight!=null||ciToday.sleep!=null||ciToday.steps!=null||ciToday.water!=null));
+    // Check-in: erst grün, wenn ALLE Werte da sind UND die persönlichen Ziele erreicht sind.
+    const sgl=ME.sleep_goal||8, stgl=ME.steps_goal||10000, wgl=ME.water_goal||3;
+    const gCheckin=!!(ciToday&&ciToday.weight!=null&&(ciToday.sleep||0)>=sgl&&(ciToday.steps||0)>=stgl&&(ciToday.water||0)>=wgl);
+    // Ernährung: erst grün, wenn das Kalorienziel erreicht ist (im Zielkorridor), nicht schon beim ersten Eintrag.
+    const gFood=foodSummary.target?(foodSummary.status==='onTarget'):((foodSummary.consumed||0)>0);
     const sTot=suppData?suppData.total||0:0,sDone=suppData?suppData.done||0:0;
     const gSupp=sTot===0?true:sDone>=sTot;
     const goals=[{ic:'📝',l:'Check-in',done:gCheckin,act:"document.getElementById('homeCheckin')?.scrollIntoView({behavior:'smooth',block:'center'})"},
       {ic:'🍽️',l:'Ernährung',done:gFood,act:"go('diet')"},
       {ic:'💊',l:'Supplements',done:gSupp,act:"openSupp()"}];
+    // An Trainingstagen ein viertes Ziel: alle geplanten Sätze des heutigen Tages geloggt.
+    if(isTrain){
+      const dayObj=(PLAN?.days||[]).find(d=>d.name===eff.dayName)||(PLAN?.days||[])[0];
+      const exs=dayObj?(dayObj.exercises||[]).filter(e=>!e.deleted):[];
+      const expectedSets=exs.reduce((s,e)=>s+(e.target_sets||3),0);
+      const doneSets=todayLogs.filter(l=>l.weight!=null||l.reps!=null).length;
+      const gTrain=expectedSets>0&&doneSets>=expectedSets;
+      goals.push({ic:'🏋️',l:'Training',done:gTrain,act:"go('workout')"});
+    }
     const doneN=goals.filter(g=>g.done).length,allDone=doneN===goals.length;
     const streak=INS?.streaks?.checkin||0;
     const miniRing=done=>{const R=15,C=2*Math.PI*R;return `<svg width="46" height="46" viewBox="0 0 40 40"><circle cx="20" cy="20" r="${R}" fill="none" stroke="var(--surface2)" stroke-width="4"/><circle cx="20" cy="20" r="${R}" fill="none" stroke="${done?'var(--green)':'var(--line2)'}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${done?0:C}" transform="rotate(-90 20 20)" style="transition:stroke-dashoffset .5s"/></svg>`;};
@@ -418,7 +464,7 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
         </div>`).join('')+`</div>`;
     const fb=INS?.freezes?.balance||0;
     const jokerBadge=`<span onclick="event.stopPropagation();openStreakInfo()" style="font-size:13px;color:var(--ink2);white-space:nowrap;cursor:pointer" title="Streak-Joker">🛡️ ${fb}</span>`;
-    if(streak>0){const danger=!gCheckin;
+    if(streak>0){const danger=!checkedInToday;
       html+=`<div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:.5px solid var(--line)">
         <span style="font-size:20px">🔥</span>
         <div style="flex:1;font-size:14px"><b>${streak} Tage Streak</b>${danger?' <span style="color:var(--amber)">· heute noch nicht eingecheckt</span>':' <span style="color:var(--green)">· heute schon dran ✓</span>'}</div>${jokerBadge}</div>`;
@@ -426,7 +472,7 @@ async function renderHome(v){v.innerHTML='<div class="page on"><div class="spinn
       html+=`<div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:.5px solid var(--line)"><div style="flex:1;font-size:13px;color:var(--ink2)">🔥 Starte heute deine Streak – jeder Tag mit Eintrag zählt.</div>${jokerBadge}</div>`;
     }
     html+=`</div>`;
-    if(allDone){const key='be_daily_'+tdy;if(!localStorage.getItem(key)){localStorage.setItem(key,'1');setTimeout(()=>celebrate('🎉','Tag komplett!','Check-in, Ernährung & Supplements – alles erledigt.'),700);}}
+    if(allDone){const key='be_daily_'+tdy;if(!localStorage.getItem(key)){localStorage.setItem(key,'1');setTimeout(()=>celebrate('🎉','Tag komplett!','Alle Tagesziele erreicht – stark!'),700);}}
   }
 
   // SCHNELL-CHECKIN / NACHTRAGEN (Platz 3)
@@ -952,17 +998,23 @@ function macroRow(kc,p,c,f,target){return `<div class="macro-row">
     <div class="macro"><div class="v">${Math.round(f)}<em>g</em></div><div class="k">Fett</div></div></div>`;}
 
 // Großer Kalorien-Ring (Apple-Fitness-Stil): zeigt die verbleibenden kcal in der Mitte.
-function calorieRing(consumed,target){
+function calorieRing(consumed,target,goal){
   const rem=target?Math.round(target-consumed):0;
   const pct=target?Math.min(1,consumed/target):0;
   const over=target&&consumed>target*1.05;
   const R=52,C=2*Math.PI*R,off=C*(1-pct);
-  const col=over?'var(--amber)':'var(--red)';
+  // Über dem Ziel zielabhängig einfärben: Abnehmen -> rot (zu viel), Aufbau -> grün (Überschuss ok), sonst amber.
+  let col='var(--red)', label=target?(rem>=0?'kcal übrig':'kcal drüber'):'kcal', labelCol='var(--ink2)';
+  if(over){
+    if(goal==='fatloss'){col='var(--red)';label='kcal zu viel';labelCol='var(--red)';}
+    else if(goal==='muscle'){col='var(--green)';label='kcal Überschuss';labelCol='var(--green)';}
+    else{col='var(--amber)';label='kcal drüber';labelCol='var(--amber)';}
+  }
   return `<svg width="148" height="148" viewBox="0 0 130 130" style="display:block">
     <circle cx="65" cy="65" r="${R}" fill="none" stroke="var(--surface2)" stroke-width="11"/>
     <circle cx="65" cy="65" r="${R}" fill="none" stroke="${col}" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 65 65)" style="transition:stroke-dashoffset .5s cubic-bezier(.4,0,.2,1)"/>
     <text x="65" y="61" text-anchor="middle" font-size="30" font-weight="700" letter-spacing="-1" fill="var(--ink)">${target?Math.abs(rem):Math.round(consumed)}</text>
-    <text x="65" y="83" text-anchor="middle" font-size="12" font-weight="600" fill="var(--ink2)">${target?(rem>=0?'kcal übrig':'kcal drüber'):'kcal'}</text>
+    <text x="65" y="83" text-anchor="middle" font-size="12" font-weight="600" fill="${labelCol}">${label}</text>
   </svg>`;}
 // Makro-Fortschrittsbalken (gegessen vs. Ziel)
 function macroBar(label,val,target,color){
@@ -982,19 +1034,17 @@ function drawTrack(){const fl=renderDiet.foodlog||{items:[],summary:{}};const su
   const tC=target?Math.max(0,Math.round((target-tP*4-tF*9)/4)):0;
   // HERO: Ring + Makro-Balken
   let h=`<div class="surface" style="padding:20px;margin-bottom:14px;display:flex;gap:18px;align-items:center">
-    <div style="flex:0 0 auto">${calorieRing(consumed,target)}</div>
+    <div style="flex:0 0 auto">${calorieRing(consumed,target,goal)}</div>
     <div style="flex:1;min-width:0">
       <div style="font-size:13px;color:var(--ink2);margin-bottom:12px">${consumed}${target?' / '+target:''} kcal gegessen</div>
       ${macroBar('Protein',mac.protein||0,tP,'var(--red)')}
       ${macroBar('Carbs',mac.carbs||0,tC,'var(--amber)')}
       ${macroBar('Fett',mac.fat||0,tF,'var(--blue)')}
     </div></div>`;
-  // SCHNELL HINZUFÜGEN: eine klare Primäraktion + drei Wege
-  h+=`<button class="btn" style="margin-bottom:10px" onclick="openLogFood()">+ Essen hinzufügen</button>
-    <div class="quick" style="grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px">
-      <button class="qcard" style="text-align:center;padding:15px 8px" onclick="openBarcodeScanner()"><span class="ic" style="margin-bottom:5px">📷</span><div class="t" style="font-size:14px">Barcode</div></button>
-      <button class="qcard" style="text-align:center;padding:15px 8px" onclick="dietTab('plan')"><span class="ic" style="margin-bottom:5px">📋</span><div class="t" style="font-size:14px">Aus Plan</div></button>
-      <button class="qcard" style="text-align:center;padding:15px 8px" onclick="dietTab('recipes')"><span class="ic" style="margin-bottom:5px">🍳</span><div class="t" style="font-size:14px">Rezepte</div></button>
+  // SCHNELL HINZUFÜGEN: Lebensmittel suchen oder Barcode scannen (Plan/Rezepte über die Reiter oben)
+  h+=`<div style="display:flex;gap:10px;margin-bottom:10px">
+      <button class="btn" style="flex:1" onclick="openLogFood()">+ Essen hinzufügen</button>
+      <button class="btn sec" style="flex:0 0 auto;padding:15px 18px" onclick="openBarcodeScanner()">📷 Barcode</button>
     </div>
     <div style="text-align:center;margin-bottom:16px"><button class="minibtn" onclick="openCalc()">🧮 Makro-Rechner</button></div>`;
   // PROTOKOLL nach Mahlzeit gruppiert (wie die besten Tracker – aber aufgeräumter)
@@ -1131,7 +1181,7 @@ async function openRecipe(id){let rc=RECIPES_CACHE.find(x=>x.id===id);if(!rc)ret
   h+=`<div style="color:var(--ink2);font-size:13px;margin:4px 0 16px">${rc.meal_type||'Mahlzeit'} · ${badge}${rc.category?' · '+esc2(rc.category):''}${dpill}${(rc.owner_id&&!isMine)?' · <span style="color:var(--red)">geteilt</span>':''}</div>`;
   // Primär-Aktionen oben, nebeneinander, gut erreichbar (nicht unten links am Rand)
   h+=`<div style="display:flex;gap:8px;margin-bottom:10px">
-    <button class="btn" style="flex:1" onclick="logRecipe(${rc.id})">🍽️ Als gegessen</button>
+    <button class="btn" style="flex:1" onclick="logRecipe(${rc.id})">🍽️ Gegessen – ins Protokoll</button>
     <button class="btn sec" style="flex:1" onclick="findSimilarRecipes(${rc.kcal||0},'${esc(rc.meal_type||'')}')">🔄 Mahlzeit tauschen</button>
   </div>`;
   h+=`<button class="btn sec" style="margin-bottom:4px" onclick="shareViaLink('recipe',${rc.id})">🔗 Per Link teilen (WhatsApp & Co.)</button>`;
@@ -1348,7 +1398,7 @@ function drawDiet(){const meals=(renderDiet.meals||[]).filter(m=>m.day_type===DI
     return `<div class="meal"><div class="meal-h"><div class="ml"><div class="n">Mahlzeit ${m.meal_no}</div><div class="t">${m.label||''}</div></div><div class="kc">${Math.round(mk)}<em>kcal · ${Math.round(mp)}g P</em></div></div>
       ${m.items.map(it=>`<div class="fi"><div><div class="fn">${it.food}</div><div class="fa">${it.amount?it.amount+' g/ml':''}</div></div><div class="fmac">${Math.round(it.kcal||0)} kcal<br><span style="color:var(--ink3)">${r1(it.protein)} g Eiweiß · ${r1(it.carbs)} g Carbs · ${r1(it.fat)} g Fett</span></div></div>`).join('')}
       <div style="display:flex;gap:8px;padding:12px 14px 14px">
-        <button class="minibtn" style="flex:1;justify-content:center" onclick="logFromMeal(${m.id})">✓ als gegessen</button>
+        <button class="minibtn" style="flex:1;justify-content:center" onclick="logFromMeal(${m.id})">✓ Gegessen – ins Protokoll</button>
         <button class="minibtn" style="flex:1;justify-content:center" onclick="swapMeal(${m.id},${Math.round(mk)},'${esc(m.label||'')}')">🔄 Mahlzeit tauschen</button>
       </div></div>`;}).join('');
   h+=infoBox('dietplan_note','Der Plan ist ein Vorschlag, der dein kcal- und Proteinziel trifft. Mengen sind Richtwerte – tausche Lebensmittel im „Heute"-Tab frei aus.');
@@ -1829,7 +1879,10 @@ function drawAthleteList(list){const el=document.getElementById('athList');if(!e
     const dot=a.attention?'var(--red)':a.trainsThisWeek>0?'var(--green)':'var(--amber)';
     const statusTxt=a.lastTrain?(a.daysSinceTrain===0?'heute trainiert':a.daysSinceTrain===1?'gestern trainiert':'vor '+a.daysSinceTrain+' Tagen'):'noch kein Training';
     return `<div class="surface pad" style="margin-bottom:11px;display:flex;align-items:center;gap:13px" onclick="openDashboard(${a.id})">
-      <div style="flex-shrink:0;width:10px;height:10px;border-radius:50%;background:${dot}"></div>
+      <div style="position:relative;flex-shrink:0">
+        <div data-ath-av="${a.id}" style="width:40px;height:40px;border-radius:50%;background:var(--surface2);color:var(--ink2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;overflow:hidden;background-size:cover;background-position:center">${esc2((a.name||'?').charAt(0).toUpperCase())}</div>
+        <div style="position:absolute;bottom:-1px;right:-1px;width:12px;height:12px;border-radius:50%;background:${dot};border:2px solid var(--surface)"></div>
+      </div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:16px">${esc2(a.name)}${a.attention?' <span class="pill" style="background:var(--red-soft);color:var(--red)">Achtung</span>':''}</div>
         <div style="color:var(--ink2);font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${statusTxt} · ${a.trainsThisWeek}× · ${goalLabel(a.goal)}${a.lastWeight?' · '+a.lastWeight+' kg':''}</div>
@@ -1838,7 +1891,9 @@ function drawAthleteList(list){const el=document.getElementById('athList');if(!e
         <button class="minibtn" title="Nachricht" onclick="coachQuickMessage(${a.id},'${esc(a.name)}')">✉️</button>
         <button class="minibtn" title="Plan bearbeiten" onclick="coachOpenPlan(${a.id},'${esc(a.name)}')">✏️</button>
       </div>
-    </div>`;}).join('');}
+    </div>`;}).join('');
+  // Profilbilder der Athleten nachladen (nur die mit Bild)
+  list.filter(a=>a.has_avatar).forEach(a=>{API.get('/avatar/'+a.id).then(r=>{const el2=document.querySelector('[data-ath-av="'+a.id+'"]');if(el2&&r.data&&r.data.avatar){el2.textContent='';el2.style.backgroundImage='url('+r.data.avatar+')';}}).catch(()=>{});});}
 function phaseLabel(p){return{offseason:'Offseason',prep:'Prep',maintain:'Maintain'}[p]||'';}
 function addAthlete(){openSheet('Athlet hinzufügen',`
   <div class="seg" style="margin-bottom:16px"><button id="aa_new" class="on" onclick="aaTab('new')">Neu anlegen</button><button id="aa_link" onclick="aaTab('link')">Bestehenden</button></div>
@@ -1868,6 +1923,10 @@ async function openDashboard(id){openSheet('Lädt...','<div class="spinner"></di
   if(r.status!==200)return toast('Fehler beim Laden');
   const d=r.data;const a=d.athlete;const flagged=fn.data?.notes||[];
   let h='';
+  // Großes Profilbild oben (lazy nachgeladen)
+  h+=`<div style="display:flex;justify-content:center;margin-bottom:12px">
+    <div id="dashAvatar" style="width:72px;height:72px;border-radius:50%;background:var(--surface2);color:var(--ink2);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;overflow:hidden;background-size:cover;background-position:center">${esc2((a.name||'?').charAt(0).toUpperCase())}</div></div>`;
+  setTimeout(()=>{const el=document.getElementById('dashAvatar');if(!el)return;API.get('/avatar/'+id).then(rr=>{if(rr.data&&rr.data.avatar){el.textContent='';el.style.backgroundImage='url('+rr.data.avatar+')';}}).catch(()=>{});},0);
   // Identitäts-Pills
   const pill=t=>t?`<span class="pill" style="background:var(--surface2);color:var(--ink2);margin:0">${t}</span>`:'';
   h+=`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:14px">
@@ -2139,6 +2198,9 @@ function openProfile(){const u=ME;
     <label class="minibtn" style="margin-top:10px;cursor:pointer">📷 Bild ändern<input type="file" accept="image/*" style="display:none" onchange="avatarPick(event)"></label>
     ${u.has_avatar?'<button class="minibtn" style="margin-top:6px" onclick="removeAvatar()">Bild entfernen</button>':''}
   </div>`;
+  // Eigenes Profilbild groß ins Profil laden (läuft nach dem openSheet, daher setTimeout 0)
+  if(u.has_avatar)setTimeout(()=>{const el=document.getElementById('pf_avatar');if(!el)return;
+    API.get('/avatar/'+u.id).then(r=>{if(r.data&&r.data.avatar){el.textContent='';el.style.backgroundImage='url('+r.data.avatar+')';}});},0);
   // Gemeinsamer Footer: Einstellungen + Abmelden – damit ALLES unter dem Profil-Icon liegt
   const accountFooter=`
     <div class="section-label">Benachrichtigungen & Daten</div>
@@ -2321,6 +2383,26 @@ function refreshHomeIfActive(){const cur=document.querySelector('.navbtn.on')?.d
 // frisch laden – damit das Widget NIE einen veralteten Stand zeigt.
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&ME){TODAY=null;refreshHomeIfActive();}});
+
+// ===== Wischen zwischen den Tabs (links/rechts) =====
+let _swX=0,_swY=0,_swT=0;
+document.addEventListener('touchstart',e=>{const t=e.touches&&e.touches[0];if(!t)return;_swX=t.clientX;_swY=t.clientY;_swT=Date.now();},{passive:true});
+document.addEventListener('touchend',e=>{
+  if(!ME)return;
+  if(document.getElementById('modal')?.classList.contains('on'))return;        // Sheet offen
+  if(document.body.classList.contains('tour-active'))return;                    // Tour läuft
+  const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
+  const dx=t.clientX-_swX, dy=t.clientY-_swY;
+  if(Date.now()-_swT>600)return;                                               // zu langsam
+  if(Math.abs(dx)<70||Math.abs(dx)<Math.abs(dy)*2)return;                       // nicht klar horizontal
+  const start=document.elementFromPoint(_swX,_swY);
+  if(start&&start.closest('.chip-row,.filter-pills,.seg,.work-tools,input,textarea,select,[data-noswipe]'))return; // horizontal scrollbare Bereiche aussparen
+  const tabs=[...document.querySelectorAll('.navbtn')].map(b=>b.dataset.p);
+  const cur=document.querySelector('.navbtn.on')?.dataset.p;const i=tabs.indexOf(cur);
+  if(i<0||tabs.length<2)return;
+  if(dx<0&&i<tabs.length-1)go(tabs[i+1]);                                        // nach links -> nächster Tab
+  else if(dx>0&&i>0)go(tabs[i-1]);                                               // nach rechts -> vorheriger Tab
+},{passive:true});
 
 // ===== TEILEN PER LINK (WhatsApp & Co.) =====
 // Erstellt einen Link und öffnet den nativen Teilen-Dialog (Handy) bzw. kopiert ihn.
@@ -2554,12 +2636,14 @@ function dismissInstallHint(){try{localStorage.setItem('be_ios_install_dismissed
 
 function maybeStartTour(){ // Home-Tour beim allerersten App-Start
   if(!ME||ME.role!=='athlete')return; // Touren nur für Athleten
+  if(ME.tour_done)return;            // bereits einmal pro Konto gesehen (geräteübergreifend)
   if(localStorage.getItem('be_tour_home'))return;
   setTimeout(()=>runTour('home'),800);
 }
 // Tab-Touren: beim ersten Besuch des jeweiligen Tabs automatisch starten
 function maybeStartTabTour(tab){
   if(!ME||ME.role!=='athlete')return;
+  if(ME.tour_done)return;            // nach der einmaligen Einführung keine Auto-Touren mehr
   if(!TOUR_DEFS[tab]||tab==='home')return;
   if(localStorage.getItem('be_tour_'+tab))return;
   if(document.getElementById('tourOv'))return; // keine zwei Touren gleichzeitig
@@ -2609,6 +2693,8 @@ function drawTourStep(){
 }
 function tourNext(){if(TOUR_STEP<TOUR_STEPS.length-1){TOUR_STEP++;drawTourStep();}else endTour();}
 function endTour(){if(TOUR_NAME)localStorage.setItem('be_tour_'+TOUR_NAME,'1');
+  // Home-Tour beendet/übersprungen -> serverseitig als gesehen merken (einmalig pro Konto)
+  if(TOUR_NAME==='home'&&ME&&!ME.tour_done){ME.tour_done=1;API.post('/tour-done',{}).catch(()=>{});}
   unlockTourScroll();
   const ov=document.getElementById('tourOv');if(ov){ov.classList.remove('on');setTimeout(()=>ov.remove(),250);}
   window.removeEventListener('resize',drawTourStep);}
@@ -2636,6 +2722,7 @@ function unlockTourScroll(){
 }
 // Alle Touren zurücksetzen und mit der Home-Tour neu beginnen
 function restartTour(){['home','workout','diet','tracker'].forEach(t=>localStorage.removeItem('be_tour_'+t));
+  if(ME)ME.tour_done=0; // für die Wiederholung diese Sitzung erlauben (wird am Ende wieder gesetzt)
   closeModal();go('home');setTimeout(()=>runTour('home'),600);}
 
 // ===== PUSH-ERINNERUNGEN =====
@@ -2655,32 +2742,66 @@ async function enablePush(){
 function exportMyData(){window.open('/api/export/'+ME.id,'_blank');toast('Export wird heruntergeladen…');}
 
 // ===== BARCODE-SCANNER (Open Food Facts) =====
-let BC_STREAM=null,BC_RUNNING=false;
+let BC_STREAM=null,BC_RUNNING=false,BC_ZXING=null,_zxingPromise=null;
+// ZXing (Barcode-Erkennung in JS) bei Bedarf nachladen – nötig auf iOS-Safari, das kein
+// natives BarcodeDetector hat. Fällt sauber auf manuelle Eingabe zurück, wenn offline.
+function loadZXing(){
+  if(window.ZXing)return Promise.resolve(window.ZXing);
+  if(_zxingPromise)return _zxingPromise;
+  _zxingPromise=new Promise(res=>{
+    const s=document.createElement('script');
+    s.src='https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js';
+    s.onload=()=>res(window.ZXing||null);
+    s.onerror=()=>{_zxingPromise=null;res(null);};
+    document.head.appendChild(s);
+  });
+  return _zxingPromise;
+}
 function openBarcodeScanner(){
-  const hasDetector='BarcodeDetector' in window;
   openSheet('📷 Barcode scannen',`
-    ${hasDetector?`<div id="bc_cam" style="border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px"><video id="bc_video" playsinline style="width:100%;display:block"></video></div>
-      <div id="bc_status" style="text-align:center;color:var(--ink3);font-size:13px;margin-bottom:14px">Kamera startet… halte den Strichcode ins Bild.</div>`:
-      `<div class="info">Dein Browser unterstützt keinen Kamera-Scan (z.B. iPhone-Safari). Gib die Nummer unter dem Strichcode einfach ein – der Rest geht automatisch.</div>`}
-    <div class="field"><label>Barcode-Nummer (EAN)</label><input id="bc_code" type="text" inputmode="numeric" placeholder="z.B. 4337185272363"></div>
+    <div id="bc_cam" style="border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px;position:relative">
+      <video id="bc_video" playsinline muted autoplay style="width:100%;display:block;max-height:300px;object-fit:cover"></video>
+      <div style="position:absolute;left:8%;right:8%;top:50%;height:2px;background:rgba(255,59,48,.9);box-shadow:0 0 10px rgba(255,59,48,.8)"></div>
+    </div>
+    <div id="bc_status" style="text-align:center;color:var(--ink3);font-size:13px;margin-bottom:14px">Kamera startet… halte den Strichcode ins Bild.</div>
+    <div class="field"><label>oder Nummer (EAN) eintippen</label><input id="bc_code" type="text" inputmode="numeric" placeholder="z.B. 4337185272363"></div>
     <button class="btn" onclick="lookupBarcode()">Produkt suchen</button>`);
-  if(hasDetector)startBarcodeCam();}
+  startBarcodeCam();}
 async function startBarcodeCam(){
+  const v=document.getElementById('bc_video');if(!v)return;
+  const st=document.getElementById('bc_status');
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){if(st)st.textContent='Kamera nicht verfügbar – Nummer unten eintippen.';return;}
+  // 1) Schneller nativer Weg (Android/Chrome): BarcodeDetector
+  if('BarcodeDetector' in window){
+    try{
+      BC_STREAM=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      v.srcObject=BC_STREAM;await v.play();
+      const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
+      BC_RUNNING=true;if(st)st.textContent='Halte den Strichcode ins Bild.';
+      const scan=async()=>{
+        if(!BC_RUNNING||!document.getElementById('bc_video'))return stopBarcodeCam();
+        try{const codes=await det.detect(v);
+          if(codes.length){const code=codes[0].rawValue;stopBarcodeCam();
+            const inp=document.getElementById('bc_code');if(inp)inp.value=code;lookupBarcode(code);return;}}catch(e){}
+        requestAnimationFrame(scan);};
+      scan();return;
+    }catch(e){if(st)st.textContent='Kamera-Zugriff verweigert – Nummer unten eintippen.';return;}
+  }
+  // 2) iOS-Safari & Co.: ZXing nachladen und die Kamera scannen lassen
+  if(st)st.textContent='Scanner wird geladen…';
+  const Z=await loadZXing();
+  if(!Z){if(st)st.textContent='Scanner konnte nicht geladen werden (offline?) – Nummer unten eintippen.';return;}
   try{
-    BC_STREAM=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-    const v=document.getElementById('bc_video');if(!v){stopBarcodeCam();return;}
-    v.srcObject=BC_STREAM;await v.play();
-    const det=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});
-    BC_RUNNING=true;
-    const scan=async()=>{
-      if(!BC_RUNNING||!document.getElementById('bc_video'))return stopBarcodeCam();
-      try{const codes=await det.detect(v);
-        if(codes.length){const code=codes[0].rawValue;stopBarcodeCam();
-          const inp=document.getElementById('bc_code');if(inp)inp.value=code;lookupBarcode(code);return;}}catch(e){}
-      requestAnimationFrame(scan);};
-    scan();
-  }catch(e){const st=document.getElementById('bc_status');if(st)st.textContent='Kamera nicht verfügbar – Nummer unten eintippen.';}}
-function stopBarcodeCam(){BC_RUNNING=false;if(BC_STREAM){BC_STREAM.getTracks().forEach(t=>t.stop());BC_STREAM=null;}}
+    BC_ZXING=new Z.BrowserMultiFormatReader();
+    BC_RUNNING=true;if(st)st.textContent='Halte den Strichcode ins Bild.';
+    BC_ZXING.decodeFromConstraints({video:{facingMode:'environment'}},v,(result)=>{
+      if(result&&BC_RUNNING){const code=result.getText();stopBarcodeCam();
+        const inp=document.getElementById('bc_code');if(inp)inp.value=code;lookupBarcode(code);}
+    });
+  }catch(e){if(st)st.textContent='Kamera-Zugriff verweigert – Nummer unten eintippen.';}}
+function stopBarcodeCam(){BC_RUNNING=false;
+  if(BC_STREAM){BC_STREAM.getTracks().forEach(t=>t.stop());BC_STREAM=null;}
+  if(BC_ZXING){try{BC_ZXING.reset();}catch(e){}BC_ZXING=null;}}
 async function lookupBarcode(codeArg){
   const code=(codeArg||val('bc_code')||'').replace(/\D/g,'');
   if(code.length<8)return toast('Bitte gültige Barcode-Nummer eingeben');
@@ -2767,11 +2888,16 @@ async function saveRhythmus(){if(!RHY.filter(x=>x==='train').length)return toast
 
 // ===== TOOLS =====
 function openCalc(){if(!FOODS.length)return toast('Lädt...');
-  openSheet('Makro-Rechner',`${infoBox('calc_intro','🧮 Wähle ein Lebensmittel und die Menge – die Kalorien & Makros werden sofort berechnet. Mit dem Button unten trägst du es direkt in dein heutiges Protokoll ein.')}
-    <div class="field"><label>Lebensmittel</label><select id="calc_food" onchange="doCalc()">${FOODS.map((f,i)=>`<option value="${i}">${f.name}</option>`).join('')}</select></div>
+  openSheet('Makro-Rechner',`${infoBox('calc_intro','🧮 Such ein Lebensmittel, gib die Menge ein – Kalorien & Makros werden sofort berechnet und lassen sich direkt ins Protokoll übernehmen.')}
+    <div class="field"><label>Lebensmittel suchen</label><input id="calc_search" placeholder="🔍 z.B. Reis, Hähnchen…" oninput="filterCalcFoods(this.value)"></div>
+    <div class="field"><select id="calc_food" size="6" onchange="doCalc()" style="height:auto">${FOODS.map((f,i)=>`<option value="${i}">${esc2(f.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Menge (g/ml)</label><input id="calc_amt" type="number" inputmode="numeric" value="100" oninput="doCalc()"></div>
     <div class="macro-row" id="calc_out"></div>
-    <button class="btn" style="margin-top:16px" onclick="calcAddToLog()">🍽️ Direkt als gegessen eintragen</button>`);doCalc();}
+    <button class="btn" style="margin-top:16px" onclick="calcAddToLog()">🍽️ Ins Protokoll eintragen</button>`);doCalc();}
+function filterCalcFoods(q){q=(q||'').toLowerCase().trim();const sel=document.getElementById('calc_food');if(!sel)return;
+  let list=FOODS.map((f,i)=>({f,i}));if(q)list=list.filter(x=>x.f.name.toLowerCase().includes(q));
+  if(!list.length)list=FOODS.map((f,i)=>({f,i}));
+  sel.innerHTML=list.map(x=>`<option value="${x.i}">${esc2(x.f.name)}</option>`).join('');doCalc();}
 async function calcAddToLog(){const f=FOODS[+val('calc_food')];const a=parseFloat(val('calc_amt'))||0;
   if(!f||a<=0)return toast('Menge angeben');
   const body={user_id:VIEW_USER,date:today(),meal_slot:'',food:f.name,amount:a,
@@ -2780,7 +2906,7 @@ async function calcAddToLog(){const f=FOODS[+val('calc_food')];const a=parseFloa
   if(r.status===200){closeModal();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());renderDiet.foodlog=fr.data;
     if(typeof drawTrack==='function'&&renderDiet.tab==='track')drawTrack();else dietTab&&dietTab('track');
     toast(f.name+' eingetragen ✓');}else toast(r.data?.error||'Fehler');}
-function doCalc(){const f=FOODS[+val('calc_food')];const a=parseFloat(val('calc_amt'))||0;
+function doCalc(){const f=FOODS[+val('calc_food')];if(!f)return;const a=parseFloat(val('calc_amt'))||0;
   const fat=f.fat*a,carb=f.carbs*a,prot=f.protein*a,kc=fat*9+carb*4+prot*4;
   document.getElementById('calc_out').innerHTML=`<div class="macro kcal"><div class="v">${Math.round(kc)}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${prot.toFixed(1)}<em>g</em></div><div class="k">Protein</div></div><div class="macro"><div class="v">${carb.toFixed(1)}<em>g</em></div><div class="k">Carbs</div></div><div class="macro"><div class="v">${fat.toFixed(1)}<em>g</em></div><div class="k">Fett</div></div>`;}
 // Erklärung einer an einer Übung gesetzten Technik aus dem Lexikon zeigen
@@ -2964,11 +3090,9 @@ function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
 // alles clean halten; unter „Mehr → Hinweise wieder anzeigen" lässt sich alles zurücksetzen.
 function hintsDismissed(){try{return JSON.parse(localStorage.getItem('be_hints')||'{}');}catch(e){return {};}}
 function infoBox(key,html){if(hintsDismissed()[key])return '';
-  return `<div class="info hintbox" data-hint="${key}" style="position:relative;padding-right:56px">${html}
-    <span style="position:absolute;top:6px;right:6px;display:flex;gap:3px">
-      <button onclick="hintClose(this)" title="Vorübergehend ausblenden" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:16px;line-height:1;cursor:pointer">−</button>
-      <button onclick="hintNever('${key}',this)" title="Komplett ausblenden – nicht mehr anzeigen" style="border:none;background:var(--surface2);color:var(--ink2);width:24px;height:24px;border-radius:7px;font-size:12px;line-height:1;cursor:pointer">✕</button>
-    </span></div>`;}
+  return `<div class="info hintbox" data-hint="${key}" style="position:relative;padding-right:30px">${html}
+    <button onclick="hintNever('${key}',this)" title="Hinweis ausblenden" aria-label="Ausblenden" style="position:absolute;top:8px;right:8px;width:22px;height:22px;border:none;background:transparent;color:var(--ink3);font-size:14px;line-height:1;cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center">✕</button>
+  </div>`;}
 function hintClose(btn){const b=btn.closest('.hintbox');if(b)b.remove();}
 function hintNever(key,btn){const d=hintsDismissed();d[key]=1;try{localStorage.setItem('be_hints',JSON.stringify(d));}catch(e){}
   const b=btn.closest('.hintbox');if(b)b.remove();toast('Hinweis ausgeblendet – unter „Mehr" wieder aktivierbar.');}

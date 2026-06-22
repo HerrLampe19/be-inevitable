@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.14.0
+- **Barcode-Scanner auf dem iPhone:** Der Kamera-Scan funktioniert jetzt auch in iOS-Safari (das kein natives `BarcodeDetector` hat). Die Kamera öffnet sich, erkennt den Strichcode automatisch (über die nachgeladene ZXing-Bibliothek) und trägt die Nummer ein → Produktsuche startet. Auf Android läuft weiterhin der schnelle native Weg; manuelle Eingabe bleibt als Rückfall. (Hinweis: braucht HTTPS + Kamera-Erlaubnis; ZXing wird beim ersten Scan aus dem Netz geladen.)
+- **„Heute geschafft" jetzt zielbasiert:** Die Ringe werden erst grün, wenn das Ziel wirklich erreicht ist – Ernährung erst im Kalorien-Korridor (nicht schon beim ersten Eintrag), Check-in erst mit allen Werten + erreichten Schlaf-/Schritte-/Wasser-Zielen, Supplements erst komplett. An Trainingstagen kommt ein vierter Ring „Training" dazu (grün, wenn alle geplanten Sätze geloggt sind).
+- **Mehrere Tage nachtragen (Bulk):** Im „Werte eintragen"-Bereich gibt es jetzt „📅 Mehrere Tage" – die letzten 10 Tage auf einen Blick (Gewicht/Schlaf/Schritte/Wasser) und alle gemeinsam speichern.
+- **Einführungs-Tour nur einmal pro Konto:** Die Tour wird serverseitig als gesehen markiert und erscheint nicht mehr bei jedem neuen Gerät/Browser. Über „Einführung erneut ansehen" im Profil jederzeit wiederholbar. Neue Spalte `users.tour_done` (automatische Migration).
+- **Profilbild groß:** Ein hochgeladenes Bild erscheint jetzt auch groß im Profil und als Avatar in der Coach-Athletenliste und im Athleten-Dashboard (mit Status-Punkt).
+- **Zwischen Tabs wischen:** Auf dem Handy links/rechts wischen, um zwischen Home/Training/Ernährung/Analyse zu wechseln.
+- **Info-Hinweise:** Das Ausblenden-Symbol an Hinweis-Boxen ist jetzt ein dezentes ✕ statt der klobigen Doppel-Schaltfläche.
+
+## 1.13.1
+- **Ernährung „Heute" aufgeräumt:** Die Schnell-Aktionen sind jetzt „+ Essen hinzufügen" und „📷 Barcode" nebeneinander – die redundanten Kacheln „Aus Plan"/„Rezepte" sind weg (dafür gibt es die Reiter oben).
+- **Kalorien-Ring zielabhängig eingefärbt:** Wird das Ziel überschritten, zeigt der Ring das je nach Ziel an – beim Abnehmen rot („zu viel"), beim Aufbau grün („Überschuss"), sonst neutral.
+- **Makro-Rechner mit Suche:** Lebensmittel lassen sich jetzt per Suchfeld finden (statt langer Dropdown-Liste).
+- „als gegessen"-Buttons in Plan & Rezept klarer beschriftet („Gegessen – ins Protokoll").
+
 ## 1.13.0
 - **Streak-Joker (Streak-Schutz):** Vergisst du einen Tag, springt automatisch ein Joker ein und rettet deine Serie – sie reißt nicht. Du startest mit 1 Joker und bekommst pro aktiver Woche +1 dazu (max. 2). Der aktuelle Stand steht als 🛡️-Badge neben der Streak auf der Startseite (antippen für Erklärung). Wird ein Joker eingesetzt, gibt es eine Push-Mitteilung. Alternativ kannst du vergessene Tage weiterhin selbst nachtragen.
 - Neue Tabelle `streak_freeze_log` + Spalten `streak_freezes`/`freeze_last_grant` in `users` (automatische Migration). Die Streak zählt geschützte Tage wie Check-ins.
