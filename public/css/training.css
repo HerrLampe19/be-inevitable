@@ -1,0 +1,145 @@
+/* BE INEVITABLE – training (Stage 2, WP2). Tokens/Komponenten kommen aus /app.css.
+   Enthält nur das, was ausschliesslich der Trainings-Tab braucht:
+   Tages-Kopfzeile · Fortschritts-Banner · Übungskarten-Ergänzungen · Satzraster-Feinschliff ·
+   Coach-Planzeilen · Abschluss-Sheet · Cardio · Kalender · Rhythmus-Kacheln · Hantelrechner. */
+
+/* ---- Kopfzeile: Tages-Chips (scrollbar) · Datum · „···" ---------------------------------- */
+.dayrow{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.dayrow .chip-row{padding:2px 0}
+/* Tages-Chips sind die Haupt-Navigation des Tabs -> volle 44 px sichtbar (nicht nur Trefferfläche) */
+.dayrow .chip{min-height:44px;padding:0 18px;font-size:15px}
+.dayrow .caption{color:var(--ink3);font-variant-numeric:tabular-nums}
+.dayrow #planMenuBtn{background:transparent;color:var(--ink2)}
+
+/* ---- Fortschritts-Banner „Heutiges Training" -------------------------------------------- */
+.card.tp{display:flex;align-items:center;gap:16px;padding:12px 16px;margin-bottom:12px}
+.card.tp .h3{margin-bottom:1px}
+.card.tp .meta{transition:color var(--dur)}
+
+/* ---- Übungskarte: Ergänzungen zum Kopf ---------------------------------------------------- */
+.ex{scroll-margin-top:calc(var(--safe-t) + 64px)}
+.ex-head{gap:10px}
+.ex-main .nm{display:flex;align-items:center;gap:5px}
+.ex-main .nm .lock{flex:0 0 auto;width:14px;height:14px;color:var(--red-text)}
+.ex-main .mg{line-height:1.35}
+/* Eingeklappt bleibt der Kopf einzeilig (~73 px), damit drei Karten über den Falz passen: lange Namen und
+   die Metazeile (Technik-Chip + „Best X kg") werden mit … abgeschnitten. Offen steht wieder alles. */
+.ex:not(.open) .ex-main .nm{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ex:not(.open) .ex-main .nm .lock{vertical-align:-2px;margin-right:4px}
+.ex:not(.open) .ex-main .mg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Technik als Chip in der Metazeile (öffnet explainTechnique) */
+.tchip{position:relative;display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:999px;background:var(--surface3);color:var(--ink2);font:600 12px/1 var(--font);vertical-align:middle}
+.tchip::before{content:'';position:absolute;inset:-10px}
+.tchip .ic{width:12px;height:12px;color:var(--ink3)}
+.tchip:active{transform:scale(.96)}
+.pill.pr{margin-left:2px}
+/* Zähler „2/3" im eingeklappten Kopf + „···"-Menü */
+.ex-cnt{flex:0 0 auto;color:var(--ink3);font-variant-numeric:tabular-nums}
+.ex-more{flex:0 0 auto;background:transparent;color:var(--ink3)}
+.ex.done .ex-head .mg{color:var(--green)}
+.ex.done .ex-idx .ic{width:16px;height:16px}
+.ex.done{opacity:.92}
+.ex.open{opacity:1}
+
+/* ---- Satzraster: Zeilen oben ausrichten, ✓ auf Höhe der Eingabefelder --------------------- */
+#exlist .setgrid[data-set]{align-items:start}
+#exlist .setgrid[data-set] .sn{padding-top:15px}
+#exlist .setgrid[data-set] .ok{margin-top:2px}
+#exlist .setgrid input{scroll-margin-top:calc(var(--safe-t) + 80px);scroll-margin-bottom:180px}
+.setgrid .ok{transition:background var(--dur-fast),color var(--dur-fast),transform var(--dur-fast)}
+.setgrid .ok:active{transform:scale(.92)}
+.setgrid .ok.saving{opacity:.55}
+.setgrid .ok.failed{background:var(--red-tint);color:var(--red-text)} /* Speichern fehlgeschlagen – der Toast bietet „Erneut versuchen" */
+.setgrid .ok .ic{width:22px;height:22px}
+
+/* ---- Coach: kompakte Planzeilen statt Satzraster ------------------------------------------ */
+#exlist .plan-rows .r-ic.num{font:600 15px/1 var(--font);color:var(--ink3);font-variant-numeric:tabular-nums} /* ruhiger als die roten Nummernzeilen aus account.css */
+.plan-rows .rr{gap:2px}
+.plan-rows .rr .btn.icon.sm{background:transparent;color:var(--ink2)}
+
+/* ---- Abschluss-Sheet: Gefühl 1–5 ---------------------------------------------------------- */
+.feel{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:8px}
+.feel .chip{min-height:44px;justify-content:center;padding:0;font-size:17px;font-variant-numeric:tabular-nums}
+
+/* ---- Übungs-Verlauf: drei schmale Kacheln -------------------------------------------------- */
+.hist-stats .tile{padding:12px 8px;text-align:center}
+.hist-stats .tile .v{font-size:20px}
+.hist-stats .tile .v em{font-size:12px}
+.hist-stats .tile .l{font-size:12px}
+
+/* ---- Cardio-Unterreiter -------------------------------------------------------------------- */
+.cardio-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px}
+.cardio-tiles .tile{padding:14px 12px}
+.cardio-tiles .tile .v{font-size:22px}
+.cardio .rows .rr{gap:6px;font-variant-numeric:tabular-nums}
+.cardio .rows .rr .btn.icon.sm{background:transparent;color:var(--ink3);margin-right:-8px}
+
+/* ---- Kalender ------------------------------------------------------------------------------- */
+.cal-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.cal-head .h3{flex:1;min-width:0;text-align:center}
+.cal-wd{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+.cal-wd span{text-align:center;font:600 11px/1 var(--font);color:var(--ink3);text-transform:uppercase;letter-spacing:.05em}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-cell{position:relative;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:2px;border-radius:10px;background:var(--surface3);color:var(--ink2);transition:transform var(--dur-fast)}
+.cal-cell:active{transform:scale(.94)}
+.cal-cell .d{font:600 13px/1 var(--font);font-variant-numeric:tabular-nums}
+.cal-cell .n{min-height:10px;font:600 10px/1 var(--font);color:var(--ink3);letter-spacing:.02em}
+.cal-cell.train{background:var(--red);color:#fff}
+.cal-cell.train .n{color:rgba(255,255,255,.85)}
+.cal-cell.sick{background:var(--amber-tint);color:#ffb340}
+.cal-cell.sick .n{color:inherit}
+.cal-cell.rest{background:var(--surface2);color:var(--ink3)}
+.cal-cell.past{opacity:.45}
+.cal-cell.today{box-shadow:0 0 0 2px var(--ink)} /* aussen, damit der Heute-Ring auch auf roten Kacheln sichtbar ist */
+.cal-cell .dot{position:absolute;top:5px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--ink2)}
+.cal-cell.train .dot{background:#fff}
+.cal-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:12px;color:var(--ink3)}
+.cal-legend span{display:inline-flex;align-items:center;gap:6px}
+.cal-legend .sw{width:12px;height:12px;border-radius:4px;background:var(--surface3)}
+.cal-legend .sw.train{background:var(--red)}
+.cal-legend .sw.rest{background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline2)}
+.cal-legend .sw.sick{background:var(--amber)}
+.cal-legend .sw.dot{width:6px;height:6px;border-radius:50%;background:var(--ink2)}
+
+/* ---- Trainingsrhythmus: Kachelstreifen + Vorschau ------------------------------------------ */
+.rhy-strip{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
+.rhy-strip::-webkit-scrollbar{display:none}
+.rhy-tile{flex:0 0 auto;width:44px;min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:12px;background:var(--surface4);color:var(--ink3);touch-action:manipulation;-webkit-user-select:none;user-select:none;transition:background var(--dur) var(--ease),color var(--dur),transform var(--dur-fast)}
+.rhy-tile:active{transform:scale(.94)}
+.rhy-tile .d{font:600 10px/1 var(--font);color:var(--ink3);font-variant-numeric:tabular-nums}
+.rhy-tile .n{font:700 14px/1 var(--font);letter-spacing:-.01em}
+.rhy-tile.train{background:var(--red);color:#fff}
+.rhy-tile.train .d{color:rgba(255,255,255,.8)}
+.rhy-week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.rhy-prev{min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:10px;background:var(--surface4);color:var(--ink3)}
+.rhy-prev .w{font:600 10px/1 var(--font);text-transform:uppercase;letter-spacing:.04em}
+.rhy-prev .n{font:700 13px/1 var(--font)}
+.rhy-prev.train{background:var(--red-tint);color:var(--red-text)}
+
+/* ---- Trainingsleiste: Ruhezustand („Pause" statt Countdown) -------------------------------- */
+.restbar.idle .rest-time .num{font:600 15px/1 var(--font);min-width:0;color:var(--ink2)}
+.restbar.idle .rest-time .ic{color:var(--ink3)}
+.restbar #trainBarSlot .btn.sm{min-height:32px}
+/* „Abschließen" steht auch während der laufenden Pause in der Leiste – es darf nie gequetscht werden.
+   Während der Pause ist es nur ein Symbol (Pokal), damit −15/+15 bis zum letzten Satz sichtbar bleiben. */
+.restbar #trainBarSlot .btn{flex:0 0 auto;white-space:nowrap}
+.restbar #trainBarSlot .btn.icon.sm{width:36px;padding:0} /* .restbar .btn.sm setzt sonst 0 10px und quetscht das Symbol */
+/* Schmale Geräte (< 375 px): der Countdown wird kompakter und „−15" tritt zurück, damit
+   Zeit · +15 · Abschließen · Fertig nebeneinander passen (−15 bleibt ab 375 px sichtbar). */
+@media (max-width:374px){
+  .restbar:not(.idle) .rest-time .num{font-size:20px;min-width:44px}
+  .restbar:not(.idle) #restSub15{display:none}
+}
+
+/* ---- Pausenlängen-Auswahl ------------------------------------------------------------------ */
+.chip.pick{width:100%;min-height:44px;justify-content:center;padding:0 8px}
+
+/* ---- Hantelrechner -------------------------------------------------------------------------- */
+.plates{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
+.plate{display:inline-flex;align-items:center;min-height:36px;padding:0 14px;border-radius:999px;background:var(--red-tint);color:var(--red-text);font:700 15px/1 var(--font);font-variant-numeric:tabular-nums}
+
+/* ---- Grössere Displays: Kacheln dürfen wachsen --------------------------------------------- */
+@media (min-width:430px){
+  .cal-cell{min-height:48px}
+  .rhy-tile{width:48px;min-height:60px}
+}

@@ -2,6 +2,31 @@
 // KERN-LOGIK (rein, ohne DB/Server) — damit hart testbar.
 // ============================================================
 
+// ---- Zeitzone der Nutzer (Server läuft meist in UTC) ----
+// "Heute" und Uhrzeiten für Erinnerungen werden in APP_TZ berechnet (Standard: Europe/Berlin),
+// damit Check-ins/Logs kurz nach Mitternacht nicht auf dem Vortag landen und Push-Zeiten stimmen.
+export const APP_TZ = process.env.APP_TZ || 'Europe/Berlin';
+let _tzDateFmt, _tzHourFmt;
+try {
+  _tzDateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: APP_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+  _tzHourFmt = new Intl.DateTimeFormat('en-GB', { timeZone: APP_TZ, hour: '2-digit', hour12: false });
+} catch (e) {
+  console.error('[tz] Ungueltige APP_TZ "' + APP_TZ + '" - Rueckfall auf UTC');
+  _tzDateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' });
+  _tzHourFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', hour: '2-digit', hour12: false });
+}
+// ISO-Datum 'YYYY-MM-DD' des aktuellen Tages in APP_TZ
+export function tzToday(d = new Date()) { return _tzDateFmt.format(d); }
+// Stunde 0-23 in APP_TZ
+export function tzHour(d = new Date()) { return parseInt(_tzHourFmt.format(d), 10) % 24; }
+// Wochentag 0 (So) - 6 (Sa) in APP_TZ
+export function tzWeekday(d = new Date()) { return new Date(tzToday(d) + 'T00:00:00Z').getUTCDay(); }
+// Montag der Kalenderwoche eines ISO-Datums (reine UTC-Arithmetik, zeitzonen-unabhaengig)
+export function mondayOf(iso) {
+  const d = new Date(iso + 'T00:00:00Z'); const w = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - w); return d.toISOString().slice(0, 10);
+}
+
 // ---- Reps-Ziel parsen: "8-12" -> {min:8,max:12}, "10" -> {min:10,max:10} ----
 export function parseRepRange(target) {
   if (!target) return null;
@@ -118,9 +143,10 @@ export function calendarRange({ pattern, trainingDays, history, startDate, days 
   const pat = pattern && pattern.length ? pattern : buildPattern(4);
   const out = [];
   const sim = (history || []).slice();
-  const start = new Date(startDate + 'T00:00');
+  // Reine UTC-Arithmetik (kein lokales Datum + toISOString: das kippt je nach Serverzeitzone/DST um einen Tag)
+  const start = new Date(startDate + 'T00:00:00Z');
   for (let i = 0; i < days; i++) {
-    const d = new Date(start); d.setDate(start.getDate() + i);
+    const d = new Date(start); d.setUTCDate(start.getUTCDate() + i);
     const iso = d.toISOString().slice(0, 10);
     let entry, simType = null;
     if (planned[iso]) {
@@ -157,6 +183,116 @@ export function calendarRange({ pattern, trainingDays, history, startDate, days 
     if (simType) sim.push({ type: simType, dayName: entry.dayName });
   }
   return out;
+}
+
+// ============================================================
+// MAHLZEITEN-SLOTS: EIN Vokabular für Protokoll, Plan und Rezepte
+// ============================================================
+// Wird von POST /api/foodlog, /foodlog/frommeal, /recipes/:id/log validiert und vom
+// Frontend (Slot-Auswahl, Sortierung des Tagesprotokolls) 1:1 benutzt.
+export const MEAL_SLOTS = ['Frühstück', 'Mittag', 'Abend', 'Snack', 'Pre-Workout', 'Post-Workout'];
+
+// Slot nach Uhrzeit (Fallback, wenn keiner angegeben ist): <10 Frühstück, <14 Mittag, <17 Snack, sonst Abend
+export function slotByHour(hour) {
+  const h = Number(hour);
+  if (!Number.isFinite(h)) return 'Abend';
+  return h < 10 ? 'Frühstück' : h < 14 ? 'Mittag' : h < 17 ? 'Snack' : 'Abend';
+}
+
+// Freitext (Plan-Label wie „Mittagessen 1", Rezept-Kategorie, alte Slot-Namen wie „Pre/Post Workout")
+// auf den Slot abbilden. null, wenn nichts passt. `opts.trainedToday` entscheidet bei „Pre/Post Workout".
+export function slotFromLabel(label, opts = {}) {
+  const s = String(label || '').trim().toLowerCase();
+  if (!s) return null;
+  const exact = MEAL_SLOTS.find(x => x.toLowerCase() === s);
+  if (exact) return exact;
+  if (/pre[\s/-]*post|post[\s/-]*pre/.test(s)) return opts.trainedToday ? 'Post-Workout' : 'Pre-Workout';
+  if (/\bpre[\s-]*workout|vor dem training|pre[\s-]*wo\b/.test(s)) return 'Pre-Workout';
+  if (/\bpost[\s-]*workout|nach dem training|post[\s-]*wo\b/.test(s)) return 'Post-Workout';
+  if (/fr(ü|u|ue)hst(ü|u|ue)ck|breakfast|morgen/.test(s)) return 'Frühstück';
+  if (/mittag|lunch/.test(s)) return 'Mittag';
+  if (/abend|dinner|nacht/.test(s)) return 'Abend';
+  if (/snack|zwischen|jause/.test(s)) return 'Snack';
+  return null;
+}
+
+// Eingabe validieren: gültiger Slot -> Slot; bekannter Alt-Name -> Slot; leer -> Uhrzeit-Fallback; Unbekanntes -> null (400)
+export function normalizeSlot(input, { hour, trainedToday } = {}) {
+  const s = String(input ?? '').trim();
+  if (!s) return slotByHour(hour);
+  return slotFromLabel(s, { trainedToday });
+}
+
+// Sortier-Reihenfolge eines Slots im Tagesprotokoll (unbekannte ans Ende)
+export function slotOrder(slot) {
+  const order = ['Frühstück', 'Pre-Workout', 'Post-Workout', 'Mittag', 'Snack', 'Abend'];
+  const i = order.indexOf(slot);
+  return i < 0 ? order.length : i;
+}
+
+// ============================================================
+// REZEPT-ZUTATEN -> PLAN-ITEMS (Mahlzeit tauschen)
+// ============================================================
+// Zutatenzeile „180 g Hähnchenbrust" / „1 EL Olivenöl" / „Zimt" zerlegen.
+// amount nur bei g/ml/kg/l (in Gramm bzw. Milliliter), sonst null + qty-Text ("1 EL", "1 Stück").
+// seasoning=true für Zeilen ohne Mengenangabe (Gewürze o.ä.) – bekommen keine Makros.
+export function parseIngredientLine(line) {
+  const raw = String(line || '').trim();
+  if (!raw) return null;
+  const m = raw.match(/^(\d+(?:[.,]\d+)?(?:\s*\/\s*\d+)?|½|¼|¾)\s*(kg|g|ml|l|el|tl|scoops?|scheiben?|stück|st\.?|prisen?|handvoll|becher|dosen?|packung(?:en)?|x)?\.?\s+(.+)$/i);
+  if (!m) return { food: raw, amount: null, qty: null, seasoning: true };
+  let n = m[1].replace(',', '.');
+  if (n === '½') n = 0.5; else if (n === '¼') n = 0.25; else if (n === '¾') n = 0.75;
+  else if (n.includes('/')) { const [a, b] = n.split('/').map(Number); n = b ? a / b : a; }
+  n = Number(n);
+  const unit = (m[2] || '').toLowerCase().replace(/\.$/, '');
+  const food = m[3].trim();
+  if (unit === 'g' || unit === 'ml') return { food, amount: n, unit, qty: null, seasoning: false };
+  if (unit === 'kg') return { food, amount: n * 1000, unit: 'g', qty: null, seasoning: false };
+  if (unit === 'l') return { food, amount: n * 1000, unit: 'ml', qty: null, seasoning: false };
+  const label = unit ? (m[1] + ' ' + m[2]) : (m[1] + ' Stück');
+  return { food, amount: null, unit: null, qty: label.trim(), seasoning: false };
+}
+
+// Zutaten eines Rezepts in Plan-Items mit Makros umrechnen.
+// foodsLookup(name) -> {fat,carbs,protein} pro Gramm oder null (aus der Lebensmittel-DB).
+// Erst werden bekannte Lebensmittel mit Grammangabe exakt berechnet; der Rest der Rezept-Nährwerte
+// wird auf die übrigen Mengen-Zutaten verteilt (Gewürze ohne Menge bleiben bei 0). Am Ende stimmen
+// die Summen mit dem Rezept überein – so bleibt der Plan-Tagesbedarf korrekt.
+export function recipeToItems(recipe, foodsLookup) {
+  const lines = String(recipe?.ingredients || '').split('\n').map(parseIngredientLine).filter(Boolean);
+  const total = { kcal: Number(recipe?.kcal) || 0, protein: Number(recipe?.protein) || 0, carbs: Number(recipe?.carbs) || 0, fat: Number(recipe?.fat) || 0 };
+  if (!lines.length) return [{ food: recipe?.name || 'Rezept', amount: null, notes: null, ...roundMacros(total) }];
+  const items = lines.map(l => ({ food: l.food, amount: l.amount, notes: l.qty || null, seasoning: l.seasoning, kcal: 0, protein: 0, carbs: 0, fat: 0, matched: false }));
+  // 1) bekannte Lebensmittel exakt
+  for (const it of items) {
+    if (it.amount == null || !foodsLookup) continue;
+    const f = foodsLookup(it.food);
+    if (!f) continue;
+    it.protein = (f.protein || 0) * it.amount; it.carbs = (f.carbs || 0) * it.amount; it.fat = (f.fat || 0) * it.amount;
+    it.kcal = it.protein * 4 + it.carbs * 4 + it.fat * 9; it.matched = true;
+  }
+  // 2) Rest auf die unbekannten Mengen-Zutaten verteilen (nach Gramm gewichtet, sonst gleich)
+  const open = items.filter(it => !it.matched && !it.seasoning);
+  const sumM = k => items.filter(it => it.matched).reduce((a, it) => a + it[k], 0);
+  const rest = { kcal: total.kcal - sumM('kcal'), protein: total.protein - sumM('protein'), carbs: total.carbs - sumM('carbs'), fat: total.fat - sumM('fat') };
+  if (open.length) {
+    const wsum = open.reduce((a, it) => a + (it.amount || 0), 0);
+    for (const it of open) {
+      const w = wsum > 0 ? ((it.amount || 0) / wsum) : (1 / open.length);
+      for (const k of ['kcal', 'protein', 'carbs', 'fat']) it[k] = Math.max(0, rest[k]) * w;
+    }
+  } else if (total.kcal > 0) {
+    // alles bekannt: proportional auf die Rezeptangaben skalieren (Rezept ist die Wahrheit)
+    const cur = sumM('kcal');
+    const f = cur > 0 ? total.kcal / cur : 1;
+    for (const it of items) if (it.matched) for (const k of ['kcal', 'protein', 'carbs', 'fat']) it[k] *= f;
+  }
+  return items.map(it => ({ food: it.food, amount: it.amount, notes: it.notes, ...roundMacros(it) }));
+}
+function roundMacros(m) {
+  return { kcal: Math.round(m.kcal || 0), protein: Math.round((m.protein || 0) * 10) / 10,
+    carbs: Math.round((m.carbs || 0) * 10) / 10, fat: Math.round((m.fat || 0) * 10) / 10 };
 }
 
 // ============================================================
@@ -205,30 +341,6 @@ export function estimateCardioKcal({ kind, minutes, intensity, weightKg }) {
   const row = metTable[kind] || { leicht: 4, moderat: 6, hart: 8 };
   const met = row[intensity] || row.moderat;
   return Math.round(met * 3.5 * w / 200 * (minutes || 0));
-}
-
-// ============================================================
-// BAUSTEIN 2: Recovery — wie Cardio & Kraft sich gegenseitig beeinflussen
-// ============================================================
-// Gibt einen Erholungs-Score 0..100 und einen Hinweis zurück.
-// Eingaben: gestriges hartes Training (Kraft-Volumen + Cardio-Minuten),
-//           Schlaf (h) und Schlafqualität (1-10) aus dem letzten Check-in.
-export function recoveryStatus({ yesterdayHardCardioMin = 0, yesterdayWasTraining = false, sleepHours = null, sleepQuality = null }) {
-  let score = 100;
-  if (yesterdayWasTraining) score -= 18;
-  if (yesterdayHardCardioMin > 0) score -= Math.min(30, yesterdayHardCardioMin * 0.6);
-  if (sleepHours != null) {
-    if (sleepHours < 6) score -= 22;
-    else if (sleepHours < 7) score -= 10;
-  }
-  if (sleepQuality != null && sleepQuality < 5) score -= 12;
-  score = Math.max(0, Math.min(100, Math.round(score)));
-  let label, advice;
-  if (score >= 75) { label = 'Top erholt'; advice = 'Volle Leistung möglich — geh ans Limit.'; }
-  else if (score >= 50) { label = 'Solide'; advice = 'Trainiere normal, achte auf saubere Technik.'; }
-  else if (score >= 30) { label = 'Angeschlagen'; advice = 'Halte das Volumen moderat, kürze Cardio.'; }
-  else { label = 'Erschöpft'; advice = 'Erwäge einen leichten Tag oder Ruhetag.'; }
-  return { score, label, advice };
 }
 
 // ============================================================
@@ -464,47 +576,100 @@ export function generateMealPlan({ kcalTarget, macros, disliked = [], mealCount 
   // Reicht Hochskalieren (Caps!) nicht, wird gezielt aufgefüllt – Ziel-gerecht:
   // fatloss füllt mit Carbs/magerem Protein (kein Öl/Nussmus), muscle mit dichten Quellen.
   const total = () => meals.reduce((a, m) => a + m.items.reduce((x, it) => x + it.kcal, 0), 0);
-  for (let pass = 0; pass < 8; pass++) {
-    const t = total();
-    if (t >= kcal * 0.97 && t <= kcal * 1.03) break;
-    if (t > kcal * 1.03) { // runter skalieren
-      const f = (kcal / t);
-      for (const m of meals) for (const it of m.items) Object.assign(it, mkItem(findFood(it.food), it.amount * f));
-      continue;
+  const fitKcal = () => {
+    for (let pass = 0; pass < 8; pass++) {
+      const t = total();
+      if (t >= kcal * 0.97 && t <= kcal * 1.03) break;
+      if (t > kcal * 1.03) { // runter skalieren
+        const f = (kcal / t);
+        for (const m of meals) for (const it of m.items) Object.assign(it, mkItem(findFood(it.food), it.amount * f));
+        continue;
+      }
+      // hoch: erst proportional bis an die Caps …
+      const f = Math.min(1.5, kcal / t);
+      let grew = false;
+      for (const m of meals) for (const it of m.items) {
+        const before = it.amount;
+        Object.assign(it, mkItem(findFood(it.food), it.amount * f));
+        if (it.amount > before) grew = true;
+      }
+      if (grew) continue;
+      // … Caps erreicht: Filler-Item in die größte Mahlzeit
+      const deficit = kcal - total();
+      if (deficit < 120) break;
+      const big = meals.reduce((a, b) => (a.items.reduce((x, i2) => x + i2.kcal, 0) > b.items.reduce((x, i2) => x + i2.kcal, 0) ? a : b));
+      const fillerRoles = goal === 'fatloss' ? ['carb', 'protein'] : ['fat', 'carb'];
+      let added = false;
+      for (const role of fillerRoles) {
+        const cand = pickFood(role, big.slot, disliked.concat(big.items.map(i2 => i2.food)), pass, dietType, goal, goal !== 'fatloss');
+        if (!cand) continue;
+        const grams = (deficit / (density(cand) / 100));
+        const item = mkItem(cand, grams);
+        if (item.kcal < 40) continue;
+        big.items.push(item); added = true; break;
+      }
+      if (!added) break; // nichts mehr möglich -> bestmögliches Ergebnis behalten
     }
-    // hoch: erst proportional bis an die Caps …
-    const f = Math.min(1.5, kcal / t);
-    let grew = false;
-    for (const m of meals) for (const it of m.items) {
-      const before = it.amount;
-      Object.assign(it, mkItem(findFood(it.food), it.amount * f));
-      if (it.amount > before) grew = true;
-    }
-    if (grew) continue;
-    // … Caps erreicht: Filler-Item in die größte Mahlzeit
-    const deficit = kcal - total();
-    if (deficit < 120) break;
-    const big = meals.reduce((a, b) => (a.items.reduce((x, i2) => x + i2.kcal, 0) > b.items.reduce((x, i2) => x + i2.kcal, 0) ? a : b));
-    const fillerRoles = goal === 'fatloss' ? ['carb', 'protein'] : ['fat', 'carb'];
-    let added = false;
-    for (const role of fillerRoles) {
-      const cand = pickFood(role, big.slot, disliked.concat(big.items.map(i2 => i2.food)), pass, dietType, goal, goal !== 'fatloss');
-      if (!cand) continue;
-      const grams = (deficit / (density(cand) / 100));
-      const item = mkItem(cand, grams);
-      if (item.kcal < 40) continue;
-      big.items.push(item); added = true; break;
-    }
-    if (!added) break; // nichts mehr möglich -> bestmögliches Ergebnis behalten
-  }
+  };
+  fitKcal();
 
   // Protein-Absicherung: falls deutlich unter Ziel, Proteinquellen anheben (Caps!)
-  const proteinNow = () => meals.reduce((a, m) => a + m.items.reduce((x, it) => x + it.protein, 0), 0);
+  const macroTotal = (key) => meals.reduce((a, m) => a + m.items.reduce((x, it) => x + (it[key] || 0), 0), 0);
+  const proteinNow = () => macroTotal('protein');
   if (proteinNow() < targetProtein * 0.75) {
     for (const m of meals) for (const it of m.items) {
       const f = findFood(it.food);
       if (f && f.role === 'protein' && it.amount < (f.maxG || 400)) Object.assign(it, mkItem(f, it.amount * 1.3));
     }
+  }
+
+  // Makro-Feinabgleich: den Zielsplit treffen, nicht nur die Kalorien.
+  // Ohne diesen Pass landete der Plan systematisch bei ~0,5 g Fett/kg (Ziel: 25 % der Kalorien),
+  // weil Kohlenhydrat- und Proteinquellen die Mahlzeiten füllen – Ernährungs-Tab und Onboarding
+  // zeigten dann Makros, die nie zusammenpassten. Vorgehen je Runde: Protein deckeln, Fett anheben
+  // bzw. eine Fettquelle ergänzen, danach wieder proportional auf das kcal-Ziel bringen
+  // (proportionales Skalieren lässt das Makro-Verhältnis unverändert).
+  const targetFat = Math.max(0, Math.round((macros && macros.fat) || (kcal * 0.25 / 9)));
+  const scaleRole = (role, factor) => {
+    let changed = false;
+    for (const m of meals) for (const it of m.items) {
+      const f = findFood(it.food);
+      if (!f || f.role !== role) continue;
+      const before = it.amount;
+      Object.assign(it, mkItem(f, it.amount * factor));
+      if (it.amount !== before) changed = true;
+    }
+    return changed;
+  };
+  const addFat = (need, seed) => { // je Mahlzeit höchstens eine zusätzliche Fettquelle
+    let added = 0;
+    for (const m of meals) {
+      if (need - added <= 3) break;
+      if (m.items.some(it => (findFood(it.food) || {}).role === 'fat')) continue;
+      const cand = pickFood('fat', m.slot, disliked.concat(m.items.map(i2 => i2.food)), seed, dietType, goal);
+      if (!cand || !cand.f) continue;
+      const item = mkItem(cand, (need - added) * 100 / cand.f);
+      if (item.fat < 3) continue;
+      m.items.push(item); added += item.fat;
+    }
+    return added;
+  };
+  for (let round = 0; round < 3; round++) {
+    const t = total() || 1;
+    const scale = t / kcal; // Makro-Ziele auf den aktuellen Stand umrechnen (danach wird auf kcal refittet)
+    const wantFat = targetFat * scale, wantProtein = targetProtein * scale;
+    let touched = false;
+    const pNow = macroTotal('protein');
+    if (pNow > wantProtein * 1.15) touched = scaleRole('protein', Math.max(0.4, wantProtein * 1.05 / pNow)) || touched;
+    else if (pNow < wantProtein * 0.9) touched = scaleRole('protein', Math.min(1.8, wantProtein / Math.max(1, pNow))) || touched;
+    let fNow = macroTotal('fat');
+    if (fNow < wantFat * 0.9) {
+      if (scaleRole('fat', Math.min(2.5, wantFat / Math.max(1, fNow)))) touched = true;
+      fNow = macroTotal('fat');
+      if (fNow < wantFat * 0.9 && addFat(wantFat - fNow, round) > 0) touched = true;
+    }
+    if (!touched) break;
+    fitKcal();
   }
 
   const done = meals.map(m => {
@@ -554,13 +719,11 @@ export function streakDays(dates, todayStr) {
 // erreicht? Die laufende Woche zählt nur, wenn das Ziel schon erfüllt ist – sonst ab Vorwoche.
 export function weeklyGoalStreak(dates, goalPerWeek, todayStr) {
   const goal = Math.max(1, Number(goalPerWeek) || 1);
-  const fmt = x => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
-  const monday = ds => { const d = new Date(ds + 'T00:00:00'); const w = (d.getDay() + 6) % 7; d.setDate(d.getDate() - w); return fmt(d); };
   const perWeek = {};
-  for (const d of (dates || [])) { const m = monday(d); (perWeek[m] = perWeek[m] || new Set()).add(d); }
+  for (const d of (dates || [])) { const m = mondayOf(d); (perWeek[m] = perWeek[m] || new Set()).add(d); }
   const cnt = k => (perWeek[k] ? perWeek[k].size : 0);
-  const prevMon = k => { const d = new Date(k + 'T00:00:00'); d.setDate(d.getDate() - 7); return fmt(d); };
-  let m = monday(todayStr || fmt(new Date()));
+  const prevMon = k => { const d = new Date(k + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10); };
+  let m = mondayOf(todayStr || tzToday());
   if (cnt(m) < goal) m = prevMon(m);
   let n = 0;
   while (cnt(m) >= goal) { n++; m = prevMon(m); }

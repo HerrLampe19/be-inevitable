@@ -1,0 +1,87 @@
+/* BE INEVITABLE – account (Stage 2, WP-owned). Tokens/Komponenten kommen aus /app.css. */
+/* Nur bereichsspezifische Klassen: Login-Ansicht, Profil-Hub, Nachrichten, Teilen-Dialoge,
+   Health-Import, iOS-Installhinweis. Alles andere (btn/chip/row/note/field/seg/sheet) liegt in app.css. */
+
+/* ---------- LOGIN / REGISTRIERUNG ---------- */
+/* Wortmarke statt des quadratischen Logos: zieht die Karte ~200 px nach oben,
+   CTA und beide Links liegen dadurch in beiden Modi im Daumenbereich. */
+.login-logo{display:block;width:100%;max-width:220px;height:auto;margin:0 auto 18px;border-radius:var(--r-xs)}
+.login-brand p{margin-top:8px}
+.login .login-card{padding:20px}
+.auth-seg{margin-bottom:16px}
+.login-promo{margin:0 0 14px;text-align:center;color:var(--ink2);font-size:var(--t-sm);line-height:var(--lh-snug)}
+.login-card .field:last-of-type{margin-bottom:18px}
+/* „Passwort vergessen?" mit 44-px-Trefferfläche */
+.login-forgot{margin-top:6px}
+.login-forgot a{padding:12px 16px;color:var(--ink2)}
+.login-version{text-align:center;color:var(--ink3);font-size:var(--t-xs);margin-top:20px;min-height:16px}
+@media (max-height:700px){
+  .login{padding:20px 24px}
+  .login-logo{max-width:180px;margin-bottom:12px}
+  .login-brand{margin-bottom:18px}
+  .login-brand h1{font-size:var(--t-2xl)}
+  .login-brand p{display:none}
+}
+
+/* ---------- PROFIL-HUB ---------- */
+.pf-head{text-align:center;padding:0 0 8px}
+.pf-avatar{width:84px;height:84px;margin:0 auto 12px;border-radius:50%;background:var(--red);background-size:cover;background-position:center;color:var(--on-accent);display:flex;align-items:center;justify-content:center;font:700 32px/1 var(--font-head);letter-spacing:var(--track-head)}
+.pf-head .meta{margin-top:2px}
+.pf-avatar-acts{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;margin-top:14px}
+.pf-avatar-acts .btn{cursor:pointer}
+/* Datei-Dialog liegt unsichtbar im Label „Bild ändern" (.btn ist position:relative) */
+.pf-file{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0}
+.pf-head+.field{margin-top:4px}
+.pf-rows{margin-bottom:12px}
+.pf-rows+.pf-rows{margin-top:16px}
+.rows .r-ic.num{font:700 var(--t-md)/24px var(--font);text-align:center;color:var(--red-text);font-variant-numeric:tabular-nums}
+.pf-version{text-align:center;color:var(--ink3);font-size:var(--t-xs);margin:24px 0 4px}
+/* Auto-Save-Rückmeldung am Feld (kurz grüner Rahmen) */
+.field.saved input,.field.saved select,.field.saved textarea{border-color:var(--green)}
+/* Schalter ohne Wirkung (nicht unterstützt / blockiert) */
+.tgl.dis{opacity:.45}
+/* Der Schalter selbst ist 48×28 px – unsichtbare Trefferflächen-Erweiterung auf 68×44 px (Design-System-Minimum).
+   .tgl ist in app.css bereits position:relative, ::after ist der Knauf – deshalb ::before. */
+.switch-row .tgl::before{content:'';position:absolute;inset:-8px -10px}
+
+/* Aufklappbare Abschnitte (Kurzbefehl-Anleitung, Format) */
+.pf-details{background:var(--surface3);border-radius:var(--r-sm);overflow:hidden}
+.pf-details+.pf-details{margin-top:8px}
+.pf-details>summary{display:flex;align-items:center;gap:8px;min-height:52px;padding:12px 16px;font:600 var(--t-base)/1.3 var(--font);color:var(--ink);cursor:pointer;list-style:none}
+.pf-details>summary::-webkit-details-marker{display:none}
+.pf-details>summary::after{content:'';flex:0 0 16px;width:16px;height:16px;margin-left:auto;background:currentColor;color:var(--ink3);transition:transform var(--dur) var(--ease);-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat}
+.pf-details[open]>summary::after{transform:rotate(180deg)}
+.pf-details>.card{margin:0 12px 12px;border-radius:var(--r-sm)}
+.pf-steps{font-size:var(--t-sm);line-height:1.65;color:var(--ink2)}
+.pf-steps b{color:var(--ink)}
+
+/* ---------- NACHRICHTEN ---------- */
+.msg-list{margin-top:-6px}
+.msg .mf{font-size:var(--t-xs);color:var(--ink3);margin-top:2px}
+.msg .mt .pill{margin-left:6px}
+.msg.unread{border-left:2px solid var(--red);margin-left:-12px;padding-left:10px}
+.msg.system .mt{color:var(--ink)}
+.msg-notes{margin-top:18px}
+.msg-notes .note+.note{margin-top:8px}
+/* Verfassen bleibt am unteren Rand des Sheets stehen */
+.msg-compose{position:sticky;bottom:calc(-20px - var(--safe-b));z-index:2;margin:16px -16px calc(-20px - var(--safe-b));padding:12px 16px calc(16px + var(--safe-b));background:var(--surface2);border-top:.5px solid var(--hairline2)}
+
+/* ---------- TEILEN-DIALOGE ---------- */
+.sh-photo{display:block;width:100%;max-height:200px;object-fit:cover;border-radius:var(--r-sm);margin-bottom:12px}
+.sh-ingr{white-space:normal;line-height:var(--lh-body)}
+.sh-link{word-break:break-all;font:400 var(--t-sm)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink2)}
+.sh-code{display:inline-block;margin-top:6px;padding:8px 10px;border-radius:var(--r-xs);background:var(--surface4);color:var(--ink2);font:400 var(--t-xs)/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;white-space:pre-wrap}
+/* Übernommenes Element kurz hervorheben (acceptShare → flashNew) */
+@keyframes acFlash{0%,100%{box-shadow:0 0 0 0 transparent}12%,55%{box-shadow:0 0 0 2px var(--red-ring)}}
+.ex.flash,.row.flash,.rec.flash,.recipe.flash{animation:acFlash 3.2s var(--ease);border-radius:var(--r)}
+
+/* ---------- iOS-INSTALLHINWEIS ---------- */
+.install-hint{display:flex;align-items:center;gap:8px;margin:8px 16px 0;padding:10px 12px}
+.install-hint a{position:relative;display:inline-block;padding:4px 0;color:var(--red-text);font-weight:600;cursor:pointer;white-space:nowrap}
+/* „Anleitung" ist nur ~58×17 px groß – unsichtbare Trefferfläche auf 44 px Höhe erweitern (wie bei .btn.icon) */
+.install-hint a::before{content:'';position:absolute;inset:-14px -8px}
+.install-hint .btn.icon{background:transparent;color:var(--ink3)}
+
+/* ---------- EINFÜHRUNGS-TOUR ----------
+   Die Tour-Stile (.tour-ov, .tour-card und .tour-card.hid, solange drawTourStep die Karte noch nicht
+   positioniert hat; .tour-ov:not(.on) schluckt keine Taps) stehen seit 2.1.0 nur noch in app.css. */

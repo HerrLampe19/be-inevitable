@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
+import { db } from './db.js';
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 const SECRET = process.env.JWT_SECRET || 'be-inevitable-dev-secret-bitte-aendern';
@@ -51,12 +52,15 @@ export function signToken(user) {
 export function auth(req, res, next) {
   const token = req.cookies?.token || (req.headers.authorization || '').replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Nicht eingeloggt' });
-  try {
-    req.user = jwt.verify(token, SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: 'Token ungültig' });
-  }
+  let payload;
+  try { payload = jwt.verify(token, SECRET); }
+  catch { return res.status(401).json({ error: 'Token ungültig' }); }
+  // Rolle/Existenz IMMER frisch aus der DB: Rollenwechsel, Coach-Neuzuordnung oder Löschung
+  // wirken sofort – nicht erst nach Ablauf des 30-Tage-Tokens.
+  const u = db.get('SELECT id, role, coach_id FROM users WHERE id=?', [payload.id]);
+  if (!u) return res.status(401).json({ error: 'Konto nicht gefunden – bitte neu anmelden' });
+  req.user = { id: u.id, role: u.role, coach_id: u.coach_id, name: payload.name };
+  next();
 }
 
 export function requireCoach(req, res, next) {

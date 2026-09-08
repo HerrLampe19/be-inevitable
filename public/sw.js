@@ -11,8 +11,8 @@ self.addEventListener('push', e => {
   try { data = { ...data, ...e.data.json() }; } catch (err) {}
   e.waitUntil(self.registration.showNotification(data.title, {
     body: data.body,
-    icon: '/icon-192.png?v=1.4.0',
-    badge: '/icon-192.png?v=1.4.0',
+    icon: '/icon-192.png?v=__APP_VERSION__',
+    badge: '/icon-192.png?v=__APP_VERSION__',
     data: { url: data.url || '/' }
   }));
 });

@@ -57,6 +57,9 @@ export async function sendEmail({ to, subject, html, text }) {
   }
 }
 
+// Nutzer-Texte (Name, Nachrichten-Vorschau) vor dem Einsetzen in HTML-Mails entschärfen
+const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 // Einheitliches Layout (schlicht, dunkel, mit Wortmarke als Text)
 function wrap(title, bodyHtml) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1a1a1a">
@@ -75,7 +78,7 @@ const btn = (url, label) =>
 export function verifyEmailContent(name, token) {
   const link = `${appUrl()}/api/verify-email?token=${token}`;
   const html = wrap('Bestätige deine E-Mail', `
-    <p>Hi ${name || ''},</p>
+    <p>Hi ${escHtml(name || '')},</p>
     <p>willkommen bei BE INEVITABLE! Bestätige bitte deine E-Mail-Adresse, um alle Funktionen zu nutzen.</p>
     <p>${btn(link, 'E-Mail bestätigen')}</p>
     <p style="color:#666;font-size:13px">Falls der Button nicht geht, öffne diesen Link:<br><a href="${link}">${link}</a></p>
@@ -87,7 +90,7 @@ export function verifyEmailContent(name, token) {
 export function resetPasswordContent(name, token) {
   const link = `${appUrl()}/?reset=${token}`;
   const html = wrap('Passwort zurücksetzen', `
-    <p>Hi ${name || ''},</p>
+    <p>Hi ${escHtml(name || '')},</p>
     <p>du hast angefordert, dein Passwort zurückzusetzen. Klicke auf den Button, um ein neues Passwort zu vergeben.</p>
     <p>${btn(link, 'Neues Passwort festlegen')}</p>
     <p style="color:#666;font-size:13px">Falls der Button nicht geht, öffne diesen Link:<br><a href="${link}">${link}</a></p>
@@ -99,9 +102,9 @@ export function resetPasswordContent(name, token) {
 export function notifyMessageContent(name, fromName, preview) {
   const link = `${appUrl()}/`;
   const html = wrap('Neue Nachricht von deinem Coach', `
-    <p>Hi ${name || ''},</p>
-    <p><b>${fromName || 'Dein Coach'}</b> hat dir eine Nachricht in BE INEVITABLE geschickt:</p>
-    <blockquote style="border-left:3px solid #e2231a;margin:12px 0;padding:6px 14px;color:#444">${preview || ''}</blockquote>
+    <p>Hi ${escHtml(name || '')},</p>
+    <p><b>${escHtml(fromName || 'Dein Coach')}</b> hat dir eine Nachricht in BE INEVITABLE geschickt:</p>
+    <blockquote style="border-left:3px solid #e2231a;margin:12px 0;padding:6px 14px;color:#444">${escHtml(preview || '')}</blockquote>
     <p>${btn(link, 'In der App öffnen')}</p>
     <p style="color:#666;font-size:13px">Diese Benachrichtigung kannst du in der App unter „Mehr → Profil" abschalten.</p>`);
   const text = `Neue Nachricht von ${fromName || 'deinem Coach'} in BE INEVITABLE: ${link}`;

@@ -1,0 +1,247 @@
+/* =====================================================================
+   BE INEVITABLE – Mindset-Modul (Styles)
+   Nutzt die Tokens aus app.css (--surface…--surface4, --hairline/--hairline2, --ink…--ink3,
+   --red/--red-text/--red-tint/--red-ring, --green, --amber, --blue, --r*, --safe-*). Keine Schatten:
+   Elevation über Flächen (Seite --surface, Sheet --surface2, darin --surface3/--surface4).
+   Mobile first (max 540 px), Tap-Ziele ≥ 44 px, prefers-reduced-motion beachtet.
+   ===================================================================== */
+
+/* ---------- Allgemeine Bausteine ---------- */
+.mind-chips{display:flex;flex-wrap:wrap;gap:8px}
+.mchip{position:relative;min-height:44px;padding:9px 14px;border-radius:var(--r-pill);background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline);font:500 14px/1.25 var(--font);color:var(--ink2);display:inline-flex;align-items:center;gap:6px;transition:background var(--dur) var(--ease),color var(--dur),transform var(--dur-fast);text-align:left}
+.mchip.on{background:var(--red-tint);color:var(--red-text);box-shadow:inset 0 0 0 1px var(--red-ring)}
+.mchip:active{transform:scale(.97)}
+.mchip:disabled{opacity:.55}
+.mind-dots{display:flex;gap:6px;justify-content:center;margin:0 0 16px}
+.mind-dots span{width:8px;height:8px;border-radius:50%;background:var(--surface4)}
+.mind-dots span.on{background:var(--red);transform:scale(1.2)}
+.mind-dots span.done{background:color-mix(in srgb,var(--red) 55%,var(--surface4))}
+.mind-link{display:flex;align-items:center;min-height:44px;padding:10px 0;border-bottom:.5px solid var(--hairline2);font-size:var(--t-sm);color:var(--blue);line-height:1.35}
+.mind-link:last-child{border-bottom:none}
+.mind-links{margin-top:4px}
+.mind-p{font-size:var(--t-base);line-height:1.55;color:var(--ink2);margin-bottom:12px}
+.mind-h{font-weight:700;font-size:var(--t-base);margin:18px 0 8px;letter-spacing:var(--track)}
+.mind-ul,.mind-ol{padding-left:20px;font-size:var(--t-sm);line-height:1.55;color:var(--ink2);margin-bottom:12px}
+.mind-ul li,.mind-ol li{margin-bottom:6px}
+.mind-ul b,.mind-ol b,.mind-p b{color:var(--ink)}
+.mind-quote{background:var(--surface3);border-left:3px solid var(--red);border-radius:0 var(--r-sm) var(--r-sm) 0;padding:10px 12px;font-size:var(--t-sm);line-height:1.5;color:var(--ink2);margin-top:10px}
+.mind-quote b{color:var(--ink)}
+.mind-actions{font-size:var(--t-base);color:var(--ink);margin:4px 0 0}
+.mind-done{text-align:center;padding:4px 0 14px}
+.mind-done-ic{font-size:52px;line-height:1}
+.mind-done-t{font:700 var(--t-xl)/var(--lh-snug) var(--font-head);margin-top:8px;letter-spacing:var(--track-head)}
+.mind-done-s{color:var(--ink2);font-size:var(--t-sm);margin-top:4px}
+/* Emoji-Illustration im Sheet – die Titel selbst bleiben schlicht */
+.mind-sheet-ic{font-size:40px;line-height:1;text-align:center;margin:0 0 12px}
+.mind-step-h{margin:0 4px 12px}
+/* „fällig“ – ein einziger Stil für alle Fälligkeits-Marken */
+.pill.due{background:var(--amber-tint);color:#ffb340}
+/* Live-Wert außerhalb der Hinweis-Box (Rad-Formular) */
+.mind-live{font:700 var(--t-md)/1.2 var(--font);color:var(--ink);font-variant-numeric:tabular-nums;margin:12px 4px 4px}
+.mind-hint{padding:6px 0 10px;line-height:var(--lh-body)}
+.mind-lock{display:flex;align-items:center;gap:6px;margin:-6px 4px 0;color:var(--ink3)}
+.mind-lock .ic{width:14px;height:14px;flex:0 0 auto}
+/* Während eines Nachladens bleibt der alte Inhalt stehen und blendet nur leicht ab */
+.mind-loading{opacity:.5;transition:opacity var(--dur) var(--ease);pointer-events:none}
+
+/* Zahlen-Chips 1–10 (5 Spalten → auf 375 px ≈ 56 px breit, 44 px hoch) */
+.numchips{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.nchip{min-height:44px;border-radius:var(--r-sm);background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline);font:600 16px/1 var(--font);color:var(--ink2);transition:background var(--dur) var(--ease),transform var(--dur-fast)}
+.nchip.on{background:var(--red);box-shadow:none;color:#fff}
+.nchip:active{transform:scale(.95)}
+
+/* ---------- Tab Heute ---------- */
+.mind-hero .daytype{font-size:var(--t-3xl)}
+.mind-hero .today-acts{margin-top:16px}
+/* app.css streckt jeden Button in .today-acts – der leise Wiederholen-Knopf bleibt schmal */
+.mind-hero .today-acts .btn.inline{flex:0 0 auto;padding:0 4px}
+.mind-hero-chips{margin-top:14px}
+/* „Mit Tony (Video)“ verlässt die Hero-Aktionen und bleibt ein leiser Textlink */
+.mind-vlink{display:inline-flex;align-items:center;min-height:44px;margin-top:6px;padding:0;background:none;color:var(--blue);font:500 var(--t-sm)/1 var(--font)}
+.mind-vlink:active{opacity:.7}
+/* Serien-Symbol: identisch zu Home (.hg-streak .ic) – monochrom statt Farb-Emoji */
+.ic.mind-flame{color:var(--red-text);margin-right:2px}
+/* Haken in der Tages-Checkliste */
+.mind-ok{display:inline-flex;align-items:center;color:var(--green)}
+.mind-ok .ic{width:18px;height:18px}
+/* Die Frage des Tages darf die Zeile nicht sprengen */
+.mind-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mind-q{margin-bottom:4px}
+.mind-q-text{font:700 21px/1.25 var(--font-head);letter-spacing:var(--track-head)}
+.mind-q-sub{color:var(--ink3);font-size:var(--t-sm);margin-top:8px}
+/* 30-Tage-Streifen statt 7×5-Raster */
+.mind-cal{display:flex;flex-wrap:wrap;gap:4px}
+.mind-cal-d{width:12px;height:12px;border-radius:3px;background:var(--surface3);flex:0 0 auto}
+.mind-cal-d.ok{background:var(--green)}
+.mind-cal-d.half{background:var(--amber);opacity:.7}
+.mind-cal-d.is-today{box-shadow:inset 0 0 0 2px var(--ink)}
+.mind-legend{display:flex;gap:14px;font-size:var(--t-xs);color:var(--ink3);margin-top:10px}
+.mind-legend span{display:inline-flex;align-items:center;gap:5px}
+.mind-legend i{width:10px;height:10px;border-radius:3px;background:var(--surface3);display:inline-block}
+.mind-legend i.ok{background:var(--green)}
+.mind-legend i.half{background:var(--amber);opacity:.7}
+.mind-wbars{display:flex;align-items:flex-end;gap:6px;height:84px}
+.mind-wbars .wb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.mind-wbars .wbv{width:100%;max-width:34px;border-radius:5px 5px 2px 2px;transition:height .5s var(--ease)}
+.mind-wbars .wbl{font-size:11px;color:var(--ink2);margin-top:4px}
+
+/* ---------- Abend-Reflexion ---------- */
+.eve-card{background:var(--surface3);border-radius:var(--r);padding:26px 20px 18px;text-align:center;margin-bottom:16px}
+.eve-ic{font-size:44px;line-height:1}
+.eve-q{font:700 var(--t-xl)/1.25 var(--font-head);letter-spacing:var(--track-head);margin-top:12px}
+.eve-s{color:var(--ink2);font-size:var(--t-sm);margin-top:8px;line-height:var(--lh-body)}
+.eve-hint{font-size:var(--t-xs);color:var(--ink3);margin-top:10px}
+.soft-bar{height:4px;background:var(--surface4);border-radius:2px;overflow:hidden;margin-top:18px}
+.soft-bar>div{height:100%;width:0;background:var(--red);border-radius:2px;transition:width 30s linear}
+.mind-wkcount{margin:4px 4px 0}
+
+/* ---------- Player (Vollbild) ---------- */
+body.mind-playing{overflow:hidden}
+.mind-player{position:fixed;inset:0;z-index:500;background:#000;color:#fff;display:flex;flex-direction:column;padding:calc(var(--safe-t) + 14px) 20px calc(var(--safe-b) + 18px);max-width:540px;margin:0 auto}
+.mp-top{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:44px}
+.mp-head{min-width:0}
+.mp-step{font:600 var(--t-sm)/1.2 var(--font);color:rgba(255,255,255,.65);letter-spacing:.02em}
+.mp-left{font:400 var(--t-xs)/1.2 var(--font);color:rgba(255,255,255,.45);margin-top:3px}
+.mp-tools{display:flex;gap:8px;flex:0 0 auto}
+.mp-ib{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.09);display:flex;align-items:center;justify-content:center;color:#fff}
+.mp-ib:active{background:rgba(255,255,255,.18)}
+.mp-ib .ic{width:20px;height:20px}
+/* Fortschritt über die ganze Einheit (ein Segment je Schritt) */
+.mp-steps{display:flex;gap:4px;margin:12px 0 0}
+.mp-steps span{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.14);transition:background var(--dur) var(--ease)}
+.mp-steps span.done{background:rgba(255,255,255,.45)}
+.mp-steps span.on{background:var(--red)}
+.mp-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;padding:10px 0}
+.mp-ringwrap{position:relative;width:min(66vw,260px);aspect-ratio:1;display:flex;align-items:center;justify-content:center;margin-bottom:6px}
+.mind-ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.mind-ring .bg{stroke:rgba(255,255,255,.13)}
+.mind-ring .fg{stroke:var(--red);transition:stroke-dashoffset .2s linear}
+/* Ruhiger Taktgeber: flache, durchscheinende Scheibe statt glänzender Kugel */
+.breath-pacer{position:absolute;width:72%;height:72%;border-radius:50%;background:rgba(225,6,0,.22);box-shadow:0 0 0 1px rgba(255,255,255,.08),0 0 16px rgba(225,6,0,.22);transform:scale(.55);transition:transform var(--dur,1000ms) cubic-bezier(.4,0,.2,1),opacity .3s}
+.breath-pacer.in{transform:scale(1)}
+.breath-pacer.hold{transform:scale(1);animation:mindHold 2s ease-in-out infinite}
+.breath-pacer.out{transform:scale(.55)}
+.breath-pacer.rest{transform:scale(.55);transition:none;opacity:.45}
+.breath-pacer.hidden{display:none}
+@keyframes mindHold{0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,.08),0 0 10px rgba(225,6,0,.18)}50%{box-shadow:0 0 0 1px rgba(255,255,255,.14),0 0 16px rgba(225,6,0,.32)}}
+.mp-time{position:relative;font-size:58px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1;color:#fff}
+/* „Pausiert“ als Marke im Ring – der Phasentext bleibt sichtbar */
+.mp-paused{position:absolute;bottom:22%;left:50%;transform:translateX(-50%);padding:3px 10px;border-radius:var(--r-pill);background:rgba(255,255,255,.14);font:600 var(--t-xs)/1 var(--font);color:#fff;white-space:nowrap}
+.mp-phase{font:600 var(--t-base)/1.3 var(--font);color:rgba(255,255,255,.72);min-height:22px}
+.mp-title{font:700 27px/1.1 var(--font-head);letter-spacing:var(--track-head)}
+.mp-text{font-size:16px;line-height:1.5;color:rgba(255,255,255,.8);max-width:380px;min-height:72px}
+.mp-bottom{display:flex;flex-direction:column;align-items:center;gap:10px}
+/* EINE zentrale, runde Pause-Taste (64 px) */
+.mp-main{width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#fff;transition:transform var(--dur-fast),background var(--dur-fast)}
+.mp-main:active{transform:scale(.94);background:rgba(255,255,255,.2)}
+.mp-main .ic{width:30px;height:30px}
+/* Überspringen bleibt leise (schlägt .btn.ghost aus app.css) */
+.mind-player .btn.ghost.mp-skip{color:rgba(255,255,255,.6);background:none;min-height:44px;width:auto;padding:0 16px;font-size:var(--t-base)}
+.mind-player .btn.ghost.mp-skip:active{color:#fff;opacity:1}
+.mp-confirm{display:flex;gap:10px;width:100%}
+.mp-confirm .btn{flex:1;min-height:52px}
+.mp-confirm .btn.sec{background:rgba(255,255,255,.12);color:#fff}
+/* Abbruch-Frage im Player: dieselbe Konvention wie confirmSheet – die zerstoerende Taste ist die
+   leise .danger, die sichere „Weitermachen“ bleibt der rote Primaerknopf. */
+.mp-confirm .btn.danger{background:rgba(255,255,255,.12);color:var(--red-text)}
+/* Abschluss-Zustand im Player (vor dem freiwilligen Formular) */
+.mind-player.mp-done .mp-center{gap:10px}
+.mp-done-ic{font-size:56px;line-height:1}
+.mp-done-acts{flex-direction:row;gap:10px;width:100%}
+.mp-done-acts .btn{flex:1;min-height:52px}
+.mp-done-acts .btn.sec{background:rgba(255,255,255,.12);color:#fff}
+
+/* ---------- Rad des Lebens ---------- */
+.wheel-svg{width:100%;max-width:360px;height:auto;display:block;margin:0 auto}
+.mind-intro{padding:28px 20px}
+.mind-intro-ic{font-size:52px;line-height:1}
+.mind-area-ic{font-size:20px;line-height:1;justify-content:flex-start}
+.mind-area-v{font-size:var(--t-md);font-weight:700;min-width:28px;text-align:right;font-variant-numeric:tabular-nums}
+/* .tiles steht in app.css später als .grid-3 – hier gewinnt die Dreierspalte wieder */
+.tiles.grid-3{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.tiles.grid-3 .tile{padding:14px 12px}
+.mind-tile-em{font-size:var(--t-base);line-height:1.3;font-weight:700}
+.mind-focus-ic{font-size:24px;line-height:1}
+.wheel-row{padding:10px 0 6px;border-bottom:.5px solid var(--hairline2)}
+.wheel-row:last-of-type{border-bottom:none}
+.wheel-row-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font:600 var(--t-base)/1.3 var(--font)}
+.wheel-row-h b{font-size:18px;font-variant-numeric:tabular-nums}
+.wheel-row-ic{margin-right:6px}
+.wheel-row-d{font-size:var(--t-xs);color:var(--ink3);margin-top:-2px;line-height:1.4}
+.wheel-slider{-webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;margin:0;display:block;--c:var(--red);--pct:50%}
+.wheel-slider:focus{outline:none}
+.wheel-slider:focus-visible{outline:2px solid var(--c);outline-offset:2px;border-radius:8px}
+.wheel-slider::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--c) var(--pct),var(--surface3) var(--pct))}
+.wheel-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--c);margin-top:-9px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+.wheel-slider::-moz-range-track{height:8px;border-radius:4px;background:var(--surface3)}
+.wheel-slider::-moz-range-progress{height:8px;border-radius:4px;background:var(--c)}
+.wheel-slider::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--c);box-shadow:0 2px 6px rgba(0,0,0,.45)}
+.delta{display:inline-block;font:700 11px/1 var(--font);padding:3px 8px;border-radius:var(--r-pill);vertical-align:middle;font-variant-numeric:tabular-nums}
+.delta.up{background:var(--green-tint);color:var(--green)}
+.delta.down{background:var(--red-tint);color:var(--red-text)}
+.delta.flat{background:var(--surface3);color:var(--ink3)}
+.mind-spark{width:60px;height:18px;display:block}
+.mind-spark-empty{display:inline-block;width:60px;text-align:center;color:var(--ink3);font-size:var(--t-xs)}
+
+/* ---------- Challenge ---------- */
+.mind-chal-h{flex-wrap:nowrap;gap:16px}
+.mind-chal-ring{flex:0 0 auto;display:flex}
+.chal-dots{display:flex;flex-wrap:wrap;gap:7px}
+.chal-dot{width:22px;height:22px;border-radius:50%;background:var(--surface3);flex:0 0 auto;box-sizing:border-box}
+.chal-dot.ok{background:var(--green)}
+.chal-dot.part{background:var(--amber)}
+.chal-dot.miss{background:var(--surface3);box-shadow:inset 0 0 0 1px var(--surface4)}
+.chal-dot.is-today{box-shadow:0 0 0 2px var(--ink)}
+/* Eine Zeilen-Anatomie: Symbol links, Bedienelement rechts – im Aufbau wie im Alltag */
+.rule-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:.5px solid var(--hairline2);min-height:56px;width:100%;text-align:left;background:transparent;color:inherit;cursor:pointer;font:inherit}
+.rule-row:last-child{border-bottom:none}
+.rule-row .ric{font-size:22px;flex:0 0 auto;line-height:1.2;align-self:flex-start;margin-top:1px}
+.rule-row .rbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.rule-row .rlab{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font:600 var(--t-base)/1.3 var(--font)}
+.rule-row .rdyn{font:600 var(--t-xs)/1.45 var(--font);color:var(--ink2)}
+.rule-row .rhint{font-size:var(--t-xs);color:var(--ink3);line-height:1.45}
+.rule-row .rhint b{color:var(--ink2);font-weight:600}
+.rule-row .rauto{font:600 var(--t-xs)/1.3 var(--font);color:var(--green);margin-top:2px}
+.rule-row.on .rlab{color:var(--ink)}
+.rule-row.dis{cursor:default}
+/* .rcheck und .tgl (Schalter) sind nach app.css gewandert (WP0) – hier nur noch Kontext-Abstände */
+.rule-row .rcheck,.rule-row .tgl{align-self:center;margin-left:auto}
+.rule-row .rinfo{position:relative;flex:0 0 auto;align-self:center;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:transparent;color:var(--ink3)}
+.rule-row .rinfo::before{content:'';position:absolute;inset:-4px}
+.rule-row .rinfo:active{background:var(--surface3)}
+.rule-row .rinfo .ic{width:18px;height:18px}
+/* Klebende Startleiste: sticky statt fixed – ein transformierter Vorfahre (.page.first traegt die
+   Einblend-Animation) macht sonst die Seite zum Bezugsrahmen und schiebt die Leiste aus dem Bild.
+   Sie steht als letztes Element im Fluss, die negativen Seitenraender heben die 16 px .page-Polsterung auf. */
+.mind-stickybar{position:sticky;bottom:calc(var(--nav-h) + var(--safe-b));z-index:65;margin:0 -16px;min-height:60px;background:var(--surface2);border-top:.5px solid var(--hairline2);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px}
+.mind-stick-t{font:600 var(--t-sm)/1.3 var(--font);color:var(--ink2)}
+/* Laeuft der Pausen-Timer, sitzt die 48 px hohe Ruheleiste (app.css) ueber der Nav – die Startleiste
+   rueckt dann genauso weit nach oben, damit sie nicht verdeckt wird. */
+body.rest-on .mind-stickybar{bottom:calc(var(--nav-h) + 48px + var(--safe-b))}
+
+/* ---------- Wissen ---------- */
+.know-card{display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;background:var(--surface);border-radius:var(--r);padding:16px;margin-bottom:12px;cursor:pointer;transition:transform var(--dur-fast);font:inherit;color:inherit;min-height:44px}
+.know-card:active{transform:scale(.985)}
+.know-card .ki{font-size:26px;flex:0 0 auto;line-height:1.2}
+.know-card .kb{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.know-card .kt{font:600 16px/1.3 var(--font);letter-spacing:var(--track)}
+.know-card .kd{font-size:var(--t-sm);color:var(--ink2);line-height:1.4}
+.know-card .kx{flex:0 0 auto;display:flex;align-items:center;align-self:center;color:var(--ink3)}
+.know-card .kx .ic{width:18px;height:18px}
+.know-card .kpills{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.know-card .klist{display:flex;flex-direction:column;gap:2px;margin-top:6px;font-size:var(--t-sm);color:var(--ink);font-style:italic}
+.know-card .klist span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- Home-Widget ---------- */
+.stat-strip.mind-strip .sc .ss.mind-line{margin-top:5px;cursor:pointer;color:var(--ink2);white-space:normal;line-height:1.35}
+.mind-strip .btn.sm,.mind-strip .minibtn{flex:0 0 auto}
+.mind-strip .ss{white-space:normal}
+
+/* ---------- Bewegung reduzieren ---------- */
+@media (prefers-reduced-motion:reduce){
+  .breath-pacer{transition:none;animation:none}
+  .breath-pacer.hold{animation:none}
+  .mind-ring .fg{transition:none}
+  .soft-bar>div{transition:none;width:100%}
+  .mind-wbars .wbv,.mchip,.nchip,.know-card,.mp-steps span{transition:none}
+}

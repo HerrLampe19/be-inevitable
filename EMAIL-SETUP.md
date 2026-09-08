@@ -33,8 +33,9 @@ die Variablen gesetzt sind.
 4. **Save Changes** → Render startet den Dienst neu.
 
 ## Funktioniert es? – In 30 Sekunden prüfen
-1. `https://DEINE-APP.onrender.com/api/version` aufrufen →
+1. Als Admin eingeloggt `https://DEINE-APP.onrender.com/api/admin/stats` aufrufen →
    muss `"mail":"konfiguriert"` und `"app_url":"gesetzt"` zeigen.
+   (`/api/version` ist öffentlich und liefert bewusst nur noch die Versionsnummer.)
 2. Als Coach/Admin eingeloggt diesen Aufruf machen (z.B. per Browser-Konsole):
    `fetch('/api/admin/testmail',{method:'POST'}).then(r=>r.json()).then(console.log)`
    → Antwort sagt dir klar, ob versendet wurde, und die Testmail landet in deinem

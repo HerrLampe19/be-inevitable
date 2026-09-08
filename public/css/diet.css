@@ -1,0 +1,127 @@
+/* BE INEVITABLE – diet (Stage 2, WP3 Ernährung). Tokens/Komponenten kommen aus /app.css. */
+
+/* ---- Heute: Hero (Tagtyp-Chip · Kalorienring · Makro-Balken) ---- */
+.diet-hero{margin-bottom:12px}
+.diet-hero .dh-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+/* Zahlen und Urteil („· über dem Ziel") brechen je für sich nicht um, dürfen aber gemeinsam auf zwei Zeilen */
+.diet-hero .dh-head .meta{font-variant-numeric:tabular-nums}
+.diet-hero .dh-head .meta>span{white-space:nowrap}
+.diet-hero .dh-main{display:flex;align-items:center;gap:18px}
+.diet-hero .dh-bars{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+/* Tagtyp als Chip (ersetzt das 51-px-Badge über der Seite) */
+.chip.day{font-weight:600;cursor:default}
+.chip.day::before{content:none}
+.chip.day.train{background:var(--red-tint);color:var(--red-text);box-shadow:inset 0 0 0 1px var(--red-ring)}
+.chip.day.rest{background:var(--surface3);color:var(--ink2)}
+
+/* Makro-Balken mit Über-Ziel-Zustand */
+.mbar .mb-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:5px}
+.mbar .mb-l{font:500 var(--t-sm)/1.2 var(--font);color:var(--ink2)}
+.mbar .mb-v{font:600 var(--t-sm)/1.2 var(--font);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mbar .mb-v b{font-weight:700;margin-left:2px;color:var(--amber)}
+.mbar.good .mb-v b{color:var(--green)}
+
+/* ---- „Laut Plan als Nächstes" (Heute + Plan) ---- */
+.next-meal{margin-bottom:12px}
+.next-meal .caption{white-space:nowrap}
+.next-meal .meta{margin-top:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.next-meal .nm-acts{display:flex;align-items:center;gap:8px;margin-top:14px}
+.next-meal .nm-acts .btn.block{flex:1;width:auto;min-height:48px}
+.next-meal.done{box-shadow:inset 0 0 0 1px var(--green-tint)}
+.next-meal.done .h3{color:var(--green)}
+
+/* ---- Protokoll (Gruppen nach Slot) ---- */
+#dietBody .section-label.tight{margin-top:12px}
+#dietBody .section-label .sl-r{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink2)}
+#dietBody .rows .row .rr{font-variant-numeric:tabular-nums}
+
+/* ---- Essen hinzufügen: Suche, Portions-Karte, Fertig-Leiste ---- */
+.lf-search{margin-bottom:12px}
+.lf-searchwrap{position:relative;display:flex;align-items:center}
+.lf-searchwrap>.ic{position:absolute;left:14px;width:18px;height:18px;color:var(--ink3);pointer-events:none}
+.lf-searchwrap input{padding-left:42px}
+.lf-chosen{margin-bottom:12px}
+.lf-chosen .field:last-of-type{margin-bottom:8px}
+/* Sticky-Leiste am Sheet-Fuß: laufende Summe + „Fertig" */
+.lf-done{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
+  margin:16px -16px calc(-20px - var(--safe-b));padding:12px 16px calc(12px + var(--safe-b));
+  background:var(--surface2);border-top:.5px solid var(--hairline2);
+  font:600 var(--t-sm)/1.3 var(--font);color:var(--ink2)}
+.lf-done .btn{flex:0 0 auto}
+#lf_list{max-height:none} /* kein verschachteltes Scrollfeld mehr – das Sheet scrollt */
+
+/* ---- Plan: Kopfzeile, Sanity-Zeile, Mahlzeiten-Karten (einklappbar) ---- */
+.diet-seg-row{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.diet-seg-row .seg{flex:1;min-width:0;margin-bottom:0}
+.diet-seg-row .btn.icon{flex:0 0 auto}
+.plan-status{margin:-8px 4px 16px;font-variant-numeric:tabular-nums}
+.meal-h{cursor:pointer;align-items:flex-start}
+.meal:not(.open) .meal-h{border-bottom:none}
+.meal-h .ml{flex:1;min-width:0}
+.meal-h .ml .n{display:inline-flex;align-items:center;gap:4px}
+.meal-h .ml .n.ok{color:var(--green)}
+.meal-h .ml .prev-line{color:var(--ink3);margin-top:3px}
+.meal.open .meal-h .ml .prev-line{display:none}
+.meal-h .kc{flex:0 0 auto;font-variant-numeric:tabular-nums}
+.meal-chev{flex:0 0 auto;display:flex;align-items:center;color:var(--ink3);transition:transform var(--dur) var(--ease)}
+.meal.open .meal-chev{transform:rotate(180deg)}
+.meal-body{max-height:0;overflow:hidden;transition:max-height var(--dur-slow) var(--ease)}
+.meal.open .meal-body{max-height:1600px}
+.meal.done .meal-h .ml .t{color:var(--ink2)}
+.meal .fi .fn{overflow-wrap:anywhere}
+.meal .fi .fi-mac{color:var(--ink2);margin-top:2px}
+.meal .fi .fmac{font-variant-numeric:tabular-nums}
+.meal-acts{padding:12px 16px 14px;gap:8px}
+/* Coach-Blick: ohne Aktionsleiste endet die Karte mit der letzten Zutat – etwas Luft nach unten */
+.meal.open .meal-body>.fi:last-child{padding-bottom:16px}
+
+/* ---- Tauschen-Sheet: kcal + beide Differenzen ---- */
+.swap-diff{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right}
+.swap-diff b{font:600 var(--t-base)/1.2 var(--font);color:var(--ink);font-variant-numeric:tabular-nums}
+.swap-diff .caption{font-variant-numeric:tabular-nums}
+
+/* ---- Rezepte ---- */
+.rc-search{margin-bottom:8px}
+.rc-thumb{flex:0 0 auto;width:44px;height:44px;border-radius:10px;background:var(--surface3);overflow:hidden}
+.rc-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.rc-photo{display:block;width:100%;max-height:220px;object-fit:cover;border-radius:16px;margin-bottom:14px}
+.rc-acts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.rc-act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:66px;padding:8px 4px;
+  border-radius:12px;background:var(--surface3);color:var(--ink2);font:600 var(--t-xs)/1.2 var(--font);
+  transition:transform var(--dur-fast),background var(--dur-fast)}
+.rc-act .ic{width:22px;height:22px}
+.rc-act:active{transform:scale(.96);background:var(--surface4)}
+.sheet .rc-act{background:var(--surface4)}
+.rc-text{white-space:pre-line;font-size:var(--t-base);line-height:var(--lh-body);color:var(--ink2);margin-bottom:16px}
+.rc-text b{color:var(--ink)}
+/* „Mehr Angaben" im Rezept-Formular */
+details.more>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;
+  font:600 var(--t-base)/1.2 var(--font);color:var(--ink2);cursor:pointer}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::after{content:'';flex:0 0 18px;width:18px;height:18px;background:currentColor;transition:transform var(--dur) var(--ease);
+  -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat;
+  mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat}
+details.more[open]>summary::after{transform:rotate(180deg)}
+
+/* ---- Einkaufswagen ---- */
+.cart-row{cursor:pointer}
+.cart-row:active{background:var(--surface2)}
+.cart-check{flex:0 0 auto;width:26px;height:26px;border-radius:9px;background:var(--surface3);box-shadow:inset 0 0 0 1.5px var(--hairline2);
+  display:flex;align-items:center;justify-content:center;color:#fff}
+.cart-row.done .cart-check{background:var(--green);box-shadow:none}
+.cart-row.done .rl{color:var(--ink3);text-decoration:line-through}
+
+/* ---- Barcode-Scanner ---- */
+.bc-cam{position:relative;border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px}
+.bc-cam video{display:block;width:100%;max-height:300px;object-fit:cover;background:#000}
+.bc-line{position:absolute;left:8%;right:8%;top:50%;height:2px;border-radius:2px;background:var(--red);
+  box-shadow:0 0 12px var(--red);animation:bcScan 1.9s ease-in-out infinite}
+@keyframes bcScan{0%,100%{transform:translateY(-56px)}50%{transform:translateY(56px)}}
+.bc-status{font-size:var(--t-sm);color:var(--ink2);text-align:center;margin-bottom:14px;line-height:var(--lh-snug)}
+
+/* Schmale Geräte (<=360 px): Ring und Makro-Balken untereinander, sonst schiebt die Zeile die Karte auf */
+@media(max-width:360px){
+  .diet-hero .dh-main{flex-direction:column;align-items:stretch;gap:12px}
+  .diet-hero .dh-main>.fixed{align-self:center}
+  .diet-hero .dh-bars{width:100%}
+}

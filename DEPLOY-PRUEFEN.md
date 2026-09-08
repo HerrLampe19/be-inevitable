@@ -16,6 +16,8 @@ Du kannst die Version auch direkt abfragen: **https://DEINE-URL/api/version**
 → liefert die laufende Versionsnummer. Zeigt das eine alte Nummer, läuft auf Render noch alter Code.
 
 ## Cache ist jetzt kein Problem mehr
+- Die Versionsnummer steht nur noch in `package.json`; der Server setzt sie beim Ausliefern
+  in `index.html` ein (`?v=`-Parameter, `window.BE_VERSION`) und liefert sie unter `/api/version`.
 - `index.html` wird nicht mehr gecacht (no-cache-Header).
 - `app.js` wird über einen `?v=`-Parameter mit der Versionsnummer geladen – bei jeder neuen Version eine neue URL,
   d.h. der Browser lädt garantiert die neue Datei. Kein hartes Neuladen mehr nötig.

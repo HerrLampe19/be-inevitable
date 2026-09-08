@@ -1,0 +1,104 @@
+/* BE INEVITABLE – home (Stage 2, WP1). Tokens/Komponenten kommen aus /app.css; hier nur, was Home eigen ist. */
+
+/* ---------- Wortmarke im Header (Home-Tab) ---------- */
+.hdr .title .wordmark{font:700 15px/1.2 var(--font-head,inherit);letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
+
+/* ---------- Jetzt-Karte ---------- */
+/* Die Kopfzeile trägt links den Gruß, rechts „Tag ändern"; der Gruß darf kürzen statt umzubrechen. */
+.today .eyebrow{display:flex;align-items:baseline;gap:5px;min-width:0}
+.today .eyebrow .t-hi{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.today .eyebrow .t-date{flex:0 0 auto;white-space:nowrap}
+.today .between>.btn.sm{flex:0 0 auto;padding:0 10px}
+.today .chip-row{margin-left:-2px;padding-left:2px;padding-top:2px;padding-bottom:2px}
+.today .chip-row .chip{min-height:34px;padding:0 13px}
+.today .note.warn{font-size:13px}
+/* Auf der Startseite sitzt die Karte enger: jeder Pixel hier hebt die „Heute geschafft"-Ringe nach oben.
+   (Nur #homePage – die Mindset-Seite nutzt dieselbe .today-Karte und behält ihre Maße.) */
+#homePage .today{padding:18px 18px 16px;margin-bottom:12px}
+#homePage .today .daytype{font-size:var(--t-3xl);margin-top:2px}
+#homePage .today .meta{margin-top:4px;font-size:14px}
+#homePage .today>.btn.block{margin-top:12px}
+#homePage .today .chip-row{margin-top:10px;padding-top:2px;padding-bottom:0}
+#homePage .today .chip-row.wrap{gap:6px}
+#homePage .today .chip-row .chip{min-height:32px;padding:0 12px}
+/* 32 px sichtbar, aber 44 px Trefferfläche (app.css setzt für .chip nur inset:-4px = 40 px) */
+#homePage .today .chip-row .chip::before{inset:-6px}
+/* Mindset-Status: eine Zeile, Trefferfläche bleibt über 44 px (::before der Zeile) */
+#homeMind .row{min-height:48px}
+/* Abschnittsköpfe auf der Startseite dichter – es sind fünf davon */
+#homePage .section-label{margin:16px 4px 8px}
+
+/* ---------- „Heute geschafft": Ringe + Streak ---------- */
+.hg-row{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;align-items:start;margin:0 -6px}
+.hg{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;min-height:44px;padding:2px 0;
+  background:none;border:0;color:inherit;cursor:pointer;transition:transform var(--dur-fast,.12s)}
+.hg:active{transform:scale(.94)}
+.hg-r{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.hg-ic{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ink2)}
+.hg-b{position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:50%;background:var(--green);color:#000;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--surface)}
+.hg-b .ic{width:11px;height:11px;stroke-width:3}
+.hg-l{font-size:12px;line-height:1.2;color:var(--ink2);text-align:center;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hg-l.done{color:var(--ink);font-weight:600}
+.hg-streak{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:.5px solid var(--hairline2);font-size:14px}
+.hg-streak .ic{flex:0 0 auto;color:var(--red-text)}
+.hg-jok{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 8px;border-radius:999px;
+  background:var(--surface2);color:var(--ink2);font:600 13px/1 var(--font);white-space:nowrap;position:relative}
+.hg-jok::before{content:'';position:absolute;inset:-6px}
+.hg-jok .ic{width:15px;height:15px}
+
+/* ---------- Ganze Zeile antippbar, aber ohne Chevron (Abhak-Zeilen, Tag-Picker) ---------- */
+.row.h-tap{cursor:pointer;transition:background var(--dur,.2s) var(--ease,ease)}
+.row.h-tap:active{background:var(--surface2)}
+.row .rl.done>span,.row .rl.done{color:var(--ink3)}
+.row .rl.done{text-decoration:line-through;text-decoration-color:var(--ink3)}
+.row .rl.done small{text-decoration:none;color:var(--ink3)}
+
+/* ---------- Trennlinie innerhalb einer Karte (z. B. „Nächste Mahlzeit") ---------- */
+.h-sep{margin-top:12px;padding-top:12px;border-top:.5px solid var(--hairline2)}
+
+/* ---------- Ernährungs-Ring-Zeile ---------- */
+#homeFood .ring-card{cursor:pointer;gap:16px}
+#homeFood .ring-card .ic{flex:0 0 auto}
+
+/* ---------- Fortschritt: eine Karte, drei antippbare Segmente ---------- */
+.card.h-prog{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:0;overflow:hidden}
+.h-seg{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:72px;padding:12px 10px;
+  text-align:left;background:none;border:0;border-right:.5px solid var(--hairline2);color:inherit;cursor:pointer;
+  transition:background var(--dur,.2s) var(--ease,ease)}
+.h-seg:last-child{border-right:0}
+.h-seg:active{background:var(--surface2)}
+.h-seg-t{font:600 15px/1.2 var(--font);letter-spacing:-.01em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.h-seg .caption{max-width:100%}
+.h-seg .bar{display:block;width:100%;margin-top:auto}
+
+/* ---------- „Mehr"-Kacheln: vier in einer Reihe (Icon + Wort) ---------- */
+.quick .qcard .ic{color:var(--ink2)}
+#homePage .quick.mini{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+#homePage .quick.mini .qcard{align-items:center;justify-content:center;gap:6px;min-height:76px;padding:12px 4px;text-align:center}
+#homePage .quick.mini .qcard .ic{margin-bottom:0}
+#homePage .quick.mini .qcard .t{font-size:13px;line-height:1.2;letter-spacing:0}
+
+/* ---------- Coach-Kontext auf der Startseite ---------- */
+.coach-note{border-left:3px solid var(--red)}
+
+/* ---------- Onboarding-Regler (Markup in core.js – beides gehört WP1, app.css ist eingefroren) ----------
+   Ein nacktes <input type=range> mit accent-color zeichnet in Chrome eine weiße Spur auf schwarzem Grund
+   und ist nur 16 px hoch. Gleiche Anatomie wie .wheel-slider im Mindset: 44 px Trefferfläche, roter
+   Füllstand über --pct, 26-px-Griff. */
+.onb-range{-webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;margin:0 0 8px;display:block;--pct:40%}
+.onb-range:focus{outline:none}
+.onb-range:focus-visible{outline:2px solid var(--red);outline-offset:2px;border-radius:8px}
+.onb-range::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--red) var(--pct),var(--surface3) var(--pct))}
+.onb-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--red);margin-top:-9px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+.onb-range::-moz-range-track{height:8px;border-radius:4px;background:var(--surface3)}
+.onb-range::-moz-range-progress{height:8px;border-radius:4px;background:var(--red)}
+.onb-range::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--red);box-shadow:0 2px 6px rgba(0,0,0,.45)}
+
+.hg-row:has(.hg:nth-child(5)) .hg-l{font-size:11px;letter-spacing:-.01em}
+
+@media (max-width:359px){
+  .hg-l{font-size:11px}
+  .h-seg{padding:10px 8px}
+  .h-seg-t{font-size:14px}
+}

@@ -21,8 +21,9 @@ if (userCount > 0) {
 // 1) Lebensmittel
 const foods = DATA.diet.foods;
 for (const f of foods) {
-  db.run('INSERT INTO foods(name,fat,carbs,protein) VALUES(?,?,?,?)',
-    [f.name, Number(f.fat) || 0, Number(f.carbs) || 0, Number(f.protein) || 0]);
+  // unit mitschreiben (g/ml/Stück) – sonst zeigt eine frisch geseedete DB bis zum nächsten Serverstart überall „g"
+  db.run('INSERT INTO foods(name,fat,carbs,protein,unit) VALUES(?,?,?,?,?)',
+    [f.name, Number(f.fat) || 0, Number(f.carbs) || 0, Number(f.protein) || 0, f.unit || 'g']);
 }
 console.log('[seed] Lebensmittel:', foods.length);
 

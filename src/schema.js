@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { initMindsetSchema } from './mindset.js'; // Mindset-Modul (2.0.0): eigene Tabellen + users-Spalten, idempotent
 
 export function initSchema() {
   db.exec(`
@@ -244,7 +245,8 @@ export function initSchema() {
     payload TEXT NOT NULL,                   -- JSON-Schnappschuss
     created_by INTEGER NOT NULL,
     created_at TEXT DEFAULT (datetime('now')),
-    uses INTEGER DEFAULT 0
+    uses INTEGER DEFAULT 0,
+    expires_at TEXT                          -- Ablauf (ISO); NULL bei alten Links = 30 Tage nach created_at
   );
 
   -- Schlüssel/Wert-Einstellungen des Systems (z.B. VAPID-Schlüssel für Push, Cron-Marker)
@@ -393,10 +395,14 @@ export function initSchema() {
   addCol('sleep_goal', 'REAL');           // Ziel Schlaf in Stunden
   addCol('steps_goal', 'INTEGER');        // Ziel Schritte/Tag
   addCol('water_goal', 'REAL');           // Ziel Wasser in Litern
-  addCol('push_hour', 'INTEGER');         // Stunde (UTC/Serverzeit) der täglichen Trainings-Erinnerung; NULL = 6
+  addCol('push_hour', 'INTEGER');         // Stunde (UTC/Serverzeit) der täglichen Trainings-Erinnerung; NULL = aus (keine Erinnerung)
   addCol('streak_freezes', 'INTEGER DEFAULT 1'); // verfügbare Streak-Joker (Start 1, max 2)
   addCol('freeze_last_grant', 'TEXT');    // Datum der letzten Joker-Gutschrift
   addCol('tour_done', 'INTEGER DEFAULT 0'); // Einführungs-Tour einmalig pro Konto gesehen?
+
+  // share_links: Ablaufdatum nachrüsten (bestehende DBs)
+  const slCols = db.all("PRAGMA table_info(share_links)").map(c => c.name);
+  if (!slCols.includes('expires_at')) { try { db.run('ALTER TABLE share_links ADD COLUMN expires_at TEXT'); } catch (e) {} }
 
   // exercise_notes: Autor-Spalten nachrüsten (bestehende DBs)
   const enCols = db.all("PRAGMA table_info(exercise_notes)").map(c => c.name);
@@ -404,5 +410,125 @@ export function initSchema() {
   addEnCol('author_id', 'INTEGER');
   addEnCol('author_role', "TEXT DEFAULT 'athlete'");
 
+  // ---- 2.1.0: additive Migrationen (alle idempotent, nur ADD COLUMN / CREATE IF NOT EXISTS) ----
+  const addColTo = (table, name, def) => {
+    const have = db.all(`PRAGMA table_info(${table})`).map(c => c.name);
+    if (!have.includes(name)) { try { db.run(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`); } catch (e) {} }
+  };
+  addColTo('food_log', 'meal_id', 'INTEGER');          // Verweis auf die Plan-Mahlzeit (via /foodlog/frommeal) -> "schon gegessen"-Markierung
+  addColTo('meals', 'recipe_id', 'INTEGER');           // getauschte Mahlzeit: welches Rezept steckt drin (Label bleibt der Slot-Name)
+  addColTo('foods', 'unit', "TEXT DEFAULT 'g'");       // Einheit der Mengenangabe: 'g' | 'ml' | 'Stück'
+  addColTo('progress_photos', 'thumb', 'TEXT');        // kleines Vorschaubild (<=200 px, clientseitig erzeugt) für die Liste
+  // Plan-Schnappschüsse: vor dem Neu-Erzeugen / Tauschen / Importieren wird der Stand gesichert (Rückgängig)
+  step('plan_versions', () => db.exec(`CREATE TABLE IF NOT EXISTS plan_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    data TEXT NOT NULL,                      -- JSON {reason, meals:[{id,day_type,meal_no,label,position,recipe_id,items:[...]}]}
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_planversions ON plan_versions(user_id, id);
+  CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(user_id, from_id, created_at);`));
+
+  // 2.1.0: englische Dubletten in der Lebensmittel-Liste aufräumen (der alte Seed hatte jede Zeile
+  // zweimal – einmal deutsch, einmal englisch). Siehe FOOD_RENAMES; seed-data.json ist bereits bereinigt.
+  step('foods-dedupe', dedupeSeedFoods);
+
+  // 2.1.0: Tippfehler aus dem alten Seed korrigieren (nur exakt dieser Name, idempotent)
+  step('exercise-typo', () => db.run("UPDATE exercises SET name='Quad Extensions' WHERE name='Quad Extentions'"));
+
+  // 2.1.0: Emoji aus gespeicherten Nachrichten-Titeln entfernen. Die Titel erscheinen unverändert als
+  // fette Kopfzeile im Nachrichten-Sheet und in der Coach-Chatblase, wo sonst überall reiner Text mit
+  // monochromem SVG-Icon steht. Der Server schreibt sie seither ohne Emoji (Push behält seins).
+  // Idempotent: es werden nur exakt diese drei alten Titel ersetzt.
+  step('message-title-emoji', () => {
+    const fixes = [
+      ['\u{1F37D}\uFE0F Neues Rezept geteilt', 'Neues Rezept geteilt'],
+      ['\u{1F4CB} Neuer Trainingsplan', 'Neuer Trainingsplan'],
+      ['\u{1F3AF} Neues Monatsziel', 'Neues Monatsziel'],
+    ];
+    for (const [from, to] of fixes) db.run('UPDATE messages SET title=? WHERE title=?', [to, from]);
+  });
+
+  // Mindset-Modul (Priming, Rad des Lebens, Vital-Challenge, Arbeitsblätter) – Tabellen + users-Spalten
+  step('mindset', () => initMindsetSchema(db));
+
   console.log('[db] Schema bereit');
+}
+
+// Ein Migrationsschritt scheitert nie den ganzen Start: er wird laut protokolliert, der Rest läuft weiter.
+// (Die Tabellen selbst entstehen oben im CREATE-IF-NOT-EXISTS-Block – nur die Zusatzschritte sind hier gekapselt.)
+function step(name, fn) {
+  try { fn(); } catch (e) { console.error('[db] Migrationsschritt "' + name + '" übersprungen:', e?.message || e); }
+}
+
+// ============================================================
+// 2.1.0: LEBENSMITTEL-LISTE EINDEUTSCHEN + ENTDOPPELN
+// ============================================================
+// Der ursprüngliche Seed hat jede Zeile der Coach-Tabelle doppelt angelegt: einmal mit deutschem,
+// einmal mit englischem Namen (187 statt ~100 Einträge). src/seed-data.json ist bereinigt; diese
+// Migration zieht bestehende Datenbanken nach.
+// Sicherheitsnetz: NUR globale Einträge (owner_id IS NULL), die niemand benutzt (use_count = 0 und
+// kein Verweis aus food_log/meal_items). Alles andere bleibt unangetastet.
+// Idempotent: sobald kein englischer Name mehr existiert, macht die Funktion nichts mehr.
+const FOOD_RENAMES = {
+  // halb-englische / falsch geschriebene deutsche Einträge
+  'Cereals (<3g Fett)': 'Cerealien (<3 g Fett)', 'Vegan Protein': 'Veganes Protein', 'Mozarella light': 'Mozzarella light',
+  // englische Dubletten -> deutscher Name
+  'Oatmeal': 'Haferflocken', 'Rice': 'Reis', 'Pasta': 'Nudeln', 'Potatoes': 'Kartoffeln',
+  'Sweet potatoes': 'Süßkartoffeln', 'Rice cakes': 'Reiswaffeln', 'Corn cakes': 'Maiswaffeln',
+  'Whole wheat toast': 'Vollkorntoast', 'White toast': 'Weizentoast', 'Cereals (<3g fat)': 'Cerealien (<3 g Fett)',
+  'Whey isolate': 'Whey Isolat', 'Vegan protein': 'Veganes Protein', 'Clear whey': 'Clearwhey',
+  'Chicken breast': 'Hähnchenbrust', 'White fish': 'Weißer Fisch', 'Tuna': 'Thunfisch',
+  'Lean ground beef / Tartare': 'Rinderfaschiertes mager / Tatar', 'Plain tofu': 'Tofu natur',
+  'Smoked tofu': 'Tofu geräuchert', 'Planted chicken (plain)': 'Planted Chicken Natur', 'Shrimps': 'Garnelen',
+  'Whole egg (piece)': 'Vollei (Stück)', 'Egg whites': 'Eiklar', 'Low-fat quark': 'Magerquark',
+  'Skyr Protein': 'Skyr', 'pudding Protein': 'Proteinpudding', 'semolina pudding': 'Protein Grießpudding',
+  'Salakis light (light cheese)': 'Salakis Light', 'Salmon': 'Lachs', 'Olive oil': 'Olivenöl',
+  'Rapeseed oil': 'Rapsöl', 'Peanut butter': 'Erdnussmus', 'Almond butter': 'Mandelmus', 'Nut butter': 'Nussmus',
+  'Walnuts': 'Walnüsse', 'Peanuts': 'Erdnüsse', 'Cashew butter': 'Cashewmus',
+  '70% chocolate': 'Schokolade 70%', '85% chocolate': 'Schokolade 85%', 'Almonds': 'Mandeln',
+  'Vegetables': 'Gemüse', 'Vegetable stir-fry': 'Gemüsepfanne', 'Broccoli': 'Brokkoli', 'Spinach': 'Spinat',
+  'Carrots': 'Karotten', 'Lettuce': 'Salat', 'Onion': 'Zwiebel', 'Apple': 'Apfel', 'Banana': 'Banane',
+  'Dates': 'Datteln', 'Raisins': 'Rosinen', 'Blueberries': 'Heidelbeeren', 'Raspberries': 'Himbeeren',
+  'Strawberries': 'Erdbeeren', 'Mixed berries': 'Beerenmix', 'Tomatoes': 'Tomaten', 'Light ketchup': 'Ketchup Light',
+  'Cream of Rice': 'Reisbrei', 'Cluster/Maltodextrin': 'Cluster-/Maltodextrin', 'Himmeltau': 'Himmeltau Grießbrei',
+  'Spelt pops': 'Dinkelpops', 'Lentil pasta': 'Linsennudeln', 'Whole grain wrap': 'Vollkorn Wrap',
+  'Pretzel Stick (piece)': 'Laugenstange (Stück)', 'Beans': 'Bohnen', 'Chickpeas': 'Kichererbsen',
+  'Milk chocolate': 'Schokolade Vollmilch', 'Almond milk': 'Mandelmilch', 'Milk 1.5%': 'Milch 1,5%',
+  'Turkey ham': 'Putenschinken', 'Soy shreds': 'Soja Schnetzel', 'Cottage cheese light': 'Cottage Cheese Light',
+  'Cottage cheese full-fat': 'Cottage Cheese Vollfett', 'Full-fat cream cheese': 'Frischkäse Vollfett',
+  'Philadelphia "so light"': 'Philadelphia "so leicht"', 'Light cheese slices': 'Käseaufschnitt light',
+  'Mozzarella light': 'Mozzarella light', 'Light toast cheese': 'Toast Käse light',
+  'Alpro Skyr style natural': 'Alpro Skyr Style natur', 'Alpro Skyr style mango/strawberry': 'Alpro Skyr Style Mango/Erdbeere',
+  'Jam': 'Marmelade', 'Eggs (piece)': 'Eier (Stück)', 'Alpro soy natural': 'Alpro Soja Natur',
+  'Baguette roll (piece)': 'Baguette Brötchen (Stück)', 'Applesauce': 'Apfelmus', 'Rice drink': 'Reis Drink',
+};
+
+function dedupeSeedFoods() {
+  const names = Object.keys(FOOD_RENAMES);
+  let rows = [];
+  try {
+    rows = db.all(`SELECT id, name, COALESCE(use_count,0) use_count FROM foods
+      WHERE owner_id IS NULL AND name IN (${names.map(() => '?').join(',')})`, names);
+  } catch (e) { return; }
+  if (!rows.length) return;
+  let renamed = 0, removed = 0, kept = 0;
+  for (const r of rows) {
+    try {
+    const target = FOOD_RENAMES[r.name];
+    if (!target || target === r.name) continue; // schon richtig benannt (Groß-/Kleinschreibung zählt: 'Cottage cheese light' -> 'Cottage Cheese Light')
+    // In Benutzung? Dann nichts anfassen (Tagesprotokoll und Plan zeigen weiter denselben Namen).
+    const used = r.use_count > 0
+      || !!db.get('SELECT 1 x FROM food_log WHERE food=? LIMIT 1', [r.name])
+      || !!db.get('SELECT 1 x FROM meal_items WHERE food=? LIMIT 1', [r.name]);
+    if (used) { kept++; continue; }
+    const twin = db.get('SELECT id FROM foods WHERE lower(name)=lower(?) AND id<>? LIMIT 1', [target, r.id]);
+    if (twin) { db.run('DELETE FROM foods WHERE id=?', [r.id]); removed++; }
+    else { db.run('UPDATE foods SET name=? WHERE id=?', [target, r.id]); renamed++; }
+    } catch (e) { kept++; console.error('[db] Lebensmittel "' + r.name + '" unverändert gelassen:', e?.message || e); }
+  }
+  if (renamed || removed || kept) {
+    console.log(`[db] Lebensmittel vereinheitlicht: ${renamed} umbenannt, ${removed} Dubletten entfernt, ${kept} in Benutzung behalten`);
+  }
 }

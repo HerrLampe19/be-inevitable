@@ -63,11 +63,23 @@ Render → Settings → **Custom Domains**: Domain hinzufügen und den angezeigt
 DNS-Eintrag beim Domain-Anbieter setzen. Danach `APP_URL` auf die neue Domain ändern.
 
 ## Backup
-Sobald echte Nutzer drauf sind, vor jedem Update ein Backup ziehen:
+Sobald echte Nutzer drauf sind, vor jedem Update ein Backup ziehen (Render → Shell):
 ```
 cp /var/data/data.db /var/data/backup-$(date +%F).db
+cp /var/data/data.db-wal /var/data/backup-$(date +%F).db-wal 2>/dev/null
+cp /var/data/data.db-shm /var/data/backup-$(date +%F).db-shm 2>/dev/null
 ```
-(Render → Shell). Die Datei lässt sich auch herunterladen, um sie extern zu sichern.
+
+> **Wichtig: immer alle drei Dateien zusammen sichern.** Die Datenbank läuft im
+> WAL-Modus: frische Schreibvorgänge stehen zuerst in `data.db-wal`, nicht in
+> `data.db`. Eine Kopie von `data.db` **allein** kann deshalb tagealt sein –
+> ohne jede Fehlermeldung. Wer nur eine Datei will, kopiert erst **nach** einem
+> Checkpoint: die App schreibt das WAL alle 5 Minuten, stündlich und beim Herunterfahren
+> (SIGTERM beim Deploy) automatisch zurück – also z.B. direkt nach einem Neustart
+> des Dienstes kopieren. Dasselbe gilt beim Herunterladen oder beim Umziehen der
+> Datenbank auf einen anderen Rechner.
+
+Die Dateien lassen sich auch herunterladen, um sie extern zu sichern.
 
 ## Wenn etwas nicht läuft
 - Render → **Logs** zeigen Fehler im Klartext.

@@ -1,5 +1,179 @@
 # Changelog
 
+## 2.1.0
+Die größte Überarbeitung der Oberfläche seit dem Start: Jeder Reiter öffnet jetzt mit der
+Handlung, die gerade dran ist – sichtbar ohne Scrollen und in ein bis zwei Tipps erreichbar.
+Alles Übrige rückt eine Ebene tiefer. Funktionen wurden nicht entfernt, sie sind nur besser
+sortiert.
+
+- **Home: die „Jetzt"-Karte.** Ganz oben steht deine Karte für heute – Begrüßung, Datum,
+  Tagesname („Upper 1" oder „Ruhetag") und **genau eine rote Schaltfläche** mit dem nächsten
+  Schritt. Was das ist, entscheidet die App aus deinem Tag: an Trainingstagen „Upper 1 starten",
+  morgens das Priming, abends die Reflexion, sonst das nächste Essen. Darunter höchstens vier
+  kleine Verknüpfungen (Check-in, Essen loggen, Supplements, Mindset) und ein 7-Tage-Streifen
+  zum Kalender. Das große Logo, die doppelte Begrüßung und die separate „Dein Plan"-Karte sind weg.
+- **Schneller eintragen – nichts springt mehr.** Check-in, Essen, Supplements und Sätze werden
+  an Ort und Stelle aktualisiert: Die Seite lädt nicht neu, die Scroll-Position bleibt, es blitzt
+  kein Ladekreis mehr auf. Ein Reiter, den du schon gesehen hast, ist beim Zurückkommen sofort
+  wieder da und aktualisiert sich unsichtbar im Hintergrund.
+- **Training: Satz für Satz mit einem Daumen.** Jede Satz-Zeile hat einen eigenen **Haken**:
+  Gewicht und Wiederholungen werden zusammen gespeichert, die Pause startet automatisch, und der
+  Fokus springt in die nächste Zeile. Graue Vorschläge zählen erst als geloggt, wenn du sie
+  bestätigst.
+  - **Pausen-Leiste über der Navigation:** Countdown (antippen für 60/90/120/180 Sekunden), −15/+15,
+    „Fertig" und ein roter Fortschrittsbalken. Hantelrechner und „Abschließen" sitzen in derselben
+    Leiste – die alte Werkzeug-Zeile mitten im Plan ist weg.
+  - Erledigte Übungen klappen zusammen („3/3 · 50 kg × 12"), die nächste öffnet sich von selbst.
+    Kommst du über die Home-Schaltfläche ins Training, ist die erste offene Übung schon aufgeklappt.
+  - Alles Seltene (Tag verwalten, Tag anlegen, Kalender, Rhythmus) steckt hinter einem „···" neben
+    den Tages-Chips.
+- **Ernährung: „Laut Plan als Nächstes".** Ganz oben steht die nächste noch nicht gegessene
+  Mahlzeit deines Plans mit „Gegessen ✓" und „Tauschen". Getauschte Mahlzeiten lassen sich
+  einzeln wiederherstellen, und was du geloggt hast, ist im Plan als erledigt markiert
+  (kein doppeltes Eintragen mehr).
+- **Essen hinzufügen ist schneller:** Die Suche ist sofort aktiv, über der Liste stehen deine
+  zuletzt und häufig genutzten Lebensmittel (letzte 7 Tage), die Portions-Chips übernehmen die
+  richtige Einheit – Milch zeigt „100 ml", Eier „2 Stück" –, und der Mahlzeiten-Slot ist nach
+  Uhrzeit vorbelegt. Nach dem Hinzufügen bleibt das Fenster offen und zählt mit.
+  Kalorien- und Makroziele kommen aus einer einzigen Quelle (deinem Plan); über dem Ziel zeigt
+  der Balken das ehrlich an („+124 g") statt bei 100 % stehen zu bleiben.
+- **Mindset: ruhiger Player, eine Liste.** Der Reiter Heute beginnt mit einer Karte, die nur den
+  nächsten Schritt zeigt („Dein Morgen" → „Priming erledigt ✓" → „Abend-Reflexion" →
+  „Tag abgerundet ✓"). Darunter **eine** Checkliste für den Tag statt Kacheln plus zweiter
+  Übersicht; Rad des Lebens und Wochencheck stehen als eigene Gruppe „Woche & Monat" darunter.
+  Der Vollbild-Player fragt beim Abbrechen in seiner eigenen Leiste nach („Abbrechen" / „Weiter")
+  statt in einem Systemfenster.
+- **Analyse: Statuskarte und lesbare Diagramme.** „Körper" beginnt mit einer Statuskarte
+  (aktuelles Gewicht, Veränderung pro Woche, Einordnung zu deinem Ziel, ein nächster Schritt);
+  die vier Kacheln zeigen den Abstand zum Ziel und springen zum passenden Diagramm.
+  Die Diagramme haben runde Achsenwerte, mindestens 11 px große Beschriftungen, eine
+  7-Tage-Mittellinie bei Schlaf, Wasser und Schritten und markieren die laufende Woche als
+  unfertig. Übungen lassen sich antippen: Verlauf, Bestleistung und die letzten Einheiten.
+- **Profil als Anlaufstelle.** Alles rund um dein Konto in einer Liste mit Unterzeilen – Ziele,
+  Erinnerungen, Push, Gesundheitsdaten, Teilen, Export, Passwort. Was du änderst, wird direkt
+  gespeichert; Fehler stehen am Feld statt als Meldung darüber.
+- **Coach-Ansicht.** Betrittst du einen Athleten, sagt eine feste Leiste unter dem Kopf, wen du
+  gerade siehst (Bild, Name, Status, „Verlassen") – der alte „‹ Zurück"-Reiter entfällt.
+  Die Athletenliste ist **eine** nach Dringlichkeit sortierte Liste (Alarm › Beobachten › OK)
+  mit dem wichtigsten Grund je Zeile; den zweiten, abweichenden Aufmerksamkeits-Kasten gibt es
+  nicht mehr. Im Athleten-Kontext zeigt das Training den Plan als kompakte Zeilen zum Bearbeiten
+  statt des Satz-Rasters. Nachrichten laufen als Unterhaltung je Athlet (beide Richtungen),
+  Coaches haben eigene Reiter für Nachrichten und Vorlagen.
+- **Design-Auffrischung.** Ein durchgängiges Icon-Set aus SVG statt Emoji (Emoji bleiben, wo sie
+  hingehören: Feiern, Erfolge, Mindset-Illustrationen, Ernährungs-Tags, Onboarding). Eine Familie
+  von Schaltflächen, Chips, Karten, Zeilen und Bottom-Sheets in allen Reitern; alles Antippbare
+  ist **mindestens 44 px** groß; Meldungen erscheinen einzeln nacheinander statt übereinander;
+  größere Abstände und höhere Kontraste (Hilfstexte sind jetzt gut lesbar). Löschen fragt in
+  einem Bottom-Sheet nach – kein Browser-Dialog mehr – und lässt sich meistens per
+  „Rückgängig" zurücknehmen.
+
+**Behobene Fehler**
+- **Satz-Vorschläge zählten als geloggt.** Ein grauer Vorschlag im Feld wurde beim Antippen als
+  echter Satz gewertet – Fortschritt, „Geschafft"-Ring und die Progression rechneten mit Zahlen,
+  die du nie bestätigt hast. Ein Satz zählt jetzt erst nach dem Haken bzw. nach einer Eingabe.
+- **Fehlgeschlagenes Speichern sah aus wie Erfolg.** Bricht das Speichern eines Satzes ab, wird die
+  Zeile jetzt als nicht gespeichert markiert und aus dem Fortschritt herausgerechnet.
+- **Übungs-Verlauf war abgeschnitten.** Bei mehr als 500 geloggten Sätzen fehlten ältere Einheiten
+  („1 Einheit", obwohl es 22 waren). Verlauf und Kurve holen die Übung jetzt vollständig.
+- **„Cardio diese Woche" meinte zweimal etwas anderes.** Training und Analyse zeigten unter
+  derselben Überschrift verschiedene Zahlen (rollende 7 Tage gegen Kalenderwoche). Beide rechnen
+  jetzt ab Montag.
+- **Rezept-Portionen wurden als Gramm gelesen.** Eine geloggte Rezept-Portion ließ sich über
+  „Menge ändern" auf das Hundertfache aufblähen – behoben, eine Portion ist keine Grammzahl mehr.
+- **Plan-Summen wanderten beim Tauschen.** Die Kalorien der Plan-Mahlzeiten wurden beim
+  Wiederherstellen gerundet; nach mehreren Tausch-Runden stimmte die Tagessumme nicht mehr.
+- **Milliliter im Ernährungs-Sheet.** Milch, Sojadrink & Co. boten „100 g" an, obwohl sie in ml
+  gemessen werden. Die Einheit kommt jetzt aus dem Lebensmittel selbst (auch nach `npm run seed`).
+- **„Zuletzt / Häufig" brauchte sieben Abrufe.** Die Vorschlagsliste im Essen-Sheet holt ihre
+  Daten jetzt in einer einzigen Anfrage.
+- **Einführungs-Tour konnte die App blockieren.** Wechselte man während der Tour den Reiter, blieb
+  eine unsichtbare Ebene liegen und schluckte alle Tipps. Die Tour endet jetzt beim Reiterwechsel;
+  zusätzlich kann eine nie sichtbare Ebene keine Eingaben mehr abfangen. Die Tour-Karte blitzt
+  auch nicht mehr unpositioniert über dem Kopfbereich auf.
+- **Postfach markierte alles als gelesen.** Das bloße Öffnen der Nachrichten-Übersicht setzte alle
+  Nachrichten auf gelesen; jetzt geschieht das erst beim Öffnen einer Unterhaltung, und die Glocke
+  zeigt die tatsächlich ungelesenen Nachrichten.
+- **„Rückgängig" bei erledigten Notizen lief ins Leere** – die passende Server-Route fehlte, jetzt
+  ist sie da.
+- **Verwaltung: „zuletzt aktiv"** steht wieder in der Nutzerliste und im Nutzer-Sheet
+  („heute" / „gestern" / „vor 3 Tagen" / „nie aktiv").
+- **Kein Absturz mehr bei abgelaufener Sitzung** im Coach-Postfach und beim Reiterwechsel.
+- **Die Mindset-Startleiste** („Challenge starten") verschwand hinter der Pausen-Leiste, wenn ein
+  Trainings-Timer lief – sie rückt jetzt darauf.
+- **Server startet auch mit fehlerhafter Migration.** Ein einzelner fehlgeschlagener Schritt bricht
+  den Start nicht mehr ab, sondern erscheint als eine Zeile im Log.
+- Kleineres: der Klick-Bereich der Segment-Umschalter reicht über den ganzen Knopf; doppelte
+  CSS-Regeln (Statuszeile, Tour) entfernt; die Vorlagen-Hinweise nennen wieder den richtigen
+  Menüpunkt; `/sw.js` und alle Dateiverweise tragen automatisch die Version aus `package.json`
+  (nach einem Update lädt der Browser garantiert die neuen Dateien).
+
+**Technisch**
+- Das Frontend liegt jetzt in `public/js/core.js, home.js, training.js, diet.js, analysis.js,
+  coach.js, account.js, shell.js` statt in einer großen `app.js`; das CSS in `public/app.css`
+  (Design-System) plus `public/css/<bereich>.css`. Mindset bleibt in `public/mindset.js` und
+  `public/mindset.css`.
+- Neue bzw. erweiterte Server-Routen: `GET /api/home/:userId` (eine Anfrage statt neun),
+  `GET /api/progression/:userId?day=`, `GET /api/foodlog/:userId/recent`,
+  `GET /api/messages/thread/:athleteId` + `POST /api/messages/:athleteId/read-thread`,
+  `POST /api/exercise-notes/:id/flag`, `PUT /api/training-days/:id/reorder`,
+  `GET /api/logs/:userId?exercise_id=`, `GET /api/ai/status`, Plan-Schnappschüsse in
+  `plan_versions` mit `POST /api/meals/restore-plan`. Neue Spalten `food_log.meal_id`,
+  `meals.recipe_id`, `foods.unit`, `progress_photos.thumb` – alle Migrationen laufen automatisch
+  und lassen bestehende Daten unangetastet.
+- **Datensicherheit: Datenbank wird regelmäßig zusammengeführt.** SQLite schrieb neue Einträge in eine
+  Begleitdatei (`data.db-wal`), die nie zurückgeschrieben wurde – eine Sicherungskopie von `data.db`
+  allein wäre praktisch leer gewesen. Die App führt jetzt alle 5 Minuten, stündlich und beim
+  Herunterfahren zusammen; ein Backup der einen Datei genügt.
+- **Eiweiß- und Kalorienziele folgen deinem aktuellen Gewicht** (jüngster Check-in statt des fixen
+  Startgewichts) und entsprechen wieder deinem Ernährungsplan – vorher konnte das Ziel dem Plan
+  widersprechen, sodass der eigene Plan als „über dem Ziel" galt.
+- **Trainings-Erinnerung lässt sich wirklich abschalten:** „Aus" im Profil wurde vom Zeitgeber
+  ignoriert (er erinnerte weiter um 6 Uhr).
+- **Abend-Reflexion und Wochencheck** werden pro Tag nur noch einmal gespeichert; ein zweiter
+  Durchlauf aktualisiert den Eintrag, statt den Verlauf doppelt zu zählen.
+- **Frisch angelegte Konten:** Kalender und Kalorienziel widersprachen sich am ersten Tag
+  („Ruhetag" im Kalender, Trainingstag beim Kalorienziel) – behoben.
+
+## 2.0.0
+- **Mindset-Modul (neu, eigener Reiter 🧠):** Mentale Routinen bekommen denselben festen Platz wie Training und Ernährung. Inspiriert von den Prinzipien aus „Unleash the Power Within" – komplett in eigenen Worten, ohne Workbook-Texte. Ausführliche Anleitung: **MINDSET.md**.
+  - **Morgen-Priming:** Geführter Vollbild-Player mit sechs Schritten (Ankommen · Power-Atmung · Dankbarkeit · Energie & Heilung · 3 to Thrive · Abschluss), wählbar 5 / 10 / 15 Minuten, Ring-Timer, animierter Atem-Taktgeber, Vibration beim Schrittwechsel, optionaler Signalton 🔔, Bildschirm bleibt an, Pause/Weiter. Die Session wird gespeichert, sobald der Player durch ist – drei Tagesergebnisse und Energie lassen sich danach optional ergänzen.
+  - **Kurz-Tools:** Power-Atmung 1-4-2 (10 Atemzüge, „Sanft" 4 / 16 / 8 s oder „Standard" 5 / 20 / 10 s), State-Change 60 s (Körper · Fokus · Sprache), Abend-Reflexion (vier Fragen zum Nachdenken, nach der letzten Frage sofort gespeichert, Energie/Stimmung/Notiz optional), Frage des Tages und ein Emotionaler Wochencheck.
+  - **Rad des Lebens:** Sieben Lebensbereiche (Körper, Gefühle, Beziehungen, Zeit, Karriere, Finanzen, Beitrag) per Schieberegler bewerten, Zielwerte setzen, Fokus-Bereich und drei Maßnahmen festhalten. Radar-Grafik, Ø, Balance-Index, schwächster Bereich, Entwicklung je Bereich mit Delta und Mini-Verlauf, Verlauf aller Standortbestimmungen. Eine Bewertung pro Tag, jederzeit bearbeitbar („Bearbeiten" ändert die Bewertung, statt eine zweite anzulegen). Erinnerung alle vier Wochen.
+  - **Vital-Challenge (10 oder 30 Tage):** Regeln aus „Geschenken" (annehmen) und „Giften" (weglassen) selbst zusammenstellen. Krafttraining, Ausdauer, Wasser, Atmung und Dankbarkeit werden automatisch aus deinen Logs erkannt, der Rest wird abgehakt. Tages-Punkte, Einhaltungsquote, Feier zum Abschluss.
+  - **Wissen:** Zwölf kompakte Karten (Priming, sechs Grundbedürfnisse, Triade des Zustands, Erfolgsformel, Glaubenssätze, Incantation, Rapport, Meisterprinzipien, Rad des Lebens, 3-to-5 to Thrive, Leidenschaft & Vision, Emotionales Zuhause) mit eigenen Arbeitsblättern, die geräteübergreifend gespeichert werden und privat bleiben – nur der Athlet selbst sieht sie. Deine Incantation trägst du selbst ein – die App liefert keinen vorgefertigten Text.
+  - **Home:** Mindset-Karte unter der Begrüßung (Priming starten / erledigt · Abend-Reflexion · Challenge-Tag · Rad fällig) und ein fünfter „Heute geschafft"-Ring 🧠.
+  - **Motivation:** XP für Priming, Reflexion, Atmung, Rad und Challenge sowie sieben neue Erfolge (Erstes Priming, 7 / 30 Tage Priming, Rad des Lebens, 3 Standortbestimmungen, Vital-Challenge geschafft, 50 Atemsessions).
+  - **Erinnerungen:** Im Profil unter „Mindset-Erinnerungen": Priming-Push zur Wunschstunde (5–10 Uhr, aus = Standard) und Abend-Reflexion um 20 Uhr. Push-Klicks springen direkt in den Mindset-Reiter (Deep-Links `#mindset`, `#mindset/wheel`, `#mindset/challenge`).
+  - **Coach:** Sieht im Athleten-Kontext Werte, Streaks, Rad-Bewertungen und den Challenge-Stand seiner Athleten (nur lesend). Arbeitsblätter, Notizen und persönliche Texte bleiben privat – die sieht nur der Athlet.
+  - Neue Tabellen `mindset_sessions`, `wheel_assessments`, `challenges`, `challenge_days`, `mindset_entries` sowie Spalten `mindset_push_hour`, `evening_push`, `priming_minutes`, `needs_top` in `users` – automatische Migration beim Start. Der Daten-Export enthält alle Mindset-Daten.
+- **Bug: Satz speichern konnte hängen bleiben.** Beim Loggen eines Satzes fehlte intern eine Variable (`logTimers`); je nach Browser brach das Speichern mit einem Fehler ab. Behoben.
+- **Bug: Zeitzone.** „Heute" wurde bisher in UTC berechnet – Einträge zwischen Mitternacht und 1 bzw. 2 Uhr landeten am Vortag, und Push-Uhrzeiten stimmten nicht mit der deutschen Zeit überein. Server und App rechnen jetzt in deutscher Zeit (konfigurierbar über `APP_TZ`, Standard `Europe/Berlin`); die Uhrzeiten im Profil sind ausdrücklich „deutsche Zeit".
+- **Bug: Excel-Import** übernahm den gewählten Tagestyp (Training/Ruhetag) nicht – behoben.
+- **Bug: Streak-Warnung** um 19 Uhr ignorierte durch Joker geschützte Tage und warnte zu früh – behoben.
+- **Streak-Joker zurück beim Nachtragen:** Wurde ein Tag automatisch durch einen Joker geschützt und trägst du ihn später doch nach, bekommst du den Joker zurück (Hinweis beim Speichern).
+- **Bug: geteilte und globale Rezepte** ließen sich teilweise weder loggen noch in den Einkaufswagen legen – die Sichtbarkeit ist jetzt überall einheitlich.
+- **Bug: Coach-Profil.** Änderte ein Coach nur seinen Namen, wurden andere Profilfelder geleert – behoben. Persönliche Ziele (Schlaf/Schritte/Wasser) lassen sich jetzt durch Leeren des Felds wieder auf den Standard setzen.
+- **Bug: Onboarding aus der App** heraus („Plan neu einrichten") lag über der laufenden App; jetzt wird die App ausgeblendet, und es gibt einen Abbrechen-Button.
+- **Sicherheit & Robustheit (umfangreiche Überarbeitung):**
+  - Alle Nutzertexte (Übungs-, Tages-, Rezept-, Lebensmittel-, Athletennamen, Nachrichten, Notizen) werden beim Anzeigen konsequent maskiert; der Server begrenzt Längen und entfernt HTML-Zeichen (`<`, `>`) aus Freitext.
+  - Rolle und Coach-Zuordnung werden bei jeder Anfrage frisch aus der Datenbank gelesen (Rollenwechsel/Sperrungen wirken sofort). Verwaltungs-Routen (Wochenrückblick, Joker-Verarbeitung) nur noch für Admins.
+  - Jede Eingabe wird geprüft: Datumsangaben, Auswahlwerte (Tagestyp, Ziel, Phase, Erfahrung, Intensität …), Zahlenbereiche, Bild-Uploads (nur PNG/JPEG/WebP), Video-Links (nur http/https), Passwort-Regeln überall. Sätze lassen sich nur für Übungen aus eigenen Plänen loggen (Satz-Nummer 1–20).
+  - Monatsziele: Monatsangabe wird geprüft, Zielwerte müssen ≥ 1 sein, abgeschlossene Monate werden nicht mehr überschrieben, gutschreiben kann nur der Athlet selbst.
+  - Keine versteckten Dateien mehr aus dem `public/`-Ordner abrufbar; unbekannte `/api/…`-Adressen liefern einen klaren JSON-404.
+  - Teilen-Links laufen nach 30 Tagen ab; beim Übernehmen werden Werte geprüft.
+  - Abgelaufene Anmeldung: Die App lädt automatisch neu und zeigt den Login (statt stiller Fehler).
+  - Schnell-Check-in, Tag setzen, Essen loggen, Einkaufswagen, Cardio löschen und Nachrichten zeigen jetzt echte Fehlermeldungen statt eines falschen „✓".
+  - Login ist ein echtes Formular (Enter-Taste, Passwort-Manager, Autovervollständigung); der Service Worker wird immer registriert, damit Push-Klicks die App zuverlässig öffnen.
+  - Rezept teilen sendet dem Empfänger einen Push; Nachrichten Athlet → Coach lösen einen Push beim Coach aus.
+  - Coaches können keine Athleten mehr „abwerben": Ist ein Athlet schon einem anderen Coach zugeordnet, lehnt „Athlet hinzufügen" ab – umbuchen kann nur ein Admin. Coach-Zuordnung nur noch für Athleten-Konten; wer die Coach-Rolle verliert, betreut automatisch niemanden mehr.
+  - KI-Analyse: 60 Sekunden Abkühlzeit pro Coach, 30 Sekunden Zeitlimit, Athletendaten werden der KI strikt als Daten (JSON) übergeben – nicht mehr als Teil der Anweisung.
+  - Wochenrückblick nur an bestätigte E-Mail-Adressen; Push-Abos nur mit HTTPS-Endpunkt; nur das eigene Postfach lässt sich als gelesen markieren; Coach-erstellte Konten bekommen die Bestätigungs-Mail.
+  - Ungültiges JSON in einer Anfrage liefert jetzt einen sauberen 400-Fehler statt „Serverfehler"; Mahlzeitenplan-Erstellung und Plan-Vorlagen laufen als Transaktion (bei einem Fehler bleibt der alte Plan erhalten).
+  - Daten-Export (DSGVO) deutlich vollständiger: Pläne, Supplements, Monatsziele, Joker, Einkaufswagen, Nachrichten, Foto-Metadaten und alle Mindset-Daten.
+  - Coach im Athleten-Kontext: „Trainingsrhythmus anpassen" und Einkaufswagen nur im eigenen Konto; der Rezept-Filter nutzt die Abneigungen des betrachteten Athleten.
+  - Versionsnummer aus einer einzigen Quelle (`package.json`) – Cache-Buster und Versionsanzeige laufen nicht mehr auseinander. Externe Schriftarten-Links entfernt (kein Abruf bei Google mehr).
+  - Kleineres: Tab-Touren pro Gerät, Glocken-Badge nach dem Lesen korrekt, Sheets starten immer oben, Admin-Passwortfelder maskiert, Erfolge-Abfrage gebündelt, Speicher der Anmelde-Limits wird stündlich aufgeräumt, toter Code entfernt (alte Einkaufsliste, Recovery-Route, Health-Import-Modul, „Mehr"-Reiter).
+
 ## 1.16.0
 - **Ernährung neu strukturiert:** Klare Reiter **Heute · Plan · Rezepte · Einkauf**. Jedes Feature hat jetzt einen festen Platz.
 - **Einkaufswagen (neu, eigener Reiter):** Persistente Einkaufsliste – Artikel aus dem Plan übernehmen („📋 Aus Plan übernehmen"), Zutaten aus Rezepten hineinlegen, selbst hinzufügen; alles abhakbar, einzeln löschbar, „Erledigte weg" / „Wagen leeren". Geräteübergreifend gespeichert (neue Tabelle `cart_items`, automatische Migration).
