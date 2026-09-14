@@ -1,6 +1,6 @@
 {
   "name": "be-inevitable",
-  "version": "2.1.0",
+  "version": "2.7.0",
   "description": "BE INEVITABLE - Coaching App (Backend + Frontend)",
   "type": "module",
   "scripts": {
@@ -10,12 +10,15 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
-    "express": "^4.21.0",
+    "express": "^4.22.2",
     "jsonwebtoken": "^9.0.2",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
-    "nodemailer": "^6.9.14",
+    "nodemailer": "^10.0.0",
     "web-push": "^3.6.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }

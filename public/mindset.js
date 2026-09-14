@@ -34,7 +34,9 @@ const CHALLENGE_RULES = [
   // Geschenke (give yourself)
   { id:'breath',    group:'gift',  icon:'🌬️', label:'3× Power-Atmung (1-4-2)',        hint:'Dreimal am Tag 10 Atemzüge: 1 einatmen · 4 halten · 2 ausatmen (z.B. 5 s / 20 s / 10 s).', auto:'breath3' },
   { id:'move',      group:'gift',  icon:'🤸', label:'20–30 Min. Bewegung / Rebounding', hint:'Lymphe aktivieren: Trampolin, Seilspringen, zügiges Gehen.', auto:null },
-  { id:'water',     group:'gift',  icon:'💧', label:'Wasser: Hälfte des Körpergewichts', hint:'Faustregel ≈ 0,033 L pro kg Körpergewicht (80 kg ≈ 2,6 L). Zitrone rein.', auto:'water' },
+  // D42: „Hälfte des Körpergewichts" ist die Unzen-Faustregel und ergibt in Kilogramm gelesen das
+  // Fünfzehnfache (80 kg → 40 L statt 2,6 L). Muss mit src/mindset.js übereinstimmen.
+  { id:'water',     group:'gift',  icon:'💧', label:'Wasser: rund 0,03 L je kg Körpergewicht', hint:'Etwa 0,033 L pro Kilogramm Körpergewicht – bei 80 kg sind das rund 2,6 L am Tag. Zitrone rein.', auto:'water' },
   { id:'living',    group:'gift',  icon:'🥗', label:'70 % lebendige, wasserreiche Nahrung', hint:'Gemüse, Salat, Obst, Sprossen – der Großteil des Tellers.', auto:null },
   { id:'fats',      group:'gift',  icon:'🥑', label:'Gute Fette & Omega-3',            hint:'Avocado, Oliven, Nüsse, Samen, natives Olivenöl, Fischöl.', auto:null },
   { id:'alkaline',  group:'gift',  icon:'🌿', label:'Basische, mineralstoffreiche Kost', hint:'Grünes Blattgemüse, Gemüse, Obst, Nüsse statt säurebildender Lebensmittel.', auto:null },
@@ -161,9 +163,53 @@ function mDaysBetween(a,b){ return Math.round((Date.parse(b+'T00:00:00Z')-Date.p
 function mDateDE(iso,opts){ try{ const d=new Date(iso+'T00:00'); if(isNaN(d)) return esc2(iso||''); return esc2(d.toLocaleDateString('de-DE',opts||{day:'numeric',month:'short'})); }catch(e){ return esc2(iso||''); } }
 // Coach/Admin im Athleten-Kontext: darf lesen, sieht aber keine persönlichen Texte
 function mindCoachView(){ return !!(typeof ME!=='undefined' && ME && VIEW_USER && VIEW_USER!==ME.id); }
+// B7: Die Bedienelemente werden im Coach-Blick zwar nicht gezeichnet (mindOwn()), aber der Tag des
+// Athleten stand bis 2.6.0 ohne ein Wort da, warum hier nichts zu tippen ist. Check-in (home.js) und
+// Ernährung (diet.js) sagen es seit jeher – Mindset sagt es ab jetzt mit demselben Satz.
+const MIND_RO_TX='Nur Ansicht – das trägt dein Athlet selbst ein.';
+function mindRoNote(cls){ return mindCoachView()?`<div class="note status${cls?' '+cls:''}">${MIND_RO_TX}</div>`:''; }
+// Letzte Sperre vor jedem Schreibzugriff: /api/mindset/* kennt kein user_id und schreibt immer auf den
+// angemeldeten Nutzer. Ein Aufruf aus einem alten Zustand, einem Deep-Link oder der Konsole darf dem
+// Coach also keine XP auf sein eigenes Konto buchen. Die Sheet-/Player-Einstiege (openPriming,
+// openBreath, openStateChange, openEvening, openWeeklyCheck, openWheelNew, openKnow) prüfen schon
+// vorher; das hier fängt alles ab, was daran vorbeikäme.
+function mindRoGuard(){
+  if(mindOwn()) return false;
+  if(typeof toast==='function') toast(mindCoachView()?MIND_RO_TX:'Nur im eigenen Konto möglich');
+  return true;
+}
 // „vor n Tagen" – mit den Sonderfällen heute/gestern
 function mAgo(n){ n=Number(n); if(!isFinite(n)||n<=0) return 'heute'; if(n===1) return 'gestern'; return `vor ${n} Tagen`; }
 function mMin(sec){ const m=Math.round((sec||0)/60); return m<1?'< 1 Min':m+' Min'; }
+// Hat dieses Ritual wirklich stattgefunden? Der Server entscheidet das (Feld `full`, siehe
+// src/mindset.js „VOLLWERTIG ODER ÜBERSPRUNGEN"); eine durchgeklickte Sitzung ist gespeichert,
+// zählt aber nicht. Ältere Antworten ohne das Feld gelten als vollwertig (kein Rückschritt).
+function mdIsFull(s){ return !!s && s.full!==false; }
+// Sekunden als Minutenangabe für Regeltexte: immer auf die nächste halbe Minute AUFgerundet, damit
+// die genannte Grenze nie milder klingt als die echte (lieber „5,5 Minuten" nennen als 5,25).
+function mdMinCeil(sec){
+  const h=Math.ceil((Number(sec)||0)/30)/2;
+  return (Number.isInteger(h)?String(h):String(h).replace('.',','))+(h===1?' Minute':' Minuten');
+}
+// Was muss ein Durchlauf erfüllen, damit er zählt? Die Zahlen stehen NICHT hier, sie kommen aus der
+// Server-Antwort (Feld `rule`, src/mindset.js → fullRuleOf). Bis 2.5.0 versprach der Satz „ab der
+// halben Zeit", gezählt wurde ab 60 % – und er stand genau unter „zählt heute nicht" (Prüfbefund).
+// Fehlt `rule` (alte Antwort aus dem Zwischenspeicher), bleibt der Text bewusst ohne Minutenzahl.
+function mdRuleTxt(rule){
+  const sec=+(rule&&rule.full_sec)||0;
+  if(!sec) return 'Gezählt wird ein Durchlauf ab 60 % der gewählten Zeit – oder ab vier von sechs Schritten, wenn er lang genug dafür war.';
+  const steps=+(rule&&rule.min_steps)||0, total=+(rule&&rule.steps_total)||6, stepSec=+(rule&&rule.step_path_sec)||0;
+  if(steps&&stepSec) return `Gezählt wird ein Durchlauf ab ${mdMinCeil(sec)} – oder ab ${steps} von ${total} Schritten, wenn er mindestens ${mdMinCeil(stepSec)} gedauert hat.`;
+  return `Gezählt wird ein Durchlauf ab ${mdMinCeil(sec)}.`;
+}
+// Anteil der Schrittzeit, ab dem „Überspringen"/„Fertig" freigegeben wird (B16 / 12-von-10 Nr. 2)
+const MD_STEP_GATE = 0.5;
+// Wie viele Millisekunden fehlen noch, bis der aktuelle Schritt zur Hälfte gelaufen ist? 0 = frei.
+function mdStepGateMs(){
+  if(!MP||MP.finished||MP.aborting) return 0;
+  const st=MP.steps[MP.idx]; if(!st||!st.total) return 0;
+  return Math.max(0,Math.round(st.total*MD_STEP_GATE-MP.stepElapsed));
+}
 // Schrittzahl im Abschluss nur zeigen, wenn sie etwas aussagt: wer alles überspringt, hat 0
 // natürlich beendete Schritte – „0/6 Schritte" neben „Gespeichert" wäre nur verwirrend.
 function mStepsTxt(res){ const d=+(res&&res.steps_done)||0, t=+(res&&res.steps_total)||0; return (d>0&&t>0)?` · ${d}/${t} Schritte`:''; }
@@ -224,6 +270,7 @@ function mindRefresh(){
 // Nur die geänderten Felder schicken – der Server mischt mit dem Bestand und liefert die
 // vollständigen Prefs zurück (so kann ein leerer Cache nichts versehentlich zurücksetzen).
 async function mindSavePrefs(patch){
+  if(mindRoGuard()) return false;
   const r=await API.put('/mindset/prefs',patch||{});
   if(r.status===200){
     const merged=(r.data&&typeof r.data.prefs==='object'&&r.data.prefs)?r.data.prefs:(patch||{});
@@ -257,24 +304,50 @@ function renderMindset(v,opts){
   const t=mindPickTab();
   if(opts.cached&&document.getElementById('mindBody')){ mindSegSet(t); mindsetTab(t); return; }
   v.innerHTML=`<div class="page on${opts.cached?'':' first'}">
-    <div class="seg" id="mindSeg" role="tablist" aria-label="Mindset-Bereiche">
-      <button id="ms_heute" role="tab" onclick="mindsetTab('heute')">Heute</button>
-      <button id="ms_wheel" role="tab" onclick="mindsetTab('wheel')">Rad</button>
-      <button id="ms_challenge" role="tab" onclick="mindsetTab('challenge')">Challenge</button>
-      <button id="ms_wissen" role="tab" onclick="mindsetTab('wissen')">Wissen</button>
+    <div class="seg" id="mindSeg" role="tablist" aria-label="Mindset-Bereiche" onkeydown="semMindTabKey(event)">
+      <button type="button" id="ms_heute" role="tab" aria-controls="mindBody" tabindex="-1" onclick="mindsetTab('heute')">Heute</button>
+      <button type="button" id="ms_wheel" role="tab" aria-controls="mindBody" tabindex="-1" onclick="mindsetTab('wheel')">Rad</button>
+      <button type="button" id="ms_challenge" role="tab" aria-controls="mindBody" tabindex="-1" onclick="mindsetTab('challenge')">Challenge</button>
+      <button type="button" id="ms_wissen" role="tab" aria-controls="mindBody" tabindex="-1" onclick="mindsetTab('wissen')">Wissen</button>
     </div>
-    <div id="mindBody"></div></div>`;
+    <div id="mindBody" role="tabpanel" tabindex="0" aria-labelledby="ms_heute"></div></div>`;
   mindsetTab(t);
 }
 // renderMindset.tab merkt sich zusätzlich den Zeitpunkt: nur eine Zuweisung unmittelbar vor dem
 // Rendern (Deep-Link) überschreibt den Start auf „Heute“.
 try{ Object.defineProperty(renderMindset,'tab',{get(){return MIND_TAB;},set(v){MIND_TAB=v;MIND_TAB_AT=Date.now();},configurable:true}); }catch(e){}
 function mindPickTab(){ const t=MIND_TAB||'heute'; return (Date.now()-MIND_TAB_AT<1500)?t:'heute'; }
-function mindSegSet(t){
-  [['heute','ms_heute'],['wheel','ms_wheel'],['challenge','ms_challenge'],['wissen','ms_wissen']].forEach(([k,id])=>{
+// Wer role="tablist" vergibt, verspricht das Tastaturmuster (WAI-ARIA APG): ein einziger Tab-Stopp
+// in der Leiste (roving tabindex), Pfeiltasten wechseln den Reiter, Pos1/Ende springen an den Rand,
+// Tab führt aus der Leiste in den Panel-Inhalt (#mindBody trägt deshalb tabindex="0").
+// Bis 2.6.0 waren alle vier Reiter eigene Tab-Stopps und die Pfeiltasten wirkungslos (p2b-t10).
+const SEM_MIND_TABS=[['heute','ms_heute'],['wheel','ms_wheel'],['challenge','ms_challenge'],['wissen','ms_wissen']];
+function mindSegSet(t,focus){
+  SEM_MIND_TABS.forEach(([k,id])=>{
     const el=document.getElementById(id); if(!el) return;
-    el.classList.toggle('on',t===k); el.setAttribute('aria-selected',t===k?'true':'false');
+    const on=t===k;
+    el.classList.toggle('on',on); el.setAttribute('aria-selected',on?'true':'false');
+    el.setAttribute('tabindex',on?'0':'-1');
+    if(on&&focus) try{ el.focus(); }catch(e){}
   });
+  const box=document.getElementById('mindBody');
+  const sel=SEM_MIND_TABS.find(([k])=>k===t);
+  if(box&&sel) box.setAttribute('aria-labelledby',sel[1]);
+}
+function semMindTabKey(e){
+  if(e.altKey||e.ctrlKey||e.metaKey) return;
+  const step={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1}[e.key];
+  const id=(document.activeElement&&document.activeElement.id)||'';
+  let i=SEM_MIND_TABS.findIndex(([,x])=>x===id);
+  if(i<0) i=Math.max(0,SEM_MIND_TABS.findIndex(([k])=>k===(MIND_TAB||'heute')));
+  let n=null;
+  if(step) n=(i+step+SEM_MIND_TABS.length)%SEM_MIND_TABS.length;
+  else if(e.key==='Home') n=0;
+  else if(e.key==='End') n=SEM_MIND_TABS.length-1;
+  else return;
+  e.preventDefault();
+  mindsetTab(SEM_MIND_TABS[n][0]);
+  mindSegSet(SEM_MIND_TABS[n][0],true);
 }
 function mindsetTab(t){
   const alias={rad:'wheel',wheel:'wheel',chal:'challenge',challenge:'challenge',wissen:'wissen',knowledge:'wissen',heute:'heute',today:'heute'};
@@ -310,64 +383,94 @@ async function drawMindHeute(){
   const own=mindOwn();
   const tdy=today();
   const hour=new Date().getHours();
-  const prim=t.priming, eve=t.evening;
+  // Gespeichert ist nicht gleich gemacht: nur ein vollwertiges Ritual gilt als erledigt (B16).
+  const primRow=t.priming, eveRow=t.evening;
+  const prim=mdIsFull(primRow)?primRow:null, eve=mdIsFull(eveRow)?eveRow:null;
+  const primSkipped=!!primRow&&!prim, eveSkipped=!!eveRow&&!eve;
   const streak=t.streak?.priming||0;
   const mins=[5,10,15].includes(+t.prefs?.priming_minutes)?+t.prefs.priming_minutes:10;
   const breaths=t.breathCount||0, breathTarget=t.breathTarget||3;
   const q=questionOfDay();
   let qDone=sessions.some(s=>s.kind==='question'&&s.date===tdy);
-  try{ if(localStorage.getItem('be_q_'+tdy)) qDone=true; }catch(e){}
+  try{ if(localStorage.getItem('be_q')===tdy) qDone=true; }catch(e){}
   // Streak wie auf Home: dasselbe monochrome Zeichen (icon('flame')) statt eines Farb-Emojis.
   const streakTxt=streak?`${icon('flame',16,'mind-flame')} ${pl(streak,'Tag','Tage')} in Folge`:'';
   let html='';
 
-  // ---------- 1) Hero: zeigt immer die naechste offene Handlung ----------
-  let hEye='\u{1F9E0} Priming', hTitle, hMeta, hCta='';
-  if(!prim){
-    hTitle='Dein Morgen';
-    hMeta=`${mins} Minuten · Atmung · Dankbarkeit · Visualisierung`;
-    if(own) hCta=`<button class="btn block" onclick="openPriming()">Priming starten</button>`;
-  } else if(!eve&&hour>=17){
+  // ---------- 1) Hero: die naechste offene Handlung – nach der Uhrzeit, nicht nach der Reihenfolge ----------
+  // B10/H1: bis 2.4.0 stand „Dein Morgen · Priming starten" auch um 23:14 Uhr, weil `!prim` VOR der
+  // Uhrzeit geprueft wurde. Jetzt gilt: ab 17 Uhr ohne Reflexion gewinnt der Abend, 12–17 Uhr ist das
+  // Priming nur noch ein Nachholen (sekundaerer Knopf), vor 12 Uhr ist es der Morgen. Gleiche Reihenfolge
+  // wie im Home-Widget (mindsetHomeWidget), damit Home und Mindset-Reiter nie Verschiedenes sagen.
+  let hEye='\u{1F9E0} Priming', hTitle, hMeta, hCta='', hMinChip=false;
+  const skipNote=primSkipped?' · heute übersprungen':'';
+  if(!eve&&hour>=17){
     hEye='\u{1F319} Abend';
     hTitle='Abend-Reflexion';
-    hMeta='2 Minuten · ohne Tippen';
+    hMeta=eveSkipped?'2 Minuten · der letzte Durchlauf war zu kurz':'2 Minuten · ohne Tippen';
     if(own) hCta=`<button class="btn block" onclick="openEvening()">Abend-Reflexion starten</button>`;
-  } else if(eve){
+  } else if(!prim&&hour<12){
+    hTitle='Dein Morgen';
+    hMeta=`${mins} Minuten · Atmung · Dankbarkeit · Visualisierung${skipNote}`;
+    hMinChip=true;
+    if(own) hCta=`<button class="btn block" onclick="openPriming()">Priming starten</button>`;
+  } else if(!prim&&hour<17){
+    hTitle='Priming nachholen?';
+    hMeta=`Auch mittags wirken ${mins} Minuten Fokus${skipNote}`;
+    hMinChip=true;
+    if(own) hCta=`<button class="btn block sec" onclick="openPriming()">Priming nachholen</button>`;
+  } else if(prim&&eve){
     hEye='\u2728 Geschafft';
     hTitle='Tag abgerundet ✓';
     hMeta=`${mMin(prim.duration_sec)} Priming${streakTxt?' · '+streakTxt:''}`;
     if(own) hCta=`<button class="btn ghost inline" onclick="openPriming()">Priming wiederholen</button>`;
-  } else {
+  } else if(prim){
     hTitle='Priming erledigt ✓';
     hMeta=`${mMin(prim.duration_sec)} heute${streakTxt?' · '+streakTxt:''}`;
     if(own) hCta=breaths<breathTarget
       ? `<button class="btn block sec" onclick="openBreath()">Power-Atmung · ${breaths}/${breathTarget}</button>`
       : `<button class="btn ghost inline" onclick="openPriming()">Priming wiederholen</button>`;
+  } else {
+    // Abend erledigt, Priming fehlt (oder war zu kurz) – nach 17 Uhr ist der Morgen vorbei
+    hEye='\u{1F319} Abend';
+    hTitle='Abend-Reflexion erledigt ✓';
+    hMeta='Morgen früh: Priming für deinen Start';
+    if(own) hCta=`<button class="btn ghost inline" onclick="openPriming()">Priming nachholen</button>`;
   }
   html+=`<div class="today mind-hero">
     <div class="eyebrow">${hEye}</div>
     <div class="daytype">${hTitle}</div>
     <div class="meta" id="mindHeroMeta">${hMeta}</div>
-    ${(own&&!prim)?`<div class="chip-row wrap mind-hero-chips" data-noswipe><button type="button" class="chip" id="mindMinChip" onclick="openMindMinutes()">${mins} Min ${icon('chevronDown',14)}</button></div>`:''}
+    ${(own&&hMinChip)?`<div class="chip-row wrap mind-hero-chips" data-noswipe><button type="button" class="chip" id="mindMinChip" onclick="openMindMinutes()">${mins} Min ${icon('chevronDown',14)}</button></div>`:''}
     ${hCta?`<div class="today-acts">${hCta}</div>`:''}
     <button type="button" class="mind-vlink" onclick="openPrimingVideo()">${own?'Mit Tony (Video)':'Was ist Priming?'}</button>
   </div>`;
+  html+=mindRoNote('mb-3');   // B7: im Coach-Blick steht hier, warum keine Knöpfe da sind
 
   // ---------- 2) Eine Checkliste: jede Zeile ist die Handlung, nichts steht doppelt ----------
   const ok=`<span class="mind-ok" aria-label="erledigt">${icon('check',18)}</span>`;
   const open='<span class="muted-2">–</span>';
-  const tap=fn=>own?`class="row tap" onclick="${fn}"`:'class="row"';
+  // Übersprungen: gespeichert, aber nicht gezählt – im eigenen Konto wie im Coach-Blick sichtbar (B16)
+  const skipped='<span class="mind-skip">übersprungen</span>';
+  // Eine Zeile, die etwas tut, muss auch mit Tabulator und Enter bedienbar sein (RATE M1):
+  // bisher waren 0 von 8 Zeilen fokussierbar, obwohl app.css schon einen :focus-visible-Stil dafür hat.
+  // Die Maßnahmen-Zeilen im Rad (mindWheelActions) machen es seit jeher richtig – gleiche Lösung.
+  const mKey=fn=>`role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${fn}}"`;
+  const tapRow=fn=>`class="row tap" onclick="${fn}" ${mKey(fn)}`;
+  const tap=fn=>own?tapRow(fn):'class="row"';
   let rows='';
-  rows+=`<div ${tap('openPriming()')}><div class="r-ic">${icon('sun',22)}</div><div class="rl">Priming<small>${prim?mMin(prim.duration_sec)+' · '+(prim.steps_done||0)+'/'+(prim.steps_total||6)+' Schritte':mins+' Minuten · noch offen'}</small></div><div class="rr">${prim?ok:open}</div></div>`;
+  const primSub=prim?mMin(prim.duration_sec)+' · '+(prim.steps_done||0)+'/'+(prim.steps_total||6)+' Schritte'
+    :(primSkipped?mMin(primRow.duration_sec)+' · '+(primRow.steps_done||0)+'/'+(primRow.steps_total||6)+' Schritten – zu kurz, zählt nicht':mins+' Minuten · noch offen');
+  rows+=`<div ${tap('openPriming()')}><div class="r-ic">${icon('sun',22)}</div><div class="rl">Priming<small>${primSub}</small></div><div class="rr">${prim?ok:(primSkipped?skipped:open)}</div></div>`;
   rows+=`<div ${tap('openBreath()')}><div class="r-ic">${icon('wind',22)}</div><div class="rl">Power-Atmung<small>${breaths>=breathTarget?'Tagesziel erreicht':'1-4-2 · je 5–6 Minuten'}</small></div><div class="rr"><b class="${breaths>=breathTarget?'tone-green':''}">${breaths}/${breathTarget}</b></div></div>`;
   rows+=`<div ${tap('openStateChange()')}><div class="r-ic">${icon('zap',22)}</div><div class="rl">State-Change<small>60 Sekunden · Körper · Fokus · Sprache</small></div><div class="rr">${(t.stateCount||0)>0?ok:open}</div></div>`;
-  rows+=`<div ${tap('openEvening()')}><div class="r-ic">${icon('moon',22)}</div><div class="rl">Abend-Reflexion<small>${eve?'Heute erledigt':'2 Minuten · ohne Tippen'}</small></div><div class="rr">${eve?ok:open}</div></div>`;
+  rows+=`<div ${tap('openEvening()')}><div class="r-ic">${icon('moon',22)}</div><div class="rl">Abend-Reflexion<small>${eve?'Heute erledigt':(eveSkipped?'Zu kurz durchgeklickt – zählt nicht':'2 Minuten · ohne Tippen')}</small></div><div class="rr">${eve?ok:(eveSkipped?skipped:open)}</div></div>`;
   rows+=`<div ${tap('openMindQuestion()')}><div class="r-ic">${icon('help',22)}</div><div class="rl">Frage des Tages<small class="mind-clamp">${esc2(q.text)}</small></div><div class="rr">${qDone?ok:open}</div></div>`;
   const ch=t.challenge?.active||null;
   if(ch){
     const done=mindChalDoneCount(ch);
     const pct=done.total?Math.round(done.done/done.total*100):0;
-    rows+=`<div class="row tap" onclick="mindsetTab('challenge')"><div class="r-ic">${icon('trophy',22)}</div><div class="rl">Challenge<small>Tag ${+ch.dayIndex||1} von ${+ch.days||10}${done.total?` · ${done.done}/${done.total} erledigt`:''}</small><div class="bar mt-1"><i style="width:${pct}%"></i></div></div><div class="rr"></div></div>`;
+    rows+=`<div ${tapRow("mindsetTab('challenge')")}><div class="r-ic">${icon('trophy',22)}</div><div class="rl">Challenge<small>Tag ${+ch.dayIndex||1} von ${+ch.days||10}${done.total?` · ${done.done}/${done.total} erledigt`:''}</small><div class="bar mt-1"><i style="width:${pct}%"></i></div></div><div class="rr"></div></div>`;
   }
   html+=`<div class="section-label">Heute</div><div class="rows">${rows}</div>`;
 
@@ -378,7 +481,7 @@ async function drawMindHeute(){
   const wkSub=t.weekly?`${mAgo(mDaysBetween(t.weekly.date,tdy))}${t.weeklyDue?' · fällig':''}`:'Welche Emotionen prägen deine Woche?';
   const due='<span class="pill due">fällig</span>';
   html+=`<div class="section-label">Woche &amp; Monat</div><div class="rows">
-    <div class="row tap" onclick="mindsetTab('wheel')"><div class="r-ic">${icon('target',22)}</div><div class="rl">Rad des Lebens<small>${wheelSub}</small></div><div class="rr">${t.wheel?.due?due:''}</div></div>
+    <div ${tapRow("mindsetTab('wheel')")}><div class="r-ic">${icon('target',22)}</div><div class="rl">Rad des Lebens<small>${wheelSub}</small></div><div class="rr">${t.wheel?.due?due:''}</div></div>
     <div ${tap('openWeeklyCheck()')}><div class="r-ic">${icon('heart',22)}</div><div class="rl">Emotionaler Wochencheck<small>${wkSub}</small></div><div class="rr">${t.weeklyDue?due:(t.weekly?ok:'')}</div></div>
   </div>`;
 
@@ -391,8 +494,12 @@ async function drawMindHeute(){
     <div class="ch-h"><div class="t">Energie &amp; Stimmung</div><div class="v">30 Tage</div></div>
     ${em.length>=2?lineChart2(em,'Energie','1–10','Stimmung','1–10',{domain1:[0,10],step1:2,domain2:[0,10],step2:2}):'<div class="caption mind-hint">Bewerte Energie und Stimmung beim Priming oder in der Abend-Reflexion – ab zwei Tagen erscheint hier deine Kurve.</div>'}
     ${everPrimed?`<div class="ch-h mt-4"><div class="t">Priming-Tage</div><div class="v">${primDays} von 30</div></div>
-    <div class="mind-cal" aria-label="Priming der letzten 30 Tage">${days30.map(d=>{const x=byDay[d]||{};const cls=x.priming?'ok':(x.evening?'half':'');return `<span class="mind-cal-d ${cls}${d===tdy?' is-today':''}" title="${d}"></span>`;}).join('')}</div>
-    <div class="mind-legend"><span><i class="ok"></i>Priming</span><span><i class="half"></i>nur Abend</span><span><i></i>ohne</span></div>`
+    <div class="mind-cal" aria-label="Priming der letzten 30 Tage">${days30.map(d=>{const x=byDay[d]||{};
+      // grauer Punkt fuer einen Tag, an dem nur durchgeklickt wurde (B16)
+      const cls=x.priming?'ok':(x.primingPartial?'part':(x.evening?'half':''));
+      const lbl=x.priming?'Priming':(x.primingPartial?'Priming übersprungen':(x.evening?'nur Abend-Reflexion':'ohne'));
+      return `<span class="mind-cal-d ${cls}${d===tdy?' is-today':''}" title="${mDateDE(d)}: ${lbl}" role="img" aria-label="${mAttr(mDateDE(d)+': '+lbl)}"></span>`;}).join('')}</div>
+    <div class="mind-legend"><span><i class="ok"></i>Priming</span><span><i class="part"></i>übersprungen</span><span><i class="half"></i>nur Abend</span><span><i></i>ohne</span></div>`
     :(em.length>=2?'<div class="caption mind-hint">Nach deinem ersten Priming erscheint hier dein 30-Tage-Verlauf.</div>':'')}
     ${weeklyBars(sessions)}
   </div>`;
@@ -409,7 +516,7 @@ function openMindMinutes(){
 function openMindQuestion(){
   const q=questionOfDay(); const tdy=today();
   let qDone=(MIND_SESS?.sessions||[]).some(s=>s.kind==='question'&&s.date===tdy);
-  try{ if(localStorage.getItem('be_q_'+tdy)) qDone=true; }catch(e){}
+  try{ if(localStorage.getItem('be_q')===tdy) qDone=true; }catch(e){}
   openSheet('Frage des Tages',`
     <div class="card mind-q"><div class="mind-q-text">${esc2(q.text)}</div>
       <div class="mind-q-sub">Nur denken – kein Tippen. Nimm dir eine Minute.</div></div>
@@ -440,18 +547,21 @@ async function mindSetMinutes(m){
   closeModal();
   // Hero an Ort und Stelle nachziehen (kein Neuaufbau des Tabs)
   const chip=document.getElementById('mindMinChip'); if(chip) chip.innerHTML=`${m} Min ${icon('chevronDown',14)}`;
-  const done=!!(MIND_TODAY&&MIND_TODAY.priming);
+  // Der Hero-Text haengt an der Uhrzeit (Morgen / Nachholen) und daran, ob heute schon vollwertig geprimt wurde
+  const primRow=MIND_TODAY&&MIND_TODAY.priming, done=mdIsFull(primRow);
+  const skipNote=(primRow&&!done)?' · heute übersprungen':'';
   const meta=document.getElementById('mindHeroMeta');
-  if(meta&&!done) meta.textContent=`${m} Minuten · Atmung · Dankbarkeit · Visualisierung`;
+  if(meta&&!done) meta.textContent=(new Date().getHours()<12?`${m} Minuten · Atmung · Dankbarkeit · Visualisierung`:`Auch mittags wirken ${m} Minuten Fokus`)+skipNote;
   const row=document.querySelector('#mindBody .rows .row .rl small');
-  if(row&&!done) row.textContent=`${m} Minuten · noch offen`;
+  if(row&&!primRow) row.textContent=`${m} Minuten · noch offen`;
   mindCacheView();
 }
 async function mindQuestionDone(id){
+  if(mindRoGuard()) return;
   const btn=document.getElementById('mindQBtn'); if(btn) btn.disabled=true;
   const r=await API.post('/mindset/session',{kind:'question',date:today(),data:{id}});
   if(r.status===200||r.status===201){
-    try{ localStorage.setItem('be_q_'+today(),'1'); }catch(e){}
+    try{ localStorage.setItem('be_q',today());Object.keys(localStorage).filter(k=>k.startsWith('be_q_')).forEach(k=>{try{localStorage.removeItem(k);}catch(e){}}); }catch(e){}
     if(btn) btn.textContent='Nachgedacht ✓';
     // Der Server antwortet bei einer zweiten Antwort am selben Tag mit already:true (0 XP)
     if(r.data?.already) toast('Heute schon erledigt ✓');
@@ -471,6 +581,87 @@ function openPrimingVideo(){
 // =====================================================================
 // PLAYER (Vollbild-Overlay) – Priming, Power-Atmung, State-Change
 // =====================================================================
+// ===== A-II.6 · Der Player ist ein echter Dialog (Übergabe A5-2 aus A-II.5) =====
+// Bis 2.5.0 behauptete #primingOverlay role="dialog" aria-modal="true" und löste nichts davon ein:
+// der Hintergrund blieb mit Tab erreichbar, die Seite scrollte darunter weiter, der Fokus stand nach
+// dem Öffnen weiter auf dem Startknopf IN der Seite dahinter, und Escape tat nichts. aria-modal="true"
+// weist einen Screenreader an, alles außerhalb des Dialogs zu ignorieren – steht der Fokus dann genau
+// dort draußen, liest er gar nichts mehr vor. Das ist schlechter als keine Rolle.
+// Der Mechanismus ist derselbe wie bei den Sheets (shell.js, A-II.5): inert über den Hintergrund,
+// Scroll-Lock, Fokus hinein, Tab bleibt drin, Escape kommt heraus. Der Player ist aber KEIN Sheet
+// (er lebt außerhalb von #modal und überlebt keinen Sheet-Stack), darum hier eine eigene, kleine
+// Fassung statt openSheet(). Reihenfolge beim Öffnen wie dort: erst den Auslöser merken, DANN inert
+// setzen (inert nimmt dem Auslöser sofort den Fokus), dann den Fokus in den Dialog holen.
+const SEM_MP_INERT=['appView','loginView','onbView','restBar'];
+let semMpReturnFocus=null,semMpScrollY=0,semMpLocked=false,semMpObs=null;
+// Schließt sich ein Sheet, das ÜBER dem Player lag, dann räumt _a11SheetOff() in shell.js inert und
+// Scroll-Lock weg – es weiß nichts vom Player darunter. Gemessen: der Hintergrund war danach wieder
+// mit Tab erreichbar, obwohl der Player noch offen stand. Also nachsetzen, sobald es passiert.
+// (shell.js gehört Paket A-II.5 und bleibt unangetastet; das hier ist die Seite, die es merkt.)
+function semMpReassert(){
+  const ov=document.getElementById('primingOverlay');
+  if(!ov||!ov.isConnected){if(semMpObs){semMpObs.disconnect();semMpObs=null;}return;}
+  if(typeof sheetOpen==='function'&&sheetOpen())return;   // das Sheet oben regelt es selbst
+  SEM_MP_INERT.forEach(id=>{const e=document.getElementById(id);if(e&&!e.hasAttribute('inert'))e.setAttribute('inert','');});
+  if(!document.body.classList.contains('sheet-open')){document.body.classList.add('sheet-open');semMpLocked=true;}}
+function semMpDialogOn(ov){
+  if(!ov)return;
+  const a=document.activeElement;
+  semMpReturnFocus=(a&&a!==document.body&&a.isConnected)?a:null;
+  SEM_MP_INERT.forEach(id=>{const e=document.getElementById(id);if(e)e.setAttribute('inert','');});
+  if(!document.body.classList.contains('sheet-open')){
+    semMpScrollY=window.scrollY||document.documentElement.scrollTop||0;
+    document.body.classList.add('sheet-open');semMpLocked=true;}
+  if(semMpObs){semMpObs.disconnect();semMpObs=null;}
+  try{
+    semMpObs=new MutationObserver(semMpReassert);
+    semMpObs.observe(document.body,{attributes:true,attributeFilter:['class']});
+    SEM_MP_INERT.forEach(id=>{const e=document.getElementById(id);if(e)semMpObs.observe(e,{attributes:true,attributeFilter:['inert']});});
+  }catch(e){}
+  ov.setAttribute('tabindex','-1');
+  // Auf das Overlay selbst, nicht auf einen Knopf: ein Screenreader liest so zuerst den Dialognamen
+  // („Morgen-Priming“) und dann den Inhalt vor. Tab führt von hier zum ersten Knopf (s. semMpKeys).
+  try{ov.focus({preventScroll:true});}catch(e){}}
+function semMpDialogOff(){
+  if(semMpObs){semMpObs.disconnect();semMpObs=null;}
+  // Liegt (wieder) ein Sheet oben – mindPlayerNotes() öffnet eines direkt nach dem Abbau –, dann
+  // gehören inert, Scroll-Lock und Fokus jetzt shell.js. Nichts davon anfassen.
+  const sheetStill=(typeof sheetOpen==='function')&&sheetOpen();
+  if(!sheetStill){
+    SEM_MP_INERT.forEach(id=>{const e=document.getElementById(id);if(e)e.removeAttribute('inert');});
+    if(semMpLocked){
+      document.body.classList.remove('sheet-open');
+      if(semMpScrollY>0&&(window.scrollY||0)===0){try{window.scrollTo(0,semMpScrollY);}catch(e){}}}}
+  semMpLocked=false;
+  const back=semMpReturnFocus;semMpReturnFocus=null;
+  if(!sheetStill&&back&&back.isConnected&&typeof back.focus==='function'){try{back.focus({preventScroll:true});}catch(e){}}}
+// Escape und Tab im Player. Capture-Phase, damit dieser Handler VOR _sheetTrap/a11KeyActivate aus
+// shell.js liegt: solange der Player offen ist, darf Escape nichts hinter ihm schließen.
+// Escape tut genau das, was der X-Knopf tut (App-Konvention), und das ist beim laufenden Durchlauf
+// erst einmal die Rückfrage – ein Fehlgriff darf kein Priming löschen. Das zweite Escape bestätigt.
+function semMpKeys(e){
+  const ov=document.getElementById('primingOverlay');
+  if(!ov||!ov.isConnected)return;
+  // Liegt ein Sheet über dem Player (z. B. die Einwilligungs-Rückfrage, die ein fehlgeschlagenes
+  // Speichern aufmacht), dann gehört die Tastatur der obersten Schicht: shell.js. Sonst schluckt
+  // dieser Handler das Escape, das eigentlich das Sheet schließen soll.
+  if(typeof sheetOpen==='function'&&sheetOpen())return;
+  if(e.key==='Escape'||e.key==='Esc'){
+    if(e.defaultPrevented)return;
+    e.preventDefault();e.stopPropagation();
+    if(!MP)return;
+    if(MP.finished){if(ov.classList.contains('mp-done'))mindPlayerDone();return;}
+    if(MP.aborting){mindPlayerDestroy();return;}
+    mindPlayerClose();return;}
+  if(e.key!=='Tab')return;
+  const f=(typeof _a11Focusables==='function')?_a11Focusables(ov)
+    :[...ov.querySelectorAll('button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')];
+  if(!f.length){e.preventDefault();e.stopPropagation();try{ov.focus({preventScroll:true});}catch(x){}return;}
+  const first=f[0],last=f[f.length-1],a=document.activeElement,i=f.indexOf(a);
+  if(i<0){e.preventDefault();e.stopPropagation();(e.shiftKey?last:first).focus();return;}
+  if(e.shiftKey&&a===first){e.preventDefault();e.stopPropagation();last.focus();}
+  else if(!e.shiftKey&&a===last){e.preventDefault();e.stopPropagation();first.focus();}}
+document.addEventListener('keydown',semMpKeys,true);
 function mindBuildPhases(s){
   const ph=[];
   if(s.type==='power'){
@@ -529,6 +720,7 @@ function mindPlayerOpen(cfg){
     <div class="mp-bottom" id="mpBottom"></div>`;
   document.body.appendChild(ov);
   document.body.classList.add('mind-playing');
+  semMpDialogOn(ov);   // erst jetzt: der Auslöser hat bis hier den Fokus, inert nimmt ihn weg
   document.addEventListener('visibilitychange',mindPlayerVis);
   mindPlayerLoadStep(0);
   mindPlayerBottom();
@@ -538,9 +730,28 @@ function mindPlayerOpen(cfg){
 // „Fertig ✓“ erscheint nur im letzten Schritt.
 function mindPlayerBottom(){
   const bot=document.getElementById('mpBottom'); if(!bot||!MP) return;
-  const last=MP.idx===MP.steps.length-1;
   bot.innerHTML=`<button type="button" class="mp-main" id="mpPause" aria-label="${MP.running?'Pause':'Weiter'}" onclick="mindPlayerToggle()">${icon(MP.running?'pause':'play',30)}</button>
-    <button type="button" class="btn ghost mp-skip" id="mpNext" onclick="mindPlayerNext()">${last?'Fertig ✓':'Überspringen'}</button>`;
+    <button type="button" class="btn ghost mp-skip" id="mpNext" onclick="mindPlayerNext()"></button>`;
+  MP.lastGate=-1; mdGateDraw(true);
+}
+// „Überspringen“/„Fertig ✓“ erst ab der Hälfte des Schritts (B16): vorher steht dort, wie lange es
+// noch dauert. Ohne diese Sperre war ein ganzes Priming in einer Sekunde durchgeklickt.
+function mdGateDraw(force){
+  const b=document.getElementById('mpNext'); if(!b||!MP) return;
+  const last=MP.idx===MP.steps.length-1;
+  const ms=mdStepGateMs(), sec=Math.ceil(ms/1000);
+  if(!force&&sec===MP.lastGate) return;
+  MP.lastGate=sec;
+  if(ms>0){
+    b.disabled=true; b.setAttribute('aria-disabled','true');
+    b.textContent=`Noch ${sec} ${sec===1?'Sekunde':'Sekunden'}`;
+    const st=MP.steps[MP.idx], half=(st&&st.total)?st.total*MD_STEP_GATE:0;
+    b.style.setProperty('--gate',(half?Math.max(0,Math.min(100,Math.round(MP.stepElapsed/half*100))):0)+'%');
+  } else {
+    b.disabled=false; b.removeAttribute('aria-disabled');
+    b.textContent=last?'Fertig ✓':'Überspringen';
+    b.style.setProperty('--gate','100%');
+  }
 }
 // 6-Segment-Balken über die ganze Einheit + „noch ~7 Min“
 function mindStepsBar(){
@@ -560,7 +771,7 @@ function mindPlayerLoadStep(i){
   const n=MP.steps.length;
   const stepEl=document.getElementById('mpStep'); if(stepEl) stepEl.textContent=n>1?`Schritt ${i+1}/${n}`:(MP.cfg.stepLabel||'');
   const tt=document.getElementById('mpTitle'); if(tt) tt.textContent=st.title||'';
-  const nx=document.getElementById('mpNext'); if(nx) nx.textContent=(i===n-1)?'Fertig ✓':'Überspringen';
+  MP.lastGate=-1; mdGateDraw(true);   // neuer Schritt: die Halbzeit-Sperre beginnt von vorn
   mindStepsBar();
   mindApplyPhase(true);
   mindDraw(true);
@@ -590,6 +801,7 @@ function mindDraw(force){
   if(ring){ const frac=st.total?Math.min(1,MP.stepElapsed/st.total):0; const pct=Math.round(frac*200); if(force||pct!==MP.lastRing){ MP.lastRing=pct; const C=2*Math.PI*88; ring.style.strokeDashoffset=(C*(1-frac)).toFixed(1); } }
   const lf=document.getElementById('mpLeft');
   if(lf&&MP.steps.length>1){ const m=Math.max(0,Math.round(mindRemainMs()/60000)); if(force||m!==MP.lastLeft){ MP.lastLeft=m; lf.textContent=m>0?`noch ~${m} Min`:'gleich fertig'; } }
+  if(!MP.aborting) mdGateDraw(force);
 }
 function mindTick(){
   if(!MP||!MP.running) return;
@@ -610,7 +822,8 @@ function mindStepDone(natural){
     mindPlayerLoadStep(MP.idx+1);
   } else mindPlayerFinish();
 }
-function mindPlayerNext(){ if(!MP||MP.finished||MP.aborting) return; if(!MP.running){ MP.lastTick=Date.now(); } mindStepDone(false); }
+// Zweite Sicherung neben dem gesperrten Knopf: vor der Halbzeit passiert hier nichts.
+function mindPlayerNext(){ if(!MP||MP.finished||MP.aborting) return; if(mdStepGateMs()>0){ mdGateDraw(true); return; } if(!MP.running){ MP.lastTick=Date.now(); } mindStepDone(false); }
 function mindPlayerResume(){
   if(!MP||MP.finished||MP.aborting) return;
   MP.running=true; MP.lastTick=Date.now();
@@ -685,12 +898,16 @@ function mindPlayerClose(){
   const bot=document.getElementById('mpBottom');
   // Konvention wie bei confirmSheet(): die zerstoerende Wahl traegt .danger und einen eigenen
   // Verb-Namen; „Abbrechen“ heisst in der ganzen App „Dialog schliessen“ und darf hier nichts loeschen.
-  if(bot) bot.innerHTML=`<div class="mp-confirm"><button type="button" class="btn danger inline" onclick="mindPlayerDestroy()">Beenden</button><button type="button" class="btn inline" onclick="mindPlayerAbortBack()">Weitermachen</button></div>`;
+  if(bot){bot.innerHTML=`<div class="mp-confirm"><button type="button" class="btn danger inline" onclick="mindPlayerDestroy()">Beenden</button><button type="button" class="btn inline" onclick="mindPlayerAbortBack()">Weitermachen</button></div>`;
+    // Der Austausch der Leiste hat dem gerade benutzten Knopf den Fokus genommen: ihn auf die
+    // harmlose Wahl setzen, damit die Rückfrage per Tastatur überhaupt erreichbar ist (A-II.6).
+    const w=bot.querySelector('.mp-confirm .btn:not(.danger)');if(w)try{w.focus({preventScroll:true});}catch(e){}}
 }
 function mindPlayerAbortBack(){
   if(!MP) return; MP.aborting=false;
   const tx=document.getElementById('mpText'); if(tx&&MP.abortPrevTxt!=null){ tx.textContent=MP.abortPrevTxt; MP.lastTxt=MP.abortPrevTxt; }
   mindPlayerBottom();
+  const pb=document.getElementById('mpPause');if(pb)try{pb.focus({preventScroll:true});}catch(e){}
   if(MP.abortWasRunning) mindPlayerResume(); else mindDraw(true);
 }
 function mindPlayerDestroy(){
@@ -700,6 +917,7 @@ function mindPlayerDestroy(){
   document.removeEventListener('visibilitychange',mindPlayerVis);
   const ov=document.getElementById('primingOverlay'); if(ov) ov.remove();
   document.body.classList.remove('mind-playing');
+  semMpDialogOff();   // inert/Scroll-Lock zurück, Fokus zurück auf den Knopf, der den Player öffnete
   MP=null;
 }
 function mindPlayerFinish(){
@@ -724,6 +942,9 @@ function mindPlayerComplete(res){
       <button type="button" class="btn sec inline" onclick="mindPlayerNotes()">Ergebnisse notieren</button>
       <button type="button" class="btn inline" onclick="mindPlayerDone()">Fertig</button>
     </div>`;
+  // Der Inhalt des Dialogs wurde komplett ersetzt – der Fokus lag in der alten Leiste und ist jetzt
+  // im Nichts. Zurück auf den Dialog: ein Screenreader liest damit den Abschluss vor (A-II.6).
+  try{ov.focus({preventScroll:true});}catch(e){}
   const cb=MP.cfg.onFinish;
   if(!cb) return mindPlayerCompleteNote();
   try{ const p=cb(res); if(p&&typeof p.then==='function') p.then(mindPlayerCompleteNote,mindPlayerCompleteNote); else mindPlayerCompleteNote(); }
@@ -732,6 +953,8 @@ function mindPlayerComplete(res){
 function mindPlayerCompleteNote(){
   const n=document.getElementById('mpDoneNote'); if(!n) return;
   if(PRIM_RES&&PRIM_RES.saved===false){ n.textContent='Noch nicht gespeichert – tippe auf „Ergebnisse notieren“, um es erneut zu versuchen.'; return; }
+  // Ein durchgeklickter Durchlauf wird gespeichert, aber er darf keine Serie behaupten (B16)
+  if(PRIM_RES&&PRIM_RES.full===false){ n.textContent='Gespeichert – gezählt wird es heute nicht, dafür war es zu kurz. '+mdRuleTxt(PRIM_RES.rule); return; }
   const st=+(PRIM_RES&&PRIM_RES.streak)||0;
   n.textContent='Gespeichert.'+(st>1?` ${pl(st,'Tag','Tage')} in Folge.`:' Dein Tag hat jetzt eine Richtung.');
 }
@@ -774,17 +997,22 @@ function mindFirstPriming(){
 // nichts verliert. Das Sheet ergänzt danach nur noch Ergebnisse/Energie (PUT /session/:id).
 async function primingSaveNow(res){
   const first=mindFirstPriming();
-  const already=!!(MIND_TODAY&&MIND_TODAY.priming);
+  const already=mdIsFull(MIND_TODAY&&MIND_TODAY.priming);
   const before=+(MIND_TODAY?.streak?.priming)||0;
-  const streakNow=already?before:before+1;
-  PRIM_RES={...res,id:null,saved:false,res,streak:streakNow};
+  PRIM_RES={...res,id:null,saved:false,res,streak:before,full:true,rule:null};
   const r=await API.post('/mindset/session',{kind:'priming',date:today(),duration_sec:res.duration_sec,steps_done:res.steps_done,steps_total:res.steps_total||6});
   if(r.status===200||r.status===201){
-    PRIM_RES.id=r.data?.id??null; PRIM_RES.saved=true;
-    toast('+'+mindXp(r,8)+' XP · Priming erledigt ✓');
+    // Der Server entscheidet, ob der Durchlauf zaehlt (B16) – Streak und Feier haengen daran
+    const full=r.data?.full!==false;
+    const streakNow=full&&!already?before+1:before;
+    // Die geltende Schwelle kommt mit der Antwort (`rule`) – nur so nennt der Abschlusstext dieselbe
+    // Zahl, nach der der Server gerade entschieden hat.
+    PRIM_RES.id=r.data?.id??null; PRIM_RES.saved=true; PRIM_RES.full=full; PRIM_RES.streak=streakNow; PRIM_RES.rule=r.data?.rule||null;
+    if(!full) toast('Zu kurz – gespeichert, aber heute nicht gezählt');
+    else toast('+'+mindXp(r,8)+' XP · Priming erledigt ✓');
     // Konfetti nur beim allerersten Priming und an den Meilensteinen 7 / 30 Tage
-    if(first) setTimeout(()=>celebrate('🧠','Erstes Priming!','Dein Tag hat jetzt eine Richtung.'),300);
-    else if(!already&&(streakNow===7||streakNow===30)) setTimeout(()=>celebrate('🔥',streakNow+' Tage in Folge!','Priming ist jetzt deine Gewohnheit.'),300);
+    if(full&&first) setTimeout(()=>celebrate('🧠','Erstes Priming!','Dein Tag hat jetzt eine Richtung.'),300);
+    else if(full&&!already&&(streakNow===7||streakNow===30)) setTimeout(()=>celebrate('🔥',streakNow+' Tage in Folge!','Priming ist jetzt deine Gewohnheit.'),300);
     if(typeof refreshAchievements==='function') refreshAchievements();
     mindRefresh();
   } else toast(r.data?.error||'Konnte nicht speichern – gleich nochmal versuchen');
@@ -793,10 +1021,10 @@ async function primingSaveNow(res){
 // Freiwilliges Ergebnis-Formular (wird aus dem Abschluss-Zustand des Players geöffnet)
 async function primingFinishSheet(res){
   if(!(PRIM_RES&&PRIM_RES.saved&&PRIM_RES.res===res)) await primingSaveNow(res);
-  const saved=!!(PRIM_RES&&PRIM_RES.saved);
+  const saved=!!(PRIM_RES&&PRIM_RES.saved), full=!(PRIM_RES&&PRIM_RES.full===false);
   MIND_PICK_ON=id=>{ if(id==='prim_energy') primSaveLabel(); };
-  openSheet('Priming erledigt',`
-    <div class="mind-done"><div class="mind-done-ic" aria-hidden="true">🧠</div><div class="mind-done-t">${mMin(res.duration_sec)}${mStepsTxt(res)}</div><div class="mind-done-s">${saved?'Gespeichert. Dein Tag hat jetzt eine Richtung.':'Noch nicht gespeichert – „Speichern“ versucht es erneut.'}</div></div>
+  openSheet(full?'Priming erledigt':'Priming übersprungen',`
+    <div class="mind-done"><div class="mind-done-ic" aria-hidden="true">🧠</div><div class="mind-done-t">${mMin(res.duration_sec)}${mStepsTxt(res)}</div><div class="mind-done-s">${saved?(full?'Gespeichert. Dein Tag hat jetzt eine Richtung.':'Gespeichert – gezählt wird es heute nicht, dafür war es zu kurz.'):'Noch nicht gespeichert – „Speichern“ versucht es erneut.'}</div></div>
     <div class="section-label">Deine 3 Ergebnisse festhalten (optional)</div>
     <div class="field"><input id="pf_1" maxlength="120" placeholder="Ergebnis 1" aria-label="Ergebnis 1" oninput="primSaveLabel()"></div>
     <div class="field"><input id="pf_2" maxlength="120" placeholder="Ergebnis 2" aria-label="Ergebnis 2" oninput="primSaveLabel()"></div>
@@ -805,7 +1033,7 @@ async function primingFinishSheet(res){
     ${numChips('prim_energy',null)}
     <button class="btn block mt-4" id="primSaveBtn" onclick="savePriming()">${saved?'Fertig':'Speichern'}</button>
     ${saved?'<button class="btn ghost mt-2" onclick="closeModal()">Ohne Angaben schließen</button>':''}
-    <div class="caption center mt-3">${saved?'Dein Priming ist schon gezählt – die Angaben hier sind freiwillig.':'Das Priming konnte noch nicht gespeichert werden – „Speichern“ versucht es erneut.'}</div>`);
+    <div class="caption center mt-3">${saved?(full?'Dein Priming ist schon gezählt – die Angaben hier sind freiwillig.':mdRuleTxt(PRIM_RES&&PRIM_RES.rule)):'Das Priming konnte noch nicht gespeichert werden – „Speichern“ versucht es erneut.'}</div>`);
   primSaveLabel();
 }
 // „Fertig“ solange nichts eingetragen ist, „Speichern“ sobald etwas drinsteht
@@ -835,9 +1063,10 @@ async function savePriming(){
   const first=mindFirstPriming();
   const r=await API.post('/mindset/session',body);
   if(r.status===200||r.status===201){
+    const full=r.data?.full!==false;
     MIND_PICK_ON=null; closeModal(); PRIM_RES=null;
-    toast('+'+mindXp(r,8)+' XP · Priming erledigt ✓');
-    if(first) setTimeout(()=>celebrate('🧠','Erstes Priming!','Dein Tag hat jetzt eine Richtung.'),300);
+    toast(full?'+'+mindXp(r,8)+' XP · Priming erledigt ✓':'Zu kurz – gespeichert, aber heute nicht gezählt');
+    if(full&&first) setTimeout(()=>celebrate('🧠','Erstes Priming!','Dein Tag hat jetzt eine Richtung.'),300);
     if(typeof refreshAchievements==='function') refreshAchievements();
     mindRefresh();
   } else { if(btn) btn.disabled=false; toast(r.data?.error||'Konnte nicht speichern – bitte nochmal versuchen'); }
@@ -906,8 +1135,13 @@ const EVE_PROMPTS=[
 ];
 // Wird das Sheet geschlossen (X, Zurück-Geste, Wischen), räumt der Beobachter die Abend-Session auf:
 // sonst überlebt EVE samt 30-Sekunden-Timer und vibriert später ohne sichtbaren Anlass.
+// „Weiter" wird erst nach MD_EVE_GATE_MS je Frage frei: viermal durchgetippt ergab bisher eine
+// Reflexion von einer Sekunde (DB-Zeile id 15). 4 × 12 s = 48 s liegen sicher über der
+// Server-Untergrenze von 45 s – wer die Fragen wirklich durchgeht, zählt also immer. (B16)
+const MD_EVE_GATE_MS=12000;
+function mdEveGateMs(){ return EVE&&EVE.qAt?Math.max(0,MD_EVE_GATE_MS-(Date.now()-EVE.qAt)):0; }
 function eveCleanup(){
-  if(EVE){ clearTimeout(EVE.timer); EVE=null; MIND_PICK_ON=null; }
+  if(EVE){ clearTimeout(EVE.timer); clearInterval(EVE.gate); EVE=null; MIND_PICK_ON=null; }
   if(EVE_OBS){ try{ EVE_OBS.disconnect(); }catch(e){} EVE_OBS=null; }
 }
 function eveWatchClose(){
@@ -933,12 +1167,13 @@ async function eveAutoSave(){
   const r=await API.post('/mindset/session',{kind:'evening',date:today(),duration_sec:dur,steps_done:4,steps_total:4});
   E.saving=false;
   if(r.status===200||r.status===201){
-    E.id=r.data?.id??null; E.saved=true;
+    E.id=r.data?.id??null; E.saved=true; E.full=r.data?.full!==false;
     // Eine zweite Reflexion am selben Tag bringt keine XP mehr – dann sagt der Hinweis das auch so.
+    // Ein zu kurzer Durchlauf wird gespeichert, zählt aber nicht (B16) und darf nichts anderes behaupten.
     const xp=mindXp(r,5);
-    toast(xp>0?'+'+xp+' XP · Tag abgerundet 🌙':'Abend-Reflexion schon erledigt ✓');
+    toast(!E.full?'Zu kurz – gespeichert, aber heute nicht gezählt':(xp>0?'+'+xp+' XP · Tag abgerundet 🌙':'Abend-Reflexion schon erledigt ✓'));
     if(typeof refreshAchievements==='function') refreshAchievements();
-    const note=document.getElementById('eveSaveNote'); if(note) note.textContent='Deine Reflexion ist schon gezählt – die Angaben hier sind freiwillig.';
+    const note=document.getElementById('eveSaveNote'); if(note) note.textContent=E.full?'Deine Reflexion ist schon gezählt – die Angaben hier sind freiwillig.':'Gezählt wird sie heute nicht – dafür war sie zu kurz.';
     const b=document.getElementById('eveSaveBtn'); if(b) b.textContent='Fertig';
     const sk=document.getElementById('eveSaveBtn'); if(sk&&!document.getElementById('eveSkipBtn')){
       const g=document.createElement('button'); g.className='btn ghost mt-2'; g.id='eveSkipBtn'; g.textContent='Ohne Angaben schließen';
@@ -950,9 +1185,17 @@ async function eveAutoSave(){
     if(!EVE||EVE===E) mindRefresh();
   } else toast(r.data?.error||'Konnte nicht speichern – „Speichern" versucht es erneut');
 }
+// Zustand des „Weiter"-Knopfes nachziehen (gesperrt bis zur Freigabe, danach beschriftet)
+function mdEveGateDraw(){
+  const b=document.getElementById('eveNextBtn'); if(!b||!EVE) return;
+  const ms=mdEveGateMs(), sec=Math.ceil(ms/1000);
+  const last=EVE.i===EVE_PROMPTS.length-1;
+  if(ms>0){ b.disabled=true; b.setAttribute('aria-disabled','true'); b.textContent=`Noch ${sec} ${sec===1?'Sekunde':'Sekunden'}`; }
+  else { b.disabled=false; b.removeAttribute('aria-disabled'); b.textContent=last?'Abschließen':'Weiter'; clearInterval(EVE.gate); EVE.gate=null; }
+}
 function eveDraw(){
   if(!EVE) return;
-  clearTimeout(EVE.timer);
+  clearTimeout(EVE.timer); clearInterval(EVE.gate); EVE.gate=null;
   const E=EVE;
   if(EVE.i<EVE_PROMPTS.length){
     const p=EVE_PROMPTS[EVE.i];
@@ -965,8 +1208,11 @@ function eveDraw(){
         <div class="soft-bar" aria-hidden="true"><div id="eveBar"></div></div>
         <div class="eve-hint">Nur denken, nichts tippen · ~30 Sekunden</div>
       </div>
-      <button class="btn block" onclick="eveNext()">${EVE.i===EVE_PROMPTS.length-1?'Abschließen':'Weiter'}</button>`,'Abend-Reflexion');
+      <button class="btn block" id="eveNextBtn" onclick="eveNext()" disabled>Noch ${Math.round(MD_EVE_GATE_MS/1000)} Sekunden</button>`,'Abend-Reflexion');
     if(!ok) return;
+    EVE.qAt=Date.now();
+    mdEveGateDraw();
+    EVE.gate=setInterval(()=>{ if(EVE===E&&document.getElementById('eveNextBtn')) mdEveGateDraw(); else { clearInterval(E.gate); E.gate=null; } },250);
     setTimeout(()=>{ const bar=document.getElementById('eveBar'); if(bar){ if(mReducedMotion()){ bar.style.transition='none'; bar.style.width='100%'; } else { void bar.offsetWidth; bar.style.width='100%'; } } },40);
     // Sanfter Impuls nach 30 s – nur, wenn genau DIESE Reflexion noch offen im sichtbaren Sheet steht.
     // (closeModal() räumt das Markup nicht weg, deshalb reicht die Prüfung auf #eveBar allein nicht.)
@@ -994,7 +1240,7 @@ function eveSaveLabel(){
   const any=!!MIND_PICK.eve_energy||!!MIND_PICK.eve_mood||!!val('eve_note');
   b.textContent=any?'Speichern':'Fertig';
 }
-function eveNext(){ if(!EVE) return; EVE.i++; eveDraw(); }
+function eveNext(){ if(!EVE) return; if(mdEveGateMs()>0){ mdEveGateDraw(); return; } EVE.i++; eveDraw(); }
 async function saveEvening(){
   if(!EVE) return closeModal();
   const btn=document.getElementById('eveSaveBtn'); if(btn) btn.disabled=true;
@@ -1014,7 +1260,7 @@ async function saveEvening(){
   const dur=Math.max(1,Math.min(7200,Math.round((Date.now()-EVE.start)/1000)));
   const body={kind:'evening',date:today(),duration_sec:dur,steps_done:4,steps_total:4,...patch};
   const r=await API.post('/mindset/session',body);
-  if(r.status===200||r.status===201){ MIND_PICK_ON=null; closeModal(); EVE=null; const xp=mindXp(r,5); toast(xp>0?'+'+xp+' XP · Tag abgerundet 🌙':'Abend-Reflexion schon erledigt ✓'); if(typeof refreshAchievements==='function') refreshAchievements(); mindRefresh(); }
+  if(r.status===200||r.status===201){ const full=r.data?.full!==false; MIND_PICK_ON=null; closeModal(); EVE=null; const xp=mindXp(r,5); toast(!full?'Zu kurz – gespeichert, aber heute nicht gezählt':(xp>0?'+'+xp+' XP · Tag abgerundet 🌙':'Abend-Reflexion schon erledigt ✓')); if(typeof refreshAchievements==='function') refreshAchievements(); mindRefresh(); }
   else { if(btn) btn.disabled=false; toast(r.data?.error||'Konnte nicht speichern'); }
 }
 
@@ -1076,6 +1322,7 @@ function weeklyAddCustom(kind){
 }
 function weeklyStep(s){ if(!WEEKLY) return; if(s===2&&WEEKLY.strong.size+WEEKLY.weak.size===0) return toast('Wähle mindestens eine Emotion'); WEEKLY.step=s; weeklyDraw(); }
 async function saveWeekly(){
+  if(mindRoGuard()) return;
   if(!WEEKLY) return; if(WEEKLY.targets.size!==2) return toast('Wähle genau zwei Emotionen für nächste Woche');
   const btn=document.getElementById('wkSaveBtn'); if(btn) btn.disabled=true;
   const cut=s=>[...s].slice(0,12).map(x=>String(x).slice(0,40));
@@ -1143,6 +1390,7 @@ async function drawMindWheel(){
       <div class="body muted mt-2 mb-4">Sieben Lebensbereiche, ehrlich bewertet von 0 bis 100. Ein rundes Rad rollt – ein eckiges holpert. In zwei Minuten siehst du, wo du stehst und wo die größte Lücke ist.</div>
       ${own?'<button class="btn block" onclick="openWheelNew()">Jetzt bewerten</button>':'<div class="caption">Noch keine Bewertung vorhanden.</div>'}
     </div>
+    ${mindRoNote('mb-3')}
     <div class="section-label">Die 7 Bereiche</div><div class="rows">${WHEEL_AREAS.map(a=>`<div class="row"><div class="r-ic mind-area-ic" aria-hidden="true">${a.icon}</div><div class="rl">${esc2(a.label)}<small>${esc2(WHEEL_DESC[a.key])}</small></div></div>`).join('')}</div>`;
     mindCacheView();
     return;
@@ -1150,7 +1398,7 @@ async function drawMindWheel(){
   const last=list[0], prev=list[1]||null;
   const st={avg:last.avg??wheelStats(last.scores).avg,balance:last.balance??wheelStats(last.scores).balance,weakest:last.weakest||wheelStats(last.scores).weakest};
   const wk=wheelArea(st.weakest);
-  let html=`<div class="card mb-3">
+  let html=mindRoNote('mb-3')+`<div class="card mb-3">
     <div class="ch-h"><div class="t">Dein Rad</div><div class="v">${mDateDE(last.date,{day:'numeric',month:'long',year:'numeric'})}</div></div>
     ${wheelRadarSVG(last.scores,last.targets,{aria:'Rad des Lebens vom '+last.date})}
     ${last.targets?'<div class="caption center">— Ist &nbsp;·&nbsp; <span class="tone-green">- - Ziel</span></div>':''}
@@ -1176,7 +1424,7 @@ async function drawMindWheel(){
   if(fa||last.actions.length||last.feeling_now||last.feeling_target){
     html+=`<div class="section-label">Lücke schließen</div><div class="card mb-4">
       ${fa?`<div class="cluster mb-3"><span class="mind-focus-ic" aria-hidden="true">${fa.icon}</span><div><div class="h3">${esc2(fa.label)}</div><div class="meta">Fokusbereich · ${+last.scores[fa.key]||0}${last.targets?' → '+(+last.targets[fa.key]||0):''}</div></div></div>`:''}
-      ${last.actions.length?`<ul class="mind-ul mind-actions">${last.actions.map(x=>`<li>${esc2(x)}</li>`).join('')}</ul>`:''}
+      ${wheelActionsHTML(last,own)}
       ${sa?`<div class="meta mt-2">Danach: ${sa.icon} ${esc2(sa.label)}</div>`:''}
       ${own&&last.feeling_now?`<div class="mind-quote"><b>Jetzt:</b> ${esc2(last.feeling_now)}</div>`:''}
       ${own&&last.feeling_target?`<div class="mind-quote"><b>Außergewöhnlich:</b> ${esc2(last.feeling_target)}</div>`:''}
@@ -1186,10 +1434,35 @@ async function drawMindWheel(){
     html+=`<div class="section-label">Lücke schließen</div><div class="card mb-4 between"><div class="meta">Noch kein Fokusbereich gewählt.</div><button class="btn sm sec" onclick="openWheelNew(${+last.id||0})">Festlegen</button></div>`;
   }
   // Verlauf-Liste
-  html+=`<div class="section-label">Verlauf</div><div class="rows">${list.map(a=>{ const w=wheelStats(a.scores); return `<div class="row tap" onclick="openWheelDetail(${+a.id||0})"><div class="rl">${mDateDE(a.date,{day:'numeric',month:'long',year:'numeric'})}<small>Ø ${a.avg??w.avg} · Balance ${a.balance??w.balance}</small></div><div class="rr"></div></div>`; }).join('')}</div>`;
+  html+=`<div class="section-label">Verlauf</div><div class="rows" role="group" aria-label="Verlauf der Rad-des-Lebens-Auswertungen">${list.map(a=>{ const w=wheelStats(a.scores); return `<div class="row tap" role="button" tabindex="0" onclick="openWheelDetail(${+a.id||0})"><div class="rl">${mDateDE(a.date,{day:'numeric',month:'long',year:'numeric'})}<small>Ø ${a.avg??w.avg} · Balance ${a.balance??w.balance}</small></div><div class="rr"></div></div>`; }).join('')}</div>`;
   b.innerHTML=html;
   mindCacheView();
 }
+// Die 3 Maßnahmen aus dem Rad zum Abhaken. Ohne das blieben sie eine Liste, die nie
+// jemand wieder anfasst – erledigt/offen ist genau das, was man beim nächsten Rad sehen will.
+function wheelActionsHTML(a,own){
+  const acts=mParse(a.actions,[])||[]; if(!acts.length) return '';
+  const done=new Set((mParse(a.actions_done,[])||[]).map(Number));
+  const id=+a.id||0;
+  const rows=acts.map((x,i)=>{const on=done.has(i);
+    return `<div class="row${own?' h-tap':''}"${own?` role="button" tabindex="0" aria-pressed="${on?'true':'false'}" onclick="toggleWheelAction(${id},${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}"`:''}>
+      <div class="r-ic${on?' tone-green':''}">${icon(on?'check':'target',20)}</div>
+      <div class="rl${on?' done':''}">${esc2(x)}</div></div>`;}).join('');
+  return `<div class="rows mind-actions-rows">${rows}</div>
+    <div class="caption mt-1">${done.size}/${acts.length} umgesetzt${own?' · tippen zum Abhaken':''}</div>`;}
+async function toggleWheelAction(id,idx){
+  if(mindRoGuard()) return;
+  const a=(MIND_WHEEL?.assessments||[]).find(x=>+x.id===+id); if(!a) return;
+  const before=(mParse(a.actions_done,[])||[]).map(Number);
+  const cur=new Set(before); const nowOn=!cur.has(idx);
+  nowOn?cur.add(idx):cur.delete(idx);
+  const done=[...cur].sort((x,y)=>x-y);
+  a.actions_done=done; // sofort sichtbar, danach speichern
+  if(document.getElementById('mindBody'))drawMindWheel();
+  const r=await API.put('/mindset/wheel/'+id+'/actions',{done});
+  if(r.status!==200){a.actions_done=before;toast(r.data?.error||'Konnte nicht speichern');if(document.getElementById('mindBody'))drawMindWheel();return;}
+  if(nowOn)toast('Erledigt ✓');}
+
 function openWheelDetail(id){
   const a=(MIND_WHEEL?.assessments||[]).find(x=>x.id===id); if(!a) return;
   const own=mindOwn();
@@ -1200,7 +1473,8 @@ function openWheelDetail(id){
   openSheet(title,`
     ${wheelRadarSVG(scores,targets,{aria:'Rad vom '+a.date})}
     <div class="tiles grid-3 mt-2"><div class="tile"><div class="v">${a.avg??w.avg}</div><div class="l">Ø</div></div><div class="tile"><div class="v">${a.balance??w.balance}</div><div class="l">Balance</div></div><div class="tile"><div class="v mind-tile-em">${(()=>{const x=wheelArea(a.weakest||w.weakest);return x?x.icon+' '+esc2(x.short):'–';})()}</div><div class="l">Schwächster</div></div></div>
-    ${fa?`<div class="note"><b>Fokus:</b> ${fa.icon} ${esc2(fa.label)}${actions.length?'<br>'+actions.map(x=>'• '+esc2(x)).join('<br>'):''}</div>`:''}
+    ${fa?`<div class="note"><b>Fokus:</b> ${fa.icon} ${esc2(fa.label)}</div>`:''}
+    ${actions.length?`<div class="section-label">Maßnahmen</div>${wheelActionsHTML(a,own)}`:''}
     ${own&&a.feeling_now?`<div class="mind-quote"><b>Jetzt:</b> ${esc2(a.feeling_now)}</div>`:''}
     ${own&&a.feeling_target?`<div class="mind-quote"><b>Außergewöhnlich:</b> ${esc2(a.feeling_target)}</div>`:''}
     ${own&&a.note?`<div class="mind-quote">${esc2(a.note)}</div>`:''}
@@ -1210,6 +1484,7 @@ function deleteWheel(id){
   confirmSheet('Bewertung löschen','Diese Bewertung wirklich löschen? Der Verlauf verliert diesen Punkt.',{label:'Löschen',danger:true,onYes:()=>deleteWheelDo(id)});
 }
 async function deleteWheelDo(id){
+  if(mindRoGuard()) return;
   const r=await API.del('/mindset/wheel/'+id);
   if(r.status===200){ if(typeof closeAllSheets==='function') closeAllSheets(); else closeModal(); toast('Gelöscht'); mindCacheClear(); drawMindWheel(); }
   else toast(r.data?.error||'Konnte nicht löschen');
@@ -1292,6 +1567,7 @@ function wheelSecond(k){ if(!WHEEL_FORM) return; wheelCollect(); WHEEL_FORM.seco
 // (POST) wird vom Server mit 409 + existingId beantwortet, wenn es für heute schon eine gibt –
 // dann wird diese aktualisiert statt eine zweite Zeile anzulegen.
 async function saveWheel(){
+  if(mindRoGuard()) return;
   if(!WHEEL_FORM||WHEEL_FORM.busy) return; wheelCollect(); const F=WHEEL_FORM;
   const btn=document.getElementById('wheelSaveBtn'); if(btn) btn.disabled=true; F.busy=true;
   const editId=F.edit&&F.editId?F.editId:null;
@@ -1379,7 +1655,7 @@ async function drawMindChallenge(){
         return `<button type="button" class="rule-row" aria-pressed="${on}" onclick="chalToggleRule('${x.id}',this)"><span class="ric" aria-hidden="true">${x.icon}</span><span class="rbody"><span class="rlab">${esc2(x.label)}${x.auto?' <span class="pill neutral">auto</span>':''}</span><span class="rhint">${esc2(x.hint)}</span></span><span class="tgl${on?' on':''}" aria-hidden="true"></span></button>`; }).join('')}</div>`;
       html+=grp('gift','Geschenke','jeden Tag')+grp('poison','Gifte','weglassen');
       stickyBar=`<div class="mind-stickybar"><span class="mind-stick-t" id="chalSelCount">${pl(CHAL_SEL.size,'Regel','Regeln')} gewählt</span><button class="btn inline" id="chalStartBtn" onclick="chalStart()">Starten</button></div>`;
-    } else html+='<div class="note">Aktuell läuft keine Challenge.</div>';
+    } else html+='<div class="note">Aktuell läuft keine Challenge.</div>'+mindRoNote('mt-2');
   } else {
     const ruleIds=Array.isArray(a.rules)?a.rules:mParse(a.rules,[]);
     const td=a.today||{}; const checks=mParse(td.checks,{})||{}; const auto=mParse(td.auto,{})||{}; const partial=mParse(td.partial,{})||{};
@@ -1398,6 +1674,7 @@ async function drawMindChallenge(){
       </div>
       <div class="chal-dots mt-3" id="chalDots" aria-label="Tagesübersicht">${chalDotsHTML(a)}</div>
     </div>`;
+    html+=mindRoNote('mb-3');   // B7: die Haken unten sind im Coach-Blick gesperrt – hier steht warum
     const wt=a.waterTargetL!=null?String(a.waterTargetL).replace('.',','):null;
     const wIn=data.waterToday!=null?String(data.waterToday).replace('.',','):null;
     const hz=data.hrZone||a.hrZone||null;
@@ -1436,7 +1713,7 @@ function chalHintToggle(ev,id){
 }
 // Weitere Optionen der laufenden Challenge
 function chalMenu(id){
-  openSheet('Challenge',`<div class="rows"><div class="row tap" onclick="chalStop(${+id||0})"><div class="r-ic">${icon('x',22)}</div><div class="rl tone-red">Challenge beenden<small>Der Fortschritt bleibt unter „Bisherige Challenges“ erhalten.</small></div><div class="rr"></div></div></div>`);
+  openSheet('Challenge',`<div class="rows"><div class="row tap" role="button" tabindex="0" onclick="chalStop(${+id||0})"><div class="r-ic">${icon('x',22)}</div><div class="rl tone-red">Challenge beenden<small>Der Fortschritt bleibt unter „Bisherige Challenges“ erhalten.</small></div><div class="rr"></div></div></div>`);
 }
 // 10/30 Tage: nur Hero-Text und Chips nachziehen, kein kompletter Neuaufbau
 function chalDays(n){
@@ -1455,6 +1732,7 @@ function chalToggleRule(id,btn){
   const sb=document.getElementById('chalStartBtn'); if(sb) sb.disabled=!CHAL_SEL.size;
 }
 async function chalStart(){
+  if(mindRoGuard()) return;
   if(CHAL_BUSY) return; const rulesSel=[...(CHAL_SEL||[])]; if(!rulesSel.length) return toast('Wähle mindestens eine Regel');
   CHAL_BUSY=true; const btn=document.getElementById('chalStartBtn'); if(btn) btn.disabled=true;
   const r=await API.post('/mindset/challenge',{days:CHAL_DAYS,rules:rulesSel});
@@ -1465,6 +1743,7 @@ async function chalStart(){
 }
 // Haken setzen: Zeile, Kopfzahlen und Punktereihe aus der Antwort patchen (kein Spinner, kein Neuladen)
 async function chalToggleDay(chalId,ruleId,on,input){
+  if(mindRoGuard()){ if(input) input.checked=!on; return; }
   if(!MIND_CHAL?.active||CHAL_BUSY){ if(input) input.checked=!on; return; }
   const a=MIND_CHAL.active; const td=a.today||{}; const checks={...(mParse(td.checks,{})||{})}; checks[ruleId]=!!on;
   CHAL_BUSY=true; if(input) input.disabled=true;
@@ -1502,6 +1781,7 @@ function chalStop(id){
   confirmSheet('Challenge beenden','Challenge wirklich beenden? Der bisherige Fortschritt bleibt unter „Bisherige Challenges“ erhalten.',{label:'Beenden',danger:true,onYes:()=>chalStopDo(id)});
 }
 async function chalStopDo(id){
+  if(mindRoGuard()) return;
   const r=await API.post('/mindset/challenge/'+id+'/stop',{});
   if(r.status===200){ if(typeof closeAllSheets==='function') closeAllSheets(); toast('Challenge beendet'); CHAL_SEL=null; mindCacheClear(); drawMindChallenge(); }
   else toast(r.data?.error||'Konnte nicht beenden');
@@ -1678,6 +1958,7 @@ function openKnow(key){
   openSheet(parts.join(' '),(ic?`<div class="mind-sheet-ic" aria-hidden="true">${ic}</div>`:'')+html);
 }
 async function mindPutEntry(key,data){
+  if(mindRoGuard()) return false;
   const r=await API.put('/mindset/entries/'+key,data);
   if(r.status===200||r.status===201){ if(!MIND_ENTRIES) MIND_ENTRIES={}; MIND_ENTRIES[key]=data; return true; }
   toast(r.data?.error||'Konnte nicht speichern'); return false;
@@ -1732,7 +2013,8 @@ async function saveNeeds(){
 function mindsetHomeWidget(d){
   if(!d||typeof d!=='object') return null;
   try{
-    const h=new Date().getHours(); const prim=!!d.priming, eve=!!d.evening; const streak=+(d.streak?.priming)||0;
+    // „gespeichert" reicht nicht: nur ein vollwertiges Ritual gilt als erledigt (B16, mdIsFull)
+    const h=new Date().getHours(); const prim=mdIsFull(d.priming), eve=mdIsFull(d.evening); const streak=+(d.streak?.priming)||0;
     const mins=[5,10,15].includes(+d.prefs?.priming_minutes)?+d.prefs.priming_minutes:10;   // gespeicherte Priming-Dauer
     const st=streak?` · ${pl(streak,'Tag','Tage')} in Folge`:'';
     let title,sub,action=null,fn="go('mindset')",done=false;
@@ -1773,6 +2055,6 @@ function mindsetHomeStrip(w){
   if(!w) return '';
   const btn=w.action?`<button type="button" class="btn sm ghost" onclick="event.stopPropagation();${w.fn}">${esc2(w.action)}</button>`
     :`<div class="sx" aria-hidden="true">${typeof window.icon==='function'?window.icon('chevronRight',18):'›'}</div>`;
-  const line=w.status?`<div class="ss mind-line" onclick="event.stopPropagation();${w.status.fn}">${esc2(w.status.text)}</div>`:'';
-  return `<div class="stat-strip mind-strip" onclick="go('mindset')"><div class="si">${typeof window.icon==='function'?window.icon('brain',24):'🧠'}</div><div class="sc"><div class="st">${esc2(w.title)}</div><div class="ss">${esc2(w.sub)}</div>${line}</div>${btn}</div>`;
+  const line=w.status?`<div class="ss mind-line" role="button" tabindex="0" onclick="event.stopPropagation();${w.status.fn}">${esc2(w.status.text)}</div>`:'';
+  return `<div class="stat-strip mind-strip" role="button" tabindex="0" aria-label="Mindset öffnen" onclick="go('mindset')"><div class="si">${typeof window.icon==='function'?window.icon('brain',24):'🧠'}</div><div class="sc"><div class="st">${esc2(w.title)}</div><div class="ss">${esc2(w.sub)}</div>${line}</div>${btn}</div>`;
 }

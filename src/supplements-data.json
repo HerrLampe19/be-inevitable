@@ -1,62 +1,62 @@
 [
   {
-    "name": "Kreatin Monohydrat", "category": "Täglich", "dose": "5 g", "timing": "jederzeit täglich (Uhrzeit egal, Hauptsache konstant)",
-    "with_water": 1, "how_to": "In Wasser, Saft oder Shake auflösen. Wirkt über die Sättigung der Speicher – tägliche Einnahme ist wichtiger als der Zeitpunkt. Auch an trainingsfreien Tagen nehmen.",
+    "name": "Kreatin Monohydrat", "category": "Täglich", "dose": "3–5 g", "timing": "jederzeit täglich (Uhrzeit egal, Hauptsache konstant)",
+    "with_water": 1, "how_to": "In Wasser, Saft oder Shake auflösen. Wirkt über die Sättigung der Speicher – tägliche Einnahme ist wichtiger als der Zeitpunkt. Auch an trainingsfreien Tagen nehmen. Sicherheit: Die EFSA hält 3 g pro Tag für gesunde Erwachsene für unbedenklich (EFSA 2004); eine Ladephase mit 20 g brauchst du nicht.",
     "sort": 1
   },
   {
     "name": "Whey Protein", "category": "Nach dem Training", "dose": "30 g", "timing": "direkt nach dem Training oder als Mahlzeitergänzung",
-    "with_water": 1, "how_to": "Mit Wasser oder Milch shaken. Dient dem Erreichen des täglichen Proteinziels. Nach dem Training praktisch, aber die Gesamtmenge am Tag zählt am meisten.",
+    "with_water": 1, "how_to": "Mit Wasser oder Milch shaken. Dient dem Erreichen des täglichen Proteinziels. Nach dem Training praktisch, aber die Gesamtmenge am Tag zählt am meisten. Es gibt keine amtliche Höchstmenge – der Shake ersetzt aber kein Essen.",
     "sort": 2
   },
   {
     "name": "Multivitamin", "category": "Morgens", "dose": "1 Portion", "timing": "morgens zum Frühstück",
-    "with_water": 1, "how_to": "Zu einer fetthaltigen Mahlzeit, damit fettlösliche Vitamine aufgenommen werden. Deckt mögliche Lücken in der Ernährung ab.",
+    "with_water": 1, "how_to": "Zu einer fetthaltigen Mahlzeit, damit fettlösliche Vitamine aufgenommen werden. Deckt mögliche Lücken in der Ernährung ab. Sicherheit: Nimm nur eine Portion am Tag und vergleiche das Etikett mit den Höchstmengen des BfR (Stellungnahme 006/2024), etwa Zink 6,5 mg, Vitamin D 20 µg, Vitamin B6 0,9 mg, Selen 40 µg. Wer zusätzlich Einzelpräparate nimmt, addiert die Mengen.",
     "sort": 3
   },
   {
-    "name": "Vitamin D3 + K2", "category": "Morgens", "dose": "1000–2000 IE", "timing": "morgens zu einer Mahlzeit mit Fett",
-    "with_water": 1, "how_to": "Fettlöslich – am besten zu einer Mahlzeit mit etwas Fett. Besonders im Winter sinnvoll. K2 unterstützt die Verwertung.",
+    "name": "Vitamin D3 + K2", "category": "Morgens", "dose": "800 IE (20 µg)", "timing": "morgens zu einer Mahlzeit mit Fett",
+    "with_water": 1, "how_to": "Fettlöslich – am besten zu einer Mahlzeit mit etwas Fett. Besonders im Winter sinnvoll. K2 unterstützt die Verwertung. Sicherheit: 20 µg (800 IE) pro Tag ist die Höchstmenge, die das BfR für Nahrungsergänzungsmittel vorschlägt (Stellungnahme 007/2024, bestätigt 31/2025). Höher dosieren nur nach Blutwert und Absprache mit deiner Ärztin oder deinem Arzt; von hohen Einzeldosen im Wochenabstand rät das BfR ausdrücklich ab.",
     "sort": 4
   },
   {
-    "name": "Omega 3 (Fischöl)", "category": "Zu einer Mahlzeit", "dose": "2–3 g EPA/DHA", "timing": "zu einer Hauptmahlzeit",
-    "with_water": 1, "how_to": "Zu einer fetthaltigen Mahlzeit für beste Aufnahme. Unterstützt Herz, Gelenke und Regeneration.",
+    "name": "Omega 3 (Fischöl)", "category": "Zu einer Mahlzeit", "dose": "1–2 g EPA/DHA", "timing": "zu einer Hauptmahlzeit",
+    "with_water": 1, "how_to": "Zu einer fetthaltigen Mahlzeit für beste Aufnahme. Unterstützt Herz, Gelenke und Regeneration. Sicherheit: Die EFSA sieht bis 5 g EPA + DHA am Tag zusätzlich ohne Sicherheitsbedenken (EFSA 2012); für DHA allein nennt sie 1 g am Tag als sichere Menge (EFSA 2026). Für die Grundversorgung reichen 250 mg EPA + DHA am Tag. Wer blutverdünnende Mittel nimmt, spricht die Menge vorher ärztlich ab.",
     "sort": 5
   },
   {
-    "name": "Magnesium", "category": "Abends", "dose": "300–400 mg", "timing": "abends vor dem Schlafen",
-    "with_water": 1, "how_to": "Am Abend, kann die Schlafqualität und Muskelentspannung unterstützen. Magnesiumcitrat oder -bisglycinat sind gut verträglich.",
+    "name": "Magnesium", "category": "Abends", "dose": "250 mg", "timing": "auf zwei Gaben à 125 mg verteilt, die zweite abends",
+    "with_water": 1, "how_to": "Kann Schlafqualität und Muskelentspannung unterstützen. Magnesiumcitrat oder -bisglycinat sind gut verträglich. Sicherheit: 250 mg am Tag zusätzlich zur Nahrung ist die Höchstmenge von BfR und EFSA/SCF (SCF 2001, BfR-Stellungnahme 006/2024). Das BfR empfiehlt, diese Menge auf mindestens zwei Gaben zu verteilen – auf einmal genommen wird der Stuhl leicht weich.",
     "sort": 6
   },
   {
     "name": "Koffein / Pre-Workout", "category": "Pre-Workout", "dose": "200 mg Koffein", "timing": "20–30 Min. vor dem Training",
-    "with_water": 1, "how_to": "Mit Wasser. Nicht zu spät am Tag, um den Schlaf nicht zu stören. Steigert Fokus und Leistung. Mit Dosierung vorsichtig herantasten.",
+    "with_water": 1, "how_to": "Mit Wasser. Nicht zu spät am Tag, um den Schlaf nicht zu stören. Steigert Fokus und Leistung. Mit der Dosierung vorsichtig herantasten. Sicherheit: Die EFSA sieht Einzeldosen bis 200 mg und bis 400 mg über den ganzen Tag für gesunde Erwachsene als unbedenklich (EFSA 2015). Kaffee, Tee und Cola zählen mit: Eine Tasse Kaffee hat rund 80 mg. In der Schwangerschaft gilt 200 mg am ganzen Tag als Grenze.",
     "sort": 7
   },
   {
     "name": "EAAs / BCAAs", "category": "Intra-Workout", "dose": "10–15 g", "timing": "während des Trainings",
-    "with_water": 1, "how_to": "In Wasser gelöst während des Trainings trinken. Vor allem sinnvoll, wenn nüchtern trainiert wird. Bei ausreichend Protein am Tag optional.",
+    "with_water": 1, "how_to": "In Wasser gelöst während des Trainings trinken. Vor allem sinnvoll, wenn nüchtern trainiert wird. Bei ausreichend Protein am Tag optional. Es gibt keine amtliche Höchstmenge; wer sein Proteinziel erreicht, braucht das Pulver in der Regel nicht.",
     "sort": 8
   },
   {
-    "name": "Beta-Alanin", "category": "Täglich", "dose": "3–5 g", "timing": "jederzeit täglich (oft pre-workout)",
-    "with_water": 1, "how_to": "Wirkt über Sättigung wie Kreatin – tägliche Einnahme zählt. Ein Kribbeln auf der Haut ist normal und harmlos.",
+    "name": "Beta-Alanin", "category": "Täglich", "dose": "3,2 g (2 × 1,6 g)", "timing": "täglich, auf zwei Gaben verteilt (oft eine davon pre-workout)",
+    "with_water": 1, "how_to": "Wirkt über Sättigung wie Kreatin – die tägliche Einnahme zählt, nicht der Zeitpunkt. Ein Kribbeln auf der Haut ist normal und harmlos. Sicherheit: Die ISSN empfiehlt 3,2–6,4 g am Tag, aufgeteilt auf Einzelgaben von höchstens 1,6 g – auf einmal genommen kribbelt die Haut deutlich stärker (ISSN Position Stand 2015).",
     "sort": 9
   },
   {
     "name": "Ashwagandha", "category": "Abends", "dose": "300–600 mg", "timing": "abends",
-    "with_water": 1, "how_to": "Adaptogen, kann Stress und Schlaf unterstützen. Abends mit Wasser.",
+    "with_water": 1, "how_to": "Adaptogen, kann Stress und Schlaf unterstützen; die Wirkung ist wissenschaftlich nicht gut belegt. Abends mit Wasser. Sicherheit: Das BfR hat auf mögliche Leberschäden hingewiesen (Mitteilung 039/2024). Nicht in Schwangerschaft und Stillzeit, nicht für Kinder und Jugendliche, nicht bei Lebererkrankungen oder Schilddrüsenmedikamenten. Wenn du Medikamente nimmst, sprich es vorher ärztlich ab.",
     "sort": 10
   },
   {
-    "name": "Zink", "category": "Abends", "dose": "10–15 mg", "timing": "abends, nicht zusammen mit Kalzium",
-    "with_water": 1, "how_to": "Unterstützt Immunsystem und Hormonhaushalt. Nicht direkt mit kalziumreichen Lebensmitteln kombinieren.",
+    "name": "Zink", "category": "Abends", "dose": "6,5 mg", "timing": "abends, nicht zusammen mit Kalzium",
+    "with_water": 1, "how_to": "Unterstützt Immunsystem und Hormonhaushalt. Nicht direkt mit kalziumreichen Lebensmitteln kombinieren. Sicherheit: 6,5 mg am Tag zusätzlich zur Nahrung ist die Höchstmenge des BfR (Stellungnahme 006/2024); zusammen mit dem Zink aus dem Essen bleibst du damit unter dem EFSA-Höchstwert von 25 mg am Tag. Dauerhaft zu viel Zink stört die Kupferaufnahme.",
     "sort": 11
   },
   {
     "name": "Elektrolyte", "category": "Bei Bedarf", "dose": "1 Portion", "timing": "an heißen Tagen oder bei langem/intensivem Training",
-    "with_water": 1, "how_to": "In Wasser. Ersetzt über Schweiß verlorene Mineralien. Besonders bei Ausdauer oder Hitze sinnvoll.",
+    "with_water": 1, "how_to": "In Wasser. Ersetzt über Schweiß verlorene Mineralien. Besonders bei Ausdauer oder Hitze sinnvoll. Sicherheit: Achte auf den Magnesium- und Zinkanteil, wenn du beides zusätzlich nimmst – die Höchstmengen gelten für die Summe aus allen Präparaten.",
     "sort": 12
   }
 ]

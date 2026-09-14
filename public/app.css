@@ -16,13 +16,19 @@
   --green:#30d158;--green-tint:rgba(48,209,88,.16);--amber:#ff9f0a;--amber-tint:rgba(255,159,10,.16);--blue:#0a84ff;--blue-tint:rgba(10,132,255,.16);--on-accent:#fff;
   --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,'Helvetica Neue',sans-serif;
   --font-head:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',system-ui,sans-serif;
-  --r-xs:8px;--r-sm:12px;--r:16px;--r-lg:24px;--r-pill:999px;
+  /* --r-md ist der benannte Zwilling von --r (16px): die Bereichs-Stylesheets greifen an mehreren
+     Stellen darauf zu, die Skala xs/sm/md/lg war ohne ihn unvollständig und die Regeln fielen weg. */
+  --r-xs:8px;--r-sm:12px;--r-md:16px;--r:16px;--r-lg:24px;--r-pill:999px;
   --s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:20px;--s-6:24px;--s-8:32px;--s-10:40px;
   --t-xs:12px;--t-sm:13px;--t-base:15px;--t-md:17px;--t-lg:20px;--t-xl:22px;--t-2xl:26px;--t-3xl:30px;--t-4xl:34px;--t-num:44px;
   --lh-tight:1.1;--lh-snug:1.3;--lh-body:1.45;--track:-.01em;--track-head:-.02em;
   --shadow:none;--shadow-sheet:0 -8px 40px rgba(0,0,0,.6);--shadow-pop:0 12px 40px rgba(0,0,0,.55);
   --ease:cubic-bezier(.2,.8,.2,1);--ease-sheet:cubic-bezier(.16,1,.3,1);--dur-fast:120ms;--dur:220ms;--dur-slow:350ms;
   --tap:44px;--nav-h:64px;--safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);
+  /* Fokusring (A-II.5): --focus-ring ist die Farbe der Kontur, --focus-halo der 4-px-Saum DAHINTER.
+     Der Saum trennt die Kontur von unruhigem Untergrund; er muss die Farbe der UMGEBUNG haben, sonst
+     zeichnet er einen zweiten Rahmen. Auf der Seite ist die Umgebung --bg, im Sheet --surface2. */
+  --focus-ring:var(--red-text);--focus-halo:var(--bg);
   /* legacy aliases, delete after migration */ --line:var(--hairline2);--line2:var(--surface4);--red-soft:var(--red-tint);
   accent-color:var(--red)}
 
@@ -36,7 +42,7 @@ input,select,textarea{font-family:inherit;font-size:17px;color:var(--ink)}
 input[type=range],input[type=checkbox],input[type=radio]{accent-color:var(--red)}
 a{color:var(--blue);text-decoration:none}
 svg.ic{flex:0 0 auto;vertical-align:middle}
-.app{max-width:540px;margin:0 auto;min-height:100vh}
+.app{max-width:540px;margin:0 auto;min-height:100vh;min-height:100dvh}
 .hidden{display:none!important}
 
 /* ---------- 3 TYPOGRAFIE-ROLLEN ---------- */
@@ -204,6 +210,21 @@ svg.spark{width:100%;height:120px;display:block}
 select.field,input.field,textarea.field{width:100%;min-height:48px;background:var(--surface2);border:1px solid var(--hairline2);border-radius:12px;padding:12px 14px;font-size:17px;color:var(--ink)} /* Alias: class direkt am Element */
 .sheet #dashAvatar,.sheet .av-circle{background:var(--surface3)}
 .field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--red)}
+/* Passwortfeld mit „anzeigen"-Auge (account.js pwField): Auge sitzt IM Feld, 44×44 px Trefferfläche,
+   das Feld bekommt rechts Platz, damit kein Zeichen unter dem Auge verschwindet. */
+.pw-wrap{position:relative}
+.pw-wrap input{padding-right:52px}
+.pw-eye{position:absolute;top:50%;right:2px;transform:translateY(-50%);width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;color:var(--ink3)}
+.pw-eye[aria-pressed=true]{color:var(--ink)}
+.pw-eye:active{color:var(--ink)}
+/* Stärke-Hilfe unter dem Feld – ein Hinweis beim Tippen, kein Fehler (kein Rot-Rahmen, kein Riegel) */
+.pw-hint{display:flex;align-items:center;gap:10px;margin-top:6px;font-size:13px;line-height:1.35;color:var(--ink3)}
+.pw-meter{flex:0 0 56px;height:4px;border-radius:2px;background:var(--surface3);overflow:hidden}
+.pw-meter i{display:block;height:100%;width:0;border-radius:2px;background:var(--amber);transition:width var(--dur) var(--ease),background var(--dur)}
+.pw-meter.bad i{background:var(--red)}
+.pw-meter.ok i{background:var(--amber)}
+.pw-meter.strong i{background:var(--green)}
+.pw-hint .pw-hint-t{flex:1;min-width:0}
 .field .err{background:none;padding:0;margin:6px 0 0;font-size:13px;color:var(--red-text);border-radius:0}
 .switch-row .tgl{margin-left:auto}
 .tgl{position:relative;flex:0 0 auto;width:48px;height:28px;border-radius:14px;background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline2);transition:background var(--dur);cursor:pointer}
@@ -256,7 +277,7 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 
 /* ---------- 6 SHELL ---------- */
 /* LOGIN */
-.login{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:32px 24px;max-width:420px;margin:0 auto}
+.login{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:32px 24px;max-width:420px;margin:0 auto}
 .login-brand{text-align:center;margin-bottom:28px}
 .login-brand .logo-wrap{display:inline-block;background:#000;border-radius:16px;padding:22px 26px;margin-bottom:22px}
 .login-brand .logo-img{display:block;width:100%;max-width:250px;height:auto}
@@ -270,6 +291,27 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 .hdr{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);padding:calc(var(--safe-t) + 8px) 16px 8px;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:calc(var(--safe-t) + 56px);border-bottom:.5px solid var(--hairline2)}
 .hdr .title{font:600 17px/1.3 var(--font);letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hdr .acts{display:flex;gap:4px;align-items:center;flex:0 0 auto}
+/* Offline-Zustand im Kopf – die Komponente ist .pill.amber, hier nur Platzverhalten und Trefferfläche.
+   Er ist das EINZIGE Element in .acts, das schrumpfen darf: so bleiben Glocke und Avatar bei 320 px
+   voll bedienbar, auch wenn coach.js zusätzlich seinen Block vor #bellBtn schiebt. */
+.hdr .sync-state{position:relative;display:inline-block;flex:0 1 auto;min-width:0;max-width:min(32vw,124px);overflow:hidden;text-overflow:ellipsis;line-height:22px}
+.hdr .sync-state::before{content:'';position:absolute;inset:-11px} /* 22 px Pille + 2×11 px = 44 px Trefferfläche */
+.hdr .sync-state:active{opacity:.65}
+/* Suchknopf: .btn.icon.sm.ghost bringt 36 px Rund mit, hier nur die Farbe wie bei der Glocke */
+.hdr #searchBtn{color:var(--ink2);flex:0 0 auto}
+/* Nachbesserung A-II.5 (E5 / DEFER-A2 A5-4): In der Coach-Kopfzeile stehen ZWEI .btn.icon.sm mit nur
+   4 px Abstand nebeneinander (Lupe + „Nachricht an alle" bzw. „Vorlage anlegen"). Mit 36 px sichtbar
+   und der ::before-Erweiterung aus .btn.icon.sm (inset -4px) waren es zwar 44 px Trefferfläche – die
+   beiden unsichtbaren Flächen überlappten sich aber um 4 px, und in der Überlappung gewinnt der
+   spätere Knopf: ein Tipp auf den rechten Rand der Lupe öffnete „Nachricht an alle".
+   Gemessen mit scratchpad/fixa25-ueberlapp.mjs (athletes, templates: 4 × 44 px Überlappung).
+   Dieselbe Krankheit und dieselbe Kur wie bei .plan-rows .rr in training.css: echte 44 px und KEINE
+   unsichtbare Erweiterung – die Flächen berühren sich, ohne sich zu überlagern. Sichtbar ändert sich
+   nichts (beide sind .ghost, also ohne Fläche); die Leiste wird je Knopf 8 px breiter, der Titel
+   daneben kürzt sich ohnehin mit „…". Glocke (44 px) und Avatar (34 + 2 × 5 px Rand = 44 px) waren
+   schon so gebaut – damit sind jetzt ALLE Ziele der Kopfzeile echte 44 px. */
+.hdr .acts .btn.icon.sm{width:44px;min-height:44px}
+.hdr .acts .btn.icon.sm::before{inset:0}
 .hdr .bell{position:relative;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--ink2)}
 .hdr .bell .ic{width:22px;height:22px}
 .hdr .bell:active{background:var(--surface2)}
@@ -299,25 +341,38 @@ body.no-nav .nav{display:none}
 .navbtn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:50px;padding:4px 2px;color:var(--ink3);transition:color var(--dur),transform var(--dur-fast)}
 .navbtn .ic{width:24px;height:24px}
 .navbtn .ni{font-size:22px;line-height:1} /* legacy emoji slot */
-.navbtn .nl{font:600 11px/1 var(--font);letter-spacing:0}
+/* 12 px ist die Untergrenze aus E7; 11 px war in NEUN von dreizehn Ansichten die kleinste Schrift der
+   ganzen App (a11y.mjs, Element `div.nl`). Bei 320 px Breite bleibt das längste Etikett („Training",
+   ~48 px) in seinen 64 px. */
+.navbtn .nl{font:600 12px/1 var(--font);letter-spacing:0}
 .navbtn.on{color:var(--red-text)}
 .navbtn.on .ic{stroke-width:2.25}
 .navbtn:active{transform:scale(.92)}
 
-/* MODAL / SHEET (Stack, Back-Chevron ab Tiefe 2, Griff zum Wegziehen) */
+/* MODAL / SHEET (Stack, Back-Chevron ab Tiefe 2, Griff zum Wegziehen)
+   A-II.5: Das Sheet ist ein echter Dialog – shell.js setzt role="dialog", aria-modal, aria-labelledby,
+   legt #appView/#loginView/#onbView/#restBar per `inert` still und sperrt den Seiten-Scroll über
+   body.sheet-open. Hier steht nur, was davon sichtbar ist. */
 .modal{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:none;align-items:flex-end;justify-content:center}
-.modal.on{display:flex}
-.sheet{position:relative;background:var(--surface2);box-shadow:var(--shadow-sheet);border-radius:24px 24px 0 0;width:100%;max-width:540px;max-height:88vh;overflow-y:auto;overscroll-behavior:contain;padding:0 16px calc(20px + var(--safe-b));animation:up var(--dur-slow) var(--ease-sheet);will-change:transform}
-.sheet.tall{height:92vh;max-height:92vh}
+.modal.on{display:flex;animation:modalIn var(--dur) var(--ease)}
+@keyframes modalIn{from{opacity:0}to{opacity:1}}
+/* Der Hintergrund darf nicht mitscrollen, während ein Dialog offen ist. shell.js merkt sich die
+   Position und stellt sie nur dann wieder her, wenn der Browser sie verloren hat (iOS). */
+body.sheet-open{overflow:hidden;overscroll-behavior:none}
+.sheet{position:relative;background:var(--surface2);box-shadow:var(--shadow-sheet);border-radius:24px 24px 0 0;width:100%;max-width:540px;max-height:88vh;max-height:88dvh;overflow-y:auto;overscroll-behavior:contain;padding:0 16px calc(20px + var(--safe-b));animation:up var(--dur-slow) var(--ease-sheet);will-change:transform;--focus-halo:var(--surface2)}
+.sheet:focus{outline:none} /* der Dialog selbst ist nur Fokus-Auffang (tabindex="-1"), kein Bedienelement */
+.sheet.tall{height:92vh;height:92dvh;max-height:92vh;max-height:92dvh}
 .sheet.dragging{transition:none}
 @keyframes up{from{transform:translateY(100%)}to{transform:none}}
 .sheet-grip{position:relative;width:36px;height:5px;background:var(--surface4);border-radius:3px;margin:8px auto 12px;touch-action:none}
 .sheet-grip::before{content:'';position:absolute;inset:-14px -60px}
-.sheet-h{display:flex;align-items:center;gap:8px;margin-bottom:16px;min-height:36px}
+.sheet-h{display:flex;align-items:center;gap:8px;margin-bottom:16px;min-height:44px}
 .sheet-h h3{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 var(--t-xl)/var(--lh-snug) var(--font-head);letter-spacing:var(--track-head)}
 .sheet-h .back{flex:0 0 auto;margin-left:-4px}
-.sheet-x{position:relative;flex:0 0 auto;width:36px;height:36px;min-height:36px;padding:0;border-radius:50%;background:var(--surface3);color:var(--ink2);display:inline-flex;align-items:center;justify-content:center;font-size:15px}
-.sheet-x::before{content:'';position:absolute;inset:-4px}
+/* Schließen ist die wichtigste Handlung im Dialog und war 36 px. Jetzt eine echte 44-px-Box: der
+   sichtbare Kreis bleibt 36 px (background-clip:content-box klemmt die Fläche auf den Inhaltskasten),
+   die Trefferfläche ist ein echter Kasten – sie schiebt die Kopfzeile, sie überlappt nichts. */
+.sheet-x{position:relative;flex:0 0 auto;width:44px;height:44px;min-height:44px;padding:4px;background-clip:content-box;border-radius:50%;background:var(--surface3);color:var(--ink2);display:inline-flex;align-items:center;justify-content:center;font-size:15px}
 .sheet-x .ic{width:20px;height:20px}
 /* Elevation im Sheet: eine Stufe heller als die Seite */
 .sheet :where(.card,.surface,.rows,.tile,.qcard,.chart-card,.meal,.ex,.stat-strip,.macro,.today){background:var(--surface3)}
@@ -325,6 +380,9 @@ body.no-nav .nav{display:none}
 .sheet :where(.note,.info,.warn){background:var(--surface3)}
 .sheet :where(.field input,.field select,.field textarea,.setgrid input){background:var(--surface3)}
 .sheet :where(.chip,.daychip,.fpill,.minibtn,.btn.sec,.btn.danger,.pill.neutral,.btn.icon,.sheet-x,.bar,.tgl,.rcheck){background:var(--surface4)}
+/* Die Kurzform `background:` oben setzt background-clip zurück – der 36-px-Kreis im 44-px-Kasten
+   (siehe .sheet-x) braucht die Klammer hier noch einmal, sonst wächst der sichtbare Kreis mit. */
+.sheet .sheet-x{background-clip:content-box}
 .sheet .chip.on,.sheet .daychip.now,.sheet .fpill.on{background:var(--red)}
 .sheet .chip.soft.on{background:var(--red-tint)}
 .sheet .chip.done{background:var(--green-tint)}
@@ -345,10 +403,20 @@ body.no-nav .nav{display:none}
 
 /* TOAST-HOST (eine Sichtbare, Warteschlange, hebt sich über die Restbar) */
 #toastHost{position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + var(--safe-b) + 12px + var(--toast-lift,0px));display:flex;flex-direction:column-reverse;align-items:center;gap:8px;pointer-events:none;z-index:200;transition:bottom var(--dur) var(--ease)}
-.toast{pointer-events:auto;display:flex;align-items:center;gap:12px;min-width:200px;max-width:calc(100vw - 32px);min-height:44px;background:var(--ink);color:var(--bg);font:600 13px/1.3 var(--font);padding:8px 18px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transform:translateY(8px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
+/* Mehrzeilig statt abgeschnitten: „Offline gespeichert – wird nachgetragen, sobald du …" endete bis 2.4.0
+   nach rund 50 Zeichen mit einer Ellipse – genau die Meldungen, die Vertrauen schaffen sollen
+   (RATE-shell-home M1). Bis zu drei Zeilen, dann erst die Reißleine; Radius 16 px, weil eine Pille um drei
+   Zeilen keine Pille mehr ist. */
+.toast{pointer-events:auto;display:flex;align-items:center;gap:12px;min-width:200px;max-width:calc(100vw - 32px);min-height:44px;background:var(--ink);color:var(--bg);font:600 13px/1.35 var(--font);padding:10px 18px;border-radius:16px;white-space:normal;opacity:0;transform:translateY(8px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
 .toast.on{opacity:1;transform:none}
-.toast .tx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.toast .act{flex:0 0 auto;min-height:44px;padding:0 12px;margin:-8px -10px -8px 0;color:var(--red);font-weight:700;font-size:13px;white-space:nowrap}
+.toast .tx{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.toast .act{flex:0 0 auto;min-height:44px;padding:0 12px;margin:-10px -10px -10px 0;color:var(--red);font-weight:700;font-size:13px;white-space:nowrap;border-radius:14px}
+/* Die Meldung ist die EINZIGE helle Fläche der App (--ink als Hintergrund). Der Standard-Saum in --bg
+   (Schwarz) zöge hier einen zweiten Rahmen, und --red-text käme auf Weiß nur auf 3,08:1. Darum im
+   Toast: Kontur in --red (4,5:1 auf --ink), Saum in der Farbe der Meldung selbst – wie im Sheet.
+   Seit A-II.5 ist die Schaltfläche auch über einem offenen Sheet per Tab erreichbar (shell.js,
+   _sheetTrap + _a11ToastFocusables), der Ring muss dort also wirklich sichtbar sein. */
+.toast .act:focus-visible{--focus-ring:var(--red);--focus-halo:var(--ink)}
 
 /* RESTBAR (Pausen-Timer + Trainings-Leiste über der Nav) */
 .restbar{position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + var(--safe-b));z-index:70;max-width:540px;margin:0 auto;height:48px;background:var(--surface2);border-top:.5px solid var(--hairline2);display:flex;align-items:center;gap:8px;padding:0 16px}
@@ -357,7 +425,11 @@ body.no-nav .nav{display:none}
 .restbar .rest-time{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 6px 0 0;color:var(--ink);flex:0 0 auto}
 .restbar .rest-time .ic{width:20px;height:20px;color:var(--ink2)}
 .restbar .rest-time .num{font-size:22px;min-width:56px;text-align:left}
+/* E5-Lücke 2 von 5: die Knöpfe der Restbar sind 32 px hoch, die ::before-Erweiterung aus .btn.sm gab
+   nur 40 px. Die Leiste ist 48 px hoch – die Trefferfläche darf sie ganz ausfüllen, ohne dass sich
+   etwas überlappt (waagerecht bleiben die 4 px aus .btn.sm, der Abstand zum Nachbarn ist 8 px). */
 .restbar .btn.sm{min-height:32px;padding:0 10px}
+.restbar .btn.sm::before{inset:-8px -4px}
 .restbar #trainBarSlot{flex:1;min-width:0;display:flex;justify-content:flex-end;gap:8px}
 .restbar #trainBarSlot:empty{display:none}
 .restbar>[hidden]{display:none}
@@ -450,9 +522,51 @@ body.tour-active{overflow:hidden!important;touch-action:none;overscroll-behavior
 .ex-tools{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 
 /* ---------- 8 MOTION / A11Y ---------- */
-button:focus-visible,.row.tap:focus-visible,.chip:focus-visible,.navbtn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid var(--red-ring);outline-offset:2px}
-.field input:focus-visible,.field select:focus-visible,.field textarea:focus-visible,.setgrid input:focus-visible{outline:none}
+/* Fokusring: --red-ring (rgba(225,6,0,.45)) ergab auf --surface rechnerisch 1,57:1 – WCAG 2.4.11 verlangt
+   3:1, sichtbar war praktisch nichts (RATE-shell-home M4). --red-text bringt 6,2:1 auf Schwarz und 5,4:1
+   auf --surface; der 4-px-Halo in der Hintergrundfarbe setzt den Ring auch auf roten Flächen (.btn, .chip.on)
+   ab, wo Rot auf Rot sonst wieder verschwände. Zusätzlich [role=button]: tippbare Zeilen sind keine <button>. */
+/* A-II.5: Die Liste deckt jetzt ALLES ab, was einen Tastaturfokus bekommen kann – auch das, was
+   A-II.6 erst zu role="button" tabindex="0" macht, und alles mit einem eigenen tabindex. */
+button:focus-visible,[role="button"]:focus-visible,[role="tab"]:focus-visible,[role="link"]:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible,summary:focus-visible,
+.row.tap:focus-visible,.chip:focus-visible,.daychip:focus-visible,.fpill:focus-visible,.minibtn:focus-visible,
+.tile:focus-visible,.qcard:focus-visible,.stat-strip:focus-visible,.ex-head:focus-visible,.tgl:focus-visible,
+.navbtn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible,
+[contenteditable=""]:focus-visible,[contenteditable="true"]:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;box-shadow:0 0 0 4px var(--focus-halo)}
+/* Auf den roten Flächen selbst (Primärknopf, aktiver Chip, Avatar) wäre --red-text Rot auf Rot: 1,46:1.
+   Dort ist der Ring weiß – gemessen 4,97:1 auf --red und 21:1 auf allen dunklen Flächen. */
+.btn:focus-visible,.btn.icon.red:focus-visible,.chip.on:focus-visible,.daychip.now:focus-visible,.fpill.on:focus-visible,.avatar:focus-visible{--focus-ring:#fff}
+.btn.sec:focus-visible,.btn.ghost:focus-visible,.btn.danger:focus-visible,.btn.icon:not(.red):focus-visible{--focus-ring:var(--red-text)} /* keine roten Flächen */
+/* Auf den GRÜNEN Flächen (erledigter Satz, aktiver Schalter, gesetztes Häkchen) ist Weiß 1,80:1 und
+   --red-text 1,89:1 – beides unsichtbar. Dort liegt die Kontur schwarz IM Element (outline-offset:-2px,
+   11,6:1 auf --green) und der helle Saum außen trennt sie von der dunklen Seite (18:1). */
+.tgl.on:focus-visible,.rcheck:checked:focus-visible,.setgrid .ok.done:focus-visible,.ex.done .ex-idx:focus-visible{--focus-ring:var(--bg);--focus-halo:var(--ink);outline-offset:-2px}
+/* Felder hatten bis 2.5.0 KEINEN Fokusring: `outline:none` plus roter Rahmen (--red auf --surface3
+   sind 2,19:1) und ein 16-%-Schimmer. Mit der Maus bleibt das so – für die Tastatur gilt jetzt
+   derselbe Ring wie überall (gemessen 15,1:1 im Sheet). */
+.field input:focus-visible,.field select:focus-visible,.field textarea:focus-visible,.setgrid input:focus-visible,
+select.field:focus-visible,input.field:focus-visible,textarea.field:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;box-shadow:0 0 0 4px var(--focus-halo)}
+/* Die Überschrift des Dialogs bekommt den Fokus beim Öffnen. Nach einem Tipp ist das kein
+   :focus-visible – dann bleibt sie ohne Ring; nach der Tastatur zeigt sie ihn. */
+.sheet-h h3:focus{outline:none}
+.sheet-h h3:focus-visible{outline:2px solid var(--focus-ring);outline-offset:4px;border-radius:6px}
+/* Bewegung: wer sie abbestellt hat, bekommt keine. Der Stern-Satz deckt Animation und Übergang ab;
+   die vier Einzelfälle darunter sind die, bei denen „fast null Dauer" nicht reicht – sie müssen ganz
+   verschwinden (Konfetti), dürfen nicht hereinfahren (Sheet, Modal) oder nicht pulsieren (Tour). */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
   .confetti-pc{display:none}
+  .sheet,.modal.on,.page.first{animation:none!important}
+  .tour-hole{animation:none!important}
+  .hdr .badge{animation:none!important}
+  .celebrate-pop{transition:opacity .01ms!important;transform:translate(-50%,-50%) scale(1)}
+  .spinner,.skeleton{animation-duration:1.2s!important;animation-iteration-count:infinite!important} /* Ladeanzeigen bleiben – sonst steht die App scheinbar */
+  html{scroll-behavior:auto}
+}
+/* Mehr Kontrast angefordert: Haarlinien und stille Texte werden fester. Keine Farbrevision – nur die
+   beiden Token, die auf dunklen Flächen grenzwertig sind (A-IV.5 macht die volle Palette). */
+@media (prefers-contrast:more){
+  :root{--hairline:rgba(255,255,255,.22);--hairline2:rgba(255,255,255,.38);--ink3:#b5b5ba;--ink-disabled:#8a8a8f}
+  .row,.switch-row,.def,.msg,.fi,.meal-h{border-bottom-color:var(--hairline2)}
 }

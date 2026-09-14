@@ -6,6 +6,9 @@ All-in-One Coaching-App für Training, Ernährung und Fortschritt – als Web-Ap
 Coach-Athlet-Hybrid: Coaches erstellen und betreuen Trainings- und Ernährungspläne,
 Athleten tracken ihren Alltag direkt in derselben App.
 
+> **Sicherheit und Datenschutz:** was die App schützt, was der Betreiber vor dem Upload setzen muss und
+> was in eine Datenschutzerklärung gehört, steht in **SICHERHEIT.md** (seit 2.4.0).
+>
 > **Aktuelle Version:** wird in der App angezeigt (Login-Screen unten + Profil-Menü)
 > und ist jederzeit unter `/api/version` abrufbar. Die Versionshistorie steht in
 > **CHANGELOG.md**.
@@ -27,8 +30,25 @@ Athleten tracken ihren Alltag direkt in derselben App.
   Einheit (g / ml / Stück).
 - **Tracking & Analyse:** täglicher Check-in (Gewicht, Schlaf, Schritte, Wasser) direkt
   auf der Home, Körpermaße, Fortschrittsfotos, Cardio, Supplements, Statuskarte mit
-  Gewichtstrend und nächstem Schritt, Diagramme mit Ziel-Linien und 7-Tage-Mittel,
-  Übungs-Verlauf je Übung.
+  Gewichtstrend und nächstem Schritt, Übungs-Verlauf je Übung. Die Kacheln sind zugleich die
+  Diagramm-Auswahl: eine antippen, darunter steht die passende Kurve mit Ziel-Linie und
+  7-Tage-Mittel (ab 2.2.0 – vorher standen alle Diagramme untereinander).
+- **Bereitschaft (ab 2.3.0):** Eine Zahl von 0 bis 100 aus **Schlaf, HRV, Ruhepuls und deiner
+  Trainingslast der letzten 7 Tage**, dazu ein Wort und **ein Satz, was das für heute heißt**.
+  Auf der Startseite eine Zeile, angetippt die komplette Rechnung samt 14-Tage-Verlauf. Fehlende
+  Werte werden nicht geraten – der Teil fällt weg; steht nur eine einzige Quelle zur Verfügung,
+  wird die Zahl zur Mitte hin gedämpft. Keine medizinische Bewertung, und die App schreibt das
+  auch dazu.
+- **Wochenrückblick (ab 2.3.0):** Drittes Segment „Woche" in der Analyse – drei Höhepunkte, **ein
+  Fokus für nächste Woche**, dann die Zahlen (Training gegen Plan, Volumen, Kalorien- und
+  Eiweißtreue, Gewicht, Schlaf/Schritte/Verbrauch, Mindset) mit Vergleich zur Vorwoche und ‹ › durch
+  frühere Wochen. Sonntags ab 18 Uhr kommt er als Nachricht und Push (ein Tipp öffnet genau die
+  berichtete Woche); die Wochen-E-Mail rechnet mit denselben Zahlen.
+- **Apple Health (ab 2.2.0):** Ein Kurzbefehl auf dem iPhone schickt **Schlaf, Schritte, aktive
+  Kalorien, Bewegungsminuten, Ruhepuls, HRV und Gewicht** an einen persönlichen Link – als
+  Automation jede Nacht von selbst. Auf Wunsch kommen auch die **Trainings** mit (Laufen, Rad,
+  Krafttraining …) und landen unter *Training → Cardio*. Einrichtung und Format:
+  **HEALTH-IMPORT.md**. Der Weg von Hand (Text einfügen / Datei) bleibt erhalten.
 - **Motivation:** XP, Level, Erfolge, Streaks, Wochenziel.
 - **Mindset (ab 2.0.0):** eigener Reiter 🧠 für mentale Routinen –
   geführtes **Morgen-Priming** (5/10/15 Min., Vollbild-Player mit Atem-Taktgeber),
@@ -39,10 +59,25 @@ Athleten tracken ihren Alltag direkt in derselben App.
   **Wissens-Bereich** mit persönlichen Arbeitsblättern (privat – nur der Athlet sieht sie).
   Mit Mindset-Verknüpfung in der Home-Karte, fünftem Tagesziel-Ring, XP, Erfolgen und
   eigenen Erinnerungen. Anleitung: **MINDSET.md**.
-- **Kalender:** kommende Tage als Widget, voller Monatskalender; Ruhetag/Krank
-  melden, der Trainingsrhythmus rechnet automatisch weiter.
+- **Kalender & Trainingsrhythmus:** kommende Tage als Widget, voller Monatskalender; Ruhetag/Krank
+  melden, der Rhythmus rechnet automatisch weiter. Der Rhythmus ist eine **endlos wiederholte Folge
+  ohne Wochentage** – seit 2.2.0 lässt sich jeder Platz namentlich belegen, z.B.
+  `O1 · U1 · Ruhe · O2 · U2 · Ruhe`. Der aktuelle Zyklus steht unter dem Monatskalender und führt
+  mit einem Tipp in den Editor.
 - **Teilen:** Rezepte und Übungen per Link verschicken (WhatsApp & Co.);
   Empfänger übernimmt sie mit einem Tipp in sein Profil.
+- **Offline nutzbar (ab 2.3.0):** Sätze, Essen, Check-ins, Supplements und Cardio lassen sich ohne
+  Empfang eintragen; sie landen in einer Warteschlange auf dem Gerät und gehen von selbst raus,
+  sobald wieder Netz da ist. Im Kopf steht „Offline · 3 warten". Nichts geht verloren, nichts kommt
+  doppelt an (Essen, Cardio und spontane Supplement-Einträge tragen dafür eine Marke, die der Server wiedererkennt; Sätze,
+  Check-ins und Plan-Supplements landen ohnehin immer im selben Eintrag), und ein Serverneustart
+  verwirft nichts. Die App **startet** auch ohne Netz: Ein Service Worker hält die Programmhülle
+  vor. Dateien mit Versionsstempel (`?v=…`) kommen aus dem Cache ohne Nachfrage – ihre Adresse ändert
+  sich mit jeder Version, deshalb kann nie etwas Altes hängen bleiben; `index.html` und `/api/*`
+  werden nie gecacht.
+- **Suche (ab 2.3.0):** Lupensymbol im Kopf – findet Übungen, Rezepte, Lebensmittel, Mindset-Themen
+  **und App-Funktionen** in einer Liste. Umlaute sind egal („masse" findet „Maße"), ein Treffer
+  führt direkt hin.
 - **Push-Erinnerungen** und **Daten-Export** (eigene Daten als JSON).
 
 **Für Coaches**
@@ -119,38 +154,45 @@ src/
   db.js         – Datenbank-Anbindung (better-sqlite3 / node:sqlite)
   schema.js     – Tabellen & Migrationen
   auth.js       – Login, JWT, Passwort-Hashing
-  logic.js      – Trainingsrhythmus, Progression, Berechnungen
+  logic.js      – Trainingsrhythmus, Progression, Berechnungen, Bereitschaft, Wochenrückblick
   mindset.js    – Mindset-Modul: Tabellen, API-Routen, Statistiken, Erinnerungs-Cron
   email.js      – E-Mail-Versand (SMTP, sonst Log)
   seed.js       – Demo-Daten zum lokalen Ausprobieren
   create-coach.js – Coach/Admin-Konto anlegen
-  *-data.json   – Übungen, Rezepte, Supplements
+  *-data.json   – Lebensmittel-Stammdaten & Demo-Trainingsplan (seed-data.json),
+                  Rezepte (recipes-data.json), Supplements (supplements-data.json).
+                  Die Lebensmittel trägt der Server beim ersten Start selbst ein;
+                  der Demo-Plan darin ist nur für `npm run seed`.
 public/
   index.html    – nur Markup (Login, Kopfzeile, Reiter-Leiste, Sheets, Pausen-Leiste)
   app.css       – Design-System: Farben & Abstände, Schaltflächen, Chips, Karten,
                   Zeilen, Bottom-Sheets, Tour, Pausen-Leiste
-  css/          – ein Stylesheet je Bereich: home, training, diet, analysis, coach, account
+  css/          – ein Stylesheet je Bereich: home, training, diet, analysis, coach, account, search
   js/           – die Weboberfläche, in fester Ladereihenfolge (alle Funktionen global):
     core.js       Fehlerbehandlung, Icons, Format-Helfer, API, Login, Onboarding,
-                  Router go() und Ansichts-Cache, Datenlader
+                  Router go() und Ansichts-Cache, Datenlader,
+                  Offline-Warteschlange samt Nachsenden und Schnappschüssen für den Start ohne Netz
     home.js       Home („Jetzt"-Karte, Tagesziele), Check-in, Diagramm- und Ring-Helfer,
                   Supplement-Checkliste
     training.js   Trainingsplan, Satz-Logging, Pausen-Timer, Hantelrechner, Cardio,
                   Rhythmus-Editor, Kalender
     diet.js       Ernährung (Heute, Plan, Rezepte, Einkauf), Barcode, Makro-Rechner
-    analysis.js   Analyse (Körper/Training), Gesundheitsdaten-Import, Erfolge, Monatsziel
+    analysis.js   Analyse (Körper/Training/Woche), Wochenrückblick, Gesundheitsdaten-Import,
+                  Erfolge, Monatsziel
     coach.js      Coach & Admin: Athletenliste, Dashboard, Kontextleiste, Nachrichten,
                   Supplements, Excel-Import, Vorlagen
-    account.js    Profil-Hub, Nachrichten, Teilen-Links, Einführungs-Tour, Push
+    account.js    Profil-Hub, Nachrichten, Teilen-Links, Einführungs-Tour, Push, Apple Health
+    search.js     Globale Suche: Aktionen, Übungen, Rezepte, Lebensmittel, Mindset-Themen
     shell.js      Toasts, Bottom-Sheets, Wischen, Hinweise, Hilfsfunktionen, Start-IIFE
   mindset.js, mindset.css – Oberfläche des Mindset-Reiters (Player, Rad, Challenge, Wissen)
-  sw.js         – Service Worker, ausschließlich für Push (kein Caching)
+  sw.js         – Service Worker: Push UND Hüllen-Cache (versionierte Dateien cache-first, /api/* und sw.js nie gecacht)
   manifest.json, Icons
 ```
 
-> Die `?v=`-Kennung an jedem Datei-Verweis in `index.html` (und in `sw.js`) setzt der Server
-> beim Ausliefern aus der Version in `package.json` ein – nach einem Update lädt der Browser
-> also garantiert die neuen Dateien.
+> Die `?v=`-Kennung an jedem Skript-, Stylesheet- und Icon-Verweis in `index.html` (und in `sw.js`)
+> setzt der Server beim Ausliefern aus der Version in `package.json` ein – nach einem Update lädt
+> der Browser also garantiert die neuen Dateien. Ersetzt wird das Token nur in diesen beiden
+> Dateien; alles andere (z.B. `manifest.json`) liefert der Server unverändert aus.
 
 ---
 

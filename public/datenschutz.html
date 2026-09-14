@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<!-- SOLANGE rechtstexte-status = "unvollstaendig" ist, steht hier noindex: ohne benannten
+     Verantwortlichen (Abschnitt 1) ist diese Erklaerung unvollstaendig. Zusammen mit
+     impressum.html zurueckstellen – die Reihenfolge steht dort im Kopf. -->
+<meta name="robots" content="noindex,nofollow">
+<!-- Zustand der Rechtstexte, Freigabebedingung vor dem Deploy. Werte und Pruefbefehl:
+     siehe impressum.html bzw. public/js/core.js, Abschnitt A-II.4. -->
+<meta name="rechtstexte-status" content="unvollstaendig">
+<!-- Muss mit CONSENT_VERSION in src/server.js uebereinstimmen (A4-6). -->
+<meta name="einwilligung-fassung" content="2026-09-13">
+<title>Datenschutz · BE INEVITABLE</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<!-- Bewusst OHNE app.css und ohne JavaScript: diese Seite muss auch dann lesbar sein, wenn die App
+     nicht laedt, wenn der Service Worker klemmt oder wenn jemand sie aus einer Mail heraus oeffnet.
+     Die Optik ist dieselbe (schwarz, --red #e10600, gleiche Schriftfamilie), die Datei ist aber
+     vollstaendig in sich geschlossen. Deshalb auch kein ?v=-Cache-Buster: express.static liefert sie
+     ohne Versionsersetzung aus (nur index.html und sw.js bekommen die). -->
+<style>
+:root{color-scheme:dark;
+  --bg:#000;--surface:#151517;--surface2:#1f1f22;
+  --hairline:rgba(255,255,255,.07);--hairline2:rgba(255,255,255,.12);
+  --ink:#f5f5f7;--ink2:#a1a1a6;--ink3:#8a8a8f;
+  --red:#e10600;--red-text:#ff453a;--blue:#0a84ff;
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,'Helvetica Neue',sans-serif;
+  --font-head:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',system-ui,sans-serif}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.5;-webkit-font-smoothing:antialiased}
+body{padding:0 20px calc(48px + env(safe-area-inset-bottom,0px));max-width:680px;margin:0 auto}
+a{color:var(--blue);text-decoration:none}
+a:hover,a:focus-visible{text-decoration:underline}
+:focus-visible{outline:3px solid var(--red-text);outline-offset:2px;border-radius:6px}
+header{padding:calc(28px + env(safe-area-inset-top,0px)) 0 8px}
+.back{display:inline-flex;align-items:center;min-height:44px;gap:8px;color:var(--ink2);font-size:15px}
+h1{font:700 30px/1.15 var(--font-head);letter-spacing:-.02em;margin:16px 0 8px}
+h2{font:700 20px/1.3 var(--font-head);letter-spacing:-.02em;margin:36px 0 10px}
+h3{font:600 17px/1.3 var(--font);margin:22px 0 6px}
+p{margin:10px 0;color:var(--ink)}
+p.lead{color:var(--ink2);font-size:17px}
+ul{margin:10px 0 10px 20px}
+li{margin:6px 0}
+.meta{color:var(--ink3);font-size:13px}
+.card{background:var(--surface);border:.5px solid var(--hairline2);border-radius:16px;padding:16px;margin:14px 0}
+.card h3{margin-top:0}
+.todo{background:rgba(255,159,10,.12);border:.5px solid rgba(255,159,10,.45);border-radius:12px;padding:12px 14px;margin:14px 0;font-size:15px}
+/* Kein min-width: auf einem 390-px-Bildschirm muss die Spalte „Betreiber" SICHTBAR sein – sie ist die,
+   wegen der diese Tabelle existiert. overflow-x bleibt als Notnagel für sehr schmale Geräte. */
+.tablewrap{overflow-x:auto;margin:14px 0;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 6px 9px 0;border-bottom:.5px solid var(--hairline2);vertical-align:top;line-height:1.3}
+th{color:var(--ink2);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+thead th:first-child{width:42%}
+tbody th{color:var(--ink);font-weight:500;font-size:14px;text-transform:none;letter-spacing:0}
+td.y{color:#30d158;font-weight:600}
+td.n{color:var(--ink3)}
+footer{margin-top:44px;padding-top:20px;border-top:.5px solid var(--hairline2);color:var(--ink3);font-size:13px}
+footer a{margin-right:16px;display:inline-block;min-height:44px;line-height:44px}
+hr{border:none;border-top:.5px solid var(--hairline2);margin:28px 0}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">&larr; Zur App</a>
+  <h1>Datenschutz</h1>
+  <p class="lead">Diese App speichert Gesundheitsdaten. Hier steht, welche das sind, wozu wir sie verwenden,
+  wer sie zu sehen bekommt und wie du sie jederzeit wieder loswirst. Kurz und ohne Kleingedrucktes.</p>
+  <p class="meta">Stand: 13. September 2026 · App-Version 2.6.0</p>
+</header>
+
+<h2>1. Wer verantwortlich ist</h2>
+<div class="todo"><b>TODO-MARCO:</b> Name, Anschrift und Kontakt des Verantwortlichen eintragen –
+wortgleich zu den Angaben im <a href="/impressum.html">Impressum</a> (dort Punkt 1 bis 3 der
+Ausfüll-Liste im Dateikopf). Bis dahin ist diese Erklärung unvollständig, und beide Seiten sind
+von Suchmaschinen ausgenommen. Hier steht bewusst kein erfundener Name.</div>
+<p>Betrieben wird die App auf Servern von <b>Render</b> (Render Services, Inc.). Die Datenbank liegt dort
+auf einer verschlüsselten Festplatte; Render verarbeitet die Daten in unserem Auftrag.</p>
+<div class="todo"><b>TODO-MARCO:</b> Region des Render-Dienstes (z.&nbsp;B. Frankfurt/EU) und den
+Auftragsverarbeitungsvertrag mit Render bestätigen.</div>
+
+<h2>2. Welche Daten wir speichern – und wozu</h2>
+<p>Wir speichern nur, was die App zum Rechnen braucht. Es gibt kein Tracking, keine Werbung, keine
+Analyse-Werkzeuge von Dritten und keine Weitergabe an Datenhändler.</p>
+
+<div class="card">
+  <h3>Konto</h3>
+  <p>Name, E-Mail-Adresse, Passwort (nur als bcrypt-Prüfsumme, nie im Klartext), Rolle, Zeitpunkt der
+  Anmeldung. <b>Zweck:</b> Anmeldung, Zuordnung zu deinem Coach, Passwort-Zurücksetzen.
+  <b>Grundlage:</b> Vertrag (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO).</p>
+</div>
+
+<div class="card">
+  <h3>Gesundheitsdaten</h3>
+  <p>Gewicht, Schlaf, Schritte, Wasser, Ruhepuls, HRV, aktive Kalorien, Körpermaße,
+  Fortschrittsfotos, Profilbild, Stimmung und Energie, Übungsnotizen und Beschwerden.
+  Dazu Geburtsjahr, Geschlecht und Größe für die Kalorienformel.
+  <b>Zweck:</b> dein Trainings- und Ernährungsplan, deine Auswertung, die Betreuung durch deinen Coach.</p>
+  <p><b>Das sind besondere Daten nach Art.&nbsp;9 DSGVO.</b> Wir verarbeiten sie ausschließlich auf Grundlage
+  deiner <b>ausdrücklichen Einwilligung</b> (Art.&nbsp;9 Abs.&nbsp;2 lit.&nbsp;a DSGVO), die du beim ersten
+  Start gibst und jederzeit widerrufen kannst – siehe Abschnitt&nbsp;6.</p>
+</div>
+
+<div class="card">
+  <h3>Training und Ernährung</h3>
+  <p>Trainingsplan, Sätze mit Gewicht und Wiederholungen, Trainingstage, Cardio, Essensprotokoll,
+  Rezepte, Supplemente. <b>Zweck:</b> Plan, Fortschritt, Auswertung.
+  <b>Grundlage:</b> Vertrag (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO) – ohne diese Daten gibt es
+  die App nicht.</p>
+</div>
+
+<div class="card">
+  <h3>Freitexte</h3>
+  <p>Check-in-Notizen, Abend-Reflexion, Mindset-Notizen, Gefühle und Maßnahmen aus dem Lebensrad,
+  Arbeitsblätter, Nachrichten an deinen Coach. <b>Zweck:</b> deine eigene Arbeit mit dir selbst.
+  Freitexte sind besonders geschützt: dein Coach sieht sie nicht (Ausnahme: Nachrichten, die du ihm
+  selbst schreibst, und Übungsnotizen, die für die Trainingsplanung gedacht sind).
+  <b>Grundlage:</b> Vertrag (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO); soweit ein Freitext etwas über
+  deine Gesundheit sagt, gilt zusätzlich deine Einwilligung nach Art.&nbsp;9 Abs.&nbsp;2 lit.&nbsp;a.</p>
+</div>
+
+<div class="card">
+  <h3>Technik</h3>
+  <p>Ein Anmelde-Cookie (signiert, <code>HttpOnly</code>, 30&nbsp;Tage). Bei aktivierten Mitteilungen die
+  Push-Adresse deines Geräts. Serverfehler werden in gekürzter Form protokolliert – ohne E-Mail-Adressen,
+  ohne Tokens, ohne Freitexte. Kein Werbe-Cookie, kein Zählpixel.
+  <b>Grundlage:</b> berechtigtes Interesse an einem sicheren, funktionierenden Betrieb
+  (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO) – das Anmelde-Cookie ist für die von dir angeforderte
+  Anmeldung unbedingt erforderlich, die Push-Adresse speichern wir nur, wenn du Mitteilungen
+  einschaltest.</p>
+</div>
+
+<h2>3. Wer was sieht</h2>
+<p>Es gibt drei Sichten: dich, deinen Coach und den Betreiber. Der Betreiber ist <b>kein Über-Coach</b> –
+er hält die App am Laufen und sieht dafür Zahlen und Zustände, keine Gesundheitsdaten. Zwei Wege
+führen trotzdem an deine Daten, und beide stehen hier: die <b>Hilfe-Freigabe</b>, die du selbst
+erteilst, und die <b>vollständige Sicherung</b> der Datenbank.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th scope="col">Daten</th><th scope="col">Du</th><th scope="col">Coach</th><th scope="col">Betreiber</th></tr></thead>
+  <tbody>
+    <tr><th scope="row">Name</th><td class="y">ja</td><td class="y">ja</td><td class="n">Kürzel</td></tr>
+    <tr><th scope="row">E-Mail-Adresse</th><td class="y">ja</td><td class="n">beim Zuordnen</td><td class="n">nur per Suche *</td></tr>
+    <tr><th scope="row">Geburtsjahr, Geschlecht, Größe</th><td class="y">ja</td><td class="n">nein</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Gewicht, Schlaf, Puls, HRV, Schritte</th><td class="y">ja</td><td class="y">ja</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Körpermaße, Fortschrittsfotos</th><td class="y">ja</td><td class="y">ja</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Sätze, Trainingstage, Cardio, Essen</th><td class="y">ja</td><td class="y">ja</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Übungsnotizen, Beschwerden</th><td class="y">ja</td><td class="y">ja</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Check-in-Freitexte</th><td class="y">ja</td><td class="n">nein</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Mindset: Stimmung, Energie</th><td class="y">ja</td><td class="y">ja</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Mindset: Notizen, Reflexion</th><td class="y">ja</td><td class="n">nein</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Nachrichten mit deinem Coach</th><td class="y">ja</td><td class="y">ja</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Apple-Health-Schlüssel</th><td class="y">ja</td><td class="n">nein</td><td class="n">nein</td></tr>
+    <tr><th scope="row">Dein Passwort ***</th><td class="y">nur du</td><td class="n">kann neues vergeben</td><td class="n">nur Link</td></tr>
+    <tr><th scope="row">Anzahl Konten, Fehler, Laufzeiten</th><td class="n">–</td><td class="n">–</td><td class="y">ja</td></tr>
+    <tr><th scope="row">Vollständige Sicherung **</th><td class="n">–</td><td class="n">–</td><td class="y">ja, protokolliert</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="meta">* Der Betreiber findet ein Konto nur, wenn er die E-Mail-Adresse genau eingibt – eine Liste
+aller Adressen gibt es nicht. Jede Suche steht im Protokoll.<br>
+** Eine Sicherung ist eine Kopie der ganzen Datenbank – darin steht alles, was in dieser Spalte sonst
+„nein“ heißt. Warum es sie trotzdem gibt und was dabei passiert, steht im nächsten Abschnitt.<br>
+*** Dein Passwort kann niemand lesen – es liegt nur als Prüfsumme in der Datenbank. Kommst du nicht
+mehr in dein Konto, erzeugt der Betreiber einen einmaligen Link (72&nbsp;Stunden, einmal gültig): dein
+bisheriges Passwort gilt weiter, bis du ihn benutzt, das neue setzt du selbst, und über den Link
+bekommst du sofort eine Nachricht. Ist der Mailversand eingerichtet, geht der Link direkt an deine
+Adresse und der Betreiber sieht ihn gar nicht. Dein Coach dagegen kann dir ein neues Passwort
+vergeben – du wirst dabei auf allen Geräten abgemeldet und bekommst eine Nachricht.</p>
+<p>Ein Coach sieht ausschließlich <b>seine</b> Athleten. Übernimmt dich ein Coach, bekommst du eine
+Nachricht darüber, wer dich ab jetzt betreut und was er sieht.</p>
+
+<h3>Hilfe-Freigabe: so kommt der Betreiber in die App</h3>
+<p>Wenn du ein Problem hast, das nur der Betreiber lösen kann, kannst du ihm im Profil unter
+„Daten &amp; Verbindungen“ für <b>30&nbsp;Minuten</b> Einblick geben. Die Freigabe läuft von selbst ab, du
+kannst sie jederzeit sofort zurücknehmen, und jeder Zugriff darauf wird protokolliert. Ohne diese
+Freigabe sieht der Betreiber deine Gesundheitsdaten in der App nicht – auch nicht „mal eben“, und
+einen „als Nutzer anmelden“-Knopf gibt es nicht.</p>
+<p>Er kann sich diesen Weg auch nicht über dein Passwort verschaffen: seit Fassung 2.6.0 vergibt der
+Betreiber keine Passwörter mehr. Braucht jemand wieder Zugang, erzeugt er einen einmaligen Link
+(72&nbsp;Stunden) – er kennt das neue Passwort nie, das bisherige gilt bis zum Einlösen weiter, jeder
+Link steht im Protokoll, und der betroffene Mensch bekommt sofort eine Nachricht. Ist der Mailversand
+eingerichtet, geht der Link direkt an die hinterlegte Adresse und wird dem Betreiber nicht angezeigt.</p>
+
+<h3>Sicherung: die Kopie für den Notfall</h3>
+<p>Der Betreiber kann eine <b>vollständige Kopie der Datenbank</b> herunterladen. Darin steht alles,
+was gespeichert ist – auch deine Freitexte, deine Fotos und deine Nachrichten. Das ist kein Umweg um
+die Tabelle oben, sondern der Preis dafür, dass deine Daten einen Serverausfall überleben: eine App
+ohne Sicherung verliert bei einem Defekt alles.</p>
+<p>Damit daraus keine stille Tür wird, gilt seit Fassung 2.6.0:</p>
+<ul>
+  <li>Jede Sicherung verlangt zusätzlich das <b>Passwort des Betreibers</b> – ein gestohlenes Cookie
+  allein genügt nicht.</li>
+  <li>Jede Sicherung steht mit Zeitpunkt und Kennung im <b>Protokoll</b>, das keine Löschfunktion hat.</li>
+  <li><b>Du bekommst jedes Mal eine Nachricht</b> in der App (und eine Mitteilung, wenn du sie
+  aktiviert hast) – ohne Ausnahme, auch wenn du gerade nichts davon merken würdest.</li>
+  <li>Die Datei wird verschlüsselt aufbewahrt, nicht per Mail verschickt und nach der festgelegten
+  Frist gelöscht.</li>
+</ul>
+<p>Ein Coach bekommt nie eine solche Kopie. Und was der Betreiber <b>in der App</b> sehen kann, ändert
+die Sicherung nicht – dort bleibt es bei der Tabelle oben.</p>
+
+<h2>4. Wohin Daten die App verlassen</h2>
+<!-- Bewusst Karten statt Tabelle: drei Spalten mit ganzen Sätzen passen auf einem Handy nicht
+     nebeneinander, und genau hier darf nichts hinter einem seitlichen Rand verschwinden. -->
+<div class="card">
+  <h3>Render (Hosting)</h3>
+  <p><b>Was:</b> alles, was gespeichert wird. <b>Wann:</b> immer – dort läuft der Server.</p>
+</div>
+<div class="card">
+  <h3>Mail-Versand (SMTP)</h3>
+  <p><b>Was:</b> Adresse, Name, Bestätigungs- und Reset-Link, Kurznachricht deines Coachs, Wochenmail
+  mit Trainingszahlen. <b>Wann:</b> nur an bestätigte Adressen und nur, wenn du Mails erlaubt hast.</p>
+</div>
+<div class="card">
+  <h3>Apple bzw. Google (Push)</h3>
+  <p><b>Was:</b> die Push-Adresse deines Geräts. Der Inhalt ist verschlüsselt und für den Push-Dienst
+  nicht lesbar. <b>Wann:</b> nur mit aktivierten Mitteilungen.</p>
+</div>
+<div class="card">
+  <h3>Anthropic (KI-Analyse)</h3>
+  <p><b>Was:</b> Ziel, Erfahrung, Trainingstage pro Woche, deine Check-in-Werte der letzten 14&nbsp;Tage,
+  deine letzten 90&nbsp;Sätze sowie Anzahl und Datum offener Beschwerden – <b>ohne deinen Namen und ohne
+  Freitexte</b>. <b>Wann:</b> nur wenn du den Schalter „KI-Analyse durch meinen Coach erlauben“
+  eingeschaltet hast (Standard: aus) <i>und</i> dein Coach eine Auswertung anfordert.</p>
+</div>
+<div class="card">
+  <h3>Open Food Facts</h3>
+  <p><b>Was:</b> der gescannte Barcode und deine IP-Adresse. <b>Wann:</b> nur beim Barcode-Scan.</p>
+</div>
+<div class="card">
+  <h3>unpkg.com (Cloudflare)</h3>
+  <p><b>Was:</b> deine IP-Adresse beim Laden der Scanner-Bibliothek. <b>Wann:</b> nur beim Öffnen des Scanners.</p>
+</div>
+<p><b>Anthropic</b> (Anthropic PBC, USA) ist unser Auftragsverarbeiter für die KI-Analyse. Die Übermittlung
+in die USA stützt sich auf die Standardvertragsklauseln. Nach <b>jeder</b> Auswertung bekommst du in der App
+eine Nachricht, die genau aufzählt, was übermittelt wurde. Schaltest du den Schalter aus, wird gar nichts
+übermittelt – der Coach bekommt dann eine Absage angezeigt.</p>
+<p>Google Fonts wird nicht geladen. Es gibt keine Werbenetzwerke und keine Analyse-Dienste.</p>
+
+<h2>5. Was auf deinem Gerät liegt</h2>
+<p>Damit die App ohne Netz startet und du im Keller loggen kannst, liegen im Speicher deines Browsers:
+der letzte Stand deines Profils (Name, E-Mail, Ziele – <b>kein</b> Anmelde-Token), dein Plan, die
+Tagesvorschau und die noch nicht gesendeten Einträge. „Abmelden“ räumt das vollständig auf.
+Der Service Worker hält nur die Programmhülle, nie Daten.</p>
+
+<h2>6. Deine Rechte</h2>
+<div class="card">
+  <h3>Auskunft und Kopie (Art.&nbsp;15, 20)</h3>
+  <p>Profil → Daten &amp; Verbindungen → <b>„Meine Daten exportieren“</b>. Du bekommst sofort eine
+  JSON-Datei mit allen deinen Tabellen. Nicht enthalten sind Nachrichten, die du <i>gesendet</i> hast –
+  die liegen im Postfach des Empfängers.</p>
+</div>
+<div class="card">
+  <h3>Widerruf der Einwilligung (Art.&nbsp;7 Abs.&nbsp;3)</h3>
+  <p>Profil → Daten &amp; Verbindungen → <b>„Einwilligung“</b>. Der Widerruf gilt ab sofort; was bis dahin
+  geschah, bleibt rechtmäßig. Ohne Einwilligung kann die App keine neuen Gesundheitswerte mehr speichern –
+  dein Konto bleibt bestehen, bis du es löschst. Den KI-Schalter und die Hilfe-Freigabe kannst du einzeln
+  und unabhängig davon abschalten.</p>
+</div>
+<div class="card">
+  <h3>Löschung (Art.&nbsp;17)</h3>
+  <p>Profil → Konto → <b>„Konto löschen“</b>. Das löscht in einem Zug alles: Plan, Sätze, Check-ins,
+  Maße, Fotos, Essensprotokoll, Nachrichten, Mindset-Einträge, Gesundheitsdaten, Push-Registrierungen
+  und Teilen-Links. Es gibt keine Wiederherstellung – auch nicht durch den Betreiber.
+  Eine Ausnahme bleibt: Im Protokoll der Betreiber-Handlungen steht 365&nbsp;Tage lang eine Kennung ohne
+  Namen und ohne Inhalte – ein Protokoll, das die Handlung löscht, die es belegen soll, wäre keins
+  (siehe Abschnitt&nbsp;7).</p>
+</div>
+<div class="card">
+  <h3>Berichtigung, Einschränkung, Widerspruch (Art.&nbsp;16, 18, 21)</h3>
+  <p>Das meiste änderst du direkt in der App. Für alles andere schreibst du am schnellsten über die
+  Nachrichtenfunktion in der App; schriftlich erreichst du den Verantwortlichen unter den Angaben in
+  Abschnitt&nbsp;1.</p>
+</div>
+<div class="card">
+  <h3>Beschwerde</h3>
+  <p>Du kannst dich bei einer Datenschutz-Aufsichtsbehörde beschweren – in Österreich bei der
+  Datenschutzbehörde (dsb.gv.at), in Deutschland bei der Behörde deines Bundeslandes.</p>
+</div>
+
+<h2>7. Wie lange wir speichern</h2>
+<ul>
+  <li><b>Deine Inhalte</b> bleiben, solange dein Konto besteht – dein Verlauf ist der Sinn der App.
+  Mit der Löschung des Kontos sind sie weg.</li>
+  <li><b>Reset-Links</b> (1&nbsp;Stunde), <b>Teilen-Links</b> (30&nbsp;Tage) und tote Push-Adressen werden
+  stündlich automatisch aufgeräumt.</li>
+  <li><b>Hilfe-Freigaben</b> laufen nach 30&nbsp;Minuten ab.</li>
+  <li><b>Fehlerprotokoll</b>: höchstens 2.000 Einträge, längstens 14&nbsp;Tage, in gekürzter Form.</li>
+  <li><b>Protokoll der Betreiber-Handlungen</b>: 365&nbsp;Tage, nur Kennungen, nie Inhalte.</li>
+  <li><b>Sicherungen</b> der Datenbank bewahrt der Betreiber verschlüsselt auf.</li>
+</ul>
+
+<h2>8. Kinder</h2>
+<p>Die App ist nichts für Kinder. Das Geburtsjahr muss mindestens zehn Jahre zurückliegen;
+für Minderjährige braucht es die Einwilligung der Erziehungsberechtigten.</p>
+
+<h2>9. Wenn sich etwas ändert</h2>
+<p>Ändern wir den Text der Einwilligung inhaltlich, fragen wir dich in der App noch einmal – du erfährst es
+also, ohne diese Seite im Auge behalten zu müssen.</p>
+
+<hr>
+<footer>
+  <a href="/">Zur App</a><a href="/impressum.html">Impressum</a>
+  <p>BE INEVITABLE</p>
+</footer>
+</body>
+</html>

@@ -10,57 +10,124 @@
 <link rel="manifest" href="/manifest.json">
 <!-- Die ?v=-Tokens werden beim Ausliefern vom Server durch die Version aus package.json ersetzt (Cache-Buster) -->
 <link rel="icon" type="image/x-icon" href="/favicon.ico?v=__APP_VERSION__">
-<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=__APP_VERSION__">
-<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=__APP_VERSION__">
+<!-- B5 (2.7.0): kein <link rel="icon" type="image/png"> mehr. favicon.ico liefert das Tab-Symbol,
+     manifest.json nennt icon-192/512 fuer die Installation. apple-touch-icon bleibt (iOS). -->
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=__APP_VERSION__">
 <title>BE INEVITABLE</title>
-<!-- Design-System (Tokens, Komponenten, Shell) – alles CSS liegt in app.css, index.html enthält nur Markup -->
+<!-- 2.7.0 (A-III.3): EIN Stylesheet statt neun. /app.css haengt der Server beim Hochfahren in genau
+     der Reihenfolge zusammen, in der hier frueher die neun <link> standen:
+     app.css · mindset.css · css/home · training · diet · analysis · coach · account · search.
+     Kein Build-Schritt, kein neues Paket – dieselbe Mechanik wie die __APP_VERSION__-Ersetzung. -->
 <link rel="stylesheet" href="/app.css?v=__APP_VERSION__">
-<link rel="stylesheet" href="/mindset.css?v=__APP_VERSION__">
-<!-- Bereichs-Stylesheets (Stage 2, je ein Besitzer) -->
-<link rel="stylesheet" href="/css/home.css?v=__APP_VERSION__">
-<link rel="stylesheet" href="/css/training.css?v=__APP_VERSION__">
-<link rel="stylesheet" href="/css/diet.css?v=__APP_VERSION__">
-<link rel="stylesheet" href="/css/analysis.css?v=__APP_VERSION__">
-<link rel="stylesheet" href="/css/coach.css?v=__APP_VERSION__">
-<link rel="stylesheet" href="/css/account.css?v=__APP_VERSION__">
+<script>
+/* NOTAUSGANG: /?swkill=1 meldet den Service Worker ab, leert ALLE Caches und laedt die Seite sauber neu
+   (siehe DEPLOY-PRUEFEN.md). Fuer den Fall, dass eine Auslieferung einen kaputten Worker hinterlaesst und
+   ein normales Neuladen nicht mehr durchkommt.
+   Danach laeuft dieser TAB im Notbetrieb: kein Service Worker, kein Cache – sonst installierte sich
+   sofort wieder derselbe Worker, und wenn genau der das Problem ist, waere man keinen Schritt weiter.
+   Der Merker liegt in sessionStorage: Tab schliessen und neu oeffnen = alles wieder normal.
+   Muss VOR /app.js laufen (core.js registriert den Worker beim Laden), deshalb inline hier oben. */
+(function(){
+  var kill=/[?&]swkill=1/.test(location.search);
+  var safe=false;try{safe=sessionStorage.getItem('be_swkill')==='1';}catch(e){}
+  if(!kill&&!safe)return;
+  try{Object.defineProperty(navigator.serviceWorker,'register',{configurable:true,
+    value:function(){return Promise.reject(new Error('be_swkill: Notbetrieb, kein Service Worker'));}});}catch(e){}
+  if(kill){
+    /* Erst abmelden und neu laden – die Caches NICHT hier loeschen: dieser Seitenaufruf laeuft noch
+       durch den alten Worker, und dessen fetch-Zweig legt gerade eben geholte Dateien sofort wieder ab
+       (gemessen: be-shell-… stand danach wieder da). Nach dem Neuladen ist kein Worker mehr dazwischen. */
+    try{sessionStorage.setItem('be_swkill','1');}catch(e){}
+    var done=function(){location.replace(location.pathname);};
+    try{
+      ((navigator.serviceWorker&&navigator.serviceWorker.getRegistrations)
+        ?navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister();}));})
+        :Promise.resolve()).then(done,done);
+    }catch(e){done();}
+    return;
+  }
+  /* Notbetrieb: kein Worker mehr aktiv – jetzt koennen die Caches wirklich weg und bleiben weg. */
+  console.warn('[swkill] Notbetrieb: kein Service Worker, kein Cache in diesem Tab. Tab schliessen hebt das auf.');
+  try{if(window.caches&&caches.keys)caches.keys()
+    .then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k);}));})
+    .catch(function(){});}catch(e){}
+})();
+</script>
 </head>
 <body>
+<!-- ANMELDEKARTE – STATISCH (A-III.3, 2.7.0).
+     Bis 2.6.0 entstand dieses Formular im 8. von 9 Skripten (account.js renderLoginView): wer die App
+     zum ersten Mal oeffnete, sah 2,9 s lang fast nichts und zog dabei 471 KB. Das Markup steht jetzt
+     Wort fuer Wort hier – gezeichnet ist die Karte damit beim ERSTEN Bild, ohne eine Zeile JavaScript.
+     renderLoginView() in account.js baut sie nur noch, wenn sie fehlt (Erkennungsmerkmal: #authTabLogin);
+     die Funktion bleibt als Notnagel stehen. Wer hier etwas aendert, aendert sie dort mit.
+     Alle Handler sind typeof-gesichert: /app.js kommt mit defer, in den paar hundert Millisekunden
+     davor darf ein Tipp auf das Auge oder ein Enter im Formular nichts kaputt machen (ohne die
+     Sicherung wuerde das Formular bei Enter tatsaechlich abschicken und die Eingabe verlieren). -->
 <div id="loginView" class="login">
   <div class="login-brand">
-    <div class="logo-wrap"><img src="/logo.jpg" alt="BE INEVITABLE" class="logo-img"></div>
+    <!-- B2 (2.7.0): ?v= – damit greifen Ein-Jahr-Kopf und cache-first (vorher bei jedem Neuladen frisch:
+         12,2 von 33,8 KB eines warmen Starts). Fuer eine Anfrage MIT Sitzungs-Cookie ersetzt server.js
+         (INDEX_HTML_SESSION) `src` durch `data-src`: 13,2 KB fuer ein Bild, das der Angemeldete nie
+         sieht. Diese Zeile ist die gesuchte Marke – Schreibweise nur zusammen mit server.js aendern;
+         das Notnagel-Markup in account.js (renderLoginView) traegt dieselbe id. -->
+    <img id="loginLogo" src="/logo-wide.jpg?v=__APP_VERSION__" alt="BE INEVITABLE" class="login-logo">
     <h1>Werde unaufhaltbar.</h1>
     <p>Training, Ernährung &amp; Coaching in einem.</p>
   </div>
-  <form class="card" id="authForm" onsubmit="doAuth();return false" novalidate>
-    <div id="authErr" class="err hidden"></div>
-    <div id="regName" class="field hidden"><label>Name</label><input id="i_name" name="name" autocomplete="name" placeholder="Dein Name" maxlength="80"></div>
-    
-    <div class="field"><label>E-Mail</label><input id="i_email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="du@mail.com"></div>
-    <div class="field"><label>Passwort</label><input id="i_pw" name="password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
-    <button class="btn" id="authBtn" type="submit">Anmelden</button>
-    <div class="switch" id="switchLink">Noch kein Konto? <a onclick="toggleAuth()">Registrieren</a></div>
-    <div class="switch" id="forgotLink" style="margin-top:8px"><a onclick="openForgot()">Passwort vergessen?</a></div>
-    <div id="loginVersion" style="text-align:center;color:var(--ink3);font-size:11px;margin-top:24px"></div>
+  <form class="card login-card" id="authForm" onsubmit="if(typeof doAuth==='function')doAuth();return false" novalidate>
+    <div class="seg auth-seg" id="authSeg" role="tablist">
+      <button type="button" class="on" id="authTabLogin" role="tab" aria-selected="true" onclick="if(typeof setAuthMode==='function')setAuthMode('login')">Anmelden</button>
+      <button type="button" id="authTabReg" role="tab" aria-selected="false" onclick="if(typeof setAuthMode==='function')setAuthMode('register')">Registrieren</button>
+    </div>
+    <p class="login-promo hidden" id="authPromo">Kostenlos – dein Trainings- &amp; Ernährungsplan in unter einer Minute.</p>
+    <div id="authErr" class="err hidden" role="alert"></div>
+    <div id="regName" class="field hidden"><label for="i_name">Name</label><input id="i_name" name="name" autocomplete="name" placeholder="Dein Name" maxlength="80" enterkeyhint="next"></div>
+    <div class="field"><label for="i_email">E-Mail</label><input id="i_email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="du@mail.com" enterkeyhint="next"></div>
+    <!-- Passwortfeld mit Auge und Staerke-Hilfe – identisch zu pwField({id:'i_pw',…,hint:true,hintOff:true}) -->
+    <div class="field"><label for="i_pw">Passwort</label><div class="pw-wrap"><input id="i_pw" name="password" type="password" autocomplete="current-password" placeholder="••••••••" enterkeyhint="go" oninput="if(typeof pwHint==='function')pwHint(this)" maxlength="200"><button type="button" class="pw-eye" aria-label="Passwort anzeigen" aria-pressed="false" onclick="if(typeof pwToggle==='function')pwToggle(this)"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div><div class="pw-hint hidden" id="i_pw_hint" aria-live="polite"><span class="pw-meter" aria-hidden="true"><i></i></span><span class="pw-hint-t">Mindestens 8 Zeichen, kein häufiges Passwort.</span></div></div>
+    <div id="regCode" class="field hidden"><label for="i_code">Einladungscode</label><input id="i_code" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Code vom Betreiber" maxlength="80" enterkeyhint="go"></div>
+    <button class="btn block" id="authBtn" type="submit">Anmelden</button>
+    <div class="switch hidden" id="switchLink" aria-hidden="true">Noch kein Konto? <a onclick="if(typeof toggleAuth==='function')toggleAuth()">Registrieren</a></div>
+    <div class="switch login-forgot" id="forgotLink"><a onclick="if(typeof openForgot==='function')openForgot()">Passwort vergessen?</a></div>
+    <div id="loginVersion" class="login-version"></div>
   </form>
+  <!-- Rechtsseiten bewusst AUSSERHALB des Formulars und als echte Links auf statische Seiten:
+       sie muessen auch dann erreichbar sein, wenn /app.js nicht laedt. Gleicher Bau wie
+       lgLegalLinksHTML() in core.js. -->
+  <nav aria-label="Rechtliches" style="display:flex;justify-content:center;gap:4px;font-size:13px">
+    <a href="/datenschutz.html" style="color:var(--ink2);padding:12px 10px;min-height:44px;display:inline-flex;align-items:center">Datenschutz</a><span style="color:var(--ink3);align-self:center" aria-hidden="true">·</span><a href="/impressum.html" style="color:var(--ink2);padding:12px 10px;min-height:44px;display:inline-flex;align-items:center">Impressum</a>
+  </nav>
 </div>
 
 <div id="onbView" class="login hidden" style="max-width:480px"></div>
 
 <div id="appView" class="app hidden">
-  <div class="hdr">
+  <!-- Landmarken (header/nav/main): ohne sie hat ein Screenreader keinen Sprungpunkt und liest die Hülle
+       bei jedem Tabwechsel von vorn. Klassen und IDs bleiben unverändert – das CSS greift über .hdr/.nav/#views. -->
+  <header class="hdr">
     <div class="title"><span id="hdrTitle">Home</span></div>
     <div class="acts">
-      <button class="bell" id="bellBtn" aria-label="Nachrichten" onclick="openMessages()"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg><span class="badge hidden" id="bellBadge"></span></button>
+      <!-- Offline/Outbox-Zustand: von core.js (syncBadge) ein- und ausgeblendet, sonst leer und unsichtbar -->
+      <button class="pill amber sync-state hidden" id="syncState" aria-live="polite" onclick="if(typeof openOutbox==='function')openOutbox()"></button>
+      <!-- Suche und Nachrichten wohnen in nachgeladenen Dateien (search.js bzw. coach.js – der Athlet
+           zeichnet seine Nachrichten mit threadHTML aus coach.js). bootCall() holt das Modul und ruft
+           die Funktion erst danach auf; ist es laengst da, ist das ein Mikrosprung. -->
+      <button class="btn icon sm ghost" id="searchBtn" aria-label="Suchen" onclick="if(typeof bootCall==='function')bootCall('search','openSearch')"></button>
+      <button class="bell" id="bellBtn" aria-label="Nachrichten" onclick="if(typeof bootCall==='function')bootCall('coach','openMessages')"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg><span class="badge hidden" id="bellBadge"></span></button>
       <button class="avatar" id="avatar" aria-label="Profil" onclick="openProfile()">M</button>
     </div>
-  </div>
+  </header>
   <div id="ctxBar" class="ctx-bar"></div>
-  <div id="views"></div>
-  <div class="nav" id="navBar"></div>
+  <main id="views"></main>
+  <nav class="nav" id="navBar" aria-label="Hauptnavigation"></nav>
 </div>
 
-<div class="modal" id="modal" onclick="if(event.target===this)closeModal()"><div class="sheet" id="sheet"></div></div>
+<!-- Der dunkle Hintergrund ist KEIN Bedienelement: er bekommt darum weder role="button" noch tabindex.
+     Tippen daneben schließt das Sheet trotzdem – der Handler hängt unten am Skript, nicht als onclick am
+     Element (ein onclick ohne Rolle wäre ein Versprechen an die Tastatur, das der Hintergrund nicht hält).
+     Für die Tastatur schließen Escape (shell.js) und der Schließen-Knopf im Sheet. -->
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
 <!-- Pausen-Timer / Trainings-Leiste über der Nav (Logik: training.js; Slot #trainBarSlot für Hantelrechner/Abschließen) -->
 <div id="restBar" class="restbar hidden">
   <div class="rest-prog" aria-hidden="true"><i id="restProg"></i></div>
@@ -72,15 +139,39 @@
 </div>
 <!-- Toast-Host: genau eine sichtbare Meldung, Warteschlange in shell.js -->
 <div id="toastHost" aria-live="polite"></div>
-<script>window.BE_VERSION='__APP_VERSION__';</script>
-<script src="/mindset.js?v=__APP_VERSION__"></script>
-<script src="/js/core.js?v=__APP_VERSION__"></script>
-<script src="/js/home.js?v=__APP_VERSION__"></script>
-<script src="/js/training.js?v=__APP_VERSION__"></script>
-<script src="/js/diet.js?v=__APP_VERSION__"></script>
-<script src="/js/analysis.js?v=__APP_VERSION__"></script>
-<script src="/js/coach.js?v=__APP_VERSION__"></script>
-<script src="/js/account.js?v=__APP_VERSION__"></script>
-<script src="/js/shell.js?v=__APP_VERSION__"></script>
+<script>window.BE_VERSION='__APP_VERSION__';
+// Tippen auf den Hintergrund schließt die oberste Sheet-Ebene – dieselbe Bedingung wie vorher als
+// onclick am #modal (nur der Hintergrund selbst, nicht das Sheet darin). closeModal() kommt aus
+// shell.js und ist beim ersten Tipp längst geladen.
+(function(){var m=document.getElementById('modal');if(!m)return;
+  m.addEventListener('click',function(e){if(e.target===m&&typeof closeModal==='function')closeModal();});})();
+/* B2-Notnagel: Der Server laesst das Anmelde-Logo nur weg, wenn die Anfrage ein Sitzungs-Cookie traegt.
+   Das Cookie kann tot sein (30 Tage um, Passwort woanders geaendert, Konto geloescht) – dann bleibt die
+   Anmeldekarte stehen und braucht ihr Bild. Zwei Ausloeser: jemand fasst die Karte an, oder /api/me ist
+   beantwortet und ME ist trotzdem leer (zweimal im Abstand von 250 ms geprueft, damit wir nicht in die
+   Luecke zwischen Antwort und ME-Zuweisung eines angemeldeten Starts fallen). Steht ein `src` – der
+   abgemeldete Besucher –, tut das hier gar nichts: sein Logo kommt wie immer sofort. */
+(function(){var i=document.getElementById('loginLogo');if(!i||i.getAttribute('src'))return;
+  var lv=document.getElementById('loginView'),n=0,t=null;
+  function show(){if(i.getAttribute('src'))return;var s=i.getAttribute('data-src');if(!s)return;
+    if(t){clearInterval(t);t=null;}i.style.display='';i.setAttribute('src',s);}
+  /* Am document, nicht an der Karte: Reset- und Einladungslink oeffnen ein Sheet DARUEBER, und die
+     beiden Wege fragen /api/me gar nicht erst – der Tipp landet dann nicht in #loginView. */
+  window.beLoginLogo=show;
+  ['pointerdown','focusin','keydown'].forEach(function(ev){document.addEventListener(ev,show,{once:true});});
+  function meDa(){try{return performance.getEntriesByType('resource').some(function(e){return /\/api\/me(\?|$)/.test(e.name);});}catch(e){return true;}}
+  function angemeldet(){try{return typeof ME!=='undefined'&&!!ME;}catch(e){return false;}}
+  t=setInterval(function(){
+    if(angemeldet()||(lv&&lv.classList.contains('hidden'))){clearInterval(t);t=null;return;}
+    if(meDa())n++;else n=0;
+    if(n>=2)show();
+    },250);
+  setTimeout(function(){if(t){clearInterval(t);t=null;}},30000);})();</script>
+<!-- 2.7.0 (A-III.3): EIN Skript statt zehn, und mit defer – kein synchrones Skript vor dem ersten Bild.
+     /app.js = core, home, training, diet, account, shell (die Reihenfolge von 2.6.0, ohne die vier
+     nachgeladenen Dateien) plus der Nachlade-Lader am Ende. account.js MUSS vor shell.js stehen.
+     analysis, mindset, coach und search holt bootLoad() aus /mod/<name>.js – beim Aufruf der Ansicht
+     und spaetestens im Leerlauf, sobald die Startseite steht. -->
+<script defer src="/app.js?v=__APP_VERSION__"></script>
 </body>
 </html>

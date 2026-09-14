@@ -23,6 +23,30 @@
 #homePage .today .chip-row .chip{min-height:32px;padding:0 12px}
 /* 32 px sichtbar, aber 44 px Trefferfläche (app.css setzt für .chip nur inset:-4px = 40 px) */
 #homePage .today .chip-row .chip::before{inset:-6px}
+/* Rhythmus-Leiste: die Chips tragen jetzt Wochentag + Klartext („Mo · Pull") statt „Mo Pul" und dürfen
+   dafür breiter werden – die Leiste scrollt ohnehin. Der Mask-Fade von app.css beginnt dort schon bei
+   88 % und blendete den letzten Chip auch dann aus, wenn Platz war (RATE-shell-home N3, H2); hier bleiben
+   davon die letzten 16 px. Eine Ellipse fängt Tagesnamen ab, die auch gekürzt noch zu lang sind. */
+#homePage .today .chip-row.rhythm{mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent);
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent)}
+#homePage .today .chip-row.rhythm .chip{max-width:60vw;overflow:hidden;text-overflow:ellipsis;display:block;line-height:32px}
+/* ---------- Bereitschaft: EINE Zeile in der Jetzt-Karte ---------- */
+/* Anatomie wie eine .row (Zahl · Titel · Satz · Chevron), aber im Kartengrund abgesetzt wie eine .note.
+   Der Satz darf auf schmalen Geräten auf zwei Zeilen umbrechen – abgeschnitten sagt er nichts mehr. */
+.today .rdy{display:flex;align-items:center;gap:8px;width:100%;min-height:52px;margin-top:12px;
+  padding:8px 12px;border:0;border-radius:12px;background:var(--surface2);color:inherit;text-align:left;
+  cursor:pointer;transition:background var(--dur,.2s) var(--ease,ease)}
+.today .rdy:active{background:var(--surface3)}
+.today .rdy .rdy-n{flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:34px;
+  font:700 22px/1 var(--font);letter-spacing:-.02em}
+.today .rdy .rdy-tx{flex:1;min-width:0}
+.today .rdy .rdy-tx b{display:block;font:600 15px/1.3 var(--font);color:var(--ink)}
+/* Der Satz darf umbrechen – abgeschnitten sagt er nichts mehr. Drei Zeilen sind die Reißleine für
+   den längsten Fall („Heute leicht: …") auf 320 px; auf normalen Geräten sind es zwei. */
+.today .rdy .rdy-tx small{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  font-size:12.5px;line-height:1.35;color:var(--ink2);margin-top:1px}
+.today .rdy .rdy-go{flex:0 0 auto;display:flex;color:var(--ink3)}
+
 /* Mindset-Status: eine Zeile, Trefferfläche bleibt über 44 px (::before der Zeile) */
 #homeMind .row{min-height:48px}
 /* Abschnittsköpfe auf der Startseite dichter – es sind fünf davon */
@@ -42,6 +66,9 @@
 .hg-l.done{color:var(--ink);font-weight:600}
 .hg-streak{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:.5px solid var(--hairline2);font-size:14px}
 .hg-streak .ic{flex:0 0 auto;color:var(--red-text)}
+/* Zweite Zeile nur bei Joker-Tagen („davon 30 mit Check-in, 1 vom Joker gerettet") – eigene Zeile, weil
+   die erste sonst bei 320 px auf drei Zeilen umbricht und der Joker-Knopf nach unten rutscht. */
+.hg-streak .fill small{display:block;margin-top:2px;font-size:12px;line-height:1.3;color:var(--ink2)}
 .hg-jok{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 8px;border-radius:999px;
   background:var(--surface2);color:var(--ink2);font:600 13px/1 var(--font);white-space:nowrap;position:relative}
 .hg-jok::before{content:'';position:absolute;inset:-6px}
@@ -56,6 +83,9 @@
 
 /* ---------- Trennlinie innerhalb einer Karte (z. B. „Nächste Mahlzeit") ---------- */
 .h-sep{margin-top:12px;padding-top:12px;border-top:.5px solid var(--hairline2)}
+/* D1: „Startwert"-Zeile unter dem Ernährungsring – gleiche Schriftgröße und Farbe wie im Ernährungs-Tab */
+.h-note{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.45;color:var(--ink2)}
+.h-note svg{flex:none;margin-top:1px;color:var(--ink3,var(--ink2))}
 
 /* ---------- Ernährungs-Ring-Zeile ---------- */
 #homeFood .ring-card{cursor:pointer;gap:16px}

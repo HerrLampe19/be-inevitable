@@ -38,8 +38,11 @@
 .pf-version{text-align:center;color:var(--ink3);font-size:var(--t-xs);margin:24px 0 4px}
 /* Auto-Save-Rückmeldung am Feld (kurz grüner Rahmen) */
 .field.saved input,.field.saved select,.field.saved textarea{border-color:var(--green)}
-/* Schalter ohne Wirkung (nicht unterstützt / blockiert) */
+/* Schalter ohne Wirkung (nicht unterstützt / blockiert / Push aus / E-Mail unbestätigt) */
 .tgl.dis{opacity:.45}
+/* Erinnerungs-Chips, solange Push auf diesem Gerät aus ist: sichtbar (die eingestellte Stunde bleibt
+   ablesbar), aber erkennbar wirkungslos. Der Tap bleibt möglich – er erklärt, was zuerst fehlt. */
+#pf_pushHour .chip.dis,#pf_mindHour .chip.dis{opacity:.45}
 /* Der Schalter selbst ist 48×28 px – unsichtbare Trefferflächen-Erweiterung auf 68×44 px (Design-System-Minimum).
    .tgl ist in app.css bereits position:relative, ::after ist der Knauf – deshalb ::before. */
 .switch-row .tgl::before{content:'';position:absolute;inset:-8px -10px}
@@ -56,11 +59,33 @@
 .pf-steps b{color:var(--ink)}
 
 /* ---------- NACHRICHTEN ---------- */
+/* Zwei Bereiche im Sheet: das Gespräch mit dem Coach und „Für dich" (B13).
+   Blasen, Datumstrenner und Eingabe liegen in coach.css (.thread/.bub/.thread-compose) – der Athlet
+   benutzt dieselbe Darstellung, coach.css lädt vor account.css. */
+.msg-seg{margin-bottom:14px}
+.msg-seg .pill{margin-left:6px;vertical-align:2px}
+/* Lesebestätigung unter der letzten eigenen Blase – rechtsbündig wie die Blase selbst */
+.thread-receipt{align-self:flex-end;margin:-4px 2px 0;color:var(--ink3);font-size:var(--t-xs);line-height:1.3}
+.thread-receipt.seen{color:var(--green)}
 .msg-list{margin-top:-6px}
 .msg .mf{font-size:var(--t-xs);color:var(--ink3);margin-top:2px}
 .msg .mt .pill{margin-left:6px}
 .msg.unread{border-left:2px solid var(--red);margin-left:-12px;padding-left:10px}
 .msg.system .mt{color:var(--ink)}
+/* Sonntagskarte („Deine Woche"): der Rumpf ist eine Aneinanderreihung von Kennzahl-Sätzen –
+   als Liste gelesen statt als Fließtext, mit dem Zeitraum im Kopf. */
+.sun-card{background:var(--surface3);border-radius:var(--r);padding:14px 16px 16px;margin-bottom:14px}
+.sun-card.unread{box-shadow:inset 2px 0 0 var(--red)}
+.sun-card .sc-h{display:flex;align-items:flex-start;gap:10px}
+.sun-card .sc-h .ic{flex:0 0 20px;color:var(--red-text);margin-top:2px}
+.sun-card .sc-h .fill{flex:1;min-width:0}
+.sun-card .sc-h .t{font:600 var(--t-md)/1.3 var(--font);color:var(--ink)}
+.sun-card .sc-h .d{margin-top:2px;color:var(--ink3);font-size:var(--t-xs)}
+.sun-card .sc-h .md{flex:0 0 auto;color:var(--ink3);font-size:var(--t-xs);white-space:nowrap}
+.sun-card .sc-l{list-style:none;margin:12px 0 14px;padding:0}
+.sun-card .sc-l li{position:relative;padding-left:18px;color:var(--ink2);font-size:var(--t-sm);line-height:var(--lh-body)}
+.sun-card .sc-l li+li{margin-top:6px}
+.sun-card .sc-l li::before{content:'';position:absolute;left:4px;top:.62em;width:5px;height:5px;border-radius:50%;background:var(--red)}
 .msg-notes{margin-top:18px}
 .msg-notes .note+.note{margin-top:8px}
 /* Verfassen bleibt am unteren Rand des Sheets stehen */

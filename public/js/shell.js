@@ -37,6 +37,114 @@ let _sheetHist=0;     // von uns gepushte History-Einträge des offenen Modals
 let _sheetPop=0,_sheetPopT=null; // erwartete popstate-Events aus eigenem history.go()
 let _sheetPendingPush=false;     // pushState wartet, bis ein eigenes history.go() durch ist (sonst überholt es der Browser)
 let _CONFIRM_FN=null;
+
+// ===== A-II.5 · BARRIEREFREIHEIT: ein Sheet ist ein echter Dialog =====
+// Bis 2.5.0 war ein Sheet eine Schicht aus <div>: kein role="dialog", kein aria-modal, kein Fokus im
+// Sheet, keine Escape-Taste, der Hintergrund blieb mit Tab erreichbar und die Seite scrollte darunter
+// weiter (gemessen mit tools/a11y.mjs: 0 von 3 Sheets waren Dialoge). Der gesamte Mechanismus steht
+// HIER – die Bereichsdateien (home/training/diet/analysis/coach/mindset) ändern dafür keine Zeile.
+// Reihenfolge beim Öffnen ist wichtig: erst den Auslöser merken, DANN inert setzen (inert nimmt dem
+// Auslöser sofort den Fokus), dann den Fokus ins Sheet holen.
+let _sheetReturnFocus=null;   // Element, das das Sheet geöffnet hat – dorthin geht der Fokus zurück
+let _scrollLockY=0;           // Scrollstand der Seite, während der Hintergrund gesperrt ist
+// Alles außer #modal und #toastHost wird stillgelegt. #toastHost bleibt bedienbar: dort steht die
+// „Rückgängig"-Schaltfläche einer gerade gezeigten Meldung, die auch über einem Sheet gelten muss.
+// Mit der Maus reichte das (z-index 200 über dem Modal, pointer-events:auto). Mit der Tastatur nicht:
+// die Fokusfalle unten drehte sich bis 2.6.0 ausschließlich innerhalb von #sheet, der echte
+// <button class="act"> im Toast war damit fokussierbar, aber unerreichbar (gemessen: 20× Tab bei
+// offenem Essen-Sheet erreichte „Ansehen" nie). Seitdem hängt _sheetTrap die Schaltflächen aus
+// #toastHost an den Ring (in Dokumentreihenfolge, also hinten) und führt vom Sheet-Titel aus mit
+// EINEM Tastendruck dorthin – das ist der Zustand, in dem ein „Rückgängig" erscheint – und
+// _toastRemove hält die Meldung an, solange sie den Fokus hat (sonst wäre sie nach 5 s weg, bevor
+// man sie erreicht hat), und gibt den Fokus danach ins Sheet zurück.
+const A11_INERT=['appView','loginView','onbView','restBar'];
+const A11_FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),summary,[contenteditable=""],[contenteditable="true"]';
+function _a11Focusables(root){if(!root)return [];
+  return [...root.querySelectorAll(A11_FOCUSABLE)].filter(el=>{
+    if(el.hasAttribute('inert')||el.closest('[inert]'))return false;
+    const r=el.getBoundingClientRect();if(r.width<1&&r.height<1)return false;
+    const cs=getComputedStyle(el);
+    return cs.visibility!=='hidden'&&cs.display!=='none';});}
+// Schaltflächen der gerade sichtbaren Meldung (#toastHost). Eine Meldung im Ausblenden trägt [inert]
+// (siehe _toastRemove) und fällt damit in _a11Focusables() heraus – sie darf den Ring nicht mehr fangen.
+function _a11ToastFocusables(){return _a11Focusables(document.getElementById('toastHost'));}
+function _a11SheetOn(){
+  const sh=document.getElementById('sheet');if(!sh)return;
+  sh.setAttribute('role','dialog');sh.setAttribute('aria-modal','true');
+  sh.setAttribute('aria-labelledby','sheetTitle');sh.setAttribute('tabindex','-1');
+  // inert statt aria-hidden: es nimmt Fokus UND Vorlesbarkeit weg und löst keine Warnung aus, wenn der
+  // Fokus im Moment des Setzens noch im Hintergrund steht. Browser ohne inert (Safari < 15.5) fangen
+  // wenigstens die Fokusfalle unten ab.
+  A11_INERT.forEach(id=>{const e=document.getElementById(id);if(e)e.setAttribute('inert','');});
+  if(!document.body.classList.contains('sheet-open')){
+    _scrollLockY=window.scrollY||document.documentElement.scrollTop||0;
+    document.body.classList.add('sheet-open');}}
+function _a11SheetOff(){
+  const sh=document.getElementById('sheet');
+  if(sh)['role','aria-modal','aria-labelledby','tabindex'].forEach(a=>sh.removeAttribute(a));
+  A11_INERT.forEach(id=>{const e=document.getElementById(id);if(e)e.removeAttribute('inert');});
+  if(document.body.classList.contains('sheet-open')){
+    document.body.classList.remove('sheet-open');
+    // Nur zurückstellen, wenn der Browser die Position wirklich verloren hat (iOS). Blind zu scrollen
+    // würde go() in die Quere kommen: ein Tipp im Sheet, der den Tab wechselt, ruft closeAllSheets()
+    // VOR dem Seitenwechsel – und go() setzt den Scrollstand danach selbst.
+    if(_scrollLockY>0&&(window.scrollY||0)===0){try{window.scrollTo(0,_scrollLockY);}catch(e){}}}
+  const back=_sheetReturnFocus;_sheetReturnFocus=null;
+  if(back&&back.isConnected&&typeof back.focus==='function'){try{back.focus({preventScroll:true});}catch(e){}}}
+// Fokus in den Dialog holen – auf die Überschrift, damit ein Screenreader den Titel vorliest.
+// Hat ein Aufrufer schon selbst fokussiert (openLogFood({focus:true}), showFieldErr), bleibt das stehen.
+function _a11SheetFocus(){
+  const sh=document.getElementById('sheet');if(!sh)return;
+  if(document.activeElement&&sh.contains(document.activeElement)&&document.activeElement!==sh)return;
+  const h=document.getElementById('sheetTitle');
+  try{(h||sh).focus({preventScroll:true});}catch(e){}}
+// Escape schließt die oberste Ebene, Tab bleibt im Dialog (auch ohne inert-Unterstützung).
+function _sheetTrap(e){
+  if(!sheetOpen())return;
+  if(e.key==='Escape'||e.key==='Esc'){
+    if(e.defaultPrevented)return;
+    e.preventDefault();closeModal();return;}
+  if(e.key!=='Tab')return;
+  const sh=document.getElementById('sheet');if(!sh)return;
+  // Ring = Sheet + (falls sichtbar) die Aktionsschaltfläche der Meldung darüber. Die Reihenfolge MUSS
+  // der Dokumentreihenfolge folgen (#toastHost steht hinter #modal), denn in der Mitte des Rings
+  // arbeitet der Browser selbst weiter – eingegriffen wird nur an den beiden Enden. Ein Ring gegen die
+  // Dokumentreihenfolge würde den Fokus dort ins Leere laufen lassen (gemessen: Tab vom Toast landete
+  // auf <body>, weil alles andere inert ist).
+  const tf=_a11ToastFocusables();
+  const f=_a11Focusables(sh).concat(tf);
+  if(!f.length){e.preventDefault();try{sh.focus({preventScroll:true});}catch(x){}return;}
+  const first=f[0],last=f[f.length-1],a=document.activeElement;
+  const i=f.indexOf(a);
+  // Fokus auf der Überschrift/dem Sheet selbst – der Zustand direkt nach closeModal() und damit genau
+  // der Augenblick, in dem ein „Rückgängig" erscheint (_confirmYes → closeModal → toast). Steht dort
+  // eine Meldung, führt EIN Tastendruck in beide Richtungen zu ihr; sonst wäre sie erst hinter allen
+  // Elementen des Sheets erreichbar (im Essen-Sheet sind das 91).
+  if(i<0){e.preventDefault();(tf.length?tf[0]:(e.shiftKey?last:first)).focus();return;}
+  if(e.shiftKey&&a===first){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&a===last){e.preventDefault();first.focus();}}
+document.addEventListener('keydown',_sheetTrap);
+// ===== A-II.5 · DER EINE Tastatur-Auslöser =====
+// Enter/Leertaste auf einem Element, das role="button" UND tabindex="0" trägt, löst denselben click aus
+// wie ein Tipp – genau einmal. Drei Sperren gegen doppelte Auslösung:
+//  1. e.defaultPrevented – ein eigener Handler des Elements war schon dran und hat abgeräumt
+//  2. [onkeydown] – das Element bringt einen eigenen Handler mit (heute 11 Stellen in home/analysis/
+//     diet/search/mindset); der läuft am Ziel und damit VOR diesem Handler. A-II.6 darf die Attribute
+//     entfernen, dann greift dieser hier – nie beide.
+//  3. nativer <button>/<a href>/<summary>/Feld-Vorfahr – dort löst der Browser selbst aus
+function a11KeyActivate(e){
+  if(e.key!=='Enter'&&e.key!==' '&&e.key!=='Spacebar')return;
+  if(e.defaultPrevented||e.altKey||e.ctrlKey||e.metaKey||e.repeat)return;
+  const el=e.target;
+  if(!el||el.nodeType!==1||typeof el.closest!=='function')return;
+  if(el.getAttribute('role')!=='button'||el.getAttribute('tabindex')!=='0')return;
+  if(el.hasAttribute('onkeydown'))return;
+  if(el.closest('button,a[href],summary,input,select,textarea'))return;
+  if(el.hasAttribute('disabled')||el.getAttribute('aria-disabled')==='true')return;
+  e.preventDefault();   // Leertaste darf die Seite nicht scrollen, Enter kein Formular abschicken
+  el.click();}
+document.addEventListener('keydown',a11KeyActivate);
+
 function _sheetPush(){try{history.pushState({beSheet:SHEET_STACK.length},'');_sheetHist++;}catch(e){}}
 function _sheetPushLater(){if(_sheetPop>0)_sheetPendingPush=true;else _sheetPush();}
 function _sheetFlushPush(){if(!_sheetPendingPush)return;_sheetPendingPush=false;if(sheetOpen()&&SHEET_STACK.length)_sheetPush();}
@@ -46,7 +154,9 @@ function _sheetSnapshot(){const b=document.getElementById('sheetBody');return b?
 function _renderSheet(entry){const sh=document.getElementById('sheet');if(!sh)return;const o=entry.opts||{};const depth=SHEET_STACK.length;
   const back=(o.back===true||(o.back!==false&&depth>1))?`<button class="btn icon sm ghost back" aria-label="Zurück" onclick="closeModal()">${icon('chevronLeft',22)}</button>`:'';
   sh.classList.toggle('tall',o.size==='tall');sh.style.transform='';
-  sh.innerHTML=`<div class="sheet-grip"></div><div class="sheet-h">${back}<h3>${esc2(entry.title)}</h3><button class="sheet-x" aria-label="Schließen" onclick="closeModal()">${icon('x',20)}</button></div><div id="sheetBody">${entry.html}</div>`;
+  // id="sheetTitle" ist das Ziel von aria-labelledby (der Dialog trägt damit den Namen, den der Nutzer
+  // sieht); tabindex="-1", weil der Fokus beim Öffnen auf die Überschrift springt.
+  sh.innerHTML=`<div class="sheet-grip" aria-hidden="true"></div><div class="sheet-h">${back}<h3 id="sheetTitle" tabindex="-1">${esc2(entry.title)}</h3><button class="sheet-x" aria-label="Schließen" onclick="closeModal()">${icon('x',20)}</button></div><div id="sheetBody">${entry.html}</div>`;
   sh.scrollTop=entry.scroll||0;}
 function _sheetBack(n){ // eigene History-Einträge zurücknehmen (popstate dazu wird ignoriert)
   if(n<=0)return;const st=history.state;
@@ -55,20 +165,24 @@ function _sheetBack(n){ // eigene History-Einträge zurücknehmen (popstate dazu
   else _sheetHist=Math.max(0,_sheetHist-n);}
 function openSheet(title,html,opts){opts=opts||{};title=title==null?'':String(title);html=html==null?'':String(html);
   const modal=document.getElementById('modal'),sh=document.getElementById('sheet');if(!modal||!sh)return;
-  if(!modal.classList.contains('on')){SHEET_STACK=[];_sheetHist=0;}
+  // Auslöser merken, SOLANGE er noch den Fokus hat – gleich darauf legt _a11SheetOn() inert darüber.
+  if(!modal.classList.contains('on')){SHEET_STACK=[];_sheetHist=0;
+    const a=document.activeElement;_sheetReturnFocus=(a&&a!==document.body&&a.isConnected)?a:null;}
   const top=SHEET_STACK[SHEET_STACK.length-1];const entry={title,html,opts,scroll:0};
   if(top&&(top.title===title||_isLoadingHtml(top.html))){SHEET_STACK[SHEET_STACK.length-1]=entry;}
   else{const idx=title?SHEET_STACK.findIndex(e=>e.title===title):-1;
     if(idx>=0){const drop=SHEET_STACK.length-1-idx;SHEET_STACK.length=idx+1;SHEET_STACK[idx]=entry;_sheetBack(drop);}
     else{if(top){const snap=_sheetSnapshot();if(snap!=null)top.html=snap;top.scroll=sh.scrollTop;}
       SHEET_STACK.push(entry);_sheetPushLater();}}
-  _renderSheet(entry);modal.classList.add('on');}
+  _renderSheet(entry);modal.classList.add('on');
+  _a11SheetOn();_a11SheetFocus();}
 function _sheetHide(){const modal=document.getElementById('modal'),sh=document.getElementById('sheet');
   if(modal)modal.classList.remove('on');if(sh){sh.classList.remove('tall');sh.style.transform='';}
   SHEET_STACK=[];_sheetHist=0;_sheetPendingPush=false;_CONFIRM_FN=null;
-  if(typeof stopBarcodeCam==='function')stopBarcodeCam();}
+  if(typeof stopBarcodeCam==='function')stopBarcodeCam();
+  _a11SheetOff();}
 function closeModal(){
-  if(SHEET_STACK.length>1){SHEET_STACK.pop();_sheetBack(1);if(typeof stopBarcodeCam==='function')stopBarcodeCam();_renderSheet(SHEET_STACK[SHEET_STACK.length-1]);return;}
+  if(SHEET_STACK.length>1){SHEET_STACK.pop();_sheetBack(1);if(typeof stopBarcodeCam==='function')stopBarcodeCam();_renderSheet(SHEET_STACK[SHEET_STACK.length-1]);_a11SheetFocus();return;}
   _sheetBack(SHEET_STACK.length?1:0);_sheetHide();}
 function closeAllSheets(){if(!sheetOpen()){SHEET_STACK=[];_sheetHist=0;return;}_sheetBack(_sheetHist);_sheetHide();}
 // Zurück-Geste/-Taste: schließt die oberste Ebene (Browser hat den History-Eintrag bereits entfernt)
@@ -76,7 +190,7 @@ window.addEventListener('popstate',()=>{
   if(_sheetPop>0){_sheetPop--;if(_sheetPop===0){clearTimeout(_sheetPopT);_sheetFlushPush();}return;}
   if(!sheetOpen()||!SHEET_STACK.length)return;
   _sheetHist=Math.max(0,_sheetHist-1);
-  if(SHEET_STACK.length>1){SHEET_STACK.pop();if(typeof stopBarcodeCam==='function')stopBarcodeCam();_renderSheet(SHEET_STACK[SHEET_STACK.length-1]);}
+  if(SHEET_STACK.length>1){SHEET_STACK.pop();if(typeof stopBarcodeCam==='function')stopBarcodeCam();_renderSheet(SHEET_STACK[SHEET_STACK.length-1]);_a11SheetFocus();}
   else _sheetHide();});
 // Griff (und Kopfzeile) nach unten ziehen -> Sheet folgt dem Finger, ab 80 px schließt es
 (function(){const sh=document.getElementById('sheet');if(!sh)return;let y0=0,dy=0,active=false;
@@ -98,7 +212,8 @@ function _confirmYes(){const f=_CONFIRM_FN;_CONFIRM_FN=null;closeModal();
   if(f)try{const r=f();if(r&&typeof r.catch==='function')r.catch(e=>console.error('[confirmSheet]',e));}catch(e){console.error('[confirmSheet]',e);}}
 
 // ===== TOAST (ein Host, eine sichtbare Meldung, Warteschlange) =====
-// toast(msg) ersetzt eine sichtbare schlichte Meldung; toast(msg,{label,fn}) bleibt 5 s oder bis zum Tipp.
+// toast(msg) ersetzt eine sichtbare schlichte Meldung; toast(msg,{label,fn}) bleibt 5 s oder bis zum Tipp
+// – und länger, solange die Schaltfläche den Tastaturfokus hat (A-II.5, sonst ist sie nicht bedienbar).
 // Solange ein Feier-Pop sichtbar ist, warten Toasts.
 let TOAST_Q=[],TOAST_CUR=null,TOAST_T=null;
 function toast(m,action){TOAST_Q.push({m:String(m??''),action:(action&&typeof action.fn==='function')?action:null});_toastFlush();}
@@ -110,11 +225,29 @@ function _toastFlush(){
   const t=document.createElement('div');t.className='toast';t.setAttribute('role','status');
   const tx=document.createElement('span');tx.className='tx';tx.textContent=it.m;t.appendChild(tx); // Text, kein HTML (Übungsnamen!)
   if(it.action){const b=document.createElement('button');b.className='act';b.textContent=it.action.label||'OK';
-    b.onclick=()=>{_toastRemove(it,true);try{it.action.fn();}catch(e){console.error('[toast]',e);}};t.appendChild(b);}
+    b.onclick=()=>{_toastRemove(it,true);try{it.action.fn();}catch(e){console.error('[toast]',e);}};
+    // Tastatur: solange die Schaltfläche den Fokus hat, läuft die Uhr nicht weiter. Sonst wäre die
+    // Meldung nach 5 s weg, während der Nutzer noch überlegt – und der Fokus fiele ins Leere.
+    b.addEventListener('focus',()=>{if(TOAST_CUR===it&&it.el){clearTimeout(TOAST_T);TOAST_T=null;}});
+    b.addEventListener('blur',()=>{if(TOAST_CUR!==it||!it.el)return;   // (nach Klick/Enter ist TOAST_CUR schon null)
+      clearTimeout(TOAST_T);TOAST_T=setTimeout(()=>_toastRemove(it),2500);});
+    t.appendChild(b);}
   it.el=t;host.appendChild(t);requestAnimationFrame(()=>t.classList.add('on'));
-  TOAST_CUR=it;clearTimeout(TOAST_T);TOAST_T=setTimeout(()=>_toastRemove(it),it.action?5000:1800);}
+  // Standzeit nach Lesedauer statt pauschal 1,8 s: „Aktualisiert ✓" braucht keine drei Sekunden, die
+  // Offline-Bestätigung („wird nachgetragen, sobald du online bist", 63 Zeichen) sehr wohl – sie war
+  // vorher weg, bevor man sie zu Ende gelesen hatte (RATE-shell-home M1, RATE-performance-offline 6).
+  // Rund 45 ms je Zeichen ≈ 22 Zeichen/s, gedeckelt auf 1,8 s unten und 5 s oben.
+  TOAST_CUR=it;clearTimeout(TOAST_T);
+  const ms=it.action?5000:Math.max(1800,Math.min(5000,1200+it.m.length*45));
+  TOAST_T=setTimeout(()=>_toastRemove(it),ms);}
 function _toastRemove(it,immediate,noFlush){if(!it||!it.el)return;const el=it.el;it.el=null;
   if(TOAST_CUR===it){TOAST_CUR=null;clearTimeout(TOAST_T);}
+  // Erst den Fokus in Sicherheit bringen, dann die Meldung wegnehmen: verschwindet sie unter dem
+  // Fokus, fiele er auf <body> und die nächste Tab-Taste finge im Sheet wieder ganz vorn an.
+  const hadFocus=el.contains(document.activeElement);
+  el.setAttribute('inert','');   // ab hier nicht mehr im Fokusring von _sheetTrap (auch ohne inert-Unterstützung)
+  if(hadFocus){if(sheetOpen())_a11SheetFocus();
+    else{try{document.activeElement&&document.activeElement.blur&&document.activeElement.blur();}catch(e){}}}
   if(immediate||TOAST_Q.length){el.remove();}else{el.classList.remove('on');setTimeout(()=>el.remove(),240);}
   if(!noFlush)_toastFlush();}
 
@@ -211,17 +344,81 @@ function clampSets(v){let n=parseInt(v);if(isNaN(n))n=3;return Math.max(1,Math.m
 function isBeginner(){return (ME?.experience||'beginner')==='beginner';}
 function isAdvanced(){return (ME?.experience)==='advanced';}
 
+// ===== EINLADUNGSLINK EINLÖSEN (A-II.5 · Einlöseseite zu BUILD-A2 §4 Punkt 11) =====
+// Der Server legt ein Konto ohne gültiges Passwort an und gibt einen einmaligen Link (72 h) aus
+// (src/server.js: makeInvite/NO_PASSWORD_HASH). Hier ist die Gegenseite: `?invite=TOKEN` führt nicht
+// mehr auf die Anmeldekarte, sondern auf eine Begrüßung mit zwei Passwortfeldern.
+// Drei Zustände, mehr gibt es nicht:
+//   gültig            -> „Hallo <Vorname>" + Passwort setzen -> angemeldet
+//   abgelaufen/benutzt-> Klartext, warum, und der Weg zur Anmeldung (kein stiller Rückfall)
+//   kein Netz         -> „Erneut versuchen", der Link bleibt gültig
+// Bewusst als Sheet wie das Reset-Formular (account.js showResetForm): damit gelten Fokusfalle,
+// Escape, inert und Scroll-Lock aus diesem Paket auch hier, ohne eine Zeile doppelt zu bauen.
+// Der Token wird NIE in einen History-Eintrag geschrieben – die URL ist sofort sauber (er steht in
+// A11_INVITE_TOKEN), sonst läge er nach dem Einlösen noch im Verlauf des Geräts.
+let A11_INVITE_TOKEN=null;
+async function a11InviteBoot(token){
+  A11_INVITE_TOKEN=String(token||'');
+  try{history.replaceState(null,'',location.pathname);}catch(e){}
+  document.getElementById('loginView')?.classList.remove('hidden');
+  document.getElementById('appView')?.classList.add('hidden');
+  document.getElementById('onbView')?.classList.add('hidden');
+  openSheet('Einladung','<div class="spinner"></div>');
+  const r=await API.get('/invite/'+encodeURIComponent(A11_INVITE_TOKEN));
+  if(r.status===200&&r.data&&r.data.valid===true)return a11InviteForm(r.data.name);
+  if(r.status===0)return a11InviteDead('Keine Verbindung. Dein Link gilt weiter – probier es gleich noch einmal.',true);
+  a11InviteDead(r.data?.error||'Der Einladungslink ist abgelaufen oder wurde schon benutzt. Bitte lass dir einen neuen schicken.');}
+// Sackgassen-Karte: sagt, was los ist, und lässt den Menschen nicht ohne Knopf zurück.
+function a11InviteDead(msg,retry){
+  openSheet('Einladung',`<div class="err">${esc2(msg)}</div>
+    ${retry?`<button class="btn block" onclick="a11InviteBoot(A11_INVITE_TOKEN)">Erneut versuchen</button>`:''}
+    <button class="btn block${retry?' sec mt-2':''}" onclick="closeAllSheets()">Zur Anmeldung</button>`);}
+function a11InviteForm(name){
+  const vorname=String(name||'').trim();
+  openSheet(vorname?('Hallo '+vorname):'Willkommen',`<form id="a11InvForm" onsubmit="a11InviteAccept();return false" novalidate>
+    <p class="body muted mb-4">Setz dir hier dein eigenes Passwort für BE INEVITABLE. Niemand außer dir kennt es – auch dein Coach nicht. Danach bist du gleich angemeldet.</p>
+    ${pwField({id:'a11inv_pw',label:'Dein Passwort',autocomplete:'new-password',placeholder:'mind. 8 Zeichen',enterkeyhint:'next',hint:true})}
+    ${pwField({id:'a11inv_pw2',label:'Wiederholen',autocomplete:'new-password',placeholder:'nochmal eingeben',enterkeyhint:'done'})}
+    <button class="btn block" id="a11inv_go" type="submit">Passwort setzen und loslegen</button></form>`);
+  setTimeout(()=>document.getElementById('a11inv_pw')?.focus({preventScroll:true}),380);}
+async function a11InviteAccept(){
+  const pw=val('a11inv_pw'),pw2=val('a11inv_pw2');
+  if(!pw||pw.length<8)return showFieldErr('a11InvForm','Mindestens 8 Zeichen.','a11inv_pw');
+  if(pw!==pw2)return showFieldErr('a11InvForm','Die Passwörter stimmen nicht überein.','a11inv_pw2');
+  const btn=document.getElementById('a11inv_go');if(btn)btn.disabled=true;
+  const r=await API.post('/invite/accept',{token:A11_INVITE_TOKEN,password:pw});
+  if(btn)btn.disabled=false;
+  if(r.status!==200){
+    // Ein verbrauchter/abgelaufener Token ist kein Feldfehler – da hilft kein zweiter Versuch im Formular.
+    if(/abgelaufen|benutzt/i.test(String(r.data?.error||'')))return a11InviteDead(r.data.error);
+    if(r.status===0)return showFieldErr('a11InvForm',r.data?.error||'Keine Verbindung. Ist der Server erreichbar?','a11inv_pw');
+    return showFieldErr('a11InvForm',r.data?.error||'Das hat nicht geklappt.','a11inv_pw');}
+  A11_INVITE_TOKEN=null;                 // einmalig verbraucht – nichts davon bleibt liegen
+  ME=r.data.user;
+  try{snapState();}catch(e){}
+  closeAllSheets();                      // erst schließen: das Sheet legt inert über #onbView
+  setTimeout(()=>toast('Passwort gesetzt ✓'),400);
+  // Ein frisch angelegter Athlet hat noch kein Ziel – der Einladungsweg bringt ihn direkt ins
+  // Onboarding und damit über dessen letzten Schritt auch zur Einwilligung (A-II.4). Wer den
+  // gleichen Linktyp nur zum Zurücksetzen bekommen hat (Betreiber, /admin/users/:id/resetpw),
+  // hat sein Ziel längst und landet dort, wo er immer landet.
+  if(ME&&ME.role==='athlete'&&!ME.goal&&typeof startOnboarding==='function')startOnboarding();
+  else startApp();}
+
 // ===== INIT =====
 (async()=>{
   // Übrig gebliebener Sheet-Zustand aus der History (Reload mit offenem Sheet) -> neutralisieren
   try{if(history.state&&history.state.beSheet)history.replaceState(null,'',location.pathname+location.search+location.hash);}catch(e){}
-  // Version auf dem Login-Screen anzeigen + mit Backend abgleichen (deckt Cache-Probleme auf)
+  // Version auf dem Login-Screen anzeigen + mit Backend abgleichen (deckt Cache-Probleme auf).
+  // Bewusst OHNE await: die Prüfung ist ein Hinweis, kein Startschritt – bis 2.3 wartete hier jeder Start
+  // (auch der Login) einen vollen Round-Trip, bevor /api/me überhaupt losging. checkVersion (core.js)
+  // fragt genau einmal; startApp hängt seinen Toast an dieselbe Antwort.
   const lv=document.getElementById('loginVersion');if(lv)lv.textContent='Version '+APP_VERSION;
-  try{const vr=await API.get('/version');if(vr.status===200&&vr.data.version&&vr.data.version!==APP_VERSION){
+  try{checkVersion().then(v=>{if(!v.mismatch)return;
     // Frontend (gecacht) und Backend (frisch deployt) laufen auseinander -> Hard-Reload nötig
-    if(lv)lv.innerHTML=`App ${APP_VERSION} · Server ${vr.data.version} – <a onclick="location.reload(true)" style="color:var(--red-text)">neu laden</a>`;
-    console.warn('[Version] Frontend',APP_VERSION,'≠ Backend',vr.data.version,'– bitte hart neu laden (Cache).');
-  }}catch(e){}
+    if(lv)lv.innerHTML=`App ${esc2(APP_VERSION)} · Server ${esc2(v.server)} – <a onclick="location.reload(true)" style="color:var(--red-text)">neu laden</a>`;
+    console.warn('[Version] Frontend',APP_VERSION,'≠ Backend',v.server,'– bitte hart neu laden (Cache).');
+  });}catch(e){}
   const params=new URLSearchParams(location.search);
   // Teilen-Link: Token merken (übersteht Login/Registrierung), URL säubern
   const shareTok=params.get('share');
@@ -229,14 +426,26 @@ function isAdvanced(){return (ME?.experience)==='advanced';}
   // Reset-Link aus E-Mail: Formular zeigen, KEIN Auto-Login nötig
   const resetTok=params.get('reset');
   if(resetTok){showResetForm(resetTok);return;}
+  // Einladungslink (BUILD-A2 §4 Punkt 11): der EINZIGE Weg, auf dem ein vom Coach oder Betreiber
+  // angelegtes Konto sein erstes Passwort bekommt. Ohne diesen Zweig endete der Link auf der normalen
+  // Anmeldekarte – und das Konto trägt einen Hash, zu dem es kein Passwort gibt (server.js
+  // NO_PASSWORD_HASH): Anmeldung unmöglich, Konto tot. Deshalb VOR /api/me: der Link gilt einem
+  // bestimmten Konto, nicht dem, das hier vielleicht noch angemeldet ist.
+  const inviteTok=params.get('invite');
+  if(inviteTok){a11InviteBoot(inviteTok);return;}
   const r=await API.get('/me');
   if(r.status===200){ME=r.data.user;
+    try{snapState();}catch(e){}   // letzter Stand für einen Start ohne Netz (core.js)
     startApp();
     // Rückmeldung der E-Mail-Verifizierung
     const v=params.get('verified');
     if(v==='1'){if(ME)ME.email_verified=1;history.replaceState(null,'',location.pathname);setTimeout(()=>toast('E-Mail bestätigt ✓'),400);}
     else if(v==='0'){history.replaceState(null,'',location.pathname);setTimeout(()=>toast('Bestätigungslink ungültig oder abgelaufen'),400);}
   } else {
+    // Kein Netz beim Start (status 0): die Hülle kommt aus dem Cache des Service Workers, also darf hier
+    // nicht das Anmeldeformular stehen bleiben – offlineBoot() fährt aus dem Schnappschuss hoch oder
+    // schreibt wenigstens hin, warum gerade nichts geht. 4xx/5xx bleiben beim bisherigen Weg.
+    if(r.status===0&&typeof offlineBoot==='function'&&offlineBoot())return;
     const v=params.get('verified');
     if(v==='1')setTimeout(()=>toast('E-Mail bestätigt ✓ – bitte anmelden'),400);
   }

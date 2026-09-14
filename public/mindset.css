@@ -74,12 +74,17 @@
 .mind-cal-d{width:12px;height:12px;border-radius:3px;background:var(--surface3);flex:0 0 auto}
 .mind-cal-d.ok{background:var(--green)}
 .mind-cal-d.half{background:var(--amber);opacity:.7}
+/* Durchgeklickt statt gemacht: grauer Kern statt Farbe – auch neben dem Heute-Ring erkennbar (B16) */
+.mind-cal-d.part{background:radial-gradient(circle at 50% 50%,var(--ink3) 0 3px,var(--surface4) 3px)}
 .mind-cal-d.is-today{box-shadow:inset 0 0 0 2px var(--ink)}
-.mind-legend{display:flex;gap:14px;font-size:var(--t-xs);color:var(--ink3);margin-top:10px}
+.mind-legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:var(--t-xs);color:var(--ink3);margin-top:10px}
 .mind-legend span{display:inline-flex;align-items:center;gap:5px}
 .mind-legend i{width:10px;height:10px;border-radius:3px;background:var(--surface3);display:inline-block}
 .mind-legend i.ok{background:var(--green)}
 .mind-legend i.half{background:var(--amber);opacity:.7}
+.mind-legend i.part{background:radial-gradient(circle at 50% 50%,var(--ink3) 0 2.5px,var(--surface4) 2.5px)}
+/* Marke „übersprungen" in der Tages-Checkliste – neutral, nicht rot: es ist kein Fehler, nur kein Ritual */
+.mind-skip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:var(--r-pill);background:var(--surface3);color:var(--ink3);font:600 var(--t-xs)/1 var(--font);white-space:nowrap}
 .mind-wbars{display:flex;align-items:flex-end;gap:6px;height:84px}
 .mind-wbars .wb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
 .mind-wbars .wbv{width:100%;max-width:34px;border-radius:5px 5px 2px 2px;transition:height .5s var(--ease)}
@@ -136,8 +141,14 @@ body.mind-playing{overflow:hidden}
 .mp-main:active{transform:scale(.94);background:rgba(255,255,255,.2)}
 .mp-main .ic{width:30px;height:30px}
 /* Überspringen bleibt leise (schlägt .btn.ghost aus app.css) */
-.mind-player .btn.ghost.mp-skip{color:rgba(255,255,255,.6);background:none;min-height:44px;width:auto;padding:0 16px;font-size:var(--t-base)}
+.mind-player .btn.ghost.mp-skip{position:relative;color:rgba(255,255,255,.6);background:none;min-height:44px;width:auto;padding:0 16px;font-size:var(--t-base)}
 .mind-player .btn.ghost.mp-skip:active{color:#fff;opacity:1}
+/* Gesperrt bis zur Hälfte des Schritts (B16): kein blasser Geisterknopf, sondern ein erklärter
+   Zustand – der Text sagt die Restzeit, der Balken darunter zeigt sie. --gate kommt aus mdGateDraw(). */
+.mind-player .btn.ghost.mp-skip[disabled]{opacity:1;color:rgba(255,255,255,.5);cursor:default}
+.mind-player .btn.ghost.mp-skip[disabled]:active{color:rgba(255,255,255,.5)}
+.mind-player .btn.ghost.mp-skip[disabled]::after{content:'';position:absolute;left:16px;right:16px;bottom:6px;height:2px;border-radius:1px;
+  background:linear-gradient(90deg,rgba(255,255,255,.55) var(--gate,0%),rgba(255,255,255,.14) var(--gate,0%));transition:none}
 .mp-confirm{display:flex;gap:10px;width:100%}
 .mp-confirm .btn{flex:1;min-height:52px}
 .mp-confirm .btn.sec{background:rgba(255,255,255,.12);color:#fff}
@@ -245,3 +256,7 @@ body.rest-on .mind-stickybar{bottom:calc(var(--nav-h) + 48px + var(--safe-b))}
   .soft-bar>div{transition:none;width:100%}
   .mind-wbars .wbv,.mchip,.nchip,.know-card,.mp-steps span{transition:none}
 }
+
+/* Chips im Mindset-Kopf sind 34 px hoch (app.css gibt ihnen 40 px Trefferflaeche) –
+   senkrecht auf 44 px erweitern, waagerecht bei 4 px bleiben (sonst ueberlappen die Reihen) */
+.mind-hero-chips .chip::before{inset:-5px -4px}

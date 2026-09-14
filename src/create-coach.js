@@ -4,7 +4,7 @@
 // Sicher & idempotent: existiert die E-Mail schon, passiert nichts.
 import { db } from './db.js';
 import { initSchema } from './schema.js';
-import { hashPassword } from './auth.js';
+import { hashPassword, passwordProblem } from './auth.js';
 
 initSchema();
 
@@ -18,7 +18,10 @@ if (!email || !password) {
   console.error('Beispiel: COACH_EMAIL=pierre@be-inevitable.at COACH_PASSWORD=geheim123 COACH_NAME="Pierre" COACH_ROLE=admin node src/create-coach.js');
   process.exit(1);
 }
-if (password.length < 6) { console.error('Passwort muss mind. 6 Zeichen haben.'); process.exit(1); }
+// Dieselben Regeln wie in der App (mind. 8 Zeichen, keine Allerwelts-Passwoerter) – ein Coach-/Admin-Konto
+// ist das wertvollste Ziel und darf nicht mit "geheim123" starten.
+const pwProblem = passwordProblem(password);
+if (pwProblem) { console.error('Passwort abgelehnt: ' + pwProblem + '.'); process.exit(1); }
 
 const exists = db.get('SELECT id, role FROM users WHERE email=?', [email]);
 if (exists) {

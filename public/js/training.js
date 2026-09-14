@@ -5,7 +5,8 @@
 // Kalender + Tages-Sheet · Trainingsrhythmus-Editor · Technik-Lexikon · Hantelrechner · Pausen-Timer /
 // Trainingsleiste (#restBar, Markup in index.html).
 // Regeln: ein Satz zählt erst mit Reps > 0 (per ✓ oder Änderung im Reps-Feld); Vorschläge aus dem letzten
-// Training werden NIE stillschweigend gespeichert.
+// Training werden NIE stillschweigend gespeichert; ohne Netz reiht die Outbox (core.js) den Satz ein –
+// er gilt trotzdem als erledigt.
 
 // ===== kleine Helfer (nur hier) =====
 function _inv(tab){try{if(typeof invalidateView==='function')invalidateView(tab);}catch(e){}}
@@ -67,7 +68,7 @@ function renderDaySel(){const el=document.getElementById('daysel');if(!el)return
 async function selDay(id){if(id===CUR_DAY)return;CUR_DAY=id;renderDaySel();await renderEx();}
 function curDayObj(){return (PLAN?.days||[]).find(d=>d.id===CUR_DAY);}
 // Menü-Zeile für Sheets (Icon · Label · Chevron)
-function _mrow(ic,label,fn,o){o=o||{};return `<div class="row tap${o.cls?' '+o.cls:''}" onclick="${fn}"><div class="r-ic">${icon(ic,22)}</div><div class="rl">${esc2(label)}${o.sub?`<small>${esc2(o.sub)}</small>`:''}</div></div>`;}
+function _mrow(ic,label,fn,o){o=o||{};return `<div class="row tap${o.cls?' '+o.cls:''}" role="button" tabindex="0" onclick="${fn}"><div class="r-ic">${icon(ic,22)}</div><div class="rl">${esc2(label)}${o.sub?`<small>${esc2(o.sub)}</small>`:''}</div></div>`;}
 // „···" neben den Tages-Chips: alles Seltene (Tag verwalten/anlegen, Kalender, Rhythmus, Coach-Vorlagen)
 function openPlanMenu(){const d=curDayObj();const cv=coachView();const own=ME&&VIEW_USER===ME.id;
   let h='<div class="rows">';
@@ -76,8 +77,8 @@ function openPlanMenu(){const d=curDayObj();const cv=coachView();const own=ME&&V
   h+=_mrow('plus','Trainingstag hinzufügen',`addDay()`);
   h+=_mrow('calendar','Kalender',`openCalendar()`,{sub:'Tage planen oder nachtragen'});
   if(own)h+=_mrow('refresh','Trainingsrhythmus',`openRhythmus()`,{sub:'Folge von Trainings- und Ruhetagen'});
-  if(cv){h+=_mrow('download','Als Vorlage speichern',`closeAllSheets();saveAsTemplate()`);
-    h+=_mrow('upload','Vorlage anwenden',`closeAllSheets();openTemplates()`);
+  if(cv){h+=_mrow('download','Als Vorlage speichern',`closeAllSheets();if(typeof bootCall==='function')bootCall('coach','saveAsTemplate')`);
+    h+=_mrow('upload','Vorlage anwenden',`closeAllSheets();if(typeof bootCall==='function')bootCall('coach','openTemplates')`);
     if(typeof openImport==='function')h+=_mrow('fileSpreadsheet','Aus Excel importieren',`closeAllSheets();openImport(${VIEW_USER},'${esc(COACH_CONTEXT||'')}')`);}
   h+='</div>';
   openSheet('Plan bearbeiten',h);}
@@ -90,14 +91,49 @@ function manageDay(){const d=curDayObj();if(!d)return;
 async function renameDay(id){const name=val('dn_name');if(!name)return showFieldErr('sheetBody','Name darf nicht leer sein','dn_name');
   const r=await API.put('/days/'+id,{name});
   if(r.status===200){closeAllSheets();await loadPlan();renderDaySel();_inv();toast('Umbenannt ✓');}else toast(r.data?.error||'Fehler');}
-function deleteDay(id){const d=(PLAN?.days||[]).find(x=>x.id===id)||curDayObj();if(!d)return;
-  confirmSheet('Tag löschen',`„${d.name}" wirklich löschen? Die Übungen dieses Tags werden mitgelöscht. Dein Rhythmus passt sich automatisch an.`,{label:'Tag löschen',onYes:async()=>{
-    const r=await API.del('/days/'+d.id);
-    if(r.status===200){closeAllSheets();CUR_DAY=null;_progInvalidate();await loadPlan();renderWorkout.lastEff=null;renderWorkout(document.getElementById('views'));_inv();toast('Tag gelöscht');}
-    else toast(r.data?.error||'Fehler');}});}
+// Zahl der Sätze, die an einem Trainingstag hängen – aus der Antwort des Servers (Feld `sets`; die
+// älteren Schreibweisen daneben kosten nichts). null, wenn der Server sie (noch) nicht mitschickt.
+function _daySetCount(d){if(!d||typeof d!=='object')return null;
+  for(const k of ['sets','setCount','set_count','setsAffected','sets_affected']){const v=d[k];if(v!=null&&isFinite(+v))return Math.max(0,Math.round(+v));}
+  return null;}
+// „Tag löschen" ist der einzige Weg, auf dem mit einem Tipp Jahre an Sätzen verschwinden konnten (ON DELETE
+// CASCADE über Übungen -> Sätze) – die alte Rückfrage sprach nur von „Übungen". Der Server macht daraus
+// ein weiches Löschen und sagt, wie viele Sätze betroffen sind: entweder VORAB als 409 + warning auf den
+// ersten Aufruf ohne `confirm` (dasselbe Muster wie beim Löschen einer Coach-Übung, delExercise) oder
+// als Feld `sets` in der 200-Antwort. Alles per Feature-Erkennung – ein Server ohne beides bekommt
+// weiterhin genau die alte Rückfrage und die alte Meldung, kein Verhalten hängt an einem neuen Feld.
+function deleteDay(id,confirmed){const d=(PLAN?.days||[]).find(x=>x.id===id)||curDayObj();if(!d)return;
+  if(!confirmed){confirmSheet('Tag löschen',`„${d.name}" wirklich löschen? Der Tag wird ausgeblendet – deine eingetragenen Sätze bleiben erhalten und lassen sich mit „Rückgängig" zurückholen. Dein Rhythmus passt sich automatisch an.`,{label:'Tag löschen',onYes:()=>deleteDay(id,'ok')});return;}
+  (async()=>{
+    const r=await API.del('/days/'+d.id,confirmed==='force'?{confirm:true}:undefined);
+    if(r.status===409&&r.data&&r.data.warning){
+      // Vor dem Löschen: die Zahl steht in der Warnung, nicht erst im Toast danach.
+      const n=_daySetCount(r.data);
+      const msg=n!=null?`An den Übungen von „${d.name}" hängen ${pl(n,'eingetragener Satz','eingetragene Sätze')} – Rekorde, Volumen und Verlauf dieser Übungen verschwinden mit dem Tag aus deinen Auswertungen. `:'';
+      confirmSheet('Sätze betroffen',msg+String(r.data.message||r.data.warning||''),{label:'Trotzdem löschen',onYes:()=>deleteDay(id,'force')});return;}
+    if(r.status!==200)return toast(r.data?.error||'Fehler');
+    closeAllSheets();CUR_DAY=null;_progInvalidate();await loadPlan();renderWorkout.lastEff=null;renderWorkout(document.getElementById('views'));_inv();
+    // Ehrliche Meldung: nennt die betroffenen Sätze, wenn der Server sie meldet. `soft`/`restorable` sagt,
+    // dass sie nur ausgeblendet sind (weiches Löschen) – ohne das Feld steht nur die Zahl da.
+    const n=_daySetCount(r.data);
+    const soft=!!(r.data&&(r.data.soft||r.data.softDelete||r.data.restorable));
+    // Weiches Löschen kennt einen Rückweg: POST /days/:id/restore bringt Tag und Übungen exakt zurück.
+    // Der Knopf steht im Toast, weil dort auch die Zahl der betroffenen Sätze steht – ein Fehlgriff
+    // ist so in einer Sekunde repariert, statt über den Coach oder den Export.
+    const undo=soft?{label:'Rückgängig',fn:async()=>{const rr=await API.post('/days/'+d.id+'/restore',{});
+      if(rr.status!==200)return toast(rr.data?.error||'Konnte nicht wiederherstellen');
+      CUR_DAY=null;_progInvalidate();await loadPlan();renderWorkout.lastEff=null;renderWorkout(document.getElementById('views'));_inv();toast('Tag wiederhergestellt ✓');}}:undefined;
+    toast(n>0?`Tag gelöscht · ${pl(n,'Satz','Sätze')} ${soft?'bleiben gespeichert, sind aber ausgeblendet':'aus den Auswertungen genommen'}`:'Tag gelöscht',undo);
+  })().catch(e=>{console.error('[training] Tag löschen',e);toast('Fehler');});}
 
 // ---- Übungsliste ----
-async function _todayLogs(){const lr=await API.get('/logs/'+VIEW_USER+'?date='+today());return lr.data?.logs||[];}
+// Mit Status, nicht als nackte Liste: ein fehlgeschlagener Abruf (offline, Server im Kaltstart) liefert
+// sonst eine LEERE Liste, und renderEx malt die Übungen ohne die Sätze des Tages neu – alle Haken weg,
+// Ring auf 0 %, obwohl nichts verloren ist. Der Aufrufer muss den Unterschied sehen können.
+// `status` wandert mit: renderEx unterscheidet damit „keine Antwort" (0 – offline und kein Schnappschuss)
+// von „Server hat abschlägig geantwortet" (≥ 400) und kann denselben ehrlichen Satz zeigen wie Cardio.
+async function _todayLogs(){const lr=await API.get('/logs/'+VIEW_USER+'?date='+today());
+  return {ok:lr.status===200,status:lr.status,logs:lr.data?.logs||[]};}
 // Progression aller Übungen eines Tags: Batch-Route GET /progression/:userId?day=<id>; fällt auf die
 // Einzelabfragen zurück, solange die Batch-Route fehlt (404). Ergebnis wird pro Tag gemerkt.
 async function _loadProgression(day){const key=VIEW_USER+'_'+day.id;const ids=day.exercises.map(e=>e.id);
@@ -127,24 +163,66 @@ function _exCard(ex,i,pr,logs){const sets=ex.target_sets||3;pr=pr||{};const rec=
     const sugg=!hasToday&&!!ps;const sc=sugg?' class="sugg"':'';
     return `<div class="setgrid" data-ex="${ex.id}" data-set="${s}">
       <div class="sn">${s}</div>
-      <div><input type="number" inputmode="decimal" min="0" max="1000" placeholder="kg"${sc} value="${wVal}" data-sugg="${sugg?1:0}" aria-label="Gewicht Satz ${s}" onfocus="clearSugg(this)" oncontextmenu="event.preventDefault();openPlateCalc(this.value)" onchange="logSet(${ex.id},${s},'weight',this.value)"><div class="prev">${ps?'zuletzt '+_fmtW(ps.weight)+' kg':'–'}</div></div>
+      <div class="wcell"><input type="number" inputmode="decimal" min="0" max="1000" placeholder="kg"${sc} value="${wVal}" data-sugg="${sugg?1:0}" aria-label="Gewicht Satz ${s}" onfocus="clearSugg(this)" oncontextmenu="event.preventDefault();openPlateCalc(this.value)" onchange="logSet(${ex.id},${s},'weight',this.value)"><button class="pcbtn" type="button" aria-label="Hantelrechner für Satz ${s}" onclick="trOpenPlateFromRow(this)">${icon('dumbbell',16)}</button><div class="prev">${ps?'zuletzt '+_fmtW(ps.weight)+' kg':'–'}</div></div>
       <div><input type="number" inputmode="numeric" min="0" max="1000" placeholder="–"${sc} value="${rVal}" data-sugg="${sugg?1:0}" aria-label="Wiederholungen Satz ${s}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s},'reps',this.value,true)"><div class="prev">${ps?'× '+ps.reps:''}</div></div>
       <button class="ok" type="button" aria-label="Satz ${s} bestätigen" onclick="commitSet(${ex.id},${s})">${icon('check',22)}</button>
     </div>`;}).join('');
+  // Aufklapper: der Kopf ist der Knopf, der Satzblock das Ziel. aria-expanded/aria-controls sagen einem
+  // Screenreader, dass hier etwas auf- und zugeht und was davon betroffen ist (A-II.6). Den Zustand
+  // haelt semExAria synchron – sowohl beim Tippen (toggleEx) als auch beim Neuzeichnen (renderEx).
   return `<div class="ex" id="ex-${ex.id}" data-id="${ex.id}">
-    <div class="ex-head" onclick="toggleEx(${ex.id})">
+    <div class="ex-head" role="button" tabindex="0" aria-expanded="false" aria-controls="exb-${ex.id}" onclick="toggleEx(${ex.id})">
       <div class="ex-idx" data-n="${i+1}">${i+1}</div>
       <div class="ex-main"><div class="nm">${ex.coach_locked&&!coachView()?icon('lock',14,'lock'):''}${esc2(ex.name)}</div><div class="mg">${meta}</div></div>
       <span class="ex-cnt caption hidden"></span>
-      <button class="btn icon sm ghost ex-more" type="button" aria-label="Optionen" onclick="event.stopPropagation();exMenu(${ex.id})">${icon('more',20)}</button>
+      <button class="btn icon sm ghost ex-more" type="button" aria-label="Optionen zu ${esc2(ex.name)}" onclick="event.stopPropagation();exMenu(${ex.id})">${icon('more',20)}</button>
       <div class="ex-chev">${icon('chevronRight',18)}</div>
     </div>
-    <div class="ex-body"><div class="ex-inner">
+    <div class="ex-body" id="exb-${ex.id}"><div class="ex-inner">
       ${recIcon&&rec.text?`<div class="rec ${rec.type}"><span class="ric">${icon(recIcon,18)}</span><span>${esc2(rec.text)}</span></div>`:''}
       <div class="setgrid"><div class="hd">Satz</div><div class="hd">Gewicht</div><div class="hd">Reps</div><div class="hd" aria-hidden="true"></div></div>
       ${rows}
       ${ex.notes?`<div class="note">${esc2(ex.notes)}</div>`:''}
     </div></div></div>`;}
+// ---- Bereitschaft: ein Hinweis über der Übungsliste ----
+// Er erscheint NUR bei „Etwas zurücknehmen"/„Erholen" (amber/rot). Grün oder „noch keine Daten"
+// bleiben still, damit der Tab nicht bevormundet: er sagt, was die Zahlen hergeben, entscheiden
+// tut der Nutzer. Ohne Uhr-Werte (needsHealth) steht statt der Zahl der Weg zu den Gesundheitsdaten.
+function trainReadyHTML(rd){const tone=rd&&rd.tone;if(tone!=='amber'&&tone!=='red')return '';
+  const health=!!rd.needsHealth&&typeof openIntegrations==='function';
+  const fn=health?'openIntegrations()':(typeof openReadiness==='function'?'openReadiness()':''); // openReadiness gehört home.js
+  // Gleiche Lesereihenfolge wie auf der Startseite (Zahl, dann Wort), aber NICHT dieselbe Zeichenkette:
+  // dort steht die Zahl separat im Ring-Feld (home.js, .rdy-n) und der fette Text lautet nur
+  // „Bereitschaft · <Wort>". Hier gibt es keinen Ring, deshalb trägt der fette Text die Zahl mit.
+  const head=health?'Bereitschaft':`Bereitschaft ${fmtNum(rd.score)}${rd.label?' · '+rd.label:''}`;
+  // Steht die Zahl auf einer EINZIGEN Quelle (typisch: Schlaf von Hand, keine Uhr – Feld `thin` des
+  // Servers, ausgewertet von _readySolo in home.js), tritt die Handlungsempfehlung zurück – genau wie
+  // auf der Startseite. „Ein Arbeitssatz weniger je Übung" wäre eine Ansage aus einer einzelnen,
+  // gedämpften Schlafzahl; stattdessen steht hier, WORAUS geschätzt wurde. Ohne home.js (kein
+  // _readySolo) bleibt es beim bisherigen Hinweis.
+  const solo=(!health&&typeof _readySolo==='function')?_readySolo(rd):'';
+  const sub=solo?`Geschätzt aus ${solo} – für eine belastbare Einschätzung fehlen noch Werte.`:(rd.headline||'');
+  const inner=`${icon(tone==='red'?'moon':'heart',20)}<span class="fill"><b>${esc2(head)}</b>${sub?`<small>${esc2(sub)}</small>`:''}${health?'<small>Gesundheitsdaten verbinden</small>':''}</span>${fn?icon('chevronRight',18):''}`;
+  const cls='tr-ready'+(tone==='red'?' red':''); // eigener Klassenname: „.rdy" gehört der Zeile auf der Startseite
+  return fn?`<button class="${cls}" type="button" onclick="${fn}">${inner}</button>`:`<div class="${cls}">${inner}</div>`;}
+// Höchstens ein Abruf je Nutzer und Tag (das Ergebnis ändert sich während des Trainings nicht) –
+// gemerkt an renderEx.readiness. Läuft bewusst NEBEN dem Rendern: eine langsame Antwort darf das
+// Satzraster nicht aufhalten. Gemalt wird über die ID, nie in das alte #exlist hinein.
+async function _trReadiness(key){if(_trReadiness.busy)return;_trReadiness.busy=1;
+  const r=await API.get('/readiness/'+VIEW_USER);_trReadiness.busy=0;
+  renderEx.readiness={key,at:Date.now(),data:(r.status===200&&r.data)?r.data:null};
+  if(key!==VIEW_USER+'|'+today())return; // inzwischen anderer Athlet/Tag
+  const box=document.getElementById('trReady');if(box)box.innerHTML=trainReadyHTML(renderEx.readiness.data);}
+// ---- Tagestyp im Trainings-Tab (Ruhetag / krank) ----
+// Die Startseite sagt am Ruhe- und am Kranktag die Wahrheit; der Trainings-Tab hat bisher trotzdem
+// „27 Sätze geplant – leg los" gerufen. Quelle ist derselbe Tagestyp wie auf der Startseite
+// (bestätigter Tag, sonst Vorschlag). Der Tag bleibt wählbar und eintragbar – nur die Aufforderung fällt weg.
+function trDayMode(){const t=(TODAY?.confirmed||TODAY?.suggestion)?.type;return (t==='rest'||t==='sick')?t:'train';}
+function trDayHead(m){return m==='sick'?'Krank gemeldet':m==='rest'?'Heute ist Ruhetag':'Heutiges Training';}
+// Untertitel für Ruhe-/Kranktag. Eingetragene Sätze werden weiter gezählt (ehrlich), aber ohne „noch X".
+function trDaySub(m,done,total){
+  if(m==='sick')return done>0?`${done} von ${total} Sätzen eingetragen – dein Tag steht auf „Krank".`:'Erhol dich – dein Plan wartet auf dich.';
+  return done>0?`${done} von ${total} Sätzen eingetragen – dein Tag steht auf „Ruhetag".`:'Du kannst trotzdem etwas eintragen.';}
 async function renderEx(o){o=o||{};const day=curDayObj();const el=document.getElementById('exlist');if(!el)return;
   const addBtn=document.getElementById('addExBtn');if(addBtn)addBtn.classList.toggle('hidden',!(day&&day.exercises.length));
   if(!day){el.innerHTML=emptyState({icon:'calendar',title:'Noch kein Trainingstag',text:'Leg deinen ersten Tag an – z.B. Push, Lower 1 oder Beine.',btn:{label:'Ersten Trainingstag erstellen',onclick:'addDay()'}});trainBarSync();return;}
@@ -152,24 +230,45 @@ async function renderEx(o){o=o||{};const day=curDayObj();const el=document.getEl
   const cv=coachView();const seq=(renderEx.seq=(renderEx.seq||0)+1);
   const openId=el.querySelector('.ex.open')?.dataset.id;
   if(!o.quiet)el.innerHTML=(cv?'':skeleton(1,'lg'))+skeleton(3);
-  const [logs,progs]=await Promise.all([_todayLogs(),cv?Promise.resolve({}):_loadProgression(day)]);
+  const [tl,progs]=await Promise.all([_todayLogs(),cv?Promise.resolve({}):_loadProgression(day)]);
   if(seq!==renderEx.seq||document.getElementById('exlist')!==el)return; // inzwischen anderer Tag/Tab
+  // Letzter belastbarer Stand je Nutzer und Tag. Kam der Abruf nicht durch, wird NICHT mit einer leeren
+  // Liste gemalt: steht die Liste schon (stilles Neuzeichnen), bleibt sie stehen; sonst dient der
+  // gemerkte Stand als Grundlage. Sonst verschwindet dem Nutzer mitten im Training sein halbes Pensum.
   if(cv){el.innerHTML=`<div class="rows plan-rows">${day.exercises.map((ex,i)=>_exRowCoach(ex,i)).join('')}</div>`;trainBarSync();return;}
+  const rlk=VIEW_USER+'|'+today();
+  if(tl.ok)renderEx.logs={key:rlk,list:tl.logs};
+  if(!tl.ok&&el.querySelector('.ex')){trainBarSync();return;}
+  const kept=(renderEx.logs&&renderEx.logs.key===rlk)?renderEx.logs.list:null;
+  // Kaltstart ohne Netz und ohne Schnappschuss: der PLAN liegt vor (27 Sätze), die SÄTZE VON HEUTE nicht.
+  // Mit logs=[] zu zeichnen hiesse behaupten, heute sei nichts eingetragen – Ring auf 0 %, jede Satzzeile
+  // auf „–" und „27 Sätze geplant – leg los" an einen Athleten, der sein Pensum vielleicht längst hinter
+  // sich hat. Dieselbe Lage, derselbe Satz wie bei Cardio (drawCardioTab) und auf der Startseite.
+  if(!tl.ok&&!kept){el.innerHTML=stlNotLoaded('Sätze von heute',tl.status,'renderEx()');trainBarSync();return;}
+  const logs=tl.ok?tl.logs:kept;
   const banner=`<div class="card tp" id="trainProg">
     <svg class="ring" width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
       <circle cx="32" cy="32" r="27" fill="none" stroke="var(--surface3)" stroke-width="6"/>
       <circle id="tpRing" class="ring-fg" cx="32" cy="32" r="27" fill="none" stroke="var(--red)" stroke-width="6" stroke-linecap="butt" stroke-dasharray="${(2*Math.PI*27).toFixed(2)}" stroke-dashoffset="${(2*Math.PI*27).toFixed(2)}" transform="rotate(-90 32 32)"/>
       <text id="tpPct" x="32" y="32" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="700" fill="var(--ink)">0%</text></svg>
-    <div class="fill"><div class="h3">Heutiges Training</div><div class="meta" id="tpSub"></div></div></div>`;
-  el.innerHTML=banner+day.exercises.map((ex,i)=>_exCard(ex,i,progs[ex.id],logs)).join('');
-  if(openId){const c=document.getElementById('ex-'+openId);if(c)c.classList.add('open');}
+    <div class="fill"><div class="h3" id="tpHead">${esc2(trDayHead(trDayMode()))}</div><div class="meta" id="tpSub"></div></div></div>`;
+  // Bereitschaft ganz oben: aus dem Cache sofort, sonst füllt _trReadiness() den Platzhalter nach.
+  // Ein fehlgeschlagener Abruf (offline, Route noch nicht da) darf es später nochmal versuchen.
+  const rk=VIEW_USER+'|'+today();const rc=(renderEx.readiness&&renderEx.readiness.key===rk)?renderEx.readiness:null;
+  el.innerHTML=`<div id="trReady">${rc?trainReadyHTML(rc.data):''}</div>`+banner+day.exercises.map((ex,i)=>_exCard(ex,i,progs[ex.id],logs)).join('');
+  if(!rc||(!rc.data&&Date.now()-rc.at>6e4))_trReadiness(rk);
+  if(openId){const c=document.getElementById('ex-'+openId);if(c){c.classList.add('open');semExAria(c);}}
   updateTrainProgress();
   // Von der Home gestartet: erste Übung mit offenen Sätzen aufklappen und hinscrollen
   if(renderWorkout.start){renderWorkout.start=false;const first=[...el.querySelectorAll('.ex')].find(c=>!c.classList.contains('done'));
     if(first)setTimeout(()=>toggleEx(+first.dataset.id),80);}}
+// aria-expanded des Kartenkopfs dem Klassenzustand nachziehen. Ein Screenreader liest sonst dauerhaft
+// „eingeklappt", egal wie die Karte gerade steht (A-II.6). Nur ein Attribut – keine Logik.
+function semExAria(card){if(!card)return;const h=card.querySelector('.ex-head');
+  if(h)h.setAttribute('aria-expanded',card.classList.contains('open')?'true':'false');}
 function toggleEx(id){const el=document.getElementById('ex-'+id);if(!el)return;const wasOpen=el.classList.contains('open');
-  document.querySelectorAll('.ex.open').forEach(x=>{if(x!==el)x.classList.remove('open');});
-  el.classList.toggle('open',!wasOpen);
+  document.querySelectorAll('.ex.open').forEach(x=>{if(x!==el){x.classList.remove('open');semExAria(x);}});
+  el.classList.toggle('open',!wasOpen);semExAria(el);
   if(!wasOpen)setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),60);}
 
 // ---- Fortschritt (Ring, Karten-Status, Leiste) – reines DOM-Patchen, kein Re-Render ----
@@ -194,7 +293,13 @@ function updateTrainProgress(doneSets,totalSets){
     const ring=document.getElementById('tpRing');if(ring){ring.style.strokeDashoffset=String(C*(1-(totalSets?doneSets/totalSets:0)));ring.setAttribute('stroke',done?'var(--green)':'var(--red)');
       ring.setAttribute('stroke-linecap',doneSets>0?'round':'butt');} // bei 0 % zeichnet ein runder Cap sonst einen Punkt
     const pctEl=document.getElementById('tpPct');if(pctEl)pctEl.textContent=pct+'%';
-    const sub=document.getElementById('tpSub');if(sub){sub.textContent=done?'Alle Sätze geschafft – stark!':(doneSets>0?`${doneSets} / ${totalSets} Sätze · noch ${totalSets-doneSets}`:`${pl(totalSets,'Satz','Sätze')} geplant – leg los`);sub.classList.toggle('tone-green',done);}
+    // Ruhe-/Kranktag: keine Aufforderung, kein „noch X" – die Kopfzeile sagt stattdessen, was heute gilt
+    const mode=trDayMode();
+    const hd=document.getElementById('tpHead');if(hd)hd.textContent=trDayHead(mode);
+    const sub=document.getElementById('tpSub');if(sub){
+      sub.textContent=mode!=='train'?trDaySub(mode,doneSets,totalSets)
+        :(done?'Alle Sätze geschafft – stark!':(doneSets>0?`${doneSets} / ${totalSets} Sätze · noch ${totalSets-doneSets}`:`${pl(totalSets,'Satz','Sätze')} geplant – leg los`));
+      sub.classList.toggle('tone-green',done&&mode==='train');}
   }
   trainBarSync();}
 
@@ -235,6 +340,12 @@ function _queueLog(exId,setNo,patch,now){const key=exId+'_'+setNo;logSet.cache=l
 // Signatur eines Satzes: identische Werte werden kein zweites Mal geschrieben (Netz-Sicherung zusätzlich zum
 // Commit-Fenster oben – deckt auch Doppel-Tipps und den Fall „✓ ohne Änderung" ab).
 function _logSig(b){return [b.exercise_id,b.set_no,b.date,b.weight==null?'':b.weight,b.reps==null?'':b.reps].join('|');}
+// Ohne Netz wandert der Satz in die Outbox (core.js) und gilt trotzdem als erledigt – gleiche Geste,
+// gleicher Haken, keine Fehlermeldung. Die Antwort ist dann 202 und enthält KEINE Serverdaten (kein
+// `pr`), also wird auch nichts daraus ausgewertet. Beide Doppelschreib-Sperren bleiben gültig:
+// `commitSet.last` unverändert, und `logSet.sent[key]` bleibt bei 202 stehen – der Eintrag liegt ja
+// schon in der Outbox und darf nicht ein zweites Mal eingereiht werden. Lehnt der Server ihn später
+// beim Nachtragen ab, meldet core.js das über trainForgetSets() zurück – erst dort fällt der Merker.
 async function _postLog(key){const body=logSet.cache&&logSet.cache[key];if(!body)return;
   const exId=body.exercise_id,setNo=body.set_no,sig=_logSig(body);
   logSet.sent=logSet.sent||{};logSet.busy=logSet.busy||{};
@@ -242,20 +353,55 @@ async function _postLog(key){const body=logSet.cache&&logSet.cache[key];if(!body
     if(!logSet.busy[key]){setSaveStatus(exId,'saved',setNo);updateTrainProgress();}
     return;}
   logSet.sent[key]=sig;logSet.busy[key]=1;
-  const r=await API.post('/logs',body);delete logSet.busy[key];
-  if(r.status!==200)delete logSet.sent[key]; // fehlgeschlagen -> „Erneut versuchen" darf wieder senden
-  if(r.status===200){setSaveStatus(exId,'saved',setNo);
-    // Neuer Übungs-Rekord? Einmal pro Satz melden, Kopfzeile der Karte nachziehen.
-    if(r.data?.pr){logSet.prDone=logSet.prDone||{};if(!logSet.prDone[key]){logSet.prDone[key]=1;toast('Neuer Rekord · '+_fmtW(body.weight)+' kg');_markPR(exId,body.weight);_progInvalidate();}}
-    if(body.reps>0){TODAY=null;_inv('home');if(typeof refreshAchievements==='function')refreshAchievements();}
-    updateTrainProgress();}
+  // Das Label steht später in der Warteliste („Bankdrücken Satz 2"), damit der Nutzer sieht, was noch offen ist.
+  const r=await API.post('/logs',body,{queue:true,kind:'set',label:(_findEx(exId)?.name||'Übung')+' Satz '+setNo});
+  delete logSet.busy[key];
+  const ok=okRes(r),q=wasQueued(r); // okRes: 200 ODER 202; 202 = in der Outbox (core.js)
+  if(!ok)delete logSet.sent[key]; // fehlgeschlagen -> „Erneut versuchen" darf wieder senden
+  if(ok){setSaveStatus(exId,'saved',setNo);
+    if(!q){ // nur mit Netz gibt es eine Antwort, aus der sich etwas lesen lässt
+      // Neuer Übungs-Rekord? Einmal pro Satz melden, Kopfzeile der Karte nachziehen.
+      if(r.data?.pr){logSet.prDone=logSet.prDone||{};if(!logSet.prDone[key]){logSet.prDone[key]=1;toast('Neuer Rekord · '+_fmtW(body.weight)+' kg');_markPR(exId,body.weight);_progInvalidate();}}
+      // Ansichten erst auffrischen, wenn der Satz wirklich beim Server war – sonst holt sich die
+      // Startseite offline eine leere Antwort und überschreibt den optimistischen Stand.
+      if(body.reps>0){TODAY=null;_inv('home');if(typeof refreshAchievements==='function')refreshAchievements();}}
+    updateTrainProgress();
+    // EIN ruhiger Hinweis je Offline-Strecke statt eines Toasts pro Satz – wie viele Einträge warten,
+    // steht ohnehin dauerhaft im Kopf. Nach dem nächsten Satz mit Netz ist der Hinweis wieder scharf.
+    if(q){if(!_postLog.hinted){_postLog.hinted=1;toast('Offline gespeichert – wird nachgetragen, sobald du online bist');}}
+    else _postLog.hinted=0;}
   else{setSaveStatus(exId,'error',setNo);updateTrainProgress(); // fehlgeschlagene Zeile fällt aus Ring/Karte heraus
     toast('Satz nicht gespeichert',{label:'Erneut versuchen',fn:()=>_postLog(key)});}}
+// Der Server hat einen nachgetragenen Satz abgelehnt (4xx beim Leeren der Ablage, core.js ruft hier an).
+// Ohne dieses Aufräumen bliebe die Signatur in logSet.sent stehen: der Nutzer tippt dieselben Werte
+// erneut ein, _postLog erkennt „schon gesendet", steigt still aus und setzt den grünen Haken – der Satz
+// wäre endgültig verloren und der Bildschirm behauptete das Gegenteil. Nur ein anderer Wert käme durch.
+// Deshalb: alle Merker dieses Satzes weg, und die Zeile auf dem Bildschirm ehrlich als nicht gespeichert
+// zeigen (data-failed nimmt sie aus Ring und Karten-Zähler heraus).
+function trainForgetSets(bodies){if(!Array.isArray(bodies)||!bodies.length)return;
+  let touched=false;
+  bodies.forEach(b=>{if(!b||b.exercise_id==null||b.set_no==null)return;
+    const key=b.exercise_id+'_'+b.set_no;
+    clearTimeout(logTimers[key]);delete logTimers[key];
+    if(logSet.sent)delete logSet.sent[key];
+    if(logSet.cache)delete logSet.cache[key];
+    if(logSet.busy)delete logSet.busy[key];
+    if(logSet.prDone)delete logSet.prDone[key];
+    if(commitSet.last)delete commitSet.last[key];   // sonst schluckt das 600-ms-Fenster den nächsten Tipp auf ✓
+    // Nur die Zeile anfassen, die wirklich gemeint ist: ein abgelehnter Satz von gestern oder aus einem
+    // anderen Athleten-Blick hat mit der gerade sichtbaren Liste nichts zu tun.
+    if(b.date&&b.date!==today())return;
+    if(b.user_id!=null&&b.user_id!==VIEW_USER)return;
+    if(_rowInputs(b.exercise_id,b.set_no)){setSaveStatus(b.exercise_id,'error',b.set_no);touched=true;}});
+  if(touched)updateTrainProgress();}
 function _markPR(exId,w){const meta=EX_META[exId];if(meta==null)return;
   const pill=` <span class="pill amber pr">${icon('trophy',12)} ${_fmtW(w)} kg</span>`;
   EX_META[exId]=meta.replace(/ · Best [^<]*$/,'').replace(/ <span class="pill amber pr">.*?<\/span>$/,'')+pill;
   const card=document.getElementById('ex-'+exId);if(card)_paintCard(card);}
 function _afterCommit(exId,setNo){
+  // Der Tipp auf ✓ ist die Nutzergeste, auf die iOS für den Ton wartet – und der Moment, ab dem der
+  // Bildschirm wach bleiben soll. Beides ist idempotent und kostet ab dem zweiten Satz nichts.
+  trAudioUnlock();trWakeLock.want=1;trWakeLock();
   startRest(REST_SECS); // jeder bestätigte Satz startet die Pause neu
   trainBarSync.dismissed=null;
   try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){}
@@ -304,6 +450,7 @@ function feelPick(n){openWorkoutSummary.feel=n;document.querySelectorAll('#feelR
   const h=document.getElementById('feelHint');if(h)h.textContent=['','Schwach','Zäh','Okay','Gut','Stark'][n];}
 async function finishWorkout(dest){const d=openWorkoutSummary.data||{};const feel=openWorkoutSummary.feel;
   closeAllSheets();restStop();trainBarSync.dismissed=today();trainBarSync();
+  trWakeLock.want=0;trWakeRelease(); // Einheit vorbei – der Bildschirm darf wieder schlafen
   if(feel&&d.exIds&&d.exIds.length){const day=curDayObj();
     API.post('/exercise-notes',{user_id:VIEW_USER,exercise_id:d.exIds[0],note:`Training abgeschlossen${day?' ('+day.name+')':''} – Gefühl ${feel}/5`,flagged:false}).catch(()=>{});}
   openWorkoutSummary.feel=null;
@@ -441,36 +588,53 @@ async function openExHistory(exId,name){name=name||'Übung';openSheet(name,'<div
   const list=`<div class="section-label">Letzte Einheiten</div><div class="rows">${rows.slice(-8).reverse().map(d=>`<div class="row"><div class="rl">${fmtDate(d.date,{weekday:'short'})}<small>${d.sets.map(s=>_fmtW(s.weight)+' × '+s.reps).join(' · ')}</small></div><div class="rr">${_fmtW(d.top)} kg</div></div>`).join('')}</div>`;
   if(rows.length<2){const d=rows[0];
     openSheet(name,`<div class="note status mb-3">Erste Einheit: <b>${_fmtW(d.top)} kg × ${d.reps}</b> am ${fmtDate(d.date).replace(/\.$/,'')}. Ab der zweiten Einheit erscheint hier deine Kurve.</div>${list}`);return;}
+  // Kennzahlen (Bestleistung, „seit Beginn", Einheiten) rechnen über ALLE Einheiten – die Kurve zeichnet nur
+  // die letzten 52: nach drei Jahren hätte sie sonst 157 Einheiten × 2 Punkte auf 340 Einheiten Breite,
+  // rund zwei Pixel je Punkt, und nichts mehr wäre abzulesen. Der Kartenkopf sagt, wenn gekürzt wurde.
+  const EX_CHART_MAX=52;
   const tops=rows.map(x=>x.top);const best=Math.max(...tops);const diff=Math.round((rows[rows.length-1].top-rows[0].top)*10)/10;
-  const A1=_axis5(tops,0.5),A2=_axis5(rows.map(x=>x.reps),1); // beide Achsen mit 5 Linien -> rechts bleiben Reps ganzzahlig
-  const data=rows.map(d=>({date:d.date,v1:d.top,v2:d.reps}));
+  const shown=rows.length>EX_CHART_MAX?rows.slice(-EX_CHART_MAX):rows;
+  const A1=_axis5(shown.map(x=>x.top),0.5),A2=_axis5(shown.map(x=>x.reps),1); // beide Achsen mit 5 Linien -> rechts bleiben Reps ganzzahlig
+  const data=shown.map(d=>({date:d.date,v1:d.top,v2:d.reps}));
   openSheet(name,`<div class="grid-3 hist-stats mb-3">
       <div class="tile"><div class="v">${_fmtW(best)}<em> kg</em></div><div class="l">Bestleistung</div></div>
       <div class="tile"><div class="v${diff>0?' tone-green':diff<0?' tone-red':''}">${diff>0?'+':''}${_fmtW(diff)}<em> kg</em></div><div class="l">seit Beginn</div></div>
       <div class="tile"><div class="v">${rows.length}</div><div class="l">Einheiten</div></div></div>
-    <div class="chart-card"><div class="ch-h"><div class="t">Top-Gewicht und Reps</div><div class="v">kg · Wiederholungen</div></div>${lineChart2(data,'Gewicht','kg','Reps','',{domain1:A1.domain,step1:A1.step,tickFmt1:_fmtW,domain2:A2.domain,step2:A2.step,tickFmt2:v=>fmtNum(Math.round(v))})}</div>${list}`);}
+    <div class="chart-card"><div class="ch-h"><div class="t">Top-Gewicht und Reps</div><div class="v">${shown.length<rows.length?'letzte '+fmtNum(shown.length)+' Einheiten':'kg · Wiederholungen'}</div></div>${lineChart2(data,'Gewicht','kg','Reps','',{domain1:A1.domain,step1:A1.step,tickFmt1:_fmtW,domain2:A2.domain,step2:A2.step,tickFmt2:v=>fmtNum(Math.round(v))})}</div>${list}`);}
 
 // ===== CARDIO-TAB im Training =====
 async function drawCardioTab(o){o=o||{};const b=document.getElementById('workoutBody');if(!b)return;
   if(!(o.quiet&&b.querySelector('.cardio')))b.innerHTML=skeleton(1,'sm')+skeleton(2);
-  const r=await API.get('/cardio/'+VIEW_USER);const all=r.data?.cardio||[];drawCardioTab.list=all;
+  const r=await API.get('/cardio/'+VIEW_USER);
+  // A-III.2: „Noch keine Cardio-Einheiten · Erfasse deine erste Einheit" ist eine Aussage ÜBER DIE DATEN.
+  // Bis 2.6.0 stand sie auch dann da, wenn gar keine Antwort kam (r.data?.cardio||[] machte aus „unbekannt"
+  // ein „nichts") – ein Athlet mit 40 Einheiten las, er habe noch keine, und die Wochenkacheln darüber
+  // meldeten 0 min / 0 kcal. Ohne echte Antwort bleibt deshalb der letzte Stand dieser Sitzung stehen;
+  // gibt es auch den nicht, sagt die Karte das. Bei kein Netz MIT Schnappschuss liefert API.get (A-III.1)
+  // längst 200 – dieser Zweig greift nur, wenn wirklich kein Stand existiert.
+  const all=(r.status===200)?(r.data?.cardio||[]):(drawCardioTab.list||null);
   if(document.getElementById('workoutBody')!==b||renderWorkout.tab!=='cardio')return;
+  if(!all){b.innerHTML=stlNotLoaded('Cardio-Einheiten',r.status,"workoutTab('cardio')");return;}
+  drawCardioTab.list=all;
   // „Diese Woche" = Kalenderwoche ab Montag – gleiche Definition wie in der Analyse und beim Wochenziel,
   // damit beide Bildschirme nie unterschiedliche Zahlen unter derselben Überschrift zeigen.
   const wa=new Date();wa.setDate(wa.getDate()-((wa.getDay()+6)%7));const weekAgo=fmt(wa);const wk=all.filter(c=>c.date>=weekAgo);
   const wkMin=wk.reduce((a,c)=>a+(c.minutes||0),0),wkKcal=wk.reduce((a,c)=>a+(c.kcal||0),0),wkKm=wk.reduce((a,c)=>a+(c.distance_km||0),0);
   const kindIcon=k=>({Laufen:'footprints',Joggen:'footprints',Gehen:'footprints',Wandern:'footprints',Stepper:'footprints',Schwimmen:'droplet',HIIT:'zap',Crossfit:'zap',Seilspringen:'zap',Rad:'refresh',Spinning:'refresh',Rudern:'wind',Crosstrainer:'wind'})[k]||'heart';
-  let h=`<div class="cardio">${coachView()?'':`<button class="btn block" onclick="openCardio()">${icon('plus',18)} Cardio-Einheit erfassen</button>`}
+  let h=`<div class="cardio">${coachView()?'':`<button class="btn block" onclick="if(typeof bootCall==='function')bootCall('analysis','openCardio')">${icon('plus',18)} Cardio-Einheit erfassen</button>`}
     <div class="section-label">Diese Woche</div>
     <div class="cardio-tiles">
       <div class="tile"><div class="v">${fmtNum(wkMin)}<em> min</em></div><div class="l">Cardio-Zeit</div></div>
       <div class="tile"><div class="v">${fmtNum(Math.round(wkKcal))}<em> kcal</em></div><div class="l">verbrannt</div></div>
       ${wkKm>0?`<div class="tile"><div class="v">${fmtNum(wkKm,1)}<em> km</em></div><div class="l">Distanz</div></div>`:''}
     </div>`;
-  if(!all.length)h+=emptyState({icon:'heart',title:'Noch keine Cardio-Einheiten',text:coachView()?'Hier erscheinen die Cardio-Einheiten deines Athleten.':'Erfasse deine erste Einheit – Laufen, Rad, Schwimmen oder HIIT.',btn:coachView()?null:{label:'Einheit erfassen',onclick:'openCardio()'}});
+  if(!all.length)h+=emptyState({icon:'heart',title:'Noch keine Cardio-Einheiten',text:coachView()?'Hier erscheinen die Cardio-Einheiten deines Athleten.':'Erfasse deine erste Einheit – Laufen, Rad, Schwimmen oder HIIT.',btn:coachView()?null:{label:'Einheit erfassen',onclick:"if(typeof bootCall==='function')bootCall('analysis','openCardio')"}});
   else{h+='<div class="section-label">Verlauf</div><div class="rows">'+all.slice(0,40).map(c=>{
     const pace=_cardioPace(c)?' · '+_cardioPace(c):'';
-    return `<div class="row"><div class="r-ic">${icon(kindIcon(c.kind),22)}</div><div class="rl">${esc2(c.kind)}<small>${fmtDate(c.date)} · ${c.minutes||0} min${c.distance_km?' · '+fmtNum(c.distance_km,1)+' km':''}${pace} · ${esc2(c.intensity||'moderat')}</small></div>
+    // Einheiten aus der Gesundheits-App tragen ein kleines Apple-Zeichen – man sieht sofort,
+    // was von der Uhr kam und was von Hand eingetragen wurde.
+    const src=c.source==='apple'?`<span class="src-apple" title="Aus Apple Health">${icon('apple',13)}</span>`:'';
+    return `<div class="row"><div class="r-ic">${icon(kindIcon(c.kind),22)}</div><div class="rl">${esc2(c.kind)}${src}<small>${fmtDate(c.date)} · ${c.minutes||0} min${c.distance_km?' · '+fmtNum(c.distance_km,1)+' km':''}${pace} · ${esc2(c.intensity||'moderat')}</small></div>
       <div class="rr">${fmtNum(Math.round(c.kcal||0))} kcal<button class="btn icon sm ghost" aria-label="Optionen" onclick="cardioRowMenu(${c.id})">${icon('more',20)}</button></div></div>`;}).join('')+'</div>';}
   b.innerHTML=h+'</div>';trainBarSync();}
 // Tempo/Geschwindigkeit kompakt für die Zeile – Laufen/Gehen in min/km, Rad/Wandern/Schwimmen in km/h
@@ -488,6 +652,7 @@ function cardioRowMenu(id){const c=(drawCardioTab.list||[]).find(x=>x.id===id);i
     ${c.avg_hr?`<div class="row"><div class="rl">Puls</div><div class="rr">${c.avg_hr} bpm</div></div>`:''}
     <div class="row"><div class="rl">Intensität</div><div class="rr">${esc2(c.intensity||'moderat')}</div></div>
     <div class="row"><div class="rl">Kalorien</div><div class="rr">${fmtNum(Math.round(c.kcal||0))} kcal</div></div>
+    ${c.source==='apple'?`<div class="row"><div class="rl">Herkunft</div><div class="rr">Apple Health</div></div>`:''}
     ${c.notes?`<div class="row"><div class="rl"><small>${esc2(c.notes)}</small></div></div>`:''}</div>
     <button class="btn block danger" onclick="delCardioTab(${id})">${icon('trash',18)} Entfernen</button>`);}
 async function delCardioTab(id,confirmed){const c=(drawCardioTab.list||[]).find(x=>x.id===id);
@@ -510,6 +675,7 @@ async function drawCalendar(){
   openSheet('Kalender','<div class="spinner"></div>');
   const r=await API.get('/calendar/'+VIEW_USER+'?start='+startISO+'&days='+last.getDate());
   const cal=r.data?.calendar||[];const byDate={};cal.forEach(d=>byDate[d.date]=d);drawCalendar.byDate=byDate;
+  drawCalendar.pattern=Array.isArray(r.data?.pattern)?r.data.pattern:null;drawCalendar.dayNames=r.data?.trainingDays||[];
   const todayISO=today();
   let cells='';for(let i=0;i<(first.getDay()+6)%7;i++)cells+='<div></div>';
   for(let day=1;day<=last.getDate();day++){
@@ -523,8 +689,26 @@ async function drawCalendar(){
     <div class="cal-wd">${['Mo','Di','Mi','Do','Fr','Sa','So'].map(w=>`<span>${w}</span>`).join('')}</div>
     <div class="cal-grid">${cells}</div>
     <div class="cal-legend"><span><i class="sw train"></i>Training</span><span><i class="sw rest"></i>Ruhetag</span><span><i class="sw sick"></i>Krank</span><span><i class="sw dot"></i>geplant</span></div>
-    <div class="note mt-3">Tippe auf einen Tag, um ihn zu planen – z.B. einen Ruhetag, wenn du unterwegs bist. Dein Rhythmus rechnet automatisch weiter.</div>
-    ${VIEW_USER===ME.id?`<button class="btn sec mt-3" onclick="openRhythmus()">${icon('refresh',18)} Trainingsrhythmus anpassen</button>`:''}`);}
+    ${_cycleRow()}
+    <div class="note mt-3">Tippe auf einen Tag, um ihn zu planen – z.B. einen Ruhetag, wenn du unterwegs bist. Dein Rhythmus rechnet automatisch weiter.</div>`);}
+// Zeile unter dem Kalender: der aktuelle Zyklus als Kette, dahinter der Weg zum Editor.
+// Macht sichtbar, dass die Folge sich wiederholt und NICHT am Wochentag hängt.
+// Zyklus als lesbare Kette, z.B. „O1 · U1 · Ruhe". EIN Helfer für Kalender und Profil,
+// damit beide dieselbe Reihenfolge und dieselben Kürzel zeigen.
+function cycleText(pat,names){
+  if(!Array.isArray(pat)||!pat.length)return '';
+  names=(names||[]).filter(Boolean);
+  const fixed=new Set(pat.map(rhyDay).filter(Boolean));
+  const free=names.filter(n=>!fixed.has(n));const rot=free.length?free:names;let k=0;
+  return pat.map(x=>{if(rhyType(x)!=='train')return 'Ruhe';const d=rhyDay(x);
+    if(d)return dayAbbr(d);const n=rot.length?rot[(k++)%rot.length]:null;return n?dayAbbr(n):'Training';}).join(' · ');}
+function _cycleRow(){const pat=drawCalendar.pattern;if(!pat||!pat.length)return '';
+  const chain=cycleText(pat,drawCalendar.dayNames||[]);
+  const own=VIEW_USER===ME.id;
+  return `<div class="cal-cycle${own?' tap':''}"${own?' role="button" tabindex="0" aria-label="Trainingsrhythmus bearbeiten" onclick="openRhythmus()"':''}>
+    <div class="cc-t">${icon('refresh',16)} Dein Zyklus <span>${pl(pat.length,'Tag','Tage')}, wiederholt sich</span></div>
+    <div class="cc-c">${esc2(chain)}</div>
+    ${own?`<div class="cc-a">${icon('chevronRight',18)}</div>`:''}</div>`;}
 function calNav(dir){CAL_MONTH.setMonth(CAL_MONTH.getMonth()+dir);drawCalendar();}
 // Tages-Sheet: der vom Rhythmus vorgeschlagene Tag ist der primäre Button, alle anderen sekundär, gleiche Höhen
 function calDay(iso,isPast){const dt=fmtDate(iso,{weekday:'long',month:'long'});const e=(drawCalendar.byDate||{})[iso];
@@ -547,7 +731,8 @@ async function _afterCalChange(iso){TODAY=null;await loadToday();_inv();
   if(iso===today()&&document.getElementById('exlist')){const before=CUR_DAY;const eff=TODAY?.confirmed||TODAY?.suggestion;
     if(eff?.type==='train'&&eff.dayName){const m=(PLAN?.days||[]).find(d=>d.name===eff.dayName);if(m)CUR_DAY=m.id;}
     renderWorkout.lastEff=VIEW_USER+'|'+(TODAY?.date||today())+'|'+(eff?.type||'')+'|'+(eff?.dayName||'');
-    if(CUR_DAY!==before){renderDaySel();renderEx({quiet:true});}}}
+    if(CUR_DAY!==before){renderDaySel();renderEx({quiet:true});}
+    else updateTrainProgress();}} // gleicher Tag, aber evtl. neuer Tagestyp – Kopfzeile ehrlich nachziehen
 async function setCalDay(iso,type,dayName){
   const r=await API.post('/today/'+VIEW_USER,{date:iso,type,day_name:dayName});
   if(r.status===200){toast('Tag geplant ✓');_afterCalChange(iso);}else toast(r.data?.error||'Fehler');}
@@ -562,65 +747,117 @@ async function applyAvatar(){const el=document.getElementById('avatar');if(!el||
 // Zeichnet die Home neu, wenn sie gerade aktiv ist (nach Kalender-/Rhythmus-Änderungen)
 function refreshHomeIfActive(){const cur=document.querySelector('.navbtn.on')?.dataset?.p;
   if(cur==='home'){const v=document.getElementById('views');if(v)renderHome(v);}}
-// Zurück aus dem Hintergrund: Tages-Daten als veraltet markieren; die Home nur nach > 5 Minuten neu zeichnen
+// Zurück aus dem Hintergrund: zuerst die Pause (sie ist das Einzige, das währenddessen weiterlief),
+// dann die Tages-Daten als veraltet markieren; die Home nur nach > 5 Minuten neu zeichnen
 // (kein DOM-Wipe bei jedem kurzen App-Wechsel).
 let _trHiddenAt=0;
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='hidden'){_trHiddenAt=Date.now();return;}
+  if(document.visibilityState==='hidden'){_trHiddenAt=Date.now();trWakeRelease();return;}
+  // Im Hintergrund wurden die Ticks gedrosselt oder angehalten – die Anzeige kommt aus der Uhr und wird
+  // sofort neu gezeichnet. Ist die Pause dabei abgelaufen, holen wir das Ende hier nach: ohne Piepser,
+  // wenn sie schon länger als drei Sekunden vorbei ist (dann ist der Ton nur noch Lärm).
+  if(REST_END_AT){const over=Date.now()-REST_END_AT;
+    drawRest(true);
+    if(over>=0)restDone(over>3000);else trRestSchedule();}
+  if(trWakeLock.want)trWakeLock(); // das System gibt den Lock beim Verstecken selbst frei
   if(!ME)return;
   if(_trHiddenAt&&Date.now()-_trHiddenAt>5*60*1000){TODAY=null;_inv();refreshHomeIfActive();}});
 
 // ===== TRAININGSRHYTHMUS-EDITOR (Kacheln; ersetzt die Zeilenliste aus coach.js – Bindung siehe _trInit) =====
+// Ein Rhythmus ist eine Folge von Slots, die sich endlos wiederholt – UNABHÄNGIG vom Wochentag.
+// Slot: 'rest' | 'train' (Tagesname rotiert automatisch) | {type:'train',day:'Upper 1'} (fester Tag).
+// So lässt sich z.B. „O1, U1, Ruhe, O2, U2, Ruhe" fest hinterlegen; die Woche spielt keine Rolle.
 let RHY=[];
-function _rhyLabels(){const names=(PLAN?.days||[]).map(d=>d.name);let k=0;return RHY.map(s=>s==='train'?(names.length?names[(k++)%names.length]:'Training'):'Ruhe');}
+function rhyType(s){return ((s&&typeof s==='object')?s.type:s)==='train'?'train':'rest';}
+function rhyDay(s){const d=(s&&typeof s==='object')?s.day:null;return (typeof d==='string'&&d.trim())?d.trim():null;}
+function _rhyNames(){return (PLAN?.days||[]).map(d=>d.name).filter(Boolean);}
+// Beschriftung je Slot. Fester Tag gewinnt; automatische Slots rotieren durch die NICHT fest
+// vergebenen Tage – genau wie die Engine auf dem Server (logic.js: rotationDays).
+function _rhySlots(){
+  const names=_rhyNames();const fixed=new Set(RHY.map(rhyDay).filter(Boolean));
+  const free=names.filter(n=>!fixed.has(n));const rot=free.length?free:names;let k=0;
+  return RHY.map(s=>{
+    if(rhyType(s)!=='train')return{label:'Ruhetag',short:'–',train:false,fixed:false};
+    const d=rhyDay(s);
+    if(d)return{label:d,short:dayAbbr(d),train:true,fixed:true};
+    const n=rot.length?rot[(k++)%rot.length]:null;
+    return{label:n?n+' (automatisch)':'Training',short:n?dayAbbr(n):'T',train:true,fixed:false};});}
 async function openRhythmus(){const me=await API.get('/me');let p=null;try{p=JSON.parse(me.data?.user?.pattern);}catch(e){p=null;}
-  RHY=(Array.isArray(p)&&p.length)?p.map(x=>x==='train'?'train':'rest'):['train','train','rest'];
+  RHY=(Array.isArray(p)&&p.length)?p.map(x=>rhyType(x)==='train'?(rhyDay(x)?{type:'train',day:rhyDay(x)}:'train'):'rest'):['train','train','rest'];
   if(!PLAN)await loadPlan();drawRhythmus();}
 function drawRhythmus(){if(!Array.isArray(RHY)||!RHY.length)RHY=['train','train','rest'];
-  const labels=_rhyLabels();const trainTotal=RHY.filter(x=>x==='train').length;
-  const tiles=RHY.map((s,i)=>`<button class="rhy-tile${s==='train'?' train':''}" type="button" data-i="${i}" aria-label="Tag ${i+1}: ${esc2(labels[i])} – tippen zum Wechseln, lange drücken zum Verschieben" onclick="rhyToggle(${i})" oncontextmenu="event.preventDefault();rhyOptions(${i})"><span class="d">${i+1}</span><span class="n">${s==='train'?esc2(dayAbbr(labels[i])):'–'}</span></button>`).join('');
+  const slots=_rhySlots();const trainTotal=RHY.filter(x=>rhyType(x)==='train').length;
+  const tiles=slots.map((sl,i)=>`<button class="rhy-tile${sl.train?' train':''}${sl.fixed?' fixed':''}" type="button" data-i="${i}" aria-label="Tag ${i+1}: ${esc2(sl.label)} – tippen zum Ändern" onclick="rhyPick(${i})"><span class="d">${i+1}</span><span class="n">${esc2(sl.short)}</span></button>`).join('');
+  // Vorschau: die nächsten 14 echten Tage ab heute – zeigt, dass der Zyklus durch die Woche wandert
   const wd=['So','Mo','Di','Mi','Do','Fr','Sa'];const t=new Date();
-  const prev=Array.from({length:7},(_,i)=>{const d=new Date(t);d.setDate(t.getDate()+i);const s=RHY[i%RHY.length];const lbl=labels[i%RHY.length];
-    return `<div class="rhy-prev${s==='train'?' train':''}"><span class="w">${wd[d.getDay()]}</span><span class="n">${s==='train'?esc2(dayAbbr(lbl)):'–'}</span></div>`;}).join('');
+  const prev=Array.from({length:14},(_,i)=>{const d=new Date(t);d.setDate(t.getDate()+i);const sl=slots[i%slots.length];
+    return `<div class="rhy-prev${sl.train?' train':''}"><span class="w">${wd[d.getDay()]}</span><span class="n">${esc2(sl.short)}</span></div>`;}).join('');
   openSheet('Trainingsrhythmus',`
-    <div class="note status mb-3">${trainTotal===1?'1 Trainingstag':trainTotal+' Trainingstage'} in ${pl(RHY.length,'Tag','Tagen')} – die Folge wiederholt sich endlos. Tippen wechselt Training/Ruhe, lange drücken verschiebt oder entfernt einen Tag.</div>
+    <div class="note status mb-3">${trainTotal===1?'1 Training':trainTotal+' Trainings'} in ${pl(RHY.length,'Tag','Tagen')} – die Folge wiederholt sich endlos, unabhängig vom Wochentag. Tippe einen Tag an, um ihn festzulegen.</div>
     <div class="rhy-strip" id="rhyStrip">${tiles}</div>
     <div class="cluster mt-3">
-      <button class="btn sm sec" onclick="rhyAdd('train')">${icon('plus',16)} Trainingstag</button>
+      <button class="btn sm sec" onclick="rhyAdd('train')">${icon('plus',16)} Training</button>
       <button class="btn sm sec" onclick="rhyAdd('rest')">${icon('plus',16)} Ruhetag</button>
-      <button class="btn sm sec" onclick="rhyRemoveLast()">${icon('minus',16)} Letzten Tag</button>
+      <button class="btn sm sec" onclick="rhyRemoveLast()">${icon('minus',16)} Letzter Tag</button>
+      <button class="btn sm sec" onclick="rhyPresets()">${icon('sparkles',16)} Vorlage</button>
     </div>
-    <div class="section-label">Vorschau ab heute<span class="sl-r">wenn heute Tag 1 ist</span></div>
+    <div class="section-label">So läuft der Zyklus<span class="sl-r">wenn heute Tag 1 ist</span></div>
     <div class="rhy-week">${prev}</div>
+    <div class="caption mt-2">Trainingstage mit festem Namen (z.B. „O1") kommen immer an derselben Stelle des Zyklus. „T" heißt: der nächste Tag aus deinem Plan, automatisch der Reihe nach.<br>
+      Der Zyklus läuft dort weiter, wo du gerade stehst – er beginnt nicht bei jedem Speichern neu. Willst du heute an einer bestimmten Stelle einsteigen, tippe im Kalender auf heute und wähle den Tag.</div>
     <button class="btn block mt-4" onclick="saveRhythmus()">Rhythmus speichern</button>`);}
-function rhyToggle(i){if(rhyToggle.skip){rhyToggle.skip=false;return;}RHY[i]=RHY[i]==='train'?'rest':'train';drawRhythmus();}
+// Slot festlegen: fester Trainingstag, automatischer Trainingstag, Ruhetag – dazu verschieben/entfernen
+function rhyPick(i){const cur=RHY[i];const curDay=rhyDay(cur);const names=_rhyNames();
+  const opt=(sel,label,sub,act)=>`<button class="rhy-opt${sel?' on':''}" type="button" onclick="${act}"><span class="l">${esc2(label)}</span>${sub?`<span class="s">${esc2(sub)}</span>`:''}${sel?icon('check',18):''}</button>`;
+  openSheet('Tag '+(i+1)+' im Zyklus',`
+    ${names.length?`<div class="section-label">Fester Trainingstag</div>
+    <div class="stack-sm">${names.map(n=>opt(curDay===n,n,null,`rhySet(${i},'${esc(n)}')`)).join('')}</div>`:''}
+    <div class="section-label">Sonst</div>
+    <div class="stack-sm">
+      ${opt(rhyType(cur)==='train'&&!curDay,'Training (automatisch)','nächster Tag aus dem Plan',`rhySet(${i},null)`)}
+      ${opt(rhyType(cur)!=='train','Ruhetag',null,`rhySet(${i},'rest')`)}
+    </div>
+    <div class="rows mt-3">
+      ${_mrow('arrowLeft','Nach vorne schieben',`rhyMove(${i},-1)`)}
+      ${_mrow('arrowRight','Nach hinten schieben',`rhyMove(${i},1)`)}
+      ${_mrow('trash','Tag aus dem Zyklus entfernen',`rhyRemove(${i})`,{cls:'tone-red'})}
+    </div>`);}
+function rhySet(i,val){RHY[i]=val==='rest'?'rest':(val?{type:'train',day:val}:'train');drawRhythmus();}
 function rhyMove(i,dir){const j=i+dir;if(j<0||j>=RHY.length)return toast(dir<0?'Steht schon ganz vorne':'Steht schon ganz hinten');[RHY[i],RHY[j]]=[RHY[j],RHY[i]];drawRhythmus();}
 function rhyRemove(i){if(RHY.length<=1)return toast('Mindestens 1 Tag nötig');RHY.splice(i,1);drawRhythmus();}
-function rhyRemoveLast(){rhyRemove(RHY.length-1);}
-function rhyAdd(t){if(RHY.length>=14)return toast('Maximal 14 Tage');RHY.push(t);drawRhythmus();}
-function rhyOptions(i){const lbl=_rhyLabels()[i];
-  openSheet('Tag '+(i+1)+': '+lbl,`<div class="rows">
-    ${_mrow('arrowLeft','Nach vorne',`rhyMove(${i},-1)`)}
-    ${_mrow('arrowRight','Nach hinten',`rhyMove(${i},1)`)}
-    ${_mrow('refresh',RHY[i]==='train'?'Zu Ruhetag machen':'Zu Trainingstag machen',`rhyToggle(${i})`)}
-    ${_mrow('trash','Tag entfernen',`rhyRemove(${i})`,{cls:'tone-red'})}</div>`);}
-async function saveRhythmus(){if(!RHY.filter(x=>x==='train').length)return toast('Mindestens 1 Trainingstag nötig');
+function rhyRemoveLast(){if(RHY.length<=1)return toast('Mindestens 1 Tag nötig');RHY.pop();drawRhythmus();}
+function rhyAdd(t){if(RHY.length>=21)return toast('Maximal 21 Tage');RHY.push(t==='train'?'train':'rest');drawRhythmus();}
+// Fertige Zyklen aus den echten Tagesnamen des Plans – der schnellste Weg zu „O1,U1,Ruhe,O2,U2,Ruhe"
+function rhyPresets(){const names=_rhyNames();
+  const fix=n=>({type:'train',day:n});
+  const list=[];
+  if(names.length){
+    list.push(['Alle Tage, dann 1 Ruhetag',[...names.map(fix),'rest'],names.join(' · ')+' · Ruhe']);
+    list.push(['Alle Tage, dann 2 Ruhetage',[...names.map(fix),'rest','rest'],names.join(' · ')+' · Ruhe · Ruhe']);
+    if(names.length>=4){const p=[];names.forEach((n,k)=>{p.push(fix(n));if(k%2===1)p.push('rest');});if(rhyType(p[p.length-1])==='train')p.push('rest');
+      list.push(['Je 2 Trainings, dann 1 Ruhetag',p,p.map(x=>rhyDay(x)?dayAbbr(rhyDay(x)):'Ruhe').join(' · ')]);}
+  }
+  list.push(['3 Trainings, 1 Ruhetag (automatisch)',['train','train','train','rest'],'T · T · T · Ruhe']);
+  list.push(['1 Training, 1 Ruhetag (automatisch)',['train','rest'],'T · Ruhe']);
+  openSheet('Vorlage wählen',`<div class="stack-sm">${list.map((x,k)=>
+    `<button class="rhy-opt" type="button" onclick="rhyApplyPreset(${k})"><span class="l">${esc2(x[0])}</span><span class="s">${esc2(x[2])}</span></button>`).join('')}</div>
+    <div class="caption mt-2">Die Vorlage ersetzt deinen aktuellen Zyklus. Speichern musst du danach noch selbst.</div>`);
+  rhyPresets.list=list;}
+function rhyApplyPreset(k){const x=(rhyPresets.list||[])[k];if(!x)return;RHY=x[1].slice();drawRhythmus();}
+async function saveRhythmus(){if(!RHY.filter(x=>rhyType(x)==='train').length)return toast('Mindestens 1 Trainingstag nötig');
   const r=await API.post('/pattern',{pattern:RHY});
-  if(r.status===200){closeAllSheets();TODAY=null;renderWorkout.lastEff=null;_progInvalidate();_inv();toast('Rhythmus gespeichert ✓');
-    const cur=document.querySelector('.navbtn.on')?.dataset?.p;if(cur)go(cur);}
-  else toast(r.data?.error||'Fehler');}
+  if(r.status!==200)return toast(r.data?.error||'Fehler');
+  closeAllSheets();TODAY=null;renderWorkout.lastEff=null;_progInvalidate();_inv();
+  // Der Zyklus läuft an der Stelle weiter, an der die Historie steht – deshalb sagen wir gleich,
+  // was daraus für HEUTE folgt. Sonst rätselt man, warum nicht Tag 1 dran ist.
+  await loadToday();
+  const eff=TODAY?.confirmed||TODAY?.suggestion;
+  const what=eff?.type==='train'?(eff.dayName||'Training'):eff?.type==='sick'?'Pause':'Ruhetag';
+  toast('Rhythmus gespeichert ✓ – heute: '+what);
+  const cur=document.querySelector('.navbtn.on')?.dataset?.p;if(cur)go(cur);}
 // Hinweis: Diese Kachel-Version trägt die kanonischen Namen (openRhythmus/drawRhythmus/saveRhythmus/
-// rhyToggle/rhyMove/rhyRemove/rhyAdd). Da training.js vor coach.js geladen wird, greift dort der
+// rhyPick/rhyMove/rhyRemove/rhyAdd). Da training.js vor coach.js geladen wird, greift dort der
 // Fallback-Guard (`typeof window.openRhythmus!=='function'`) nicht mehr; _trInit() bindet zusätzlich nach.
-// Langes Drücken auf eine Rhythmus-Kachel (Pointer-Events; contextmenu als Fallback)
-(function(){let t=null,x0=0,y0=0;
-  document.addEventListener('pointerdown',e=>{const el=e.target&&e.target.closest&&e.target.closest('.rhy-tile');if(!el)return;x0=e.clientX;y0=e.clientY;clearTimeout(t);
-    t=setTimeout(()=>{t=null;rhyToggle.skip=true;try{if(navigator.vibrate)navigator.vibrate(10);}catch(x){}rhyOptions(+el.dataset.i);},420);},{passive:true});
-  const cancel=()=>{clearTimeout(t);t=null;};
-  document.addEventListener('pointerup',()=>{setTimeout(()=>{rhyToggle.skip=false;},50);cancel();},{passive:true});
-  document.addEventListener('pointercancel',cancel,{passive:true});
-  document.addEventListener('pointermove',e=>{if(t&&(Math.abs(e.clientX-x0)>8||Math.abs(e.clientY-y0)>8))cancel();},{passive:true});})();
-
 // ===== TECHNIK-LEXIKON =====
 // Tippfehler der Server-Definitionen clientseitig glätten (Quelle: src/server.js DEFINITIONS / seed-data.json)
 function _fixDef(s){return esc2(String(s||'')).replace(/Umkerpunkt/g,'Umkehrpunkt').replace(/ohne einer/g,'ohne eine').replace(/continous/g,'continuous').replace(/Tripple/g,'Triple').replace(/aufsVersagen/g,'aufs Versagen').replace(/\n/g,'<br>');}
@@ -650,6 +887,15 @@ function curRowWeight(){const l=curRowWeight.last;if(l&&document.contains(l)&&+l
   const g=[...document.querySelectorAll('#exlist .ex.open .setgrid[data-set], #exlist .setgrid[data-set]')].find(x=>!_rowDone(x));
   const w=g&&g.querySelector('input');return (w&&+w.value>0)?+w.value:60;}
 document.addEventListener('focusin',e=>{const t=e.target;if(t&&t.matches&&t.matches('#exlist .setgrid input[inputmode="decimal"]'))curRowWeight.last=t;});
+// Der Hantelrechner war bis 2.4.0 aus der Satzzeile nur über das Kontextmenü des Gewichtsfeldes zu
+// erreichen (Rechtsklick/Longpress) – und iOS Safari feuert `contextmenu` auf Eingabefeldern nicht.
+// Der Knopf in der Leiste erscheint erst nach dem ersten Satz, also war der Rechner auf dem iPhone
+// genau dann unerreichbar, wenn man ihn braucht: vor dem ersten Satz (RATE-25-training M6).
+// Das Scheiben-Symbol in der Gewichtszelle öffnet ihn mit dem Wert genau dieser Zeile; das
+// Kontextmenü bleibt zusätzlich bestehen (Desktop, Android).
+function trOpenPlateFromRow(btn){const inp=btn&&btn.parentElement?btn.parentElement.querySelector('input'):null;
+  if(inp)curRowWeight.last=inp; // damit die Leiste danach dieselbe Zeile meint
+  openPlateCalc(inp&&+inp.value>0?inp.value:curRowWeight());}
 function openPlateCalc(w){const start=(+w>0)?Math.round(+w*2)/2:60;
   openSheet('Hantelrechner',`${infoBox('plate_intro','Gib dein Zielgewicht ein – die App zeigt dir, welche Scheiben pro Seite auf die Langhantel müssen (die Stange wiegt meist 20 kg).')}
   <div class="grid-2">
@@ -670,40 +916,111 @@ function doPlate(){const target=parseFloat(val('pc_target'))||0;const bar=parseF
   el.innerHTML=h;}
 
 // ===== PAUSEN-TIMER + TRAININGSLEISTE (#restBar aus index.html) =====
-// Zustand: restInt (Intervall, null = keine Pause), restLeft/restTotal (Sekunden), REST_SECS (Standardlänge,
-// pro Gerät in localStorage 'be_rest'; Picker via Tipp auf die Zeit). Die Leiste hat zwei Zustände:
+// Zustand: REST_END_AT = Endzeitstempel der laufenden Pause in ms, 0 = keine Pause. restTotal = gewählte
+// Länge in Sekunden, nur für den Fortschrittsbalken. restInt = Handle des nächsten Ticks. REST_SECS =
+// Standardlänge, pro Gerät in localStorage 'be_rest'; Picker via Tipp auf die Zeit.
+// Die Leiste hat zwei Zustände:
 //  · läuft: Countdown · −15 · +15 · Abschließen (nur Symbol, damit −15/+15 immer Platz haben) · Fertig
 //  · idle (Kraft-Tab, mindestens ein Satz heute): „Pause" (Tipp = Picker + Start) · Hantelrechner · Abschließen
 // Solange die Leiste sichtbar ist, trägt body.rest-on (Seitenabstand unten, Toasts höher).
-let restInt=null,restLeft=0,restTotal=0;
+//
+// WARUM ein Endzeitstempel und kein Zähler: bis 2.4.0 zog ein setInterval jede Sekunde `restLeft--`.
+// Liegt die App im Hintergrund oder ist der Bildschirm gesperrt, drosseln iOS und Android diese Ticks
+// oder halten sie ganz an – die Sekunden liefen weiter, der Zähler nicht. Nach zwei Minuten Sperre stand
+// die Anzeige bei 1:10 statt bei 0:00 (RATE-25-training H2). Eine Uhrzeit lässt sich nicht drosseln:
+// REST_END_AT ist die einzige Wahrheit, alles andere wird daraus gerechnet.
+let restInt=null,restTotal=0,REST_END_AT=0;
 let REST_SECS=(()=>{try{const v=parseInt(localStorage.getItem('be_rest'));return [60,90,120,180].includes(v)?v:90;}catch(e){return 90;}})();
-function startRest(seconds){restTotal=restLeft=(+seconds>0?+seconds:REST_SECS);
-  clearInterval(restInt);restInt=setInterval(()=>{restLeft--;drawRest();if(restLeft<=0){clearInterval(restInt);restInt=null;restDone();}},1000);
-  drawRest();trainBarSync();}
-function drawRest(){const left=Math.max(0,restLeft);const m=Math.floor(left/60),s=left%60;
+// Verbleibende Sekunden aus der Uhr – aufgerundet, damit die letzte angefangene Sekunde als 0:01 dasteht.
+function trRestTickFromClock(){return REST_END_AT?Math.max(0,Math.ceil((REST_END_AT-Date.now())/1000)):0;}
+// Der nächste Tick zielt genau auf die nächste volle Sekunde der Restzeit und plant sich danach neu.
+// Kommt er zu spät (Hintergrund, langsames Gerät), korrigiert die nächste Rechnung den Fehler von selbst.
+function trRestSchedule(){clearTimeout(restInt);restInt=null;
+  if(!REST_END_AT)return;
+  const ms=REST_END_AT-Date.now();
+  if(ms<=0){restDone();return;}
+  restInt=setTimeout(()=>{restInt=null;drawRest();trRestSchedule();},((ms-1)%1000)+1);}
+function startRest(seconds){restTotal=(+seconds>0?+seconds:REST_SECS);
+  REST_END_AT=Date.now()+restTotal*1000;
+  drawRest(true);trRestSchedule();trainBarSync();}
+// jump=true: der Wert springt (Start, ±15 s, Rückkehr aus dem Hintergrund). Dann darf der Balken nicht
+// eine Sekunde lang zu einer Restzeit hinlaufen, die es gar nicht mehr gibt (app.css: width 1s linear).
+function drawRest(jump){const left=trRestTickFromClock();const m=Math.floor(left/60),s=left%60;
   const el=document.getElementById('restTime');if(el)el.textContent=m+':'+String(s).padStart(2,'0');
-  const p=document.getElementById('restProg');if(p)p.style.width=(restTotal?Math.round(left/restTotal*1000)/10:0)+'%';}
-function restAdd(s){if(restInt==null)return;restLeft=Math.max(0,restLeft+s);if(restLeft>restTotal)restTotal=restLeft;drawRest();}
-function restStop(){clearInterval(restInt);restInt=null;trainBarSync();}
+  const p=document.getElementById('restProg');if(!p)return;
+  if(jump)p.style.transition='none';
+  p.style.width=(restTotal?Math.round(left/restTotal*1000)/10:0)+'%';
+  if(jump){void p.offsetWidth;p.style.transition='';}}
+function restAdd(s){if(!REST_END_AT)return;
+  REST_END_AT=Math.max(Date.now(),REST_END_AT+s*1000);
+  const left=trRestTickFromClock();if(left>restTotal)restTotal=left;
+  drawRest(true);trRestSchedule();}
+function restStop(){clearTimeout(restInt);restInt=null;REST_END_AT=0;trainBarSync();}
 function restHide(){restStop();} // legacy-Name
-function restDone(){clearInterval(restInt);restInt=null;
-  // kurzes akustisches + haptisches Signal
-  try{const ctx=new (window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator();const g=ctx.createGain();
-    o.connect(g);g.connect(ctx.destination);o.frequency.value=880;g.gain.value=0.1;o.start();
-    setTimeout(()=>{o.stop();ctx.close();},250);}catch(e){}
-  try{if(navigator.vibrate)navigator.vibrate(200);}catch(e){}
+// quiet=true: die Pause ist im Hintergrund abgelaufen und wird beim Zurückkommen nur noch nachgeholt –
+// dann sind Piepser und Vibration Lärm, der Nutzer schaut ja gerade auf den Bildschirm.
+function restDone(quiet){clearTimeout(restInt);restInt=null;REST_END_AT=0;
+  if(!quiet){trBeep();
+    try{if(navigator.vibrate)navigator.vibrate(200);}catch(e){}
+    trRestNotify();}
   toast('Pause vorbei – nächster Satz');trainBarSync();}
+
+// ---- Ton, Bildschirm, Benachrichtigung ------------------------------------------------------
+// iOS gibt einen AudioContext ausschliesslich während einer echten Nutzergeste frei. Bis 2.4.0 entstand
+// er erst beim Ablauf der Pause (in restDone) – dort gibt es keine Geste, der Ton blieb auf dem iPhone
+// dauerhaft stumm (RATE-25-training H2). Deshalb wird er beim ERSTEN bestätigten Satz der Sitzung
+// angelegt und entsperrt; danach lebt er weiter und wird nicht mehr geschlossen.
+let TR_AUDIO_CTX=null;
+function trAudioUnlock(){try{const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+  if(!TR_AUDIO_CTX||TR_AUDIO_CTX.state==='closed')TR_AUDIO_CTX=new AC();
+  if(TR_AUDIO_CTX.state==='suspended'){const p=TR_AUDIO_CTX.resume();if(p&&typeof p.catch==='function')p.catch(()=>{});}
+}catch(e){}}
+function trBeep(){try{const ctx=TR_AUDIO_CTX;if(!ctx||ctx.state==='closed')return;
+  if(ctx.state==='suspended'){const p=ctx.resume();if(p&&typeof p.catch==='function')p.catch(()=>{});}
+  const o=ctx.createOscillator(),g=ctx.createGain(),t=ctx.currentTime;
+  o.connect(g);g.connect(ctx.destination);o.frequency.value=880;
+  // kurze Rampe statt hartem Ein/Aus – sonst knackt es auf Handylautsprechern
+  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.12,t+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
+  o.start(t);o.stop(t+0.26);}catch(e){}}
+// Wake-Lock: zwischen zwei Sätzen liegt das Handy auf der Bank. Sperrt sich dabei der Bildschirm, kostet
+// der nächste Satz erst Entsperren, dann Tippen – und man sieht nicht, wie lange die Pause noch läuft.
+// Ab dem ersten bestätigten Satz halten wir den Bildschirm wach (trWakeLock.want), bei „Training beendet"
+// geben wir ihn frei. Die Schnittstelle fehlt in manchen Browsern und schlägt in unsichtbaren Seiten fehl:
+// beides wird still geschluckt – es ist reiner Komfort, es hängt nichts daran.
+let TR_WAKE_LOCK=null;
+function trWakeLock(){try{
+  if(TR_WAKE_LOCK||trWakeLock.busy||!navigator.wakeLock||document.visibilityState!=='visible')return;
+  trWakeLock.busy=1;
+  navigator.wakeLock.request('screen').then(w=>{trWakeLock.busy=0;
+    if(!trWakeLock.want){try{w.release();}catch(e){}return;} // inzwischen beendet
+    TR_WAKE_LOCK=w;try{w.addEventListener('release',()=>{if(TR_WAKE_LOCK===w)TR_WAKE_LOCK=null;});}catch(e){}
+  },()=>{trWakeLock.busy=0;});}catch(e){trWakeLock.busy=0;}}
+function trWakeRelease(){const w=TR_WAKE_LOCK;TR_WAKE_LOCK=null;if(w)try{w.release();}catch(e){}}
+// „Pause vorbei" als Benachrichtigung – ausschliesslich, wenn die Erlaubnis schon erteilt ist. Wir fragen
+// hier NIE danach: ein Berechtigungsdialog mitten im Satz ist eine Zumutung, und ein abgelehnter Dialog
+// ist dauerhaft verloren. Sichtbare Seite braucht keine Benachrichtigung – dort reichen Ton und Toast.
+function trRestNotify(){try{
+  if(document.visibilityState==='visible')return;
+  if(typeof Notification==='undefined'||Notification.permission!=='granted')return;
+  const opt={body:'Weiter mit dem nächsten Satz.',tag:'be-rest',icon:'/icon-192.png'};
+  try{const n=new Notification('Pause vorbei',opt);setTimeout(()=>{try{n.close();}catch(e){}},20000);return;}catch(e){}
+  // Android Chrome verbietet den Konstruktor und kennt nur den Weg über den Service Worker.
+  if(navigator.serviceWorker&&navigator.serviceWorker.ready)
+    navigator.serviceWorker.ready.then(reg=>reg.showNotification('Pause vorbei',opt)).catch(()=>{});
+}catch(e){}}
 // Pausenlänge wählen (Tipp auf die Zeit): 60/90/120/180 s, gemerkt pro Gerät; im Idle-Zustand auch „Pause starten"
-function restPick(){const opts=[60,90,120,180];const running=restInt!=null;
+function restPick(){const opts=[60,90,120,180];const running=REST_END_AT>0;
   openSheet('Pausenlänge',`<div class="note mb-3">${running?'Die laufende Pause startet mit der neuen Länge neu.':'Standardlänge für den Pausen-Timer nach jedem bestätigten Satz.'}</div>
     <div class="grid-4 mb-3">${opts.map(n=>`<button class="chip pick${n===REST_SECS?' on':''}" onclick="restSetDefault(${n})">${n} s</button>`).join('')}</div>
     ${running?'':`<button class="btn block" onclick="restStartNow()">${icon('timer',18)} Pause starten (${REST_SECS} s)</button>`}`);}
 function restSetDefault(n){n=+n;REST_SECS=n;try{localStorage.setItem('be_rest',String(n));}catch(e){}
-  if(restInt!=null){closeModal();startRest(n);}else restPick();}
-function restStartNow(){closeModal();startRest(REST_SECS);}
+  trAudioUnlock(); // Tipp im Picker ist eine Nutzergeste – hier lässt sich der Ton noch entsperren
+  if(REST_END_AT>0){closeModal();startRest(n);}else restPick();}
+function restStartNow(){closeModal();trAudioUnlock();startRest(REST_SECS);}
 // Leiste an den Zustand anpassen (wird von Timer, Fortschritt, Tab-Wechsel und View-Wechsel aufgerufen)
 function trainBarSync(){const bar=document.getElementById('restBar');if(!bar)return;
-  const running=restInt!=null;
+  const running=REST_END_AT>0;
   const onStrength=!!document.getElementById('exlist')&&!coachView();
   const c=onStrength?_countDone():{done:0,total:0};
   const idle=onStrength&&c.done>0&&trainBarSync.dismissed!==today();
@@ -736,7 +1053,8 @@ function trainBarSync(){const bar=document.getElementById('restBar');if(!bar)ret
 function _trInit(){
   // falls coach.js die alten Zeilen-Fallbacks doch installiert hat: Kachel-Version gewinnt
   window.openRhythmus=openRhythmus;window.drawRhythmus=drawRhythmus;window.saveRhythmus=saveRhythmus;
-  window.rhyToggle=rhyToggle;window.rhyMove=rhyMove;window.rhyRemove=rhyRemove;window.rhyAdd=rhyAdd;
+  window._cycleRow=_cycleRow;window.cycleText=cycleText;window.rhyPick=rhyPick;window.rhySet=rhySet;window.rhyMove=rhyMove;window.rhyRemove=rhyRemove;window.rhyAdd=rhyAdd;
+  window.rhyRemoveLast=rhyRemoveLast;window.rhyPresets=rhyPresets;window.rhyApplyPreset=rhyApplyPreset;
   try{if(typeof TOUR_DEFS==='object'&&TOUR_DEFS&&TOUR_DEFS.workout)TOUR_DEFS.workout=[
     {sel:'#daysel',title:'Deine Trainingstage',body:'Wechsle hier zwischen deinen Trainingstagen. Der rote Chip ist für heute vorgeschlagen; hinter den drei Punkten bearbeitest du deinen Plan.',pos:'below'},
     {sel:'#trainProg',title:'Dein Fortschritt',body:'Hier siehst du, wie viele Sätze du heute schon geschafft hast. Pausen-Timer, Hantelrechner und „Abschließen" erscheinen unten in der Leiste, sobald du loslegst.',pos:'below'},

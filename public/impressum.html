@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<!-- SOLANGE rechtstexte-status = "unvollstaendig" ist, steht hier noindex. Eine oeffentlich
+     auffindbare, aber leere Pflichtangabe ist schlimmer als eine, die es noch nicht gibt.
+     Beim Ausfuellen (Schritt 2 der Liste unten) auf "index,follow" zurueckstellen. -->
+<meta name="robots" content="noindex,nofollow">
+<!-- Der Zustand der Rechtstexte als ein einziges, stabiles Wort – die Freigabebedingung vor dem
+     Deploy. Es zaehlt nicht TODO-Zeilen (die verschieben sich beim Bearbeiten), sondern den Zustand.
+     Werte: "unvollstaendig" | "vollstaendig". Die beiden Pruefbefehle stehen in public/js/core.js
+     im Abschnitt A-II.4 – bewusst dort und nicht hier, weil ein Kommentar, der sein eigenes
+     Suchmuster zitiert, sich selbst findet und die Pruefung damit nie gruen werden kann. -->
+<meta name="rechtstexte-status" content="unvollstaendig">
+<!-- Gegenstueck zu CONSENT_VERSION in src/server.js (A4-6): der Einwilligungstext in der App und
+     diese beiden Rechtsseiten gehoeren zusammen datiert. Weicht ein Wert ab, ist die Einwilligung
+     veraltet, ohne dass es jemand merkt. Pruefbefehl ebenfalls in core.js. -->
+<meta name="einwilligung-fassung" content="2026-09-13">
+<title>Impressum · BE INEVITABLE</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<!-- Wie datenschutz.html: ohne app.css, ohne JavaScript, vollstaendig in sich geschlossen.
+     ALLE Angaben zur Person sind TODO-MARCO-Platzhalter. Hier steht nichts Erfundenes:
+     Ein falsches Impressum ist schlimmer als gar keines.
+
+     ==================================================================================
+     AUSFUELLEN VOR DEM ERSTEN OEFFENTLICHEN START  —  dies ist die einzige Liste.
+     Wer nur die <dd>-Felder unten ausfuellt, ist NICHT fertig: Schritt 2 bis 4 fehlen dann.
+     ==================================================================================
+
+     SCHRITT 1 — die 13 Angaben (8 hier, 1 hier unten bei "Technischer Betrieb",
+                 4 in datenschutz.html Abschnitt 1):
+       impressum.html, <dl> "Betreiber und Verantwortlicher"
+         (1) Name / Firma            — Pflicht
+         (2) Anschrift               — Pflicht, kein Postfach
+         (3) E-Mail                  — Pflicht
+         (4) Telefon                 — optional, aber dann wirklich erreichbar
+         (5) UID / USt-IdNr.         — falls zutreffend
+         (6) Firmenbuch / Register   — Nummer UND zustaendiges Gericht, falls zutreffend
+         (7) Gewerbe / Berufsbez.    — bei Trainer-/Beratungstaetigkeit die Gewerbeberechtigung
+         (8) Aufsichtsbehoerde/Kammer— falls zutreffend
+       impressum.html, "Technischer Betrieb"
+         (9) Region und Anschrift des Render-Dienstes
+       datenschutz.html, Abschnitt 1
+        (10) Name, (11) Anschrift, (12) Kontakt des Verantwortlichen — WORTGLEICH zu (1)-(3)
+        (13) Region des Render-Dienstes + Auftragsverarbeitungsvertrag mit Render bestaetigt
+
+     SCHRITT 2 — in BEIDEN Dateien: robots auf "index,follow" und
+                 rechtstexte-status auf "vollstaendig" setzen.
+
+     SCHRITT 3 — in BEIDEN Dateien die Zeile "Stand: …" auf das Datum der Aenderung setzen.
+
+     SCHRITT 4 — nur wenn sich dabei etwas AM INHALT der Einwilligung aendert (nicht bei blossen
+                 Kontaktangaben): CONSENT_VERSION in src/server.js, einwilligung-fassung in beiden
+                 Dateien und der Text der drei Karten in public/js/core.js gemeinsam hochdatieren.
+                 Sonst wird nicht neu gefragt, obwohl der Text ein anderer ist.
+
+     SCHRITT 5 — diesen Kommentarblock loeschen. Er hat seinen Zweck dann erfuellt und geht sonst
+                 als rund 3 KB Ballast an jeden Leser der Seite mit.
+     ================================================================================== -->
+<style>
+:root{color-scheme:dark;
+  --bg:#000;--surface:#151517;
+  --hairline2:rgba(255,255,255,.12);
+  --ink:#f5f5f7;--ink2:#a1a1a6;--ink3:#8a8a8f;
+  --red-text:#ff453a;--blue:#0a84ff;
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,'Helvetica Neue',sans-serif;
+  --font-head:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',system-ui,sans-serif}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:17px;line-height:1.5;-webkit-font-smoothing:antialiased}
+body{padding:0 20px calc(48px + env(safe-area-inset-bottom,0px));max-width:680px;margin:0 auto}
+a{color:var(--blue);text-decoration:none}
+a:hover,a:focus-visible{text-decoration:underline}
+:focus-visible{outline:3px solid var(--red-text);outline-offset:2px;border-radius:6px}
+header{padding:calc(28px + env(safe-area-inset-top,0px)) 0 8px}
+.back{display:inline-flex;align-items:center;min-height:44px;gap:8px;color:var(--ink2);font-size:15px}
+h1{font:700 30px/1.15 var(--font-head);letter-spacing:-.02em;margin:16px 0 8px}
+h2{font:700 20px/1.3 var(--font-head);letter-spacing:-.02em;margin:34px 0 10px}
+p{margin:10px 0}
+p.lead{color:var(--ink2)}
+ul{margin:10px 0 10px 20px}
+li{margin:6px 0}
+.meta{color:var(--ink3);font-size:13px}
+.todo{background:rgba(255,159,10,.12);border:.5px solid rgba(255,159,10,.45);border-radius:12px;padding:14px 16px;margin:12px 0}
+.todo b{color:#ff9f0a}
+.todo ul{margin:8px 0 0 20px}
+dl{margin:12px 0}
+dt{color:var(--ink2);font-size:13px;text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-top:14px}
+dd{margin:2px 0 0}
+footer{margin-top:44px;padding-top:20px;border-top:.5px solid var(--hairline2);color:var(--ink3);font-size:13px}
+footer a{margin-right:16px;display:inline-block;min-height:44px;line-height:44px}
+hr{border:none;border-top:.5px solid var(--hairline2);margin:28px 0}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">&larr; Zur App</a>
+  <h1>Impressum</h1>
+  <p class="lead">Angaben nach §&nbsp;5 ECG / §&nbsp;25 MedienG (Österreich) bzw. §&nbsp;5 DDG (Deutschland).</p>
+  <p class="meta">Stand: 13. September 2026 · App-Version 2.6.0</p>
+</header>
+
+<div class="todo">
+  <b>TODO-MARCO – diese Seite ist noch nicht ausgefüllt.</b>
+  <p>Die Felder unten stehen absichtlich leer. Hier darf nichts Erfundenes stehen: ein falsches Impressum
+  ist schlimmer als ein leeres. Vor dem ersten öffentlichen Start bitte eintragen:</p>
+  <ul>
+    <li>Name bzw. Firmenwortlaut des Betreibers</li>
+    <li>vollständige Anschrift (kein Postfach)</li>
+    <li>E-Mail-Adresse und, falls vorhanden, Telefonnummer</li>
+    <li>UID-/USt-IdNr., Firmenbuch-/Handelsregisternummer und zuständiges Gericht – falls zutreffend</li>
+    <li>Gewerbe bzw. Berufsbezeichnung, Behörde und Kammer – falls zutreffend</li>
+    <li>bei Trainer-/Beratungstätigkeit: die zutreffende Gewerbeberechtigung</li>
+  </ul>
+  <p>Solange das offen ist, ist diese Seite von Suchmaschinen ausgenommen
+  (<code>noindex</code>) und die App hat außer dem Betreiber keine Nutzer. Die vollständige
+  Reihenfolge – Angaben, <code>noindex</code> zurücknehmen, Datum, Einwilligungsfassung – steht
+  als Kommentar im Kopf dieser Datei.</p>
+</div>
+
+<h2>Betreiber und Verantwortlicher</h2>
+<dl>
+  <dt>Name / Firma</dt><dd>TODO-MARCO</dd>
+  <dt>Anschrift</dt><dd>TODO-MARCO</dd>
+  <dt>E-Mail</dt><dd>TODO-MARCO</dd>
+  <dt>Telefon</dt><dd>TODO-MARCO (optional)</dd>
+  <dt>UID / USt-IdNr.</dt><dd>TODO-MARCO (falls zutreffend)</dd>
+  <dt>Firmenbuch / Handelsregister</dt><dd>TODO-MARCO (falls zutreffend)</dd>
+  <dt>Gewerbe / Berufsbezeichnung</dt><dd>TODO-MARCO (falls zutreffend)</dd>
+  <dt>Aufsichtsbehörde / Kammer</dt><dd>TODO-MARCO (falls zutreffend)</dd>
+</dl>
+<p>Dieselben Angaben gelten als Verantwortlicher im Sinne der DSGVO – siehe
+<a href="/datenschutz.html">Datenschutz</a>.</p>
+
+<h2>Technischer Betrieb</h2>
+<p>Die App läuft auf Servern von <b>Render Services, Inc.</b> Render verarbeitet die Daten
+ausschließlich in unserem Auftrag.</p>
+<div class="todo"><b>TODO-MARCO:</b> Region des Render-Dienstes und Anschrift von Render ergänzen.</div>
+
+<h2>Zweck der App</h2>
+<p>BE INEVITABLE ist eine Trainings-, Ernährungs- und Coaching-App für die Athletinnen und Athleten des
+Betreibers. Sie ersetzt keine ärztliche Beratung, keine Diagnose und keine Therapie. Bei Beschwerden,
+Schmerzen oder Vorerkrankungen: bitte ärztlich abklären lassen, bevor du trainierst.</p>
+
+<h2>Haftung für Inhalte und Links</h2>
+<p>Die Inhalte dieser App werden mit Sorgfalt erstellt. Für externe Links – etwa auf offizielle Quellen
+im Mindset-Bereich oder auf Open Food Facts – ist ausschließlich der jeweilige Anbieter verantwortlich.</p>
+
+<h2>Urheberrecht</h2>
+<p>Texte, Bilder und Programmcode dieser App gehören dem Betreiber, soweit nicht anders gekennzeichnet.
+Im Mindset-Bereich verweisen wir auf fremde Werke, statt sie wiederzugeben.</p>
+
+<hr>
+<footer>
+  <a href="/">Zur App</a><a href="/datenschutz.html">Datenschutz</a>
+  <p>BE INEVITABLE</p>
+</footer>
+</body>
+</html>

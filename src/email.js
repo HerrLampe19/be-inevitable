@@ -1,6 +1,9 @@
 // E-Mail-Versand. Nutzt SMTP (nodemailer) NUR wenn EMAIL_HOST gesetzt ist.
-// Ohne Konfiguration wird die Mail ins Server-Log geschrieben (Dev-Fallback),
-// damit die App ohne Mailserver nicht bricht und Links testbar bleiben.
+// Ohne Konfiguration wird die Mail NICHT versandt; ins Log kommt nur "Mail nicht versandt - SMTP fehlt"
+// mit maskierter Adresse und Betreff. Der Text – und damit Reset-/Bestaetigungs-Links – steht seit
+// SEC-23 NICHT mehr im Log: auf Render sieht jeder mit Dashboard-Zugriff die Logs, und ein Reset-Link
+// aus dem Log ist eine Kontouebernahme (nachgestellt). Wer lokal ohne SMTP einen Link braucht, setzt
+// EMAIL_DEBUG=1 – das wirkt ausdruecklich NIE bei NODE_ENV=production.
 //
 // Benötigte Umgebungsvariablen für echten Versand:
 //   EMAIL_HOST   z.B. smtp.zoho.eu / smtp.gmail.com
@@ -9,9 +12,14 @@
 //   EMAIL_PASS   SMTP-Passwort / App-Passwort
 //   EMAIL_FROM   Absender, z.B. "BE INEVITABLE <no-reply@deine-domain.de>"
 //   APP_URL      öffentliche Basis-URL, z.B. https://be-inevitable.onrender.com
+//   EMAIL_DEBUG  1 = ohne SMTP den Mailtext (mit Links) ins Log schreiben – nur lokal, nie in Produktion
 
 let transporter = null;
 let triedInit = false;
+
+// Adresse fuers Log maskieren: "m***@example.org" – reicht zum Zuordnen, verraet die Adresse nicht.
+const maskAddr = a => String(a || '').replace(/^(.).*?(@.*)$/, '$1***$2');
+const DEBUG_MAIL = process.env.EMAIL_DEBUG === '1' && process.env.NODE_ENV !== 'production';
 
 function appUrl() {
   return (process.env.APP_URL || '').replace(/\/$/, '') || '';
@@ -42,10 +50,9 @@ export async function sendEmail({ to, subject, html, text }) {
   const from = process.env.EMAIL_FROM || 'BE INEVITABLE <no-reply@be-inevitable.local>';
   const tx = await getTransporter();
   if (!tx) {
-    console.log('\n[email:LOG-FALLBACK] (kein EMAIL_HOST gesetzt – Mail wird nur geloggt)');
-    console.log('  An:', to, '| Betreff:', subject);
-    if (text) console.log('  Text:', text);
-    console.log('');
+    // Kein Link, kein Text: ein Reset-Link im Log waere ein Uebernahme-Link fuer jeden Log-Leser.
+    console.log('[email] Mail nicht versandt - SMTP fehlt (EMAIL_HOST). An:', maskAddr(to), '| Betreff:', subject);
+    if (DEBUG_MAIL && text) console.log('[email:DEBUG] Text:', text);
     return { sent: false, logged: true };
   }
   try {

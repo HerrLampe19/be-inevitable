@@ -2,6 +2,8 @@
   "name": "BE INEVITABLE",
   "short_name": "BE INEVITABLE",
   "id": "/",
+  "lang": "de",
+  "dir": "ltr",
   "description": "Lifestyle & Bodybuilding Coaching",
   "start_url": "/",
   "scope": "/",
@@ -10,8 +12,16 @@
   "theme_color": "#000000",
   "orientation": "portrait",
   "icons": [
-    { "src": "/icon-192.png?v=2", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-192.png?v=__APP_VERSION__", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png?v=__APP_VERSION__", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png?v=__APP_VERSION__", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Training", "short_name": "Training", "description": "Direkt zum Training", "url": "/?go=workout",
+      "icons": [{ "src": "/icon-192.png?v=__APP_VERSION__", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Essen loggen", "short_name": "Essen", "description": "Mahlzeit eintragen", "url": "/?go=food",
+      "icons": [{ "src": "/icon-192.png?v=__APP_VERSION__", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Priming", "short_name": "Priming", "description": "Mindset für heute", "url": "/?go=priming",
+      "icons": [{ "src": "/icon-192.png?v=__APP_VERSION__", "sizes": "192x192", "type": "image/png" }] }
   ]
 }

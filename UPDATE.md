@@ -86,4 +86,6 @@ Render sie beim Deploy automatisch über die `package.json`. Du musst nichts man
 ## Prüfen, ob das Update live ist
 Nach dem Deploy `https://DEINE-APP.onrender.com/api/version` öffnen – die angezeigte
 Versionsnummer muss zur neuen Version passen (siehe CHANGELOG.md). Mehr dazu in
+Seit 2.4.0 zusätzlich: `/api/version` muss `"schema":"ok"` tragen; sonst `/api/selftest` öffnen.
+Und: **jede Auslieferung geänderter Dateien braucht eine neue Versionsnummer** (siehe DEPLOY-PRUEFEN.md).
 DEPLOY-PRUEFEN.md.

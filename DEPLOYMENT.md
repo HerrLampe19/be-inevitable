@@ -40,13 +40,25 @@ Service → **Environment**. Mindestens:
 
 | Variable     | Wert |
 |--------------|------|
-| `JWT_SECRET` | lange Zufallszeichenkette (mind. 30 Zeichen, z.B. aus einem Passwort-Generator) |
+| `JWT_SECRET` | lange Zufallszeichenkette (mind. 32 Zeichen, z.B. aus einem Passwort-Generator). **Seit 2.4.0 Pflicht ohne Ausnahme: ohne diese Variable startet der Server nicht** – vorher genügte ein vergessenes `NODE_ENV`, und jedes Konto ließ sich mit dem bekannten Standardschlüssel fälschen. |
 | `DB_PATH`    | `/var/data/data.db` |
 | `NODE_ENV`   | `production` |
-| `APP_URL`    | die öffentliche URL des Dienstes, z.B. `https://deine-app.onrender.com` |
+| `APP_URL`    | die öffentliche URL des Dienstes, z.B. `https://deine-app.onrender.com` – steht in E-Mail-Links **und** im persönlichen Apple-Health-Link |
 
-Für E-Mail zusätzlich `EMAIL_HOST/PORT/USER/PASS/FROM` – Details in EMAIL-SETUP.md.
-Optional `ANTHROPIC_API_KEY` für die KI-Analyse. Nach dem Speichern startet Render neu.
+Für E-Mail zusätzlich `EMAIL_HOST/PORT/USER/PASS/FROM` – Details in EMAIL-SETUP.md. **Ohne SMTP gibt es
+keinen Passwort-Reset** (der Link wird seit 2.4.0 nicht mehr ins Log geschrieben).
+
+Optional (seit 2.4.0, Erklärung in SICHERHEIT.md):
+
+| Variable | Wirkung |
+|---|---|
+| `REGISTER_CODE` | Gesetzt: Registrierung verlangt diesen Einladungscode. Nicht gesetzt: offene Registrierung wie bisher. |
+| `SELFTEST_KEY` | Gesetzt: `/api/selftest?key=…` zeigt zusätzlich Zählwerte. Sonst bleibt der Selbsttest ohne Zahlen. |
+| `ANTHROPIC_API_KEY` | KI-Analyse für Coaches (Anthropic wird dann Empfänger von Gesundheitswerten – siehe SICHERHEIT.md). |
+| `AI_MODEL` | Modell für die KI-Analyse (nur mit `ANTHROPIC_API_KEY`); ohne Angabe nimmt die App ihren Standard. |
+| `ALLOW_DEV_SECRET` | **Nur lokal.** `1` erlaubt den Start ohne `JWT_SECRET` auf dem eigenen Rechner. Niemals auf Render setzen. |
+
+Nach dem Speichern startet Render neu.
 
 ## Schritt 5 – Ersten Admin/Coach anlegen
 Service → **Shell**, dann (Werte anpassen):
@@ -83,6 +95,8 @@ Die Dateien lassen sich auch herunterladen, um sie extern zu sichern.
 
 ## Wenn etwas nicht läuft
 - Render → **Logs** zeigen Fehler im Klartext.
-- `/api/version` prüfen: zeigt es die erwartete Version und `"mail":"konfiguriert"`?
+- `/api/version` prüfen: zeigt es die erwartete Version und `"schema":"ok"`? Bei Problemen
+  `/api/selftest` öffnen (HTTP 503 + Klartext, welche Migration fehlt). Ob die Mail konfiguriert
+  ist, steht als Admin unter `/api/admin/stats`.
 - Häufige Stolpersteine: Code in verschachteltem Unterordner, falscher Branch,
   fehlendes `DB_PATH` (→ Daten weg nach Deploy), `JWT_SECRET` nicht gesetzt.

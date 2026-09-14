@@ -1,0 +1,36 @@
+/* BE INEVITABLE – globale Suche (2.3.0, Paket D). Gehört zu public/js/search.js und gilt nur innerhalb
+   des Such-Sheets (#gsBody) plus der kurzen Hervorhebung eines Sprungziels (.gs-flash).
+   Ausschließlich Tokens und Bausteine aus app.css: keine neuen Farben, keine eigenen Abstände jenseits
+   des 4-px-Rasters. Alle Klassen tragen das Präfix „gs-", damit sie mit keinem Bereichs-Stylesheet
+   kollidieren. */
+
+/* Das Feld bleibt beim Scrollen stehen: die Trefferliste kann lang werden, das Suchwort muss sichtbar
+   und tippbar bleiben. Der Hintergrund ist der des Sheets, sonst scrollen Zeilen sichtbar darunter durch. */
+.field.gs-search{position:sticky;top:0;z-index:5;margin:0 0 4px;padding:4px 0 10px;background:var(--surface2)}
+.gs-wrap{position:relative;display:flex;align-items:center}
+.gs-wrap>.ic{position:absolute;left:14px;width:18px;height:18px;color:var(--ink3);pointer-events:none}
+.gs-search .gs-wrap input{padding-left:42px}
+/* iOS legt in type="search" eigene Zierelemente über unser Feld */
+.gs-wrap input::-webkit-search-decoration,
+.gs-wrap input::-webkit-search-results-button{-webkit-appearance:none;appearance:none}
+
+/* Die erste Überschrift steht direkt unter dem Feld – die 24 px aus .section-label wären hier zu viel */
+#gsBody>.section-label:first-child{margin-top:8px}
+#gsBody{padding-bottom:8px}
+
+/* Trefferzeile: .row liefert bereits 56 px Höhe und den Chevron. Hier wird nur dafür gesorgt, dass
+   lange Übungs- und Rezeptnamen bis hinunter zu 320 px Breite abschneiden statt umzubrechen. */
+.gs-rows{margin-bottom:4px}
+.gs-hit .rl{overflow:hidden}
+.gs-hit .rl>span,
+.gs-hit .rl small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Sprungziel kurz aufleuchten lassen (Übung im Trainingstag), damit man sie in einer langen Liste
+   sofort findet. Der Ring liegt außen an, verschiebt also nichts. */
+.gs-flash{animation:gsFlash 1.6s var(--ease)}
+@keyframes gsFlash{
+  0%{box-shadow:0 0 0 0 var(--red-ring)}
+  15%,65%{box-shadow:0 0 0 2px var(--red-ring)}
+  100%{box-shadow:0 0 0 0 rgba(0,0,0,0)}}
+@media (prefers-reduced-motion:reduce){
+  .gs-flash{animation:none;box-shadow:0 0 0 2px var(--red-ring)}}

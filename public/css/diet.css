@@ -8,6 +8,17 @@
 .diet-hero .dh-head .meta>span{white-space:nowrap}
 .diet-hero .dh-main{display:flex;align-items:center;gap:18px}
 .diet-hero .dh-bars{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+/* D1: „Startwert"-Zeile unter dem Ring. Sie gehört zum Ziel, darum steht sie IN der Hero-Karte und nicht als
+   eigene Notiz darunter – abgesetzt durch die Haarlinie, damit sie die Balken nicht optisch anfasst. */
+.diet-hero .dh-note{display:flex;align-items:flex-start;gap:8px;margin-top:14px;padding-top:12px;
+  border-top:.5px solid var(--hairline2);font-size:13px;line-height:1.45;color:var(--ink2)}
+.diet-hero .dh-note svg{flex:none;margin-top:1px;color:var(--ink3,var(--ink2))}
+/* D10: die einmalige Rückfrage „Übernehmen / Behalten" unter derselben Zeile. Die Knöpfe stehen auf einer
+   eigenen Zeile (44-px-Ziele, P7) und dürfen bei schmalen Geräten umbrechen; die Kleinzeile darunter sagt,
+   was „Übernehmen" wirklich ins Profil schreibt. */
+.diet-hero .dh-note .dt-ask-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.diet-hero .dh-note .dt-ask-acts .btn{min-height:44px}
+.diet-hero .dh-note .dt-ask-acts small{flex-basis:100%;font-size:12px;line-height:1.4;color:var(--ink2)}
 /* Tagtyp als Chip (ersetzt das 51-px-Badge über der Seite) */
 .chip.day{font-weight:600;cursor:default}
 .chip.day::before{content:none}
@@ -34,6 +45,12 @@
 #dietBody .section-label.tight{margin-top:12px}
 #dietBody .section-label .sl-r{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink2)}
 #dietBody .rows .row .rr{font-variant-numeric:tabular-nums}
+/* Ohne Netz eingetragen: die Zeile zählt schon mit, wartet aber noch in der Outbox. Kein neuer Farbton –
+   die Pille „wird nachgetragen" sagt es, die Kante links macht die Gruppe auf einen Blick unterscheidbar.
+   Bewusst ohne .tap: die Zeile ist nicht antippbar, also darf sie auch nicht danach aussehen. */
+#dietBody .rows .row.food-pending{box-shadow:inset 2px 0 0 var(--hairline2)}
+#dietBody .rows .row.food-pending .rr{color:var(--ink3)}
+#dietBody .rows .row.food-pending .pill{margin-left:2px}
 
 /* ---- Essen hinzufügen: Suche, Portions-Karte, Fertig-Leiste ---- */
 .lf-search{margin-bottom:12px}
@@ -49,12 +66,26 @@
   font:600 var(--t-sm)/1.3 var(--font);color:var(--ink2)}
 .lf-done .btn{flex:0 0 auto}
 #lf_list{max-height:none} /* kein verschachteltes Scrollfeld mehr – das Sheet scrollt */
+/* Favoriten-Stern in der Lebensmittel-Liste: aus = nur Kontur in Grau, an = gefüllt in Markenrot.
+   Die 44-px-Trefferfläche kommt aus .btn.icon.sm::before (app.css) – der Stern selbst darf klein bleiben. */
+.lf-star{color:var(--ink3)}
+.lf-star.on{color:var(--red)}
+.lf-star.on .ic{fill:currentColor}
+.lf-star:active{transform:scale(.9)}
 
 /* ---- Plan: Kopfzeile, Sanity-Zeile, Mahlzeiten-Karten (einklappbar) ---- */
 .diet-seg-row{display:flex;align-items:center;gap:8px;margin-bottom:16px}
 .diet-seg-row .seg{flex:1;min-width:0;margin-bottom:0}
 .diet-seg-row .btn.icon{flex:0 0 auto}
 .plan-status{margin:-8px 4px 16px;font-variant-numeric:tabular-nums}
+/* Jede Angabe („Ziel 2.975 kcal", „Eiweiß 166 / 173 g") bleibt für sich in einer Zeile – umbrochen wird
+   zwischen den Angaben, nicht mitten in einer Zahl. */
+.plan-status>span{white-space:nowrap}
+/* D10: „Dein gespeichertes Ziel … passt nicht mehr zum aktuellen Gewicht". Text und Schaltfläche stehen
+   nebeneinander, brechen aber auf schmalen Geräten untereinander – die Schaltfläche behält ihre 44 px. */
+.note.dt-ask{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.note.dt-ask .fill{flex:1;min-width:180px}
+.note.dt-ask .btn{flex:0 0 auto}
 .meal-h{cursor:pointer;align-items:flex-start}
 .meal:not(.open) .meal-h{border-bottom:none}
 .meal-h .ml{flex:1;min-width:0}

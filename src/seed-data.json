@@ -565,35 +565,35 @@
     ],
     "foods": [
       {
-        "name": "Haferflocken",
+        "name": "Haferflocken (roh)",
         "fat": 0.07,
         "carbs": 0.587,
         "protein": 0.135,
         "unit": "g"
       },
       {
-        "name": "Reis",
+        "name": "Reis (roh)",
         "fat": 0.007,
         "carbs": 0.8,
         "protein": 0.067,
         "unit": "g"
       },
       {
-        "name": "Nudeln",
+        "name": "Nudeln (roh)",
         "fat": 0.015,
         "carbs": 0.72,
         "protein": 0.12,
         "unit": "g"
       },
       {
-        "name": "Kartoffeln",
+        "name": "Kartoffeln (roh)",
         "fat": 0.001,
         "carbs": 0.15,
         "protein": 0.02,
         "unit": "g"
       },
       {
-        "name": "Süßkartoffeln",
+        "name": "Süßkartoffeln (roh)",
         "fat": 0,
         "carbs": 0.2,
         "protein": 0.016,
@@ -601,9 +601,9 @@
       },
       {
         "name": "Reiswaffeln",
-        "fat": 0.007,
-        "carbs": 0.8,
-        "protein": 0.067,
+        "fat": 0.028,
+        "carbs": 0.773,
+        "protein": 0.082,
         "unit": "g"
       },
       {
@@ -642,7 +642,7 @@
         "unit": "g"
       },
       {
-        "name": "Whey",
+        "name": "Whey Protein",
         "fat": 0.047,
         "carbs": 0.053,
         "protein": 0.78,
@@ -656,7 +656,7 @@
         "unit": "g"
       },
       {
-        "name": "Veganes Protein",
+        "name": "Veganes Proteinpulver",
         "fat": 0.065,
         "carbs": 0.11,
         "protein": 0.69,
@@ -664,9 +664,9 @@
       },
       {
         "name": "Clearwhey",
-        "fat": 0,
-        "carbs": 0.84,
-        "protein": 0,
+        "fat": 0.005,
+        "carbs": 0.04,
+        "protein": 0.84,
         "unit": "g"
       },
       {
@@ -733,13 +733,6 @@
         "unit": "g"
       },
       {
-        "name": "Vollei (Stück)",
-        "fat": 6,
-        "carbs": 0.3,
-        "protein": 7.5,
-        "unit": "Stück"
-      },
-      {
         "name": "Eiklar",
         "fat": 0.001,
         "carbs": 0.007,
@@ -783,27 +776,27 @@
       },
       {
         "name": "Lachs",
-        "fat": 0.168,
-        "carbs": 0.01,
-        "protein": 0.2,
+        "fat": 0.134,
+        "carbs": 0,
+        "protein": 0.204,
         "unit": "g"
       },
       {
         "name": "Olivenöl",
-        "fat": 0.916,
+        "fat": 1,
         "carbs": 0,
         "protein": 0,
         "unit": "g"
       },
       {
         "name": "Rapsöl",
-        "fat": 0.92,
+        "fat": 1,
         "carbs": 0,
         "protein": 0,
         "unit": "g"
       },
       {
-        "name": "Erdnussmus",
+        "name": "Erdnussmus / Erdnussbutter",
         "fat": 0.52,
         "carbs": 0.11,
         "protein": 0.26,
@@ -839,16 +832,16 @@
       },
       {
         "name": "Cashews",
-        "fat": 0.463,
-        "carbs": 0.327,
-        "protein": 0.153,
+        "fat": 0.438,
+        "carbs": 0.269,
+        "protein": 0.182,
         "unit": "g"
       },
       {
         "name": "Cashewmus",
-        "fat": 0.463,
-        "carbs": 0.327,
-        "protein": 0.153,
+        "fat": 0.494,
+        "carbs": 0.256,
+        "protein": 0.176,
         "unit": "g"
       },
       {
@@ -880,7 +873,7 @@
         "unit": "g"
       },
       {
-        "name": "Gemüse",
+        "name": "Gemüse gemischt",
         "fat": 0.003,
         "carbs": 0.041,
         "protein": 0.02,
@@ -902,9 +895,9 @@
       },
       {
         "name": "Spinat",
-        "fat": 0,
-        "carbs": 0.01,
-        "protein": 0.03,
+        "fat": 0.004,
+        "carbs": 0.009,
+        "protein": 0.029,
         "unit": "g"
       },
       {
@@ -937,9 +930,9 @@
       },
       {
         "name": "Apfel",
-        "fat": 0.002,
-        "carbs": 0.13,
-        "protein": 0,
+        "fat": 0.006,
+        "carbs": 0.115,
+        "protein": 0.003,
         "unit": "g"
       },
       {
@@ -985,7 +978,7 @@
         "unit": "g"
       },
       {
-        "name": "Beerenmix",
+        "name": "Beeren (Mix)",
         "fat": 0.006,
         "carbs": 0.072,
         "protein": 0.009,
@@ -1055,14 +1048,14 @@
         "unit": "g"
       },
       {
-        "name": "Linsennudeln",
+        "name": "Linsennudeln (roh)",
         "fat": 0.022,
         "carbs": 0.57,
         "protein": 0.28,
         "unit": "g"
       },
       {
-        "name": "Couscous",
+        "name": "Couscous (roh)",
         "fat": 0.022,
         "carbs": 0.64,
         "protein": 0.126,
@@ -1083,17 +1076,17 @@
         "unit": "Stück"
       },
       {
-        "name": "Bohnen",
+        "name": "Grüne Bohnen",
         "fat": 0.001,
         "carbs": 0.05,
         "protein": 0.02,
         "unit": "g"
       },
       {
-        "name": "Kichererbsen",
-        "fat": 0.019,
-        "carbs": 0.14,
-        "protein": 0.063,
+        "name": "Kichererbsen (gekocht)",
+        "fat": 0.026,
+        "carbs": 0.198,
+        "protein": 0.089,
         "unit": "g"
       },
       {
@@ -1132,14 +1125,14 @@
         "unit": "g"
       },
       {
-        "name": "Cottage Cheese Light",
+        "name": "Hüttenkäse light",
         "fat": 0.004,
         "carbs": 0.028,
         "protein": 0.13,
         "unit": "g"
       },
       {
-        "name": "Cottage Cheese Vollfett",
+        "name": "Hüttenkäse",
         "fat": 0.022,
         "carbs": 0.03,
         "protein": 0.11,
@@ -1217,9 +1210,9 @@
       },
       {
         "name": "Butter",
-        "fat": 0.7,
-        "carbs": 0.014,
-        "protein": 0.01,
+        "fat": 0.83,
+        "carbs": 0.006,
+        "protein": 0.007,
         "unit": "g"
       },
       {
@@ -1251,14 +1244,14 @@
         "unit": "ml"
       },
       {
-        "name": "Rinderfaschiertes mager / Tatar",
+        "name": "Rinderhack / Faschiertes mager (5 % Fett)",
         "fat": 0.05,
         "carbs": 0,
         "protein": 0.21,
         "unit": "g"
       },
       {
-        "name": "Rinderfaschiertes (18%)",
+        "name": "Rinderhack / Faschiertes (18 % Fett)",
         "fat": 0.18,
         "carbs": 0,
         "protein": 0.21,
@@ -1277,8 +1270,107 @@
         "carbs": 0,
         "protein": 0,
         "unit": "g"
+      },
+      {
+        "name": "Reis (gekocht)",
+        "fat": 0.003,
+        "carbs": 0.278,
+        "protein": 0.027,
+        "unit": "g"
+      },
+      {
+        "name": "Nudeln (gekocht)",
+        "fat": 0.009,
+        "carbs": 0.291,
+        "protein": 0.058,
+        "unit": "g"
+      },
+      {
+        "name": "Vollkornnudeln (roh)",
+        "fat": 0.027,
+        "carbs": 0.62,
+        "protein": 0.135,
+        "unit": "g"
+      },
+      {
+        "name": "Vollkornbrot",
+        "fat": 0.015,
+        "carbs": 0.38,
+        "protein": 0.08,
+        "unit": "g"
+      },
+      {
+        "name": "Putenbrust",
+        "fat": 0.01,
+        "carbs": 0,
+        "protein": 0.237,
+        "unit": "g"
+      },
+      {
+        "name": "Tempeh",
+        "fat": 0.108,
+        "carbs": 0.076,
+        "protein": 0.203,
+        "unit": "g"
+      },
+      {
+        "name": "Linsen (gekocht)",
+        "fat": 0.004,
+        "carbs": 0.122,
+        "protein": 0.09,
+        "unit": "g"
+      },
+      {
+        "name": "Quinoa (gekocht)",
+        "fat": 0.019,
+        "carbs": 0.185,
+        "protein": 0.044,
+        "unit": "g"
+      },
+      {
+        "name": "Sojajoghurt natur",
+        "fat": 0.023,
+        "carbs": 0.023,
+        "protein": 0.035,
+        "unit": "g"
+      },
+      {
+        "name": "Quinoa (roh)",
+        "fat": 0.061,
+        "carbs": 0.572,
+        "protein": 0.141,
+        "unit": "g"
+      },
+      {
+        "name": "Linsen (roh)",
+        "fat": 0.015,
+        "carbs": 0.49,
+        "protein": 0.267,
+        "unit": "g"
       }
-    ]
+    ],
+    "food_renames": {
+      "Reis": "Reis (roh)",
+      "Nudeln": "Nudeln (roh)",
+      "Haferflocken": "Haferflocken (roh)",
+      "Kartoffeln": "Kartoffeln (roh)",
+      "Süßkartoffeln": "Süßkartoffeln (roh)",
+      "Kichererbsen": "Kichererbsen (gekocht)",
+      "Bohnen": "Grüne Bohnen",
+      "Whey": "Whey Protein",
+      "Veganes Protein": "Veganes Proteinpulver",
+      "Beerenmix": "Beeren (Mix)",
+      "Erdnussmus": "Erdnussmus / Erdnussbutter",
+      "Gemüse": "Gemüse gemischt",
+      "Cottage Cheese Light": "Hüttenkäse light",
+      "Cottage Cheese Vollfett": "Hüttenkäse",
+      "Rinderfaschiertes mager / Tatar": "Rinderhack / Faschiertes mager (5 % Fett)",
+      "Rinderfaschiertes (18%)": "Rinderhack / Faschiertes (18 % Fett)",
+      "Vollei (Stück)": "Eier (Stück)",
+      "Couscous": "Couscous (roh)",
+      "Linsennudeln": "Linsennudeln (roh)"
+    },
+    "foods_source": "Werte je 1 g bzw. je Stück. Kohlenhydrate = verwertbare Kohlenhydrate ohne Ballaststoffe (LMIV-/Etiketten-Konvention), weil die App durchgängig kcal = Fett*9 + KH*4 + Eiweiß*4 rechnet. Belege: USDA FoodData Central (SR Legacy/Foundation) und Souci-Fachmann-Kraut. Roh- und Kochgewicht stehen als getrennte Einträge – bitte beim Anlegen neuer Einträge beibehalten."
   },
   "workout": {
     "days": [

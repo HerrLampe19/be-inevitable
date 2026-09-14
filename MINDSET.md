@@ -122,7 +122,7 @@ Speichern gibt **+30 XP**. Die Ansicht zeigt danach:
 - die **Radar-Grafik** (rote Fläche = Ist, gestrichelt = Ziel),
 - **Ø** aller Bereiche, den **Balance-Index** (100 − Abstand zwischen bestem und schwächstem Bereich; 100 = perfekt rundes Rad) und den **schwächsten Bereich**,
 - **Entwicklung**: Ø-Verlauf, je Bereich der aktuelle Wert, das Delta zur letzten Bewertung (▲/▼) und ein Mini-Verlauf,
-- **Lücke schließen** mit Fokus-Bereich und Maßnahmen („Bearbeiten" öffnet das Formular mit den Werten und ändert die Bewertung, statt eine neue anzulegen),
+- **Lücke schließen** mit Fokus-Bereich und Maßnahmen. Die Maßnahmen lassen sich **abhaken** (ab 2.2.0): antippen, die App merkt sich den Stand und zeigt ihn als „2/3 umgesetzt". „Bearbeiten" öffnet das Formular mit den Werten und ändert die Bewertung, statt eine neue anzulegen,
 - den **Verlauf** aller Bewertungen (antippen öffnet die Details, dort auch bearbeiten und löschen).
 
 Pro Tag gibt es **eine** Bewertung: Speicherst du am selben Tag noch einmal, wird die
@@ -238,7 +238,7 @@ Start von 2.0.0 automatisch angelegt (keine manuelle Migration):
 | Tabelle | Inhalt |
 |---|---|
 | `mindset_sessions` | jede Session: Datum, Art (`priming`, `evening`, `breath`, `state`, `weekly`, `question`), Dauer, Schritte, optional Ergebnisse/Energie/Stimmung/Notiz |
-| `wheel_assessments` | Rad-Bewertungen: Werte, Ziele, Fokus-Bereiche, Maßnahmen, Texte |
+| `wheel_assessments` | Rad-Bewertungen: Werte, Ziele, Fokus-Bereiche, Maßnahmen (samt abgehakter Positionen in `actions_done`), Texte |
 | `challenges` | Challenges: Start, Tage, aktive Regeln, Status |
 | `challenge_days` | manuelle Haken je Challenge-Tag |
 | `mindset_entries` | Arbeitsblätter (ein Datensatz je Schlüssel: `beliefs`, `incantation`, `thrive`, `passion`, `vision`, `decisions`) |

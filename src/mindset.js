@@ -3,7 +3,9 @@
 // schema.js/server.js): Schema, Routen, Stats-Helfer und Cron-Hook werden von dort eingehängt.
 //   initMindsetSchema(db)                         -> Tabellen + users-/challenges-Spalten (idempotent)
 //   registerMindsetRoutes(app, deps)              -> alle /api/mindset/* Routen
-//   mindsetStats(db, uid)                         -> Zahlen für /api/insights (XP + Erfolge)
+//   mindsetStats(db, uid, ctx?)                   -> Zahlen für /api/insights (XP + Erfolge)
+//   mindsetTodayView(db, uid, own, ctx?)          -> Tagesübersicht (auch im Home-Aggregat)
+//   buildAutoContext(db, u, fromDate?)            -> Auto-Kontext einer Challenge; ctx? oben = einmal bauen, zweimal nutzen
 //   mindsetCron(db, now, { sendPush })            -> stündlicher Erinnerungs-Hook + Challenge-Abschluss
 //   sweepChallenges(db, today, push)              -> abgelaufene/komplette Challenges schließen (auch beim Start)
 // Grundsatz: GET-Handler sind rein lesend. Zustandsänderungen (z.B. Challenge schließen) passieren nur
@@ -93,6 +95,10 @@ export function initMindsetSchema(db) {
   addCol('needs_top', 'TEXT');                     // JSON-Array der 2 wichtigsten Grundbedürfnisse
   addCol('priming_minutes', 'INTEGER DEFAULT 10'); // 5 | 10 | 15
 
+  // wheel_assessments: abgehakte Maßnahmen (JSON-Array der Positionen, z.B. [0,2])
+  const waCols = db.all('PRAGMA table_info(wheel_assessments)').map(c => c.name);
+  if (!waCols.includes('actions_done')) { try { db.run('ALTER TABLE wheel_assessments ADD COLUMN actions_done TEXT'); } catch (e) {} }
+
   // challenges: Kennzahlen werden beim Abschluss festgeschrieben (kein Neuberechnen alter Challenges bei jedem GET)
   const chCols = db.all('PRAGMA table_info(challenges)').map(c => c.name);
   const addChCol = (name, def) => { if (!chCols.includes(name)) { try { db.run(`ALTER TABLE challenges ADD COLUMN ${name} ${def}`); } catch (e) {} } };
@@ -116,7 +122,10 @@ export const CHALLENGE_RULES = [
   // Geschenke (dir selbst geben)
   { id: 'breath',    group: 'gift',   icon: '🌬️', label: '3× Power-Atmung (1-4-2)',            hint: 'Dreimal am Tag 10 Atemzüge: 1 einatmen · 4 halten · 2 ausatmen (z.B. 5 s / 20 s / 10 s).', auto: 'breath3' },
   { id: 'move',      group: 'gift',   icon: '🤸', label: '20–30 Min. Bewegung / Rebounding',   hint: 'Lymphe aktivieren: Trampolin, Seilspringen, zügiges Gehen.', auto: null },
-  { id: 'water',     group: 'gift',   icon: '💧', label: 'Wasser: Hälfte des Körpergewichts',  hint: 'Faustregel ≈ 0,033 L pro kg Körpergewicht (80 kg ≈ 2,6 L). Zitrone rein.', auto: 'water' },
+  // D42: „Hälfte des Körpergewichts" stammt aus der Unzen-Faustregel und ergibt in Kilogramm gelesen
+  // das Fünfzehnfache (80 kg → 40 L statt 2,6 L). Die Beschriftung nennt jetzt die Rechnung selbst;
+  // die persönliche Zahl steht daneben (challengeSummary.waterTargetL → „Dein Ziel heute ≈ 2,6 L").
+  { id: 'water',     group: 'gift',   icon: '💧', label: 'Wasser: rund 0,03 L je kg Körpergewicht', hint: 'Etwa 0,033 L pro Kilogramm Körpergewicht – bei 80 kg sind das rund 2,6 L am Tag. Zitrone rein.', auto: 'water' },
   { id: 'living',    group: 'gift',   icon: '🥗', label: '70 % lebendige, wasserreiche Nahrung', hint: 'Gemüse, Salat, Obst, Sprossen – der Großteil des Tellers.', auto: null },
   { id: 'fats',      group: 'gift',   icon: '🥑', label: 'Gute Fette & Omega-3',               hint: 'Avocado, Oliven, Nüsse, Samen, natives Olivenöl, Fischöl.', auto: null },
   { id: 'alkaline',  group: 'gift',   icon: '🌿', label: 'Basische, mineralstoffreiche Kost',  hint: 'Grünes Blattgemüse, Gemüse, Obst, Nüsse statt säurebildender Lebensmittel.', auto: null },
@@ -146,6 +155,71 @@ const SESSION_PAST_DAYS = 7;   // Sessions: [heute-7, heute+1]
 const WHEEL_PAST_DAYS = 365;   // Rad des Lebens: [heute-365, heute+1]
 const SESSION_DAY_CAP = 20;    // höchstens 20 Zeilen je (Nutzer, Tag, Art)
 const ERR_DATE_RANGE = 'Datum außerhalb des erlaubten Zeitraums';
+
+/* ---------------- VOLLWERTIG ODER ÜBERSPRUNGEN (B16) ----------------
+Bis 2.4.0 zählte jede gespeicherte Zeile: sechsmal „Überspringen" in einer Sekunde ergaben
+duration_sec 1, steps_done 0 – und trotzdem XP, Streak und einen grünen Kalenderpunkt. Damit war
+jede Zahl des Moduls wertlos, für den Athleten wie für den Coach. Ein Ritual zählt jetzt erst,
+wenn es wirklich stattgefunden hat:
+  Priming, Weg 1 (durchgelaufen): mindestens FULL_TIME_RATIO der gewählten Dauer – 180 / 360 / 540 s
+           bei 5 / 10 / 15 Minuten.
+  Priming, Weg 2 (bewusst abgekürzt, aber echt): mindestens PRIMING_MIN_STEPS der 6 Schritte UND
+           eine Dauer, die dazu passt – mindestens PRIMING_STEP_TIME_RATIO der gewählten Dauer
+           (105 / 210 / 315 s) und mindestens SEC_PER_STEP_MIN Sekunden je gemeldetem Schritt.
+           Bis 2.5.0 zählte hier die Schrittzahl allein. Das hatte zwei Folgen: die Zeitregel griff
+           nie (der Schrittweg war bei jeder Einstellung deutlich früher erreicht), und sechs
+           Schritte in einer Sekunde galten als vollwertig – über die Oberfläche nicht erreichbar,
+           über die Offline-Ablage oder eine selbstgebaute Anfrage sehr wohl.
+  Abend-Reflexion: mindestens EVENING_MIN_SEC (vier Fragen, nominal 2 Minuten).
+Der Player gibt einen Schritt erst nach der Hälfte seiner Planzeit frei (MD_STEP_GATE): der
+schnellste ehrliche Durchlauf über vier Schritte dauert 110 / 219 / 329 s und bleibt damit auf
+allen drei Einstellungen vollwertig.
+Alles darunter wird gespeichert, gilt aber als übersprungen (`full:false`): kein XP, kein Streak,
+grauer Kalenderpunkt, und der Coach sieht „übersprungen".
+Die Schwellen sind gewählt, nicht aus Literatur abgeleitet. [gesetzt, nicht belegt] */
+const FULL_TIME_RATIO = 0.6;
+const PRIMING_MIN_STEPS = 4;           // von 6 Schritten
+const PRIMING_STEP_TIME_RATIO = 0.35;  // Schrittweg: gut ein Drittel der gewählten Dauer muss trotzdem gelaufen sein
+const SEC_PER_STEP_MIN = 10;           // je gemeldetem Schritt mindestens 10 s – ein Schritt in 0 s gibt es nicht
+const EVENING_MIN_SEC = 45;
+const EVENING_PLAN_SEC = 120;     // Abend-Reflexion: 4 Fragen à ~30 s
+const DEFAULT_PRIMING_MIN = 10;
+const primingMin = m => ([5, 10, 15].includes(Number(m)) ? Number(m) : DEFAULT_PRIMING_MIN);
+// Planzeit einer Sitzung in Sekunden (minutes = gewählte Priming-Dauer 5/10/15)
+function planSecOf(kind, minutes) {
+  if (kind === 'priming') return primingMin(minutes) * 60;
+  if (kind === 'evening') return EVENING_PLAN_SEC;
+  return 0;
+}
+// Die Zeit-Untergrenze einer Art – auch als SQL-Parameter verwendbar (Streak-/XP-Abfragen)
+const fullSecOf = (kind, minutes) => (kind === 'evening' ? EVENING_MIN_SEC : Math.round(planSecOf(kind, minutes) * FULL_TIME_RATIO));
+// Zeit-Untergrenze des Schrittwegs beim Priming – skaliert mit der gewählten Dauer, sonst wäre der
+// Schrittweg bei 15 Minuten dreimal so mild wie bei 5 Minuten (auch als SQL-Parameter nutzbar).
+const stepPathSecOf = (minutes) => Math.round(planSecOf('priming', minutes) * PRIMING_STEP_TIME_RATIO);
+// Dieselbe Regel in Zahlen für die Oberfläche. Bis 2.5.0 stand im Abschluss-Sheet „ab der halben
+// Zeit", gezählt wurde aber ab FULL_TIME_RATIO = 60 % – der Satz stand ausgerechnet dort, wo gerade
+// stand, dass der Durchlauf nicht zählt. Die Oberfläche kopiert die Schwellen deshalb nicht mehr,
+// sie bekommt sie hier; so kann der Text gar nicht mehr von der Regel abweichen.
+function fullRuleOf(kind, minutes) {
+  if (kind === 'priming') return { kind, full_sec: fullSecOf('priming', minutes), min_steps: PRIMING_MIN_STEPS, steps_total: 6, step_path_sec: stepPathSecOf(minutes), sec_per_step: SEC_PER_STEP_MIN };
+  if (kind === 'evening') return { kind, full_sec: EVENING_MIN_SEC };
+  return { kind, full_sec: 0 };
+}
+// Dieselbe Priming-Regel als SQL-Ausdruck: Streak-, XP- und Kalender-Abfragen aggregieren weiter in
+// SQL und dürfen dabei nicht von isFullSession abweichen – darum nur diese eine Quelle.
+const PRIMING_FULL_SQL = '(duration_sec>=? OR (steps_done>=? AND duration_sec>=? AND duration_sec>=steps_done*?))';
+const primingFullArgs = (minutes) => [fullSecOf('priming', minutes), PRIMING_MIN_STEPS, stepPathSecOf(minutes), SEC_PER_STEP_MIN];
+// Vollwertig? Arten ohne eigene Regel (Atmung, State-Change, Wochencheck, Frage) gelten als vollwertig.
+function isFullSession(row, minutes) {
+  if (!row) return false;
+  const dur = Number(row.duration_sec) || 0, steps = Number(row.steps_done) || 0;
+  // Der Schrittweg braucht beides: genug Schritte UND eine Dauer, die dazu passt. Sonst ist die
+  // gemeldete Schrittzahl nur eine Behauptung (B16 / Prüfbefund 2.5.0).
+  if (row.kind === 'priming') return dur >= fullSecOf('priming', minutes)
+    || (steps >= PRIMING_MIN_STEPS && dur >= stepPathSecOf(minutes) && dur >= steps * SEC_PER_STEP_MIN);
+  if (row.kind === 'evening') return dur >= EVENING_MIN_SEC;
+  return true;
+}
 
 /* ---------------- KLEINE HELFER ---------------- */
 // „Heute" in APP_TZ (Standard Europe/Berlin) – dieselbe Quelle wie der übrige Server (tzToday), nicht UTC
@@ -181,9 +255,11 @@ function parseJSON(s, fallback) {
 }
 const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
 
-function rowSession(r) {
+// minutes = gewählte Priming-Dauer des Nutzers (für die Vollwertigkeits-Grenze); fehlt sie, gilt die Standarddauer.
+// `full` ist bewusst KEIN privates Feld: der Coach soll sehen, ob ein Ritual wirklich stattgefunden hat.
+function rowSession(r, minutes) {
   if (!r) return null;
-  return { ...r, focus: parseJSON(r.focus, []), data: parseJSON(r.data, null) };
+  return { ...r, focus: parseJSON(r.focus, []), data: parseJSON(r.data, null), full: isFullSession(r, minutes) };
 }
 // Privatsphäre: Freitext einer Session (Notiz, Payload, Fokus-Ziele) sieht nur der Nutzer selbst
 const PRIVATE_SESSION_FIELDS = ['note', 'data', 'focus'];
@@ -234,14 +310,18 @@ function wheelDelta(scores, prevScores) {
 function rowWheel(r) {
   const scores = parseJSON(r.scores, {});
   return { id: r.id, date: r.date, scores, targets: parseJSON(r.targets, null), focus_area: r.focus_area, second_area: r.second_area,
-    actions: parseJSON(r.actions, []), feeling_now: r.feeling_now, feeling_target: r.feeling_target, note: r.note, created_at: r.created_at,
+    actions: parseJSON(r.actions, []), actions_done: parseJSON(r.actions_done, []), feeling_now: r.feeling_now, feeling_target: r.feeling_target, note: r.note, created_at: r.created_at,
     ...wheelStats(scores) };
 }
-// Privatsphäre: die Gefühls-Texte und Notiz einer Bewertung sieht nur der Nutzer selbst
+// Privatsphäre: Freitext einer Bewertung sieht nur der Nutzer selbst – die Gefühls-Texte, die Notiz UND die
+// selbst formulierten Maßnahmen (actions) samt Abhak-Stand (actions_done, sonst wäre die Liste über die
+// Indizes rekonstruierbar). Der Coach bekommt Zahlen und Stufen: scores, targets, Fokusbereiche, avg/balance.
+// Dieselbe Grenze wie bei Sessions (PRIVATE_SESSION_FIELDS) und wie in MINDSET.md zugesagt.
+const PRIVATE_WHEEL_FIELDS = ['feeling_now', 'feeling_target', 'note', 'actions', 'actions_done'];
 function privWheel(a) {
   if (!a) return a;
   const o = { ...a };
-  delete o.feeling_now; delete o.feeling_target; delete o.note;
+  for (const k of PRIVATE_WHEEL_FIELDS) delete o[k];
   return o;
 }
 function lastWheel(db, uid) {
@@ -261,19 +341,39 @@ function waterTargetL(db, u) {
   if (w && w > 0) return round1(w * 0.033);
   return round1(Number(u.water_goal) || 3);
 }
+// Untergrenze für den Auto-Kontext: der früheste Starttag aller Challenges des Nutzers, die noch LIVE gerechnet
+// werden – die aktive, und beendete Zeilen aus der Zeit vor complete_days/adherence_pct (der Cron trägt die
+// Werte nach, bis dahin rechnet pastEntryOf sie live). Beendete Challenges mit festgeschriebenen Kennzahlen
+// brauchen den Kontext nicht mehr. Gibt es nichts Lebendiges, reicht heute (Wasser von heute für /challenge).
+// Bewusst nicht „heute minus 30": eine alte, noch nicht nachgetragene Challenge bekäme sonst stillschweigend
+// 0 komplette Tage, und die XP-Zahl fiele sichtbar.
+function ctxFloor(db, uid, today) {
+  const m = db.get("SELECT MIN(start_date) m FROM challenges WHERE user_id=? AND (status='active' OR complete_days IS NULL OR adherence_pct IS NULL)", [uid])?.m;
+  return m && isISO(m) && m < today ? m : today;
+}
 // Lädt alle Datenquellen der Auto-Regeln EINMAL pro Nutzer (Maps pro Datum), damit Tages- und
 // Verlaufsberechnung ohne weitere Abfragen in Speicher laufen.
-function buildAutoContext(db, u) {
+// Nur ab fromDate (Standard: ctxFloor): eine Challenge läuft 10–30 Tage, die Auto-Erkennung und countInWeek
+// bewegen sich nie vor ihrem Starttag. Ohne Grenze wuchsen die vier Abfragen mit dem Kontoalter (3 Jahre:
+// 7,8 ms je Aufbau, 6 Jahre: 13,2 ms – begrenzt 0,07 / 0,15 ms) und liefen je /api/home zweimal.
+// Exportiert, damit /api/home den Kontext einmal bauen und an mindsetTodayView/mindsetStats durchreichen kann.
+export function buildAutoContext(db, u, fromDate) {
   const uid = u.id;
-  const ctx = { breathByDate: {}, primingDates: new Set(), eveningDates: new Set(), setDates: new Set(), cardioDates: new Set(), waterByDate: {}, waterTarget: waterTargetL(db, u) };
-  for (const r of db.all("SELECT date, kind, COUNT(*) c FROM mindset_sessions WHERE user_id=? AND kind IN ('breath','priming','evening') GROUP BY date, kind", [uid])) {
+  const from = fromDate && isISO(fromDate) ? fromDate : ctxFloor(db, uid, todayISO());
+  const ctx = { breathByDate: {}, primingDates: new Set(), eveningDates: new Set(), setDates: new Set(), cardioDates: new Set(), waterByDate: {}, waterTarget: waterTargetL(db, u), from };
+  // Auch die Challenge-Regel „Tag mit Dankbarkeit starten & beenden" zählt nur vollwertige Rituale (B16):
+  // sonst brächte ein durchgeklicktes Priming weiterhin komplette Challenge-Tage und damit XP.
+  // MAX() je (Tag, Art) heißt: der beste Durchlauf des Tages entscheidet – wie bei sessionOn().
+  const mins = prefsOf(u).priming_minutes;
+  for (const r of db.all("SELECT date, kind, COUNT(*) c, MAX(duration_sec) d, MAX(steps_done) s FROM mindset_sessions WHERE user_id=? AND kind IN ('breath','priming','evening') AND date>=? GROUP BY date, kind", [uid, from])) {
     if (r.kind === 'breath') ctx.breathByDate[r.date] = r.c;
+    else if (!isFullSession({ kind: r.kind, duration_sec: r.d, steps_done: r.s }, mins)) continue;
     else if (r.kind === 'priming') ctx.primingDates.add(r.date);
     else ctx.eveningDates.add(r.date);
   }
-  for (const r of db.all('SELECT DISTINCT date FROM set_logs WHERE user_id=? AND reps>0', [uid])) ctx.setDates.add(r.date); // reps>0: Phantom-Sätze zählen nicht als Training
-  for (const r of db.all('SELECT DISTINCT date FROM cardio_log WHERE user_id=?', [uid])) ctx.cardioDates.add(r.date);
-  for (const r of db.all('SELECT date, water FROM checkins WHERE user_id=? AND water IS NOT NULL', [uid])) ctx.waterByDate[r.date] = Number(r.water) || 0;
+  for (const r of db.all('SELECT DISTINCT date FROM set_logs WHERE user_id=? AND reps>0 AND date>=?', [uid, from])) ctx.setDates.add(r.date); // reps>0: Phantom-Sätze zählen nicht als Training
+  for (const r of db.all('SELECT DISTINCT date FROM cardio_log WHERE user_id=? AND date>=?', [uid, from])) ctx.cardioDates.add(r.date);
+  for (const r of db.all('SELECT date, water FROM checkins WHERE user_id=? AND water IS NOT NULL AND date>=?', [uid, from])) ctx.waterByDate[r.date] = Number(r.water) || 0;
   return ctx;
 }
 const countInWeek = (set, weekStart, upTo) => { let n = 0; for (let i = 0; i < 7; i++) { const d = isoAddDays(weekStart, i); if (d > upTo) break; if (set.has(d)) n++; } return n; };
@@ -423,22 +523,34 @@ function sanitizeEntry(key, body) {
 }
 
 /* ---------------- STATS FÜR /api/insights ---------------- */
+// Die users-Spalten, die dieses Modul wirklich liest (waterTargetL, hrZoneOf, prefsOf). Kein SELECT *:
+// die Spalte avatar (bis 0,5 MB Base64) würde sonst bei jedem /api/home mitgelesen, ohne je gebraucht zu werden.
+const USER_COLS = 'id, dob, start_weight, water_goal, mindset_push_hour, evening_push, priming_minutes, needs_top';
 // Rein lesend: beendete Challenges kommen aus den festgeschriebenen Spalten, nur die aktive wird live gerechnet.
-export function mindsetStats(db, uid) {
+// Alle Zahlen sind bewusst All-Time (XP/Erfolge) – begrenzen lässt sich hier nichts, ohne eine angezeigte Zahl
+// zu ändern. Deshalb wird in SQL aggregiert statt jede (Tag, Art)-Zeile nach JS zu holen (3 Jahre: 3,9 → 2,2 ms).
+// ctx (optional): ein von /api/home schon gebauter Auto-Kontext desselben Nutzers – spart den zweiten Aufbau.
+export function mindsetStats(db, uid, ctx) {
   const today = todayISO();
-  const u = db.get('SELECT * FROM users WHERE id=?', [uid]);
-  const perDay = db.all('SELECT date, kind, COUNT(*) c FROM mindset_sessions WHERE user_id=? GROUP BY date, kind', [uid]);
-  const days = kind => perDay.filter(r => r.kind === kind).map(r => r.date);
-  const primingDates = days('priming');
-  const breathRows = perDay.filter(r => r.kind === 'breath');
-  const breathSessions = breathRows.reduce((s, r) => s + r.c, 0);
-  const breathXpUnits = breathRows.reduce((s, r) => s + Math.min(r.c, BREATH_XP_CAP), 0);
-  const primingDays = primingDates.length, eveningDays = days('evening').length;
-  const stateDays = days('state').length, questionDays = days('question').length, weeklyChecks = days('weekly').length;
+  const u = db.get(`SELECT ${USER_COLS} FROM users WHERE id=?`, [uid]);
+  // je Art: Anzahl Tage (DISTINCT date) und Anzahl Sessions – entspricht dem früheren GROUP BY date, kind + Zählen in JS
+  const byKind = {};
+  for (const r of db.all('SELECT kind, COUNT(DISTINCT date) d, COUNT(*) n FROM mindset_sessions WHERE user_id=? GROUP BY kind', [uid])) byKind[r.kind] = r;
+  const days = kind => byKind[kind]?.d || 0;
+  // XP und Streak zählen nur vollwertige Rituale (B16) – die Grenze steckt direkt in der Abfrage,
+  // damit weiterhin in SQL aggregiert wird und nicht jede Zeile nach JS wandert.
+  const pMins = prefsOf(u).priming_minutes;
+  const primingDates = db.all(`SELECT DISTINCT date FROM mindset_sessions WHERE user_id=? AND kind='priming' AND ${PRIMING_FULL_SQL}`,
+    [uid, ...primingFullArgs(pMins)]).map(r => r.date);
+  const breathSessions = byKind.breath?.n || 0;
+  // je Tag höchstens BREATH_XP_CAP Atemsessions mit XP: SUM(MIN(c, cap)) über die Tagesgruppen
+  const breathXpUnits = db.get("SELECT COALESCE(SUM(MIN(c, ?)), 0) u FROM (SELECT COUNT(*) c FROM mindset_sessions WHERE user_id=? AND kind='breath' GROUP BY date)", [BREATH_XP_CAP, uid]).u;
+  const primingDays = primingDates.length;
+  const eveningDays = db.get("SELECT COUNT(DISTINCT date) d FROM mindset_sessions WHERE user_id=? AND kind='evening' AND duration_sec>=?", [uid, EVENING_MIN_SEC]).d;
+  const stateDays = days('state'), questionDays = days('question'), weeklyChecks = days('weekly');
   const wheelCount = db.get('SELECT COUNT(*) c FROM wheel_assessments WHERE user_id=?', [uid]).c;
   let challengesDone = 0, challengeDaysComplete = 0;
   if (u) {
-    let ctx = null;
     const ctxOf = () => (ctx = ctx || buildAutoContext(db, u));
     for (const ch of db.all('SELECT * FROM challenges WHERE user_id=?', [uid])) {
       if (ch.status === 'done') challengesDone++;
@@ -455,18 +567,22 @@ export function mindsetStats(db, uid) {
 // Mindset-Tagesübersicht eines Nutzers (Priming/Abend/Atmung heute, Streak, Rad-Status, aktive Challenge,
 // Einstellungen). own=false (Coach schaut) blendet Freitexte aus (privSession). null, wenn der Nutzer fehlt.
 // Genutzt von GET /api/mindset/today/:userId UND vom Home-Aggregat GET /api/home/:userId.
-export function mindsetTodayView(db, uid, own) {
-  const u = db.get('SELECT * FROM users WHERE id=?', [uid]); if (!u) return null;
+// ctx (optional): ein schon gebauter Auto-Kontext desselben Nutzers (siehe buildAutoContext), sonst wird er hier gebaut.
+export function mindsetTodayView(db, uid, own, ctx) {
+  const u = db.get(`SELECT ${USER_COLS} FROM users WHERE id=?`, [uid]); if (!u) return null;
+  const prefs = prefsOf(u);
   const sess = s => (own ? s : privSession(s));
-  const sessionOn = kind => rowSession(db.get('SELECT * FROM mindset_sessions WHERE user_id=? AND kind=? AND date=? ORDER BY steps_done DESC, duration_sec DESC, id DESC LIMIT 1', [uid, kind, date]));
+  const sessionOn = kind => rowSession(db.get('SELECT * FROM mindset_sessions WHERE user_id=? AND kind=? AND date=? ORDER BY steps_done DESC, duration_sec DESC, id DESC LIMIT 1', [uid, kind, date]), prefs.priming_minutes);
   const countOn = kind => db.get('SELECT COUNT(*) c FROM mindset_sessions WHERE user_id=? AND kind=? AND date=?', [uid, kind, date]).c;
   const date = todayISO();
-  const primingDates = db.all("SELECT DISTINCT date FROM mindset_sessions WHERE user_id=? AND kind='priming' AND date<=? ORDER BY date DESC LIMIT 400", [uid, date]).map(r => r.date);
+  // Streak und 30-Tage-Zähler kennen nur vollwertige Primings (B16) – ein durchgeklicktes zählt nicht
+  const primingDates = db.all(`SELECT DISTINCT date FROM mindset_sessions WHERE user_id=? AND kind='priming' AND date<=? AND ${PRIMING_FULL_SQL} ORDER BY date DESC LIMIT 400`,
+    [uid, date, ...primingFullArgs(prefs.priming_minutes)]).map(r => r.date);
   const primingDays30 = primingDates.filter(d => d >= isoAddDays(date, -29)).length;
   const last = lastWheel(db, uid);
   const daysSince = last ? Math.max(0, daysBetween(last.date, date)) : null;
   const ch = db.get("SELECT * FROM challenges WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1", [uid]);
-  const weeklyLast = rowSession(db.get("SELECT * FROM mindset_sessions WHERE user_id=? AND kind='weekly' ORDER BY date DESC, id DESC LIMIT 1", [uid]));
+  const weeklyLast = rowSession(db.get("SELECT * FROM mindset_sessions WHERE user_id=? AND kind='weekly' ORDER BY date DESC, id DESC LIMIT 1", [uid]), prefs.priming_minutes);
   return {
     date, own: !!own,
     priming: sess(sessionOn('priming')),
@@ -478,10 +594,11 @@ export function mindsetTodayView(db, uid, own) {
     primingDays30,
     wheel: { last: last ? { id: last.id, date: last.date, avg: last.avg, balance: last.balance, weakest: last.weakest, scores: last.scores } : null,
       daysSince, due: !last || daysSince >= 28 },
-    challenge: { active: ch ? challengeSummary(db, ch, buildAutoContext(db, u), date) : null },
+    // nur die aktive Challenge wird hier gerechnet -> Kontext ab ihrem Starttag reicht (10–30 Tage)
+    challenge: { active: ch ? challengeSummary(db, ch, ctx || buildAutoContext(db, u, ch.start_date), date) : null },
     weeklyDue: !weeklyLast || weeklyLast.date < isoAddDays(date, -6),
     weekly: sess(weeklyLast),
-    prefs: prefsOf(u),
+    prefs,
   };
 }
 
@@ -504,8 +621,16 @@ export function registerMindsetRoutes(app, deps) {
     return date;
   };
   // Die "vollste" Session des Tages (meiste Schritte, längste Dauer) – nicht zwingend die letzte
-  const sessionOn = (uid, kind, date) => rowSession(db.get('SELECT * FROM mindset_sessions WHERE user_id=? AND kind=? AND date=? ORDER BY steps_done DESC, duration_sec DESC, id DESC LIMIT 1', [uid, kind, date]));
+  const primingMinutesOf = uid => prefsOf(db.get('SELECT priming_minutes FROM users WHERE id=?', [uid])).priming_minutes;
+  const sessionOn = (uid, kind, date) => rowSession(db.get('SELECT * FROM mindset_sessions WHERE user_id=? AND kind=? AND date=? ORDER BY steps_done DESC, duration_sec DESC, id DESC LIMIT 1', [uid, kind, date]), kind === 'priming' ? primingMinutesOf(uid) : null);
   const countOn = (uid, kind, date) => db.get('SELECT COUNT(*) c FROM mindset_sessions WHERE user_id=? AND kind=? AND date=?', [uid, kind, date]).c;
+  // Wie viele VOLLWERTIGE Sitzungen dieser Art gibt es heute schon? Nur danach richtet sich das XP:
+  // ein übersprungenes Priming am Morgen darf das echte am Mittag nicht um seine Punkte bringen (B16).
+  const fullCountOn = (uid, kind, date, minutes) => {
+    if (kind === 'priming') return db.get(`SELECT COUNT(*) c FROM mindset_sessions WHERE user_id=? AND kind='priming' AND date=? AND ${PRIMING_FULL_SQL}`, [uid, date, ...primingFullArgs(minutes)]).c;
+    if (kind === 'evening') return db.get("SELECT COUNT(*) c FROM mindset_sessions WHERE user_id=? AND kind='evening' AND date=? AND duration_sec>=?", [uid, date, EVENING_MIN_SEC]).c;
+    return countOn(uid, kind, date);
+  };
   const activeChallenge = uid => db.get("SELECT * FROM challenges WHERE user_id=? AND status='active' ORDER BY id DESC LIMIT 1", [uid]);
   // Schreibpfad-Hook: Challenges des Nutzers abschließen, wenn eine fällig ist (Cron erledigt den Rest stündlich)
   const settleChallenges = (uid, u, ctx) => {
@@ -546,28 +671,44 @@ export function registerMindsetRoutes(app, deps) {
     } else if (isObj(b.data)) {
       const s = JSON.stringify(b.data); data = s.length <= 2000 ? parseJSON(s, null) : null;
     }
+    let dur = clampNum(b.duration_sec, 0, 7200, true) || 0;
+    let steps = clampNum(b.steps_done, 0, 50, true) || 0;
+    let stepsTotal = clampNum(b.steps_total, 0, 50, true) || 0;
+    const mins = kind === 'priming' ? primingMinutesOf(uid) : null;
     // Abend-Reflexion und Wochencheck gibt es genau einmal pro Tag: ein zweiter Durchlauf aktualisiert den
     // vorhandenen Eintrag, statt eine zweite Zeile anzulegen (sonst zählt der Verlauf denselben Abend doppelt).
     if (kind === 'evening' || kind === 'weekly') {
       const ex = sessionOn(uid, kind, date);
       if (ex) {
+        // Dauer und Schritte nur nach oben mitnehmen: ein zweiter, durchgeklickter Durchlauf darf eine
+        // echte Reflexion nicht nachträglich auf „übersprungen" herunterschreiben (B16).
+        dur = Math.max(dur, Number(ex.duration_sec) || 0);
+        steps = Math.max(steps, Number(ex.steps_done) || 0);
+        stepsTotal = Math.max(stepsTotal, Number(ex.steps_total) || 0);
         db.run('UPDATE mindset_sessions SET duration_sec=?, steps_done=?, steps_total=?, focus=?, energy=?, mood=?, data=?, note=? WHERE id=?',
-          [clampNum(b.duration_sec, 0, 7200, true) || 0, clampNum(b.steps_done, 0, 50, true) || 0, clampNum(b.steps_total, 0, 50, true) || 0,
+          [dur, steps, stepsTotal,
             focus.length ? JSON.stringify(focus) : null, energy, mood, data ? JSON.stringify(data) : null, str(b.note, 500), ex.id]);
-        return res.json({ ok: true, id: ex.id, already: true, first: false, xp: { gained: 0 } });
+        const exFull = isFullSession({ kind, duration_sec: dur, steps_done: steps }, mins);
+        // Aus „übersprungen" wird durch einen echten zweiten Durchlauf doch noch ein gezählter Abend –
+        // dann gibt es das XP jetzt (mindsetStats zählt den Tag ab sofort mit, vorher tat es das nicht).
+        const gainedNow = exFull && !ex.full ? (XP_HINT[kind] || 0) : 0;
+        return res.json({ ok: true, id: ex.id, already: true, first: false, full: exFull, partial: !exFull, xp: { gained: gainedNow }, rule: fullRuleOf(kind, mins) });
       }
     }
     const before = countOn(uid, kind, date);
+    const beforeFull = kind === 'priming' || kind === 'evening' ? fullCountOn(uid, kind, date, mins) : before;
     if (before >= SESSION_DAY_CAP) return res.status(429).json({ error: 'Zu viele Einträge für heute' });
     const r = db.run('INSERT INTO mindset_sessions(user_id,date,kind,duration_sec,steps_done,steps_total,focus,energy,mood,data,note) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-      [uid, date, kind, clampNum(b.duration_sec, 0, 7200, true) || 0, clampNum(b.steps_done, 0, 50, true) || 0, clampNum(b.steps_total, 0, 50, true) || 0,
+      [uid, date, kind, dur, steps, stepsTotal,
         focus.length ? JSON.stringify(focus) : null, energy, mood, data ? JSON.stringify(data) : null, str(b.note, 500)]);
+    // Vollwertig? Ein durchgeklicktes Ritual wird gespeichert, bringt aber kein XP und keinen Streak (B16).
+    const full = isFullSession({ kind, duration_sec: dur, steps_done: steps }, mins);
     // XP-Hinweis: pro Tag & Art einmal (Atmung bis zu BREATH_XP_CAP Sessions) – entspricht mindsetStats
-    const gained = kind === 'breath' ? (before < BREATH_XP_CAP ? XP_HINT.breath : 0) : (before === 0 ? XP_HINT[kind] : 0);
+    const gained = !full ? 0 : (kind === 'breath' ? (before < BREATH_XP_CAP ? XP_HINT.breath : 0) : (beforeFull === 0 ? XP_HINT[kind] : 0));
     // Eine Session kann die letzte automatisch erkannte Regel des letzten Challenge-Tags erfüllen -> Abschluss prüfen
     let challengeFinished = false;
     try { challengeFinished = settleChallenges(uid).some(c => c.status === 'done'); } catch (e) {}
-    res.json({ ok: true, id: r.lastInsertRowid, first: before === 0, xp: { gained }, challengeFinished });
+    res.json({ ok: true, id: r.lastInsertRowid, first: before === 0, full, partial: !full, xp: { gained }, challengeFinished, rule: fullRuleOf(kind, mins) });
   });
 
   // Session nachträglich ergänzen (eigene Zeile von heute/gestern): Fokus-Ziele, Energie, Stimmung, Notiz, Dauer, Schritte.
@@ -588,7 +729,11 @@ export function registerMindsetRoutes(app, deps) {
     if ('steps_done' in b) { const d = clampNum(b.steps_done, 0, 50, true); if (d !== null) { sets.push('steps_done=?'); vals.push(d); } }
     if (!sets.length) return res.status(400).json({ error: 'Nichts zu ändern' });
     db.run(`UPDATE mindset_sessions SET ${sets.join(',')} WHERE id=?`, [...vals, row.id]);
-    res.json({ ok: true, id: row.id });
+    // Der Nachtrag kann Dauer und Schritte ändern – die Antwort sagt deshalb, ob die Sitzung jetzt zählt (B16)
+    const after = db.get('SELECT kind, duration_sec, steps_done FROM mindset_sessions WHERE id=?', [row.id]);
+    const putMins = after.kind === 'priming' ? primingMinutesOf(uid) : null;
+    const full = isFullSession(after, putMins);
+    res.json({ ok: true, id: row.id, full, partial: !full, rule: fullRuleOf(after.kind, putMins) });
   });
 
   // Sessions der letzten n Tage + Tageszusammenfassung (für Verlauf/Kalender); Freitext nur für den Nutzer selbst
@@ -598,12 +743,15 @@ export function registerMindsetRoutes(app, deps) {
     const days = clampNum(req.query.days, 1, 730, true) || 90;
     const today = todayISO(), from = isoAddDays(today, -(days - 1));
     // neueste zuerst laden (Obergrenze), dann chronologisch ausgeben
-    const sessions = db.all('SELECT * FROM mindset_sessions WHERE user_id=? AND date>=? ORDER BY date DESC, id DESC LIMIT 2000', [uid, from]).map(rowSession).reverse();
+    const pMins = primingMinutesOf(uid);
+    const sessions = db.all('SELECT * FROM mindset_sessions WHERE user_id=? AND date>=? ORDER BY date DESC, id DESC LIMIT 2000', [uid, from]).map(r => rowSession(r, pMins)).reverse();
+    // priming/evening sind der Tagesstand der VOLLWERTIGEN Rituale; primingPartial/eveningPartial
+    // merken sich, dass an dem Tag zwar etwas gespeichert, aber durchgeklickt wurde (grauer Punkt, B16).
     const byDay = {};
     for (const s of sessions) {
-      const d = byDay[s.date] = byDay[s.date] || { priming: false, evening: false, breaths: 0, state: 0, weekly: false, question: false, energy: null, mood: null };
-      if (s.kind === 'priming') d.priming = true;
-      else if (s.kind === 'evening') d.evening = true;
+      const d = byDay[s.date] = byDay[s.date] || { priming: false, evening: false, primingPartial: false, eveningPartial: false, breaths: 0, state: 0, weekly: false, question: false, energy: null, mood: null };
+      if (s.kind === 'priming') { if (s.full) d.priming = true; else d.primingPartial = true; }
+      else if (s.kind === 'evening') { if (s.full) d.evening = true; else d.eveningPartial = true; }
       else if (s.kind === 'breath') d.breaths++;
       else if (s.kind === 'state') d.state++;
       else if (s.kind === 'weekly') d.weekly = true;
@@ -688,6 +836,19 @@ export function registerMindsetRoutes(app, deps) {
     const prev = prevWheel(db, uid, row.date, row.id);
     const st = wheelStats(x.scores);
     res.json({ ok: true, id: row.id, summary: { ...st, delta: wheelDelta(x.scores, prev?.scores) } });
+  });
+
+  // Eine der Maßnahmen abhaken. Bewusst eine eigene, winzige Route: das Rad selbst wird dabei
+  // nicht angefasst (kein versehentliches Überschreiben von Bewertung oder Fokus).
+  app.put('/api/mindset/wheel/:id/actions', auth, (req, res) => {
+    const row = db.get('SELECT * FROM wheel_assessments WHERE id=?', [Number(req.params.id) || 0]);
+    if (!row) return res.status(404).json({ error: 'Nicht gefunden' });
+    if (row.user_id !== req.user.id) return res.status(403).json({ error: 'Kein Zugriff' });
+    const total = (parseJSON(row.actions, []) || []).length;
+    const raw = Array.isArray(req.body?.done) ? req.body.done : [];
+    const done = [...new Set(raw.map(Number).filter(i => Number.isInteger(i) && i >= 0 && i < total))].sort((a, b) => a - b);
+    db.run('UPDATE wheel_assessments SET actions_done=? WHERE id=?', [done.length ? JSON.stringify(done) : null, row.id]);
+    res.json({ ok: true, done, total });
   });
 
   app.delete('/api/mindset/wheel/:id', auth, (req, res) => {

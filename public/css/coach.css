@@ -21,6 +21,8 @@
 .ath-row .rl small.reason.alert{color:var(--red-text)}
 .ath-row .rl small.reason.watch{color:#ffb340}
 .ath-search{margin-bottom:12px}
+/* Filter-Chips ueber der Liste. .chip bringt 36 px Hoehe plus ::before-Rand = 44 px Trefferflaeche mit. */
+.co-filters{margin:0 0 12px}
 /* Kein eigener Knopf-Stil mehr in der Abschnittszeile: '.sl-r .btn.sm{min-height:32px}' hatte keinen
    Bereichs-Prefix und verkleinerte jeden .sl-r-Knopf der App mit (z. B. 'Nachtragen' in der Analyse) unter
    die 36 px des Design-Systems. '+ Athlet' nutzt jetzt das normale .btn.sm - wie ueberall sonst.
@@ -38,6 +40,21 @@
 .dash-facts{display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px;font-size:14px;color:var(--ink2);margin-bottom:16px;overflow:hidden}
 .dash-facts .pill{margin-right:4px}
 .dash-facts b{color:var(--ink);font-weight:600}
+/* Kennzahl-Reihe im Athleten-Sheet (B4): vier Kacheln aus dem Design-System (.tiles/.tile), hier nur die
+   dritte Zeile (Grund) und die Fusszeile (Vorwoche). Die eine Farbe je Kachel steckt im Grund-Text – der
+   Zahlenwert bleibt weiss, damit vier bunte Zahlen nebeneinander nicht um Aufmerksamkeit streiten. */
+.co-kpis{gap:10px;margin-bottom:16px}
+.co-kpis .tile{display:flex;flex-direction:column;padding:14px}
+.co-kpis .tile .v{font-size:24px;line-height:1.1}
+.co-kpis .tile .l{font-size:12px;line-height:1.3}
+.co-kpis .kr{font-size:12px;line-height:1.35;margin-top:6px;color:var(--ink2);font-weight:600}
+/* Die Tonfarbe muss die Grundfarbe der Zeile schlagen: .tone-* aus app.css hat nur eine Klasse Spezifitaet. */
+.co-kpis .kr.tone-green{color:var(--green)}
+.co-kpis .kr.tone-amber{color:#ffb340}
+.co-kpis .kr.tone-red{color:var(--red-text)}
+.co-kpis .trend{margin-top:auto;padding-top:6px;color:var(--ink3);display:flex;align-items:center;gap:4px}
+.co-kpis .trend.flat{color:var(--ink3)}
+.co-kpis .trend .ic{flex:0 0 auto}
 .coach-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 16px}
 .coach-pair .btn{width:100%;font-size:15px;padding:0 10px}
 .complaints{background:var(--red-tint);border-radius:16px;padding:14px 16px;margin-bottom:16px}
@@ -46,8 +63,14 @@
 .complaint.gone{opacity:0;transform:translateX(24px)}
 .complaint .cm{font-size:13px;color:var(--ink2)}
 .complaint .cb{font-size:15px;margin:3px 0 8px;color:var(--ink)}
-/* Einzige Aktion im Beschwerden-Block -> volle 44 px, wie die Primaeraktionen darunter */
+/* Drei Handlungen je Beschwerde: Uebung tauschen · Antworten · Erledigt. Alle drei volle 44 px, wie die
+   Primaeraktionen darunter. Auf 375 px passen zwei nebeneinander, die dritte rutscht in die zweite Zeile -
+   deshalb wrap statt Grid mit fester Spaltenzahl. */
 .complaint .btn{min-height:44px;font-size:14px}
+.cmp-acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cmp-acts .btn{width:100%;justify-content:center;padding:0 10px}
+/* Die erste Handlung ist die laengste und die inhaltlich wichtigste: eigene Zeile ueber der ganzen Breite. */
+.cmp-acts .btn:first-child:nth-last-child(3){grid-column:1/-1}
 .rows.mb-4{margin-bottom:16px}
 .chart-foot{display:flex;justify-content:space-between;color:var(--ink2);font-size:13px;margin-top:8px}
 /* Letzte Trainings: rechte Spalte zweizeilig (Umfang oben, Topgewicht darunter). Mit '.rr.wrap' (55 % Breite,
@@ -71,7 +94,10 @@
 /* Auf schmalen Geraeten zaehlt der Name, nicht die Praeposition: 'Du siehst:' faellt weg, damit
    'Marco Munsch' neben Pill + 44-px-Aktionen noch lesbar bleibt (der rote Balken sagt den Kontext ohnehin). */
 .ctx-bar{gap:8px}
-@media (max-width:400px){.ctx-bar .ctx-lbl{display:none}}
+/* Schmale Geraete: Beiwerk der Kontextleiste weicht dem Namen – der ist die Information,
+   die der Coach braucht. „Verlassen" bleibt als Symbol erhalten (44 px Trefferflaeche). */
+@media (max-width:400px){.ctx-bar .ctx-lbl{display:none}.ctx-bar .ctx-leave span{display:none}}
+.ctx-bar .ctx-leave{display:inline-flex;align-items:center;gap:6px}
 
 /* ---- Unterhaltung (Thread) ---- */
 .thread{display:flex;flex-direction:column;gap:8px;padding:2px 0 12px;min-height:120px}
@@ -97,10 +123,144 @@
 .gbar .gl{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
 .gbar .gl span:last-child{color:var(--ink2)}
 
+/* ---- Admin: Status-Streifen (Version · Mail · APP_URL · Selbsttest · Sicherung) ---- */
+/* Rot faerbt nur den Rahmen und die Kopfzeile, nicht die ganze Flaeche: der Streifen steht auf jedem
+   Aufruf ganz oben und darf nicht schreien, sondern muss in einer Sekunde lesbar sein. */
+.co-status{background:var(--surface);border-radius:16px;padding:12px 16px 4px;margin-bottom:12px}
+.co-status.bad{box-shadow:inset 0 0 0 1px var(--red-ring)}
+.co-status .cs-h{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;margin-bottom:4px}
+.co-status .cs-h.ok{color:var(--green)}
+.co-status .cs-h.bad{color:var(--red-text)}
+.co-status .rows{background:transparent}
+.co-status .row{min-height:40px;padding:6px 0;gap:10px}
+.co-status .row:last-child{border-bottom:none}
+.co-status .rl{font-size:14px;color:var(--ink2)}
+.co-status .rl small{display:block;font-size:12px;color:var(--ink3);white-space:normal;line-height:1.3}
+.co-status .rr{font-size:13px;color:var(--ink);max-width:56%;text-align:right;white-space:normal;line-height:1.3}
+.co-status .sdot{width:8px;height:8px;padding:0;border-radius:50%;flex:0 0 auto;background:var(--ink3)}
+.co-status .sdot.ok{background:var(--green)}
+.co-status .sdot.mid{background:var(--amber)}
+.co-status .sdot.bad{background:var(--red)}
+.co-status .sdot.unknown{background:var(--ink3)}
+/* Die Status-Zeilen sind seit 2.6.0 Knoepfe (Tastatur!). .row bringt display:flex schon mit; hier nur
+   der Reset der Browser-Vorgaben und die linke Ausrichtung. */
+.co-status button.ad-srow{width:100%;text-align:left;background:transparent;border:0;
+  font-family:inherit;font-size:inherit;color:inherit;-webkit-appearance:none;appearance:none}
+/* Die Ampel gehoert auf die Hoehe der Beschriftung, nicht in die Mitte einer zweizeiligen Zeile –
+   sonst steht der Punkt neben dem Erklaersatz statt neben dem Namen des Punktes. */
+.co-status .ad-srow .sdot{align-self:flex-start;margin-top:6px}
+.co-status .ad-srow .rl{flex:1;min-width:0;font-size:14px;color:var(--ink2)}
+.co-status .ad-srow .rr{flex:0 0 auto;display:flex;align-items:center;gap:4px}
+
+/* ---- Verwaltung 2.6.0 (Paket A-II.3): ruhig, tabellarisch, ohne Markenrot als Grundfarbe ---- */
+/* Der Betreiber arbeitet am Rechner und liest Zustaende, keine Werbung. Rot bleibt der Ampel und dem
+   Loeschknopf vorbehalten; alles andere traegt die Grundflaechen aus app.css. */
+
+/* Jede Zeile dieser Ansicht ist ein echter <button> (bis 2.5.0 gab es auf der ganzen Seite genau EIN
+   fokussierbares Element, gemessen mit tools/a11y.mjs --view admin). Ein Knopf bringt aber eigene
+   Browser-Vorgaben mit – Rahmen, Mittelsatz, eigene Schrift –, die hier wieder auf die .row-Optik
+   zurueckgesetzt werden. Ohne den Reset saehe jede Zeile aus wie ein Systemknopf. */
+/* `font-size` steht hier bewusst NICHT: `button.ad-lrow` haette mehr Spezifitaet als `.ad-lrow` und
+   die 14 px der Tabellenzeile mit den 17 px des Rumpfes ueberschrieben – die Fehlerliste war dadurch
+   so gross wie eine Ueberschrift. Die Schriftgroesse setzt jede Zeilenart selbst. */
+button.ad-row,button.ad-urow,button.ad-lrow,button.tile.ad-kpi{
+  display:flex;width:100%;text-align:left;background:transparent;border:0;margin:0;
+  font-family:inherit;font-weight:400;color:inherit;-webkit-appearance:none;appearance:none}
+button.ad-row{font-size:17px}
+button.ad-row{align-items:center;gap:12px}
+.ad-row .rl{flex:1;min-width:0;font:500 17px/1.3 var(--font)}
+.ad-row .rl small{display:block;color:var(--ink2);font-size:13px;font-weight:400;margin-top:1px;white-space:normal;line-height:1.35}
+.ad-row .r-ic{flex:0 0 24px;display:flex;align-items:center;justify-content:center;color:var(--ink2)}
+.ad-row .r-ic .ic{width:24px;height:24px}
+.ad-row .rr{flex:0 0 auto;display:flex;align-items:center;gap:4px;color:var(--ink2);font-size:15px;text-align:right}
+
+/* Reiterleiste. Fuenf Reiter passen auf 390 px nur mit kleinerer Schrift – die Trefferflaeche bleibt
+   ueber .seg button::before trotzdem bei 44 px. */
+.ad-tabs{margin:0 0 14px}
+.ad-tabs button{font-size:14px;padding:0 2px}
+.ad-body{min-height:160px}
+
+/* Kennzahl-Kacheln: seit 2.6.0 Knoepfe, die erklaeren, was die Zahl zaehlt (RATE-admin L8). */
+.ad-kpis .tile{background:var(--surface);flex-direction:column;align-items:flex-start;padding:14px 16px;min-height:76px}
+.ad-kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.ad-kpi .l{display:flex;align-items:center;gap:4px;color:var(--ink2);font-size:13px;margin-top:3px;line-height:1.3}
+.ad-kpi .l .ic{flex:0 0 auto;color:var(--ink3)}
+.ad-counts{font-size:13px;color:var(--ink2);line-height:1.5;margin:0 4px}
+.ad-counts b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* Tabellen (Konten, Protokoll, Fehler). Ein Gitter statt <table>, damit Kopf und Zeilen dieselben
+   Spaltenbreiten teilen und jede Zeile trotzdem ein Knopf sein kann. */
+.ad-tbl,.ad-tbody{border-radius:14px;overflow:hidden;background:var(--surface)}
+.ad-thead{display:grid;gap:8px;padding:8px 14px;font:600 11px/1.2 var(--font);color:var(--ink3);
+  text-transform:uppercase;letter-spacing:.06em}
+button.ad-urow,button.ad-lrow,.ad-urow,.ad-lrow{display:grid;gap:8px;align-items:center;min-height:48px;padding:10px 14px;
+  border-bottom:.5px solid var(--hairline2);font-size:14px;color:var(--ink2);
+  transition:background var(--dur) var(--ease)}
+.ad-urow:last-child,.ad-lrow:last-child{border-bottom:none}
+.ad-urow:active,.ad-lrow:active{background:var(--surface2)}
+/* Fuenf Spalten muessen auf 390 px Breite zusammen unter ~332 px bleiben (14 px Innenrand links und
+   rechts, vier Luecken a 8 px). Groessere Mindestbreiten schoben die letzte Spalte aus dem Bild –
+   „Angelegt" war dann nur noch „ANGELE". */
+.ad-thead,.ad-urow{grid-template-columns:minmax(84px,1.2fr) minmax(46px,.8fr) minmax(50px,.9fr) minmax(46px,.8fr) minmax(56px,.9fr)}
+.ad-thead.four,.ad-lrow{grid-template-columns:minmax(58px,1fr) minmax(72px,1.2fr) minmax(40px,.5fr) minmax(82px,1fr)}
+.ad-urow .c1,.ad-lrow .c1{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.ad-urow>span,.ad-lrow>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ad-lrow .c1{font-weight:500;color:var(--ink2);font-size:13px}
+.ad-lrow .c2{color:var(--ink);font-weight:500}
+.ad-err .c1{font-family:var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:12px}
+.ad-urow .t-live{color:var(--green)}
+.ad-urow .t-warm{color:var(--ink2)}
+.ad-urow .t-quiet{color:var(--ink3)}
+.ad-lrow .t-warn{color:#ffb340}
+.ad-lrow .t-bad{color:var(--red-text)}
+.ad-foot{margin:8px 4px 0;line-height:1.45}
+
+/* Filter der Protokoll-Ansicht: drei Felder nebeneinander, sobald Platz ist. */
+.ad-filters{display:grid;grid-template-columns:1fr 1fr;gap:0 10px;align-items:end}
+.ad-filters .field{margin-bottom:10px}
+.ad-filters .field:nth-child(3){grid-column:1/-1}
+.ad-filters .btn{grid-column:1/-1;width:100%}
+.ad-find .field{margin-bottom:10px}
+.ad-find .btn{width:100%}
+.ad-acts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ad-acts .btn{width:100%}
+/* Die Filter-Chips der Verwaltung bleiben grau: Rot ist hier die Ampelfarbe des Status-Streifens und
+   die Farbe des Loeschknopfes – ein ausgewaehlter Filter darf nicht genauso laut sein wie ein Alarm. */
+.ad-kf{margin-bottom:10px}
+.ad-kf .chip.on{background:var(--surface4);color:var(--ink);box-shadow:inset 0 0 0 1px var(--hairline2)}
+.ad-bullets{margin:0;padding-left:20px;font-size:14px;line-height:1.5;color:var(--ink2)}
+.ad-bullets li{margin-bottom:6px}
+.ad-bullets b{color:var(--ink)}
+/* Hilfe-Freigaben und Jobs behalten die Zeilenform, brauchen aber Platz fuer zwei Textzeilen. */
+.ad-grant,.ad-job{align-items:flex-start;gap:10px}
+.ad-grant .rl,.ad-job .rl{font-size:15px;font-weight:600}
+.ad-grant .rl small,.ad-job .rl small{white-space:normal;line-height:1.4;font-weight:400}
+/* `padding:0` ist Absicht: app.css kennt eine globale Klasse `.warn` (Hinweiskasten mit 12/16 px
+   Innenrand). Ein Ampelpunkt `.sdot.warn` wurde dadurch zu einem 40 px breiten Fleck. Die Tonstufe
+   heisst hier deshalb `mid`, und der Punkt setzt seinen Innenrand selbst auf null. */
+.ad-grant .sdot,.ad-job .sdot{width:8px;height:8px;padding:0;border-radius:50%;flex:0 0 auto;margin-top:7px;background:var(--ink3)}
+.ad-grant .sdot.ok,.ad-job .sdot.ok{background:var(--green)}
+.ad-job .sdot.mid{background:var(--amber)}
+.ad-job .sdot.bad{background:var(--red)}
+.ad-grant.off .rl{color:var(--ink3)}
+.ad-grant .btn,.ad-job .btn{flex:0 0 auto;margin-top:2px}
+
+/* Breitere Geraete. WICHTIG und bewusst begrenzt: die App steckt in `.app{max-width:540px}` (app.css:45).
+   Diese Datei kann daraus nicht ausbrechen, ohne app.css zu aendern – das gehoert Paket A-II.5. Ein
+   Zweispalter „Status links, Protokoll rechts" wurde deshalb wieder ausgebaut: er hat die 540 px in
+   300 + 240 zerlegt und die Protokoll-Tabelle zu einem Streifen zusammengedrueckt (nachgemessen bei
+   1280 px). Was hier bleibt, ist das, was INNERHALB der 540 px besser wird: Filter und Suche stehen
+   nebeneinander statt untereinander. Echte Arbeitsbreite steht in DEFER-A2. */
+@media (min-width:620px){
+  .ad-filters{grid-template-columns:1.05fr 1.25fr .9fr auto}
+  .ad-filters .field:nth-child(3){grid-column:auto}
+  .ad-filters .btn{grid-column:auto;width:auto;margin-bottom:10px}
+  .ad-find{display:grid;grid-template-columns:1fr auto;gap:0 10px;align-items:end}
+  .ad-find .btn{width:auto;margin-bottom:10px}
+  .ad-acts{grid-template-columns:repeat(2,max-content)}
+}
+
 /* ---- Admin ---- */
-.role-strip .tile{padding:12px 10px;text-align:center;cursor:pointer}
-.role-strip .tile .v{font-size:22px}
-.role-strip .tile .l{font-size:12px;white-space:nowrap}
 .admin-more{margin-top:20px}
 .admin-more summary{min-height:44px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-weight:600;list-style:none;color:var(--ink)}
 .admin-more summary::-webkit-details-marker{display:none}
@@ -110,9 +270,17 @@
 .danger-block .btn.danger{background:var(--red-tint)}
 
 /* ---- Supplements-Zuweisung ---- */
+/* Die Zeile hat zwei Handlungen: der Schalter weist zu, der Rest oeffnet Pflicht/Dosis/Timing.
+   Seit 2.6.0 ist dieser Rest EIN Knopf statt zweier `div onclick` – damit ist er mit der Tastatur
+   erreichbar und hat fuer einen Screenreader genau einen Namen („<Name> einstellen"). */
 .supp-row .tgl{flex:0 0 auto}
-.supp-row .rl{cursor:pointer}
-.supp-row .rr{cursor:pointer;color:var(--ink3)}
+.supp-row .supp-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px;
+  background:transparent;border:0;margin:0;padding:0;text-align:left;
+  font-family:inherit;font-size:17px;font-weight:400;color:inherit;cursor:pointer;
+  -webkit-appearance:none;appearance:none}
+.supp-row .supp-main .rl{flex:1;min-width:0;font:500 17px/1.3 var(--font)}
+.supp-row .supp-main .rl small{display:block;color:var(--ink2);font-size:13px;font-weight:400;margin-top:1px}
+.supp-row .supp-main .rr{flex:0 0 auto;display:flex;align-items:center;gap:4px;color:var(--ink3);font-size:15px}
 
 /* ---- Excel-Import ---- */
 .map-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
@@ -131,4 +299,8 @@
 
 /* ---- Nachrichten- und Vorlagen-Tab (Coach-Navigation) ---- */
 #msgPage .msg.system{margin-bottom:8px}
+/* E5: Der Papierkorb neben einer Vorlage war 36 px und damit unter dem 44-px-Ziel. .tpl-del greift in der
+   Seite UND im Sheet (openTemplates), weil beide dieselbe Klasse setzen. Das negative Margin holt die
+   zusaetzliche Breite aus dem Zeilenrand zurueck, damit die Zeile nicht wandert. */
 #tplPage .rows .btn.icon.sm{margin-right:-6px}
+.btn.icon.sm.tpl-del{width:44px;min-height:44px;margin-right:-6px}

@@ -22,10 +22,8 @@
 #anaBody .tiles>.skeleton{margin:0;height:92px}
 .ana-lifetime{margin:-4px 4px 0}
 
-/* ---- Diagramm-Karten: Sprungziel unter dem festen Header, kurzes Aufleuchten ---- */
+/* ---- Diagramm-Karte: es steht immer genau eine da, gewaehlt ueber die Kacheln ---- */
 #anaBody .chart-card{scroll-margin-top:calc(var(--safe-t) + 72px)}
-@keyframes anaFlash{0%{box-shadow:0 0 0 2px var(--red-ring)}100%{box-shadow:0 0 0 2px transparent}}
-#anaBody .chart-card.flash{animation:anaFlash 1.4s var(--ease)}
 
 /* ---- Übungen: Variante (Trainingstag/Nummer) nur bei gleichnamigen Übungen ---- */
 #anaBody .row .rl .ana-vari{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--surface3);color:var(--ink2);font-size:12px;font-weight:600;vertical-align:1px}
@@ -38,11 +36,52 @@
 /* ---- Muskelgruppen-Balken ---- */
 .ana-muscle+.ana-muscle{margin-top:12px}
 .ana-muscle .bar{margin-top:6px}
+.ana-muscle .caption{margin-top:4px}
+/* Sätze je Muskelgruppe (D17): die Breite misst gegen 20 Sätze/Woche, der Strich markiert 10.
+   Farbe sagt den Zustand – nichts eingetragen (grau), unter der Orientierung (amber), drin (grün),
+   darüber (neutral). Rot bleibt der Warnfarbe vorbehalten. */
+.ana-muscle .bar.corr{position:relative;overflow:visible}
+.ana-muscle .bar.corr::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--ink3);opacity:.8}
+.ana-muscle .bar.corr>i{background:var(--ink)}
+.ana-muscle .bar.corr.zero>i{background:var(--ink3);min-width:2px}
+.ana-muscle .bar.corr.low>i{background:var(--amber)}
+.ana-muscle .bar.corr.ok>i{background:var(--green)}
+/* Gruppen ohne einen Satz: eine Zeile statt sechs leerer Balken */
+.ana-zero{margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline);font-size:var(--t-sm);color:var(--ink2);line-height:1.4}
+/* Der Aussagesatz über den Balken: ein Satz, nicht noch eine Zahl */
+.ana-msg{display:flex;gap:8px;align-items:flex-start;margin-bottom:14px;font-size:var(--t-base);line-height:1.4;color:var(--ink)}
+.ana-msg .ic{flex:0 0 auto;margin-top:2px}
+.ana-msg.tone-green .ic{color:var(--green)}
+.ana-msg.tone-amber .ic{color:var(--amber)}
 
 /* ---- Check-in Historie: links Datum + Nebenwerte, rechts das Gewicht ---- */
 .ana-hist .row .rr{font-size:15px;font-weight:600;color:var(--ink)}
 .ana-hist .row .rl small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #anaBody .section-label .sl-r .btn.sm{margin:-8px 0}
+
+/* ---- Wochenrückblick (Segment „Woche"): Kopfzeile, Highlights, Fokus, Zahlenzeilen ---- */
+.ana-wknav{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.ana-wknav .wk-t{flex:1;min-width:0;text-align:center}
+.ana-wknav .wk-t b{display:block;font-size:var(--t-md);font-weight:600;letter-spacing:-.01em}
+.ana-wknav .wk-t small{display:block;margin-top:1px;color:var(--ink2);font-size:var(--t-sm)}
+.ana-wknav .wk-sp{flex:0 0 36px;height:36px} /* Platzhalter, damit der Zeitraum mittig bleibt */
+.ana-wk-meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;margin:-8px 0 16px;font-size:var(--t-sm);color:var(--ink2)}
+.ana-wk-meta .ic{width:14px;height:14px;color:var(--amber)}
+.ana-wk-meta .sep{color:var(--ink3)}
+.ana-wk-hl{display:grid;gap:10px;margin-bottom:12px}
+.ana-wk-hl .wk-hl{display:flex;align-items:flex-start;gap:10px;font-size:var(--t-base);line-height:1.4}
+.ana-wk-hl .wk-hl .ic{flex:0 0 auto;margin-top:2px;color:var(--green)}
+.ana-wk-focus{display:flex;align-items:flex-start;gap:12px;background:var(--red-tint);box-shadow:inset 0 0 0 1.5px var(--red-ring)}
+.ana-wk-focus>.ic{flex:0 0 auto;margin-top:2px;color:var(--red-text)}
+.ana-wk-focus>div{min-width:0} /* langer Begründungssatz bricht um, statt die Karte zu sprengen */
+.ana-wk-focus b{display:block;margin-top:2px;font-size:var(--t-md);font-weight:600;letter-spacing:-.01em}
+/* Wert oben, Vergleich darunter – nebeneinander liefe die Zeile bei 320 px über den Rand */
+#anaBody .ana-wk-row .rr{flex-direction:column;align-items:flex-end;gap:0;max-width:62%;white-space:normal;text-align:right}
+#anaBody .ana-wk-row .rr .v{font-size:var(--t-md);font-weight:600;color:var(--ink)}
+#anaBody .ana-wk-row .rr .v em{font-style:normal;font-size:var(--t-sm);font-weight:500;color:var(--ink2)}
+#anaBody .ana-wk-row .rr .v .muted-2{font-size:var(--t-sm);font-weight:500} /* „keine Daten" tritt zurück */
+#anaBody .ana-wk-row .rr .wk-cmp{display:flex;align-items:center;gap:3px;margin-top:2px;font-size:var(--t-xs);color:var(--ink3)}
+#anaBody .ana-wk-row .rr .wk-cmp .ic{width:12px;height:12px}
 
 /* ---- Fotos (Sheet) ---- */
 .ph-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
@@ -74,3 +113,8 @@
 
 /* ---- Stat-Strips „Ziele & Erfolge" ---- */
 #anaBody .stat-strip .sx .ic{width:18px;height:18px}
+
+/* Kachelreihe = Diagramm-Auswahl: die aktive Kachel ist deutlich markiert */
+.tiles .tile.tap{cursor:pointer;box-shadow:inset 0 0 0 1.5px transparent;transition:box-shadow var(--dur) var(--ease),background var(--dur)}
+.tiles .tile.on{box-shadow:inset 0 0 0 1.5px var(--red);background:var(--red-tint)}
+.tiles .tile.on .l,.tiles .tile.on .v{color:var(--red-text)}
