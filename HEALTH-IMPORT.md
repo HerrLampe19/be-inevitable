@@ -1,5 +1,11 @@
 # Apple Health verbinden (Schlaf, Verbrauch, Trainings)
 
+> **Voraussetzung seit 2.6.0: deine Einwilligung.** Gesundheitsdaten sind nach Artikel 9 DSGVO
+> besondere Daten – ohne ein ausdrückliches Ja speichert der Server **nichts**, auch nicht vom
+> Kurzbefehl. Das Häkchen steht in der App unter **Profil → Daten & Verbindungen → Einwilligung**.
+> **Setz es, bevor du den Kurzbefehl baust** – sonst scheitert die nächtliche Übertragung still
+> (siehe „Wenn nichts ankommt: Antwort 409").
+
 Ab Version 2.2.0 gibt es zwei Wege. **Der erste läuft von selbst** – einmal einrichten,
 danach schickt das iPhone jede Nacht die Werte, ohne dass du etwas tust.
 
@@ -9,7 +15,8 @@ danach schickt das iPhone jede Nacht die Werte, ohne dass du etwas tust.
 | Übertragung | nachts von selbst | wenn du dran denkst |
 | Werte | Schlaf, Schritte, Verbrauch, Bewegungsminuten, Ruhepuls, HRV, Gewicht, Trainings | Gewicht, Schritte, Schlaf |
 
-Beide Wege findest du in der App unter **Analyse → Gesundheitsdaten verbinden → Apple Health**.
+Beide Wege findest du in der App unter **Analyse → Gesundheitsdaten verbinden → Apple Health** –
+oder, derselbe Ort von der anderen Seite, unter **Profil → Gesundheitsdaten verbinden**.
 
 ---
 
@@ -100,10 +107,11 @@ Die Antwort ist kurz genug, um sie im Kurzbefehl als Mitteilung anzuzeigen:
 ### Wenn nichts ankommt: Antwort 409 („Einwilligung fehlt")
 
 Seit Version 2.6.0 speichert die App Gesundheitsdaten erst, wenn du einmal ausdrücklich zugestimmt
-hast (Art. 9 DSGVO). Das gilt auch für den Kurzbefehl. Ohne Zustimmung antwortet der Server:
+hast (Art. 9 DSGVO). Das gilt auch für den Kurzbefehl. Ohne Zustimmung antwortet der Server
+(am laufenden Server nachgemessen, Wort für Wort):
 
 ```json
-{"error":"Bevor wir Gesundheitsdaten speichern, brauchen wir dein Einverständnis. …","needsConsent":true}
+{"error":"Bevor wir Gesundheitsdaten speichern, brauchen wir dein Einverständnis. Du findest es im Konto unter „Daten & Verbindungen → Einwilligung“ – ein Häkchen, jederzeit widerrufbar.","needsConsent":true,"reason":"missing","consentVersion":"2026-09-13"}
 ```
 
 Status **409**, und es wird **nichts** geschrieben. Der Kurzbefehl läuft trotzdem jede Nacht weiter –
@@ -112,7 +120,8 @@ scheitert die Übertragung **still**, Nacht für Nacht, bis du zustimmst. Erkenn
 daran, dass **„Zuletzt: …"** unter *Analyse → Gesundheitsdaten verbinden* stehen bleibt.
 
 **Was zu tun ist:**
-1. In der App: **Konto → Daten & Verbindungen → Einwilligung** – ein Häkchen, jederzeit widerrufbar.
+1. In der App: **Profil → Daten & Verbindungen → Einwilligung** – ein Häkchen, jederzeit widerrufbar.
+   (Der Servertext oben sagt „im Konto" – gemeint ist derselbe Reiter, er heißt in der App **Profil**.)
 2. Die Tage, die in der Zwischenzeit verloren gegangen sind, holt der Kurzbefehl **nicht** von selbst
    nach – er schickt nur den aktuellen Tag. Trage sie einmalig über **Abschnitt 2 (Von Hand)** nach,
    oder schick den Kurzbefehl einmal mit dem `days`-Format über den fehlenden Zeitraum.

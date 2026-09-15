@@ -29,6 +29,96 @@ function dtNorm(s){return String(s==null?'':s).toLowerCase().replace(/ß/g,'ss')
 // Mehrwort-UND: „toast kase" trifft „Toast Käse light", die Reihenfolge ist egal.
 function dtToks(q){return dtNorm(q).split(' ').filter(Boolean);}
 function dtHit(text,toks){if(!toks.length)return true;const h=dtNorm(text);return toks.every(t=>h.includes(t));}
+// ===== DER TAG, DEN DIESER REITER ZEIGT (A-IV.4 · dt2) =====
+// Bis 2.7.0 kannte der Ernährungs-Tab genau EINEN Tag: heute – `today()` stand an vierzehn Stellen fest.
+// Wer abends das Mittagessen nachtragen wollte, konnte es nicht. Und genau das tun Menschen: sie loggen
+// nicht beim Essen, sondern danach. Das Essens-Logging bricht unter allen Selbstbeobachtungs-Arten am
+// schnellsten ab (Median 10 Wochen, Carpenter 2022); ein Tag, der sich nicht nachtragen lässt, ist der Tag,
+// an dem jemand aufhört. Der Server nimmt `?date=` und `date` im Rumpf längst an (GET /api/foodlog,
+// POST /api/foodlog, /foodlog/frommeal, /recipes/:id/log) – gefehlt hat allein die Oberfläche.
+// DT2_DATE bleibt bewusst null, solange „heute" gemeint ist: so wandert die Ansicht über Mitternacht mit,
+// statt auf dem Datum stehen zu bleiben, das beim Öffnen galt.
+let DT2_DATE=null;
+const DT2_BACK_MAX=365;   // so weit zurück lässt die Leiste (der Server erlaubt mehr, MAX_RANGE_DAYS=1100)
+function dtDate(){return DT2_DATE||today();}
+function dtIsToday(){return dtDate()===today();}
+// Datumsrechnung über UTC-Mitternacht – dieselbe Form wie crDayDiff in core.js. Sommerzeit kann hier
+// nichts verschieben, weil beide Seiten auf denselben Zeitpunkt 00:00 Z normiert werden.
+function dtAddDays(d,n){return new Date(Date.parse(d+'T00:00:00Z')+n*864e5).toISOString().slice(0,10);}
+function dtDayDiff(a,b){return Math.round((Date.parse(b+'T00:00:00Z')-Date.parse(a+'T00:00:00Z'))/864e5);}
+const DT2_WD=['So','Mo','Di','Mi','Do','Fr','Sa'];
+// „Heute" · „Gestern" · „Sa 12.9." – kurz genug für die Leiste, eindeutig genug ohne Jahreszahl.
+function dtDayLabel(d){const diff=dtDayDiff(today(),d);
+  if(diff===0)return 'Heute';if(diff===-1)return 'Gestern';if(diff===-2)return 'Vorgestern';
+  return dtDateShort(d);}
+function dtDateShort(d){const x=new Date(Date.parse(d+'T00:00:00Z'));
+  return DT2_WD[x.getUTCDay()]+' '+x.getUTCDate()+'.'+(x.getUTCMonth()+1)+'.';}
+// Dasselbe Etikett mitten im Satz („für gestern", „für Sa 5.9."). Kleingeschrieben werden NUR die drei
+// Wörter, die auch klein geschrieben gehören – „für sa 5.9." wäre schlicht falsch, Wochentage bleiben groß.
+function dtDayLabelIn(d){const l=dtDayLabel(d);
+  return /^(Heute|Gestern|Vorgestern)$/.test(l)?l.toLowerCase():l;}
+// Tag wechseln. Der PLAN (/api/meals) hängt nicht am Kalendertag – er beschreibt Trainings- und Ruhetage –,
+// darum wird hier nur das Protokoll neu geholt; den Tagtyp des gewählten Tages liefert die Antwort mit
+// (fl.dayType, Server: dayTypeOf). Nach vorn ist bei „heute" Schluss: der Server nimmt einen Tag Kulanz an
+// (FUTURE_GRACE_DAYS), aber ein Essen für morgen einzutragen ist keine Erfassung, sondern ein Versehen.
+async function dtSetDate(d){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(d)))return;
+  if(d===dtDate())return;
+  const diff=dtDayDiff(today(),d);
+  if(diff>0)return toast('Weiter als bis heute geht es nicht');
+  if(diff<-DT2_BACK_MAX)return toast('So weit zurück reicht das Protokoll nicht');
+  DT2_DATE=(d===today())?null:d;
+  renderDiet.foodlog=null;renderDiet.foodlogOk=false;renderDiet.foodlogSt=null;renderDiet.foodlogDate=null;
+  renderDiet.foodlogLoading=true;   // drawTrack zeigt dann Leiste + Skelett statt „nicht erreichbar"
+  if(renderDiet.tab==='track'||!renderDiet.tab)drawTrack();
+  await refreshFoodlog();
+}
+function dtShiftDate(n){dtSetDate(dtAddDays(dtDate(),n));}
+// Auf WELCHEN Tag schreibt ein Eintrag? Auf den, den der Ernährungs-Tab gerade zeigt – aber nur, wenn man
+// ihn auch sieht. go() ersetzt den Inhalt von #views vollständig, es liegt also immer genau eine Ansicht im
+// Dokument: gibt es kein #dietBody, kommt der Aufruf von woanders (Startseiten-Chip „Essen loggen",
+// homeMealDone, Rezept aus der Suche) – und dort ist immer heute gemeint, nie ein Nachtrag-Tag, den der
+// Nutzer vor zehn Minuten in einem anderen Reiter angesehen hat.
+function dtLogDay(){return (document.getElementById('dietBody')&&!dtIsToday())?dtDate():today();}
+// Die Datumsleiste. Sie steht im normalen Fluss (nicht sticky): eine klebende Leiste würde beim Messen
+// den „Essen hinzufügen"-Knopf verdecken können, und verdeckte Ziele sind ein echter Bedienfehler, kein
+// Messartefakt. Der mittlere Knopf ist zugleich der Rückweg – ein Tipp und man ist wieder auf heute.
+function dtDateBar(){const d=dtDate(),isT=dtIsToday();
+  const prev=dtAddDays(d,-1),next=dtAddDays(d,1);
+  const canPrev=dtDayDiff(prev,today())<=DT2_BACK_MAX;
+  const canNext=dtDayDiff(today(),next)<=0;
+  // Die zweite Zeile trägt zwei Dinge: das genaue Datum und den Rückweg. Ab „Vorgestern" IST die erste
+  // Zeile schon das Datum („Sa 5.9.") – dann bliebe nur „Sa 5.9. · zu heute" darunter, dasselbe Wort
+  // zweimal untereinander. In dem Fall steht dort nur noch „zu heute".
+  const label=dtDayLabel(d);
+  const sub=isT?'':(label===dtDateShort(d)?'zu heute':dtDateShort(d)+' · zu heute');
+  return `<div class="dt-datebar" id="dtDateBar">
+    <button class="dt-arrow" ${canPrev?'':'disabled'} aria-label="Ein Tag zurück (${esc2(dtDayLabel(prev))})" onclick="dtShiftDate(-1)">${icon('chevronLeft',20)}</button>
+    <button class="dt-day${isT?' now':''}" ${isT?'disabled':''} aria-label="${isT?'Angezeigt: heute':'Angezeigt: '+esc2(dtDateShort(d))+' – zurück zu heute'}" onclick="dtSetDate(today())">
+      <span class="dd-l">${esc2(label)}</span>${sub?`<span class="dd-s">${esc2(sub)}</span>`:''}</button>
+    <button class="dt-arrow" ${canNext?'':'disabled'} aria-label="Ein Tag vor (${esc2(dtDayLabel(next))})" onclick="dtShiftDate(1)">${icon('chevronRight',20)}</button>
+  </div>`;}
+// Wischen zwischen Tagen. Bewusst nur auf dem Heute-Reiter und nur für waagrechte, zügige Gesten:
+// ein schräger Zug ist der Versuch zu scrollen, und den darf diese Geste nicht abfangen. Querscrollende
+// Kinder (Chip-Reihen) sind ausgenommen – dort gehört die Bewegung der Reihe, nicht dem Kalender.
+// Die Schwellen sind ABSICHTLICH dieselben wie beim Tabwechsel in shell.js (70 px, dy×2, 600 ms): eine
+// Geste, die im Ernährungs-Tab bei 60 px auslöst und überall sonst erst bei 70, fühlt sich kaputt an.
+// Dieselbe Bewegung, dieselbe Schwelle – nur eine andere Bedeutung an einer anderen Stelle.
+let DT2_SW=null;
+function dtSwipeStart(e){const t=e.touches&&e.touches[0];if(!t||e.touches.length>1)return;DT2_SW=null;
+  if(renderDiet.tab&&renderDiet.tab!=='track')return;   // Plan/Rezepte/Einkauf haben keinen Tag zum Blättern
+  let n=e.target;while(n&&n!==e.currentTarget){if(n.scrollWidth-n.clientWidth>8)return;n=n.parentNode;}
+  DT2_SW={x:t.clientX,y:t.clientY,ts:Date.now()};}
+function dtSwipeEnd(e){const s=DT2_SW;DT2_SW=null;if(!s)return;
+  if(document.getElementById('modal')?.classList.contains('on'))return;   // über einem offenen Sheet nicht
+  const t=e.changedTouches&&e.changedTouches[0];if(!t)return;
+  const dx=t.clientX-s.x,dy=t.clientY-s.y;
+  if(Math.abs(dx)<70||Math.abs(dx)<Math.abs(dy)*2||Date.now()-s.ts>600)return;
+  dtShiftDate(dx<0?1:-1);}   // nach links wischen = vorwärts blättern, wie in jedem Kalender
+function dtSwipeBind(el){if(!el||el._dt2sw)return;el._dt2sw=1;
+  el.addEventListener('touchstart',dtSwipeStart,{passive:true});
+  el.addEventListener('touchend',dtSwipeEnd,{passive:true});
+  el.addEventListener('touchcancel',()=>{DT2_SW=null;},{passive:true});}
 function _dietShell(tab){return `<div class="page on">
     <div class="seg" id="dietSeg">
       <button id="dt_track" class="${tab==='track'?'on':''}" onclick="dietTab('track')">Heute</button>
@@ -46,15 +136,24 @@ async function renderDiet(v,opts){opts=opts||{};
   if(VIEW_USER==null||VIEW_USER===''){v.innerHTML=`<div class="page on">${dtNoAthleteHTML()}</div>`;return;}
   if(!TODAY)await loadToday();
   const eff=TODAY?.confirmed||TODAY?.suggestion;renderDiet.todayType=(eff?.type==='train')?'training':'rest';
-  if(renderDiet.user!==VIEW_USER){renderDiet.meals=null;renderDiet.foodlog=null;renderDiet.mealsOk=false;renderDiet.foodlogOk=false;renderDiet.mealsSt=null;renderDiet.foodlogSt=null;renderDiet.user=VIEW_USER;RC_CACHE={};RC_ALL=null;LF_RECENT=null;DT_LF_FAV=null;OPEN_MEALS=new Set();RECIPE_FILTER=null;RECIPE_Q='';}
+  // Athletenwechsel: alles verwerfen – auch den gewählten Tag. Sonst stünde der Coach im Protokoll des
+  // nächsten Athleten plötzlich auf „Vorgestern", ohne es gewollt zu haben.
+  if(renderDiet.user!==VIEW_USER){renderDiet.meals=null;renderDiet.foodlog=null;renderDiet.mealsOk=false;renderDiet.foodlogOk=false;renderDiet.mealsSt=null;renderDiet.foodlogSt=null;renderDiet.user=VIEW_USER;
+    renderDiet.targets=null;renderDiet.targetsUser=null;renderDiet.targetsSt=null; /* Zielblatt gehört dem Athleten, nicht dem Reiter */ RC_CACHE={};RC_ALL=null;LF_RECENT=null;DT_LF_FAV=null;OPEN_MEALS=new Set();RECIPE_FILTER=null;RECIPE_Q='';DT2_DATE=null;DT2_TPL=null;}
   DIET=renderDiet.todayType;
   if(renderDiet.tab==='cart'&&!_dietSelf())renderDiet.tab='track';
   const tab=renderDiet.tab||'track';
-  const cached=!!(renderDiet.meals&&renderDiet.foodlog&&renderDiet.foodlogDate===today());
+  const cached=!!(renderDiet.meals&&renderDiet.foodlog&&renderDiet.foodlogDate===dtDate());
   if(!(opts.cached&&document.getElementById('dietBody'))||!cached)v.innerHTML=_dietShell(tab);
   if(cached)dietTab(tab); // sofort aus dem Speicher malen, dann still nachladen
-  const before=cached?JSON.stringify([renderDiet.meals,renderDiet.foodlog]):null;
-  const [mr,fr]=await Promise.all([API.get('/meals/'+VIEW_USER),API.get('/foodlog/'+VIEW_USER+'?date='+today())]);
+  const before=cached?JSON.stringify([renderDiet.meals,renderDiet.foodlog,renderDiet.targets]):null;
+  const day=dtDate();
+  // Drittes Blatt: das Zielblatt (`GET /api/targets/:uid`). Es hängt am selben Athleten und wird MIT den
+  // anderen beiden geholt, nicht danach – sonst wartet die Vorschlagskarte eine Rundreise länger als der
+  // Rest der Ansicht. Ein Fehlschlag darf die Ernährungsansicht nicht aufhalten: adpLoad() merkt sich den
+  // Status, und ohne Antwort zeichnet die Karte einfach nichts.
+  const [mr,fr]=await Promise.all([API.get('/meals/'+VIEW_USER),API.get('/foodlog/'+VIEW_USER+'?date='+day),
+    adpLoad().catch(()=>null)]);
   if(!document.getElementById('dietBody'))return; // Nutzer ist inzwischen woanders
   // mealsOk/foodlogOk = „für diesen Athleten ist wirklich eine Antwort MIT Daten angekommen". Nur dann darf
   // ein leerer Stand als Leerzustand gezeichnet werden. mealsSt/foodlogSt merken sich zusätzlich den echten
@@ -63,20 +162,32 @@ async function renderDiet(v,opts){opts=opts||{};
   renderDiet.mealsSt=mr.status;renderDiet.foodlogSt=fr.status;
   if(mr.status===200){renderDiet.meals=mr.data?.meals||[];renderDiet.mealsOk=true;}else if(!renderDiet.meals)renderDiet.meals=[];
   if(fr.status===200){renderDiet.foodlog=fr.data||{items:[],summary:{}};renderDiet.foodlogOk=true;}else if(!renderDiet.foodlog)renderDiet.foodlog={items:[],summary:{}};
-  renderDiet.foodlogDate=today();
-  const after=JSON.stringify([renderDiet.meals,renderDiet.foodlog]);
+  renderDiet.foodlogDate=day;
+  const after=JSON.stringify([renderDiet.meals,renderDiet.foodlog,renderDiet.targets]);
   if(!cached||before!==after)dietTab(renderDiet.tab||tab);
   if(typeof maybeStartTabTour==='function')try{maybeStartTabTour('diet',{deferred:true});}catch(e){}}
 function _dietMark(t){renderDiet.tab=t;
-  [['track','dt_track'],['plan','dt_plan'],['recipes','dt_recipes'],['cart','dt_cart']].forEach(([k,id])=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',t===k);});}
+  [['track','dt_track'],['plan','dt_plan'],['recipes','dt_recipes'],['cart','dt_cart']].forEach(([k,id])=>{const el=document.getElementById(id);if(el)el.classList.toggle('on',t===k);});
+  // Wem gehört die waagrechte Wischbewegung in diesem Reiter? Die App wischt seit jeher zwischen den
+  // FÜNF Haupttabs (shell.js:8–26, Schwelle 70 px). Ohne Absprache liefe im Heute-Reiter beides auf
+  // einmal: der Tag springt einen zurück UND die App landet in „Mindset" – gemessen und im Bild
+  // festgehalten (12-wischgeste-konflikt.png). Ein Doppeltreffer ist schlimmer als gar keine Geste.
+  // shell.js hat für genau diesen Fall eine Tür offen gelassen: `[data-noswipe]` am Startpunkt der
+  // Geste schaltet den Tabwechsel ab. Also markiert der Heute-Reiter seinen Körper und NUR er – auf
+  // Plan, Rezepte und Einkauf bleibt der Tabwechsel unverändert. Das ist auch die richtige Rangfolge:
+  // wo ein Tag dargestellt wird, ist waagrecht „ein Tag weiter" (so machen es MacroFactor und Yazio),
+  // und der Tabwechsel bleibt über die Leiste unten erreichbar – ein Tap, wie vorher.
+  const body=document.getElementById('dietBody');
+  if(body){if(t==='track')body.setAttribute('data-noswipe','');else body.removeAttribute('data-noswipe');}}
 function dietTab(t){if(t==='cart'&&!_dietSelf())t='track'; // Einkaufswagen nur im eigenen Konto
   if(!['track','plan','recipes','cart'].includes(t))t='track';
   _dietMark(t);
   if(t==='track')drawTrack();else if(t==='plan')drawDiet();else if(t==='cart')drawCart();else drawRecipes();}
 // Protokoll neu laden (nach jeder Änderung) + Home-Cache verwerfen; zeichnet den sichtbaren Reiter neu
-async function refreshFoodlog(redraw){const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+today());
+async function refreshFoodlog(redraw){const day=dtLogDay();const fr=await API.get('/foodlog/'+VIEW_USER+'?date='+day);
   renderDiet.foodlogSt=fr.status; // damit die Karte nach einem Fehlschlag denselben Grund nennt wie oben
-  if(fr.status===200){renderDiet.foodlog=fr.data;renderDiet.foodlogDate=today();renderDiet.foodlogOk=true;}
+  renderDiet.foodlogLoading=false;
+  if(fr.status===200){renderDiet.foodlog=fr.data;renderDiet.foodlogDate=day;renderDiet.foodlogOk=true;}
   if(typeof invalidateView==='function')try{invalidateView('home');}catch(e){}
   _homeFoodPatch(); // Start-Kachel sofort nachziehen, wenn dort geloggt wurde (Home-Chip „Essen loggen")
   if(redraw!==false&&document.getElementById('dietBody')){if(renderDiet.tab==='plan')drawDiet();else if(renderDiet.tab==='track'||!renderDiet.tab)drawTrack();}
@@ -84,6 +195,10 @@ async function refreshFoodlog(redraw){const fr=await API.get('/foodlog/'+VIEW_US
 // Wenn gerade die Startseite sichtbar ist (Essen aus dem Home-Chip geloggt): deren Ernährungs-Kachel mit
 // den frischen Daten neu zeichnen. Alles defensiv – Home gehört WP1, die Funktionen können fehlen.
 function _homeFoodPatch(){try{
+    // Die Startseite zeigt IMMER den heutigen Tag. Steht der Ernährungs-Tab auf einem Nachtrag-Tag, darf
+    // sein Protokoll dort nicht einziehen – sonst stünde „gestern 1.240 kcal" als heutiger Stand auf der
+    // Startseite. Der invalidateView-Aufruf oben genügt dann: Home lädt beim nächsten Besuch selbst.
+    if(!dtIsToday())return;
     if(!document.getElementById('homeFood')||typeof homePatch!=='function'||typeof homeFoodHTML!=='function')return;
     if(typeof HOME_DATA!=='undefined'&&HOME_DATA&&renderDiet.foodlog)HOME_DATA.foodlog=renderDiet.foodlog;
     homePatch('homeFood',homeFoodHTML());
@@ -123,10 +238,11 @@ function dtErrNote(what,st){const wl=what==='plan'?'Der Ernährungsplan':what===
 // Eine Stelle entscheidet, welche der drei Karten gilt: st 0/unbekannt -> offline, st>=400 -> Serverantwort.
 function dtLoadNote(what,st){return (st&&st!==200)?dtErrNote(what,st):dtOfflineNote(what);}
 async function dtReload(){const el=document.getElementById('dietBody');if(el)el.innerHTML=skeleton(3);
-  const [mr,fr]=await Promise.all([API.get('/meals/'+VIEW_USER),API.get('/foodlog/'+VIEW_USER+'?date='+today())]);
-  renderDiet.mealsSt=mr.status;renderDiet.foodlogSt=fr.status;
+  const day=dtDate();
+  const [mr,fr]=await Promise.all([API.get('/meals/'+VIEW_USER),API.get('/foodlog/'+VIEW_USER+'?date='+day)]);
+  renderDiet.mealsSt=mr.status;renderDiet.foodlogSt=fr.status;renderDiet.foodlogLoading=false;
   if(mr.status===200){renderDiet.meals=mr.data?.meals||[];renderDiet.mealsOk=true;}
-  if(fr.status===200){renderDiet.foodlog=fr.data||{items:[],summary:{}};renderDiet.foodlogDate=today();renderDiet.foodlogOk=true;}
+  if(fr.status===200){renderDiet.foodlog=fr.data||{items:[],summary:{}};renderDiet.foodlogDate=day;renderDiet.foodlogOk=true;}
   if(!document.getElementById('dietBody'))return; // Nutzer ist inzwischen woanders
   dietTab(renderDiet.tab||'track');
   // Der Toast sagt dasselbe wie die Karte: kein Netz nur, wenn wirklich keine Antwort kam.
@@ -151,9 +267,9 @@ function _dietErrTx(r,fallback){return r?.status===0?'Dafür brauchst du kurz Ne
 function _dietPending(it){try{
     // Nur in ein geladenes Protokoll DIESES Tages schreiben. Ein leeres Gerüst zu erfinden würde auf der
     // Startseite als „heute erst 320 kcal gegessen" gelesen – das wäre eine Lüge, kein optimistischer Stand.
-    if(!renderDiet.foodlog||renderDiet.foodlogDate!==today())return;
+    if(!renderDiet.foodlog||renderDiet.foodlogDate!==dtLogDay())return;
     const fl=renderDiet.foodlog;
-    fl.items=(fl.items||[]).concat([Object.assign({id:null,date:today(),amount:null,details:null,meal_id:null,kcal:0,fat:0,carbs:0,protein:0},it,{_pending:true})]);
+    fl.items=(fl.items||[]).concat([Object.assign({id:null,date:dtLogDay(),amount:null,details:null,meal_id:null,kcal:0,fat:0,carbs:0,protein:0},it,{_pending:true})]);
     const s=fl.summary=fl.summary||{};const m=s.macros=s.macros||{};
     s.consumed=(+s.consumed||0)+(+it.kcal||0);
     m.protein=(+m.protein||0)+(+it.protein||0);m.carbs=(+m.carbs||0)+(+it.carbs||0);m.fat=(+m.fat||0)+(+it.fat||0);
@@ -230,6 +346,19 @@ function dtCookedTxt(name,amount){const a=parseFloat(amount);if(!(a>0))return ''
   const f=DT_COOKED[n.replace(/\(roh\)/g,'').replace(/\s+/g,' ').trim()];
   if(!(f>=1.2))return '';
   return ' · ≈ '+fmtNum(Math.round(a*f/5)*5)+' g gekocht';}
+// A-V.5 (DEFER-A1 D3-Rest, Stand nach 2.8.0): `GET /api/meals/:userId` schickt seit 2.8.0 an JEDEM
+// Item `cookedG`/`cookedFactor`/`cookedText` – gerechnet aus `cookedEquivalent()` in src/logic.js, der
+// einen Quelle. Die PLANZEILE nimmt ab jetzt diese Zahl; `DT_COOKED` ist dort nur noch der Notnagel
+// für einen älteren Server. Die Kopie bleibt trotzdem stehen, weil sie einen ZWEITEN Aufrufer hat:
+// die Zutatenliste im Protokoll liest `food_log.details`, und dieser JSON-Schnappschuss trägt
+// nachgeprüft nur `food/amount/kcal/protein/carbs/fat` – kein `cookedG`. Wer die Kopie ersatzlos
+// löscht, nimmt dem Protokoll den Hinweis weg, und dort steht er NACH dem Essen.
+// Die Hausformulierung und die 1,2-Schwelle bleiben hier: der Servertext ist länger („roh abgewogen —
+// entspricht ca. 330 g gekocht") und würde die Planzeile umbrechen, und unterhalb von Faktor 1,2 ist
+// der Hinweis Rauschen („145 g roh ≈ 140 g gekocht"). Übernommen wird die ZAHL, nicht der Satz.
+function dtCookedOf(it){if(!it)return '';
+  if(it.cookedG!=null&&it.cookedFactor!=null)return (+it.cookedFactor>=1.2)?(' · ≈ '+fmtNum(it.cookedG)+' g gekocht'):'';
+  return dtCookedTxt(it.food,it.amount);}
 // Einheit eines Lebensmittels: foods.unit (wenn vorhanden) -> Stück-Erkennung -> g
 function foodUnit(name,f){const pm=pieceModeFor(name);
   if(pm&&pm.mode==='native')return 'Stück'; // „Vollei (Stück)" – Nährwerte sind bereits je Stück
@@ -265,13 +394,21 @@ function amtChip(inputId,v,btn){const i=document.getElementById(inputId);if(i)i.
   if(btn&&btn.parentNode)btn.parentNode.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===btn));}
 // nextPlanMeal(summary?) -> {mealId,label,slot,kcal,protein,logged,done,total,preview}|null – synchron aus dem Speicher.
 // Bevorzugt summary.nextMeal vom Server (GET /api/foodlog bzw. /api/home), sonst erste nicht eingetragene Plan-Mahlzeit.
-function nextPlanMeal(summary){
+// forDay = für welchen Kalendertag? Ohne Angabe: heute. Das ist wichtig geworden, seit der Reiter auch
+// vergangene Tage zeigt: die Startseite ruft nextPlanMeal() ohne Argument und meint immer heute – läge im
+// Speicher gerade das Protokoll von vorgestern, hätte sie sonst dessen Mahlzeiten als „noch offen" gezeigt.
+// Nur wenn das geladene Protokoll GENAU zu diesem Tag gehört, wird lokal gerechnet; sonst zählt allein die
+// Server-Angabe summary.nextMeal aus der Antwort, die der Aufrufer mitbringt.
+function nextPlanMeal(summary,forDay){
+  const day=forDay||today();
   // Der Plan-Cache gehoert immer genau einem Athleten. Wechselt ein Coach den Athleten und landet auf der
   // Startseite, ohne den Ernaehrungs-Tab zu oeffnen, wuerde sonst die Mahlzeit des VORIGEN Athleten angeboten
   // (und „Gegessen“ in dessen Protokoll schreiben). Darum hier hart auf den aktuellen Nutzer pruefen.
-  const mine=renderDiet.user===VIEW_USER;
+  const mine=renderDiet.user===VIEW_USER&&(!renderDiet.foodlogDate||renderDiet.foodlogDate===day);
   const sum=mine?(summary||renderDiet.foodlog?.summary||null):null;
-  const dayType=renderDiet.todayType||DIET;const meals=mine?planMeals(dayType):[];
+  // Trainings- oder Ruhetag? Für einen vergangenen Tag sagt das die Antwort des Servers (fl.dayType);
+  // renderDiet.todayType beschreibt nur den heutigen Tag und wäre beim Nachtragen der falsche Plan.
+  const dayType=(mine&&renderDiet.foodlog?.dayType)||renderDiet.todayType||DIET;const meals=mine?planMeals(dayType):[];
   const L=mine?loggedMealIds():{ids:new Set(),labels:new Set()};
   const total=meals.length,done=meals.filter(m=>mealLogged(m,L)).length;
   const pack=(m,logged)=>{const t=mealTotals(m);return {mealId:m.id,label:m.label||('Mahlzeit '+m.meal_no),slot:mealSlotOf(m),kcal:Math.round(t.kcal),protein:Math.round(t.protein),logged:!!logged,done,total,preview:(m.items||[]).map(i=>i.food).join(', ')};};
@@ -290,8 +427,8 @@ function nextPlanMeal(summary){
 // ===== HEUTE: RING, MAKRO-BALKEN, NÄCHSTE MAHLZEIT, PROTOKOLL =====
 function macroRow(kc,p,c,f,target){return `<div class="macro-row">
     <div class="macro kcal"><div class="v">${fmtNum(Math.round(kc||0))}${target?`<em>/${fmtNum(target)}</em>`:''}</div><div class="k">kcal</div></div>
-    <div class="macro"><div class="v">${fmtNum(Math.round(p||0))}<em>g</em></div><div class="k">Protein</div></div>
-    <div class="macro"><div class="v">${fmtNum(Math.round(c||0))}<em>g</em></div><div class="k">Carbs</div></div>
+    <div class="macro"><div class="v">${fmtNum(Math.round(p||0))}<em>g</em></div><div class="k">Eiweiß</div></div>
+    <div class="macro"><div class="v">${fmtNum(Math.round(c||0))}<em>g</em></div><div class="k">Kohlenhydrate</div></div>
     <div class="macro"><div class="v">${fmtNum(Math.round(f||0))}<em>g</em></div><div class="k">Fett</div></div></div>`;}
 // Urteil „gegessen vs. Ziel" – EINE Quelle für Ernährung und Startseite: bevorzugt der Serverstatus aus
 // GET /api/foodlog – src/logic.js dayNutrition –, sonst dieselben Schwellen lokal (>105 % drüber, ab 95 % im Ziel).
@@ -311,21 +448,77 @@ function calorieRing(consumed,target,size){size=size||128;
   const rem=target?Math.round(target-consumed):0;const pct=target?Math.min(1,consumed/target):0;
   return ring(pct,{size,stroke:11,color:kcalVerdict(consumed,target).color,
     label:fmtNum(target?Math.abs(rem):Math.round(consumed)),sub:target?(rem>=0?'kcal übrig':'kcal drüber'):'kcal'});}
-// Makro-Balken mit Über-Ziel-Zustand (Protein drüber = grün, Carbs/Fett drüber = amber, '+124 g')
-function macroBar(label,val,target,color){const v=Math.round(val||0),t=Math.round(target||0);
-  const pct=t?Math.min(100,Math.round(v/t*100)):0;const over=t&&v>t;const good=over&&label==='Protein';
-  return `<div class="mbar${over?' over':''}${good?' good':''}"><div class="mb-h"><span class="mb-l">${label}</span><span class="mb-v">${fmtNum(v)}${t?' / '+fmtNum(t):''} g${over?` <b>+${fmtNum(v-t)} g</b>`:''}</span></div>
-    <div class="bar${good?' green':over?' amber':''}"><i style="width:${pct}%${(!over&&color)?';background:'+color:''}"></i></div></div>`;}
-// „Laut Plan als Nächstes" – Karte für Heute und Plan (nur wenn ein Plan existiert)
-function nextMealCard(){const n=nextPlanMeal();const self=_dietSelf();
+// ===== MAKRO-RINGE STATT BALKEN-WARNUNG (A-IV.4 · Punkt 4) =====
+// Vorher: drei Balken, und jeder Wert über dem Ziel wurde amber eingefärbt und mit „+23 g" beziffert.
+// Bei einem Fettziel von 29 g (RATE-25-diet H1) hieß das: JEDER normale Tag sah aus wie ein Fehler.
+// Eine Warnfarbe, die täglich erscheint, warnt nicht mehr – sie wird überlesen, und mit ihr die echte
+// (STRATEGY P4 „Eine Farbe, eine Bedeutung", P6 „Kein Alarm für Normales"). Ein Ring kennt diesen Zustand
+// gar nicht: er ist voll, und wer genau wissen will, wie weit darüber, liest die Zahl darunter.
+// Der Ring füllt bis 100 %; „drüber" sagt eine ruhige Kleinzeile, in derselben Schriftfarbe wie alles andere.
+// Grün heißt hier genau EINE Sache: „das ist gut so". Es gibt genau zwei Fälle, sonst nichts:
+//  · im Ziel (95–105 %) -> grüner Ring, Kleinzeile „im Ziel" ebenfalls grün
+//  · Eiweiß über dem Ziel -> grüner Ring, Kleinzeile bleibt normal: mehr Eiweiß ist beim Aufbau kein
+//    Ausrutscher, sondern der Zweck – aber „105 g drüber" ist eine Menge, keine Auszeichnung
+//  · alles andere (darunter ODER darüber) -> die neutrale Farbe, Kleinzeile in normaler Textfarbe
+// Keine Warnfarbe. Ein Tag mit 39 g Fett über dem Ziel ist ein normaler Tag, kein Alarm (P6).
+// Der Ring trägt NUR die gegessene Zahl – kein `sub`. Grund ist eine Messung, keine Vorliebe: `ring()`
+// (home.js) rechnet die Schriftgröße aus der Ringgröße, `sub` mit Faktor 0,12. Bei einem 62-px-Ring waren
+// das **7 px** – a11y.mjs hat den Ernährungs-Tab allein dafür rot gemeldet (Mindestgröße 12 px, CRITIC K10).
+// Für 12 px im `sub` müsste der Ring 100 px groß sein; drei davon nebeneinander passen nicht. Also wandert
+// alles, was kleiner als der Hauptwert ist, unter den Ring – dort bestimmt diese Datei die Größe (--t-xs,
+// 12 px) und nicht eine Formel in einer fremden Datei. Die Ringgröße 70 hebt zugleich den Hauptwert von
+// 11 auf 13 px (70 × 0,18).
+// Drei Zeilen darunter, in der Reihenfolge, in der man sie braucht:
+//   „Eiweiß"      – worum geht es
+//   „20 / 157 g"  – die vollständige Zahl, die schon die Balken hatten (für den Profi bleibt nichts weg)
+//   „137 g offen" – was daraus folgt, in Worten statt in einer Warnfarbe
+function dtMacroRing(label,val,target,color){const v=Math.round(val||0),t=Math.round(target||0);
+  const pct=t?Math.min(1,v/t):0;
+  const over=!!(t&&v>t);
+  const hit=!!(t&&v>=t*0.95&&v<=t*1.05);
+  const good=hit||(over&&label==='Eiweiß');
+  const col=good?'var(--green)':color;
+  const vals=t?fmtNum(v)+' / '+fmtNum(t)+' g':fmtNum(v)+' g';
+  const note=!t?'kein Ziel':hit?'im Ziel':over?fmtNum(v-t)+' g drüber':fmtNum(t-v)+' g offen';
+  const a11y=`${label} ${fmtNum(v)}${t?' von '+fmtNum(t)+' Gramm':' Gramm'}`+
+    (!t?'':hit?', im Ziel':over?', '+fmtNum(v-t)+' Gramm darüber':', '+fmtNum(t-v)+' Gramm offen');
+  return `<div class="dt-mring${good?' good':''}${hit?' hit':''}" role="img" aria-label="${esc2(a11y)}">
+    ${ring(pct,{size:70,stroke:8,color:col,label:fmtNum(v)})}
+    <div class="mr-l">${esc2(label)}</div>
+    <div class="mr-v">${esc2(vals)}</div>
+    <div class="mr-s">${esc2(note)}</div></div>`;}
+// Die drei Ringe als Reihe – eine Stelle, damit Heute-Karte und spätere Aufrufer dieselbe Zeile zeigen.
+// Alle drei tragen dieselbe neutrale Farbe (`--ink`). Eigene Hues je Makro wären hübsch, aber in dieser
+// Karte liegt darüber schon der Kalorienring, der amber wird, wenn der Tag über dem Ziel liegt – ein
+// amberner Kohlenhydrat-Ring daneben hieße dann dasselbe Amber an zwei Stellen mit zwei Bedeutungen
+// (P4). Und jedes rote Element zählt gegen das Akzent-Budget der Welle. Also: neutral ist der Normalfall,
+// Grün ist die einzige Aussage – „getroffen". Welcher Ring welches Makro ist, sagt die Beschriftung.
+function dtMacroRings(mac,T){return `<div class="dt-mrings">
+    ${dtMacroRing('Eiweiß',mac.protein||0,T.protein,'var(--ink)')}
+    ${dtMacroRing('Kohlenhydrate',mac.carbs||0,T.carbs,'var(--ink)')}
+    ${dtMacroRing('Fett',mac.fat||0,T.fat,'var(--ink)')}</div>`;}
+// „Laut Plan als Nächstes" – Karte für Heute und Plan (nur wenn ein Plan existiert).
+// Am gewählten Tag: „als Nächstes" gilt nur für heute – wer vorgestern nachträgt, hat nichts mehr vor sich,
+// sondern etwas offen. Dasselbe Werkzeug, ehrlich benannt.
+// nextMealCard.planCTA merkt sich, ob diese Karte gerade einen GEFÜLLTEN Primär-Knopf („Gegessen")
+// gezeichnet hat. drawTrack liest das unmittelbar danach und stuft „Essen hinzufügen" entsprechend ein –
+// so steht auf dem Heute-Reiter zu jedem Zeitpunkt GENAU EINE rot gefüllte Fläche (STRATEGY P4, Akzent-
+// Budget der Welle). RATE-25-diet hatte im Design-Abzug genau das notiert: „zwei gestapelte vollbreite
+// rote Primär-Buttons ‚Gegessen' + ‚Essen hinzufügen' direkt untereinander" – zwei gleich laute Knöpfe
+// sagen dem Auge nicht, welcher gemeint ist. Kein Tap ändert sich dadurch, nur das Gewicht.
+function nextMealCard(){const day=dtDate();const past=!dtIsToday();
+  nextMealCard.planCTA=false;
+  const n=nextPlanMeal(null,day);const self=_dietSelf();
+  const tagTx=past?('am '+dtDayLabelIn(day)):'für heute';
   // „Noch kein Ernährungsplan" nur, wenn wirklich eine Antwort da war – sonst die ehrliche Offline-Karte
   if(!n&&!renderDiet.mealsOk)return `<div class="mb-3">${dtLoadNote('plan',renderDiet.mealsSt)}</div>`;
   if(!n)return `<div class="rows mb-3"><div class="row tap" role="button" tabindex="0" onclick="dietTab('plan')"><div class="r-ic">${icon('utensils')}</div><div class="rl">Noch kein Ernährungsplan<small>Automatisch aus ${self?'deinem':'dem'} Profil erstellen</small></div><div class="rr"></div></div></div>`;
   if(n.logged)return `<div class="card next-meal done mb-3"><div class="between"><div class="eyebrow tone-green">Laut Plan</div><span class="caption">${n.done} von ${n.total} eingetragen</span></div>
-    <div class="h3 mt-1">Alle Mahlzeiten eingetragen</div><div class="meta">${self?'Stark – der Plan ist für heute komplett.':'Der Plan ist für heute komplett eingetragen.'}</div></div>`;
-  const m=planMeals(renderDiet.todayType||DIET).find(x=>x.id===n.mealId);const kc=n.kcal;
+    <div class="h3 mt-1">Alle Mahlzeiten eingetragen</div><div class="meta">${self?(past?'Der Plan ist '+esc2(tagTx)+' vollständig nachgetragen.':'Stark – der Plan ist für heute komplett.'):'Der Plan ist '+esc2(tagTx)+' komplett eingetragen.'}</div></div>`;
+  const m=planMeals((renderDiet.foodlog?.dayType)||renderDiet.todayType||DIET).find(x=>x.id===n.mealId);const kc=n.kcal;
+  nextMealCard.planCTA=self;   // ab hier steht „Gegessen" als gefüllter Primär-Knopf in der Karte
   return `<div class="card next-meal mb-3" id="nextMealCard">
-    <div class="between"><div class="eyebrow">Laut Plan als Nächstes</div>${n.total?`<span class="caption">${n.done} von ${n.total} eingetragen</span>`:''}</div>
+    <div class="between"><div class="eyebrow">${past?'Laut Plan noch offen':'Laut Plan als Nächstes'}</div>${n.total?`<span class="caption">${n.done} von ${n.total} eingetragen</span>`:''}</div>
     <div class="h3 mt-1">${esc2(n.label)}</div>
     <div class="meta">${fmtNum(kc)} kcal · ${fmtNum(n.protein)} g P${n.preview?' · '+esc2(n.preview):''}</div>
     ${self?`<div class="nm-acts">
@@ -344,6 +537,417 @@ function dtTargetsNote(sum){
   return `<div class="dh-note">${icon('info',16)}<span>${esc2(txt)}</span></div>`;}
 // Kurzform für den Tagtyp-Chip: „Trainingstag · 2.584 kcal (Startwert)" statt einer glatten Behauptung.
 function dtStartwert(sum){return (sum&&sum.dobMissing)?' (Startwert)':'';}
+// ===== ADAPTIVE ERNÄHRUNGSZIELE (B-I.4 · Präfix `adp`) =====
+// Bis 2.9.0 war das Kalorienziel eine FORMEL: Gewicht, Größe, Alter, Ziel – einmal gerechnet, dann steht sie.
+// Das ist ein Startwert, keine Messung. Was ein Mensch wirklich verbraucht, steht nicht in der Formel, sondern
+// in zwei Reihen, die längst in der Datenbank liegen: `checkins.weight` und `food_log`. Ändert sich das Gewicht
+// bei bekannter Aufnahme nicht, IST die Aufnahme die Erhaltung – das ist der Kern von MacroFactor
+// (RESEARCH-25-apps, Muster 13 „Ausgaben-Algorithmus statt Formel"; RATE-25-diet, 12/10-Idee 1).
+//
+// Diese Datei zeigt das Ergebnis, sie rechnet es nicht: gerechnet wird in `src/logic.js`
+// (`tdeeFromTrend` → {tdee, confidence, holding}, `adaptTargets` → höchstens ±100 kcal je Woche samt
+// Begründungssatz), verdrahtet wird es in `src/server.js` (Wochen-Job, `target_history`). Hier gelten drei
+// Regeln, und sie sind der ganze Unterschied zu „die App hat halt was geändert":
+//
+//  P10 · Die App SCHLÄGT VOR, sie ändert nicht. Auch bei eingeschaltetem Schalter steht die Anpassung als
+//        Karte da – „Übernehmen / Behalten". Es gibt keinen Pfad, auf dem ein Ziel still wandert.
+//  P3  · Jede Zahl trägt genau EINEN Satz, woher sie kommt, und der ist nicht abschaltbar. Technisch
+//        erzwungen: `adpNumbers()` gibt gar nichts zurück, wenn `adpWhy()` leer ist. Keine Herkunft,
+//        keine Zahl – lieber schweigen als behaupten.
+//  Ehrlichkeit · `holding` (zu wenige Log-Tage) wird GEZEIGT, nicht verschwiegen. Eine Woche ohne
+//        Anpassung ist eine Aussage über die Daten, kein Grund, die Karte wegzulassen.
+//
+// Standard ist AUS (`users.target_mode='formel'`). Wer nichts tut, bekommt weiter die Formel und keine
+// Vorschläge – das ist die Voreinstellung, die niemanden überrascht.
+//
+// SERVER-VERTRAG · GEMESSEN STATT ANGENOMMEN (Nachbesserung 15.09.2026)
+// Bis hierher war diese Datei gegen einen Vertrag geschrieben, den Paket B-I.2 nie ausgeliefert hat:
+// sie las `GET /api/foodlog/:id` → `summary.adapt` und schrieb auf `POST /api/targets/adapt` bzw.
+// `PUT /api/profile {target_mode}`. Nachgemessen gegen den laufenden Server (Port 3835):
+//   GET  /api/foodlog/2                         -> summary OHNE Schlüssel `adapt` (19 Schlüssel, keiner heißt so)
+//   POST /api/targets/adapt                     -> 404 {"error":"Unbekannte Route"}
+//   PUT  /api/profile {"target_mode":"adaptiv"}  -> 200 {"ok":true} … und danach `mode:"formel"`
+// Der Athlet sah also nie eine Vorschlagskarte, obwohl der Vorschlag längst in `target_history` lag,
+// und der Schalter meldete Erfolg, ohne etwas zu speichern. Ausgeliefert ist stattdessen ein eigener,
+// vollständiger Satz Routen – und DIE werden jetzt benutzt (alle vier gemessen, siehe DONE-Bericht):
+//   GET  /api/targets/:uid   -> { available, mode:'formel'|'adaptiv', modes, hasCoach, modeText,
+//                                 current:{kcal,protein,carbs,fat,source,reason,week_start,id,formula},
+//                                 tdee, tdeeAt,
+//                                 pending:{id,week_start,kcal,protein,carbs,fat,source,reason,
+//                                          status,approved_by,created_at,decided_at,needsCoach}|null,
+//                                 history:[…20 Zeilen…] }
+//   POST /api/targets/:uid/mode    {mode:'formel'|'adaptiv'}  – der Schalter
+//   POST /api/targets/:uid/decide  {id, accept:true|false}    – „Übernehmen" / „Behalten"
+//   POST /api/targets/:uid/revert  {}                         – „Rückgängig"
+// `adpMap()` bildet diese Antwort auf die vier Zustände dieser Datei ab; geladen wird sie in `adpLoad()`
+// zusammen mit Plan und Protokoll. Antwortet der Server 404 (ältere Fassung) oder gar nicht, bleibt
+// `adpRaw()` null und diese Datei zeichnet NICHTS – der Reiter verliert nur die Karte.
+// Die ALTE Form (`summary.adapt`, dieselbe Form darf `/api/home` mitschicken) wird weiterhin gelesen und
+// gewinnt, wenn ein Server sie doch mitschickt: sie trägt mehr Herkunft (Ø kcal, Logtage, Gewichtstrend)
+// als `GET /api/targets`, und P3 lebt von genau dieser Herkunft. Ihr Aufbau:
+//   adapt = { mode, state:'proposal'|'coach'|'applied'|'holding'|'none', id, weekStart, reason,
+//             reasonCoach, from:{kcal,…}, to:{kcal,…}, tdee, confidence, weightKg, weightDelta,
+//             avgKcal, loggedDays, needDays, days, hasCoach, coachName }
+// WAS `GET /api/targets` NICHT LIEFERT: den Zustand `holding` (zu wenige Logtage → keine Anpassung).
+// Er entsteht in `targetsWeeklyFor()` und wird nur an den Aufrufer von `POST …/run` zurückgegeben,
+// nirgends gespeichert. Raten wäre hier das Schlimmste: „zu wenig gelogged" und „die Rechnung fand
+// keinen Änderungsbedarf" sehen von außen gleich aus, und ein falscher Vorwurf wiegt schwerer als ein
+// fehlender Satz. Also zeigt die Karte den Zustand nur, wenn der Server ihn schickt (`holding` in
+// `summary.adapt` oder in der Antwort von `/targets/:uid`) – vermerkt in DEFER-B1 als Bitte an B-I.2.
+// Der Satz aus dem Auftrag, wörtlich. „gelogged" ist kein schönes Deutsch, aber es ist das Wort, das im
+// Haus benutzt wird („Essen loggen" steht so auf der Startseite) – und ein Satz, der klingt wie die App
+// sonst spricht, wird gelesen. Im Coach-Blick steht dieselbe Tatsache ohne Du-Form.
+const ADP_HOLD_TX='Zu wenig gelogged diese Woche – ich lasse dein Ziel stehen.';
+const ADP_HOLD_TX_COACH='Zu wenige Einträge in dieser Woche – das Ziel bleibt stehen.';
+// ===== LADEN =====
+// Die Antwort von `GET /api/targets/:uid` liegt roh in `renderDiet.targets`, zusammen mit dem Athleten,
+// für den sie geholt wurde. Der Athletenwechsel im Coach-Blick verwirft sie (renderDiet oben) – sonst
+// stünde der Vorschlag des einen Athleten in der Ansicht des nächsten.
+async function adpLoad(){
+  const u=(typeof VIEW_USER!=='undefined')?VIEW_USER:null;
+  if(u==null||u==='')return null;
+  const r=await API.get('/targets/'+u);
+  renderDiet.targetsSt=r.status;
+  // 200 = frische Wahrheit. 404/403 = dieser Server oder dieses Konto hat die Funktion nicht: dann
+  // lieber gar nichts zeigen als etwas Altes. status 0 (kein Netz) lässt den letzten Stand stehen –
+  // er ist eine Minute alt und immer noch das, was der Server zuletzt gesagt hat.
+  if(r.status===200&&r.data&&typeof r.data==='object'){renderDiet.targets=r.data;renderDiet.targetsUser=u;}
+  else if(r.status>0){renderDiet.targets=null;renderDiet.targetsUser=u;}
+  return renderDiet.targets;}
+// Die rohe Antwort – aber nur, wenn sie zu dem Athleten gehört, der gerade auf dem Schirm ist.
+function adpRaw(){const u=(typeof VIEW_USER!=='undefined')?VIEW_USER:null;
+  const t=renderDiet.targets;
+  return (t&&typeof t==='object'&&renderDiet.targetsUser===u)?t:null;}
+// Der Vorgänger einer geltenden Zeile: die zuletzt ABGELÖSTE aus der Historie. Nach Id zu sortieren wäre
+// falsch – der Ausgangswert wird beim ersten „Übernehmen" nachgetragen und hat deshalb eine höhere Id als
+// die Zeile, die er ablöst (derselbe Grund steht in der revert-Route im Server).
+function adpPrevRow(hist,curId){
+  const l=(hist||[]).filter(r=>r&&r.status==='abgeloest'&&r.id!==curId)
+    .sort((a,b)=>String(b.decided_at||'').localeCompare(String(a.decided_at||''))||(b.id-a.id));
+  return l.length?{kcal:l[0].kcal,protein:l[0].protein,carbs:l[0].carbs,fat:l[0].fat}:null;}
+// „Diese Woche angepasst" darf nur dastehen, solange es stimmt. Eine Anpassung aus dem Juli ist kein
+// Kartenthema mehr – sie steht im Sheet unter „Diese Woche angepasst"… also: neun Tage Fenster, dann
+// verschwindet die Karte von selbst, auch wenn nie jemand „Passt" getippt hat.
+function adpFreshWeek(ws){if(!ws)return false;
+  const d=dtDayDiff(String(ws),today());return d>=0&&d<=9;}
+// Die Antwort des Servers auf die vier Zustände dieser Datei abbilden. Sie rechnet nichts um und erfindet
+// nichts: jedes Feld kommt aus der Antwort, und was fehlt, bleibt leer (siehe adpWhy/adpNumbers, P3).
+function adpMap(t){
+  if(!t||typeof t!=='object')return null;
+  const mode=(t.mode==='adaptiv')?'adaptiv':'formel';
+  const hasCoach=!!t.hasCoach;
+  const pend=(t.pending&&typeof t.pending==='object'&&t.pending.status==='vorschlag')?t.pending:null;
+  const cur=(t.current&&typeof t.current==='object')?t.current:null;
+  const four=r=>r?{kcal:r.kcal,protein:r.protein,carbs:r.carbs,fat:r.fat}:null;
+  let a=null;
+  if(pend){
+    // Wartet der Vorschlag auf den Coach? Der Server sagt es in `needsCoach`; die zweite Bedingung ist
+    // nur der Gürtel zum Hosenträger, falls eine ältere Fassung das Feld nicht mitschickt.
+    const wartet=(pend.needsCoach===true)||(pend.needsCoach==null&&mode==='adaptiv'&&hasCoach);
+    a={state:wartet?'coach':'proposal',id:pend.id,weekStart:pend.week_start,reason:pend.reason,
+       from:four(cur),to:four(pend)};
+  }else if(cur&&cur.id&&cur.source==='adaptiv'&&adpFreshWeek(cur.week_start)){
+    a={state:'applied',id:cur.id,weekStart:cur.week_start,reason:cur.reason,
+       from:adpPrevRow(t.history,cur.id),to:four(cur)};
+  }else if(t.holding){      // schickt der Server den Zustand doch mit, zeigt ihn die Karte (siehe oben)
+    const h=(typeof t.holding==='object')?t.holding:{};
+    a={state:'holding',id:null,weekStart:h.weekStart||h.week_start||null,reason:h.reason||null,
+       loggedDays:h.loggedDays,needDays:h.needDays};
+  }else return null;
+  a.mode=mode;a.hasCoach=hasCoach;
+  a.tdee=(t.tdee==null||t.tdee==='')?null:+t.tdee;
+  a.tdeeAt=t.tdeeAt||null;
+  a.tdeeTrend=true;   // Marke: dieser Verbrauch kommt aus tdeeFromTrend (Gewicht + Protokoll), s. adpWhy
+  return a;}
+// Die Karten-Daten: die alte Form gewinnt, wenn ein Server sie schickt (mehr Herkunft), sonst die
+// abgebildete Antwort von `GET /api/targets/:uid`.
+function adpData(){const a=renderDiet.foodlog?.summary?.adapt;
+  if(a&&typeof a==='object')return a;
+  return adpMap(adpRaw());}
+function adpProfile(){return (_dietSelf()?ME:(VIEW_USER_PROFILE||ME))||{};}
+// Der Schalterzustand kommt vom Server (auch wenn es GAR KEINEN Vorschlag gibt – deshalb liest er die
+// rohe Antwort und nicht die Karte), sonst aus dem Profil, sonst 'formel'. Voreinstellung AUS gilt an
+// jeder dieser drei Stellen.
+function adpMode(){const t=adpRaw();
+  if(t&&(t.mode==='adaptiv'||t.mode==='formel'))return t.mode;
+  const a=adpData();
+  if(a&&(a.mode==='adaptiv'||a.mode==='formel'))return a.mode;
+  return adpProfile().target_mode==='adaptiv'?'adaptiv':'formel';}
+function adpOn(){return adpMode()==='adaptiv';}
+function adpHasCoach(){const t=adpRaw();
+  if(t&&typeof t.hasCoach==='boolean')return t.hasCoach;
+  const a=adpData();
+  if(a&&typeof a.hasCoach==='boolean')return a.hasCoach;
+  return !!adpProfile().coach_id;}
+// Der Satz unter dem Schalter kommt vom Server (`modeText`), damit Ernährungs- und Coach-Ansicht nicht
+// zwei verschiedene Versprechen geben. Er ist in Du-Form geschrieben – im Coach-Blick gilt er deshalb nicht.
+function adpModeText(){const t=adpRaw();
+  return (_dietSelf()&&t&&typeof t.modeText==='string')?t.modeText.trim():'';}
+// Vier Zustände und ein fünfter, der nichts zeichnet. Fremde Schreibweisen werden mitgenommen, damit ein
+// Namensunterschied zwischen Paket B-I.2 und dieser Datei nicht zu einer leeren Ansicht führt.
+function adpState(a){a=a||adpData();if(!a)return 'none';
+  const s=String(a.state||'').toLowerCase();
+  if(s==='holding'||(!s&&a.holding===true))return 'holding';
+  if(s==='proposal'||s==='proposed'||s==='vorschlag')return 'proposal';
+  if(s==='coach'||s==='waiting_coach'||s==='pending_coach')return 'coach';
+  if(s==='applied'||s==='angewendet')return 'applied';
+  return 'none';}
+function adpFrom(a){return (a&&a.from&&typeof a.from==='object')?a.from:{};}
+function adpTo(a){return (a&&a.to&&typeof a.to==='object')?a.to:{};}
+function adpKcalFrom(a){return Math.round(+adpFrom(a).kcal||0);}
+function adpKcalTo(a){return Math.round(+adpTo(a).kcal||0);}
+// P3, die eine Stelle: WOHER kommt die Zahl? Gebaut wird der Satz nur aus dem, was der Server wirklich
+// geschickt hat – fehlt alles, bleibt er leer, und dann zeigt die Karte auch keine Zahl (siehe adpNumbers).
+// „Geschätzt" steht ausdrücklich dabei: ein Verbrauch ist eine Schätzung aus zwei Reihen, kein Messwert.
+function adpWhy(a){a=a||adpData();if(!a)return '';
+  const self=_dietSelf();
+  const tdee=Math.round(+a.tdee||0);
+  const avg=Math.round(+a.avgKcal||0);
+  const logged=Math.round(+a.loggedDays||0);
+  const days=Math.round(+a.days||0);
+  const kg=(+a.weightKg>0)?fmtNum(+a.weightKg,1):'';
+  const dwRaw=(a.weightDelta==null||a.weightDelta===''||isNaN(+a.weightDelta))?null:+a.weightDelta;
+  const quellen=[];
+  if(kg)quellen.push((self?'deinem':'dem')+' Gewichtsverlauf ('+kg+' kg'+
+    (dwRaw==null?'':', '+(dwRaw>0?'+':dwRaw<0?'−':'±')+fmtNum(Math.abs(dwRaw),1)+' kg'+(days?' in '+pl(days,'Tag','Tagen'):''))+')');
+  if(avg&&logged)quellen.push('Ø '+fmtNum(avg)+' kcal an '+pl(logged,'eingetragenen Tag','eingetragenen Tagen'));
+  else if(avg)quellen.push('Ø '+fmtNum(avg)+' kcal aus dem Protokoll');
+  if(!tdee&&!quellen.length)return '';
+  const kopf=tdee?('Geschätzter Verbrauch '+fmtNum(tdee)+' kcal'):'Gerechnet';
+  if(quellen.length)return kopf+' – aus '+quellen.join(' und ')+'.';
+  // `GET /api/targets/:uid` schickt die Einzelposten nicht mit – nur die Zahl und den Zeitpunkt. Die
+  // beiden Reihen, aus denen sie entsteht, stehen trotzdem fest (tdeeFromTrend: Gewicht + Protokoll),
+  // und `tdeeTrend` sagt, dass diese Zahl wirklich von dort kommt. Also wird die Herkunft benannt,
+  // aber ohne Zahlen, die hier niemand belegen kann.
+  if(tdee&&a.tdeeTrend){
+    const stand=(typeof a.tdeeAt==='string'&&a.tdeeAt.length>=10)?(' (Stand '+dtDateShort(a.tdeeAt.slice(0,10))+')'):'';
+    return kopf+' – aus '+(self?'deinem Gewichtsverlauf und deinen Einträgen':'dem Gewichtsverlauf und den Einträgen')+stand+'.';}
+  return kopf+'.';}
+// Die Zahlen der Anpassung – aber nur MIT Herkunftssatz. Das ist P3 als Code und nicht als Vorsatz:
+// wer diese Funktion aufruft, bekommt entweder beides oder gar nichts.
+function adpNumbers(a){a=a||adpData();if(!a)return '';
+  const why=adpWhy(a);if(!why)return '';
+  const from=adpKcalFrom(a),to=adpKcalTo(a);
+  if(!to)return '';
+  const T=adpTo(a);
+  const makros=[T.protein,T.carbs,T.fat].some(v=>+v>0)
+    ?`<div class="adp-mac">Eiweiß ${fmtNum(Math.round(+T.protein||0))} g · Kohlenhydrate ${fmtNum(Math.round(+T.carbs||0))} g · Fett ${fmtNum(Math.round(+T.fat||0))} g</div>`:'';
+  const d=from?to-from:0;
+  const delta=(from&&d)?`<span class="adp-d">${d>0?'+':'−'}${fmtNum(Math.abs(d))} kcal</span>`:'';
+  return `<div class="adp-nums">${from?`<span class="adp-old">${fmtNum(from)}</span><span class="adp-arrow" aria-hidden="true">→</span>`:''}<span class="adp-new">${fmtNum(to)} kcal</span>${delta}</div>${makros}${adpTagTypLine()}`;}
+// GEMESSEN: Die Zielzeile ist die TRAININGSTAGS-Zahl – `currentTarget` im Server rechnet mit
+// `planTargets` und dem Tagtyp „training",
+// und beim Übernehmen leitet der Server das Ruhetagsziel anteilig daraus ab (Konto 2:
+// 3.017/2.600 vorher, 2.920/2.738 nachher). Auf einem Ruhetag steht dann „−97 kcal" auf der Karte und
+// 2.600 → 2.738 am Ring – beides stimmt, aber nur mit diesem Satz dazwischen. Er steht immer da und
+// nicht nur an Ruhetagen: die Zahl heißt an jedem Tag dasselbe, und ein Hinweis, der mal da ist und mal
+// nicht, wirkt wie eine Ausrede.
+// Im Coach-Blick ohne Du-Form – dort ist vom Athleten die Rede, nicht vom Leser.
+function adpTagTypLine(){return `<div class="adp-mac adp-day">${esc2(_dietSelf()
+  ?'Die Zahl gilt für Trainingstage – dein Ruhetagsziel rechnet die App im selben Verhältnis mit.'
+  :'Die Zahl gilt für Trainingstage – das Ruhetagsziel rechnet die App im selben Verhältnis mit.')}</div>`;}
+// Der Herkunftssatz als eigene Zeile. Er steht UNTER der Begründung, nicht zwischen Zahl und Begründung:
+// zuerst die Zahl, dann was sie bedeutet, dann woher sie kommt. Wer nur die ersten zwei Zeilen liest,
+// hat die Entscheidung; wer nachrechnen will, findet die Quelle direkt darunter.
+function adpWhyLine(a){const why=adpWhy(a);if(!why)return '';
+  return `<div class="adp-why">${icon('info',15)}<span>${esc2(why)}</span></div>`;}
+// Zahl + Begründung + Herkunft als ein Stück – dieselbe Reihenfolge in der Karte und im Sheet.
+// Die Zahl kommt aus adpNumbers() und die gibt es nur MIT Herkunftssatz (P3, siehe dort).
+function adpBody(a){a=a||adpData();if(!a)return '';
+  const nums=adpNumbers(a);
+  // adaptTargets() schreibt seinen Satz in Du-Form („Dein Gewicht ist 3 Wochen gleich geblieben") – im
+  // Coach-Blick spräche die App damit den Coach an, obwohl vom Athleten die Rede ist. Schickt der Server
+  // eine Coach-Fassung mit (`reasonCoach`), gilt sie dort; sonst bleibt der Satz stehen, wie er ist.
+  const reason=String(((!_dietSelf()&&a.reasonCoach)||a.reason)||'').trim();
+  if(!nums&&!reason)return '';
+  return nums+(reason?`<div class="adp-reason">${esc2(reason)}</div>`:'')+(nums?adpWhyLine(a):'');}
+// Antwort merken: dieselbe Woche mit denselben Zahlen wird nicht zweimal gefragt. Ändert der nächste
+// Wochenlauf etwas, ist der Schlüssel ein anderer – dann fragt die App wieder. Genau wie bei dtAskKey.
+// ZWEI Schlüssel, nicht einer – GEMESSEN BEIM BAUEN: die Frage („Übernehmen / Behalten") und die
+// Kenntnisnahme danach („Passt") betreffen dieselbe Woche mit derselben Zahl. Mit einem einzigen
+// Schlüssel verschluckte das „Übernehmen" seine eigene Erfolgskarte: die Antwort war gemerkt, und die
+// Karte „Diese Woche angepasst · Passt / Rückgängig" erschien nie – der Widerruf war einen Wimpernschlag
+// nach dem Ja nicht mehr erreichbar. `tag='ok'` trennt die beiden Fälle.
+function adpKey(a,tag){const u=(typeof VIEW_USER!=='undefined'&&VIEW_USER!=null)?VIEW_USER:0;
+  return 'be_adapt_'+(tag?tag+'_':'')+u+'_'+String((a&&(a.weekStart||a.week_start))||'')+'_'+adpKcalTo(a);}
+function adpAnswered(a){try{return !!localStorage.getItem(adpKey(a));}catch(e){return false;}}
+function adpRemember(a){try{localStorage.setItem(adpKey(a),'1');}catch(e){}}
+function adpDone(a){try{return !!localStorage.getItem(adpKey(a,'ok'));}catch(e){return false;}}
+function adpRememberDone(a){try{localStorage.setItem(adpKey(a,'ok'),'1');}catch(e){}}
+// Alle Zielrouten hängen am Athleten, dessen Ansicht gerade offen ist – derselbe Nutzer wie in
+// `/foodlog/<uid>` eine Zeile darüber. Der Server prüft ihn ein zweites Mal (`canAccessPersonal`,
+// `ownRecordOnly`); hier steht er, damit der Coach-Blick nicht versehentlich am eigenen Konto dreht.
+function adpPath(sub){const u=(typeof VIEW_USER!=='undefined'&&VIEW_USER!=null&&VIEW_USER!=='')?VIEW_USER
+  :((typeof ME==='object'&&ME)?ME.id:0);
+  return '/targets/'+u+(sub||'');}
+// ===== DIE KARTE =====
+// Sie steht auf dem Heute-Reiter zwischen Hero und Plan-Karte – über der Plan-Mahlzeit, weil eine
+// Zielanpassung höchstens einmal pro Woche auftaucht und dann die wichtigere Entscheidung ist.
+// Sie trägt bewusst KEINE rot gefüllte Fläche: der eine Akzent des Reiters gehört „Gegessen"
+// bzw. „Essen hinzufügen" (STRATEGY P4). Eine Rückfrage ist nie der Primär-CTA einer Seite.
+// Nur am heutigen Tag: beim Nachtragen von vorgestern gehört der Bildschirm dem Protokoll dieses
+// Tages, nicht einer Entscheidung über die kommende Woche.
+function adpCard(){
+  if(!dtIsToday())return '';
+  const a=adpData();if(!a)return '';
+  const st=adpState(a);if(st==='none')return '';
+  const self=_dietSelf();
+  if(st==='holding')return adpHoldCard(a,self);
+  const body=adpBody(a);
+  // Weder Zahl noch Begründung: dann hat die App nichts zu sagen und sagt nichts.
+  if(!body)return '';
+  const head=st==='applied'?'Diese Woche angepasst':'Wöchentliche Anpassung';
+  const pill=st==='coach'?`<span class="pill neutral">${self?'wartet auf deinen Coach':'wartet auf deine Freigabe'}</span>`:'';
+  let foot='';
+  if(st==='coach'){
+    const bleibt=adpKcalFrom(a);
+    foot=`<div class="adp-state">${esc2(self
+      ?('Dein Coach'+(a.coachName?' '+String(a.coachName):'')+' sieht diesen Vorschlag und gibt ihn frei'+(bleibt?' – bis dahin bleibt dein Ziel bei '+fmtNum(bleibt)+' kcal.':'.'))
+      :('Der Vorschlag liegt zur Freigabe bereit'+(bleibt?' – bis dahin gilt weiter '+fmtNum(bleibt)+' kcal.':'.')))}</div>`;
+  }else if(!self){
+    foot=`<div class="adp-state">${esc2(st==='applied'?'Der Athlet hat diese Anpassung übernommen.':'Der Athlet entscheidet selbst, ob er den Vorschlag übernimmt.')}</div>`;
+  }else if(st==='applied'&&adpDone(a)){
+    // „Passt" getippt: die Karte hat ihren Zweck erfüllt. Sie verschwindet ganz – nachlesbar bleibt der
+    // Vorgang im Sheet („Wie das funktioniert"). Vorher stand sie hier bis in alle Ewigkeit, weil der
+    // applied-Zweig als einziger nicht nach der Antwort gefragt hat.
+    return '';
+  }else if(st==='applied'){
+    foot=`<div class="adp-acts"><button class="btn sm sec" onclick="adpDismiss()">Passt</button>
+      <button class="btn sm ghost" onclick="adpUndo()">Rückgängig</button>
+      <small>${esc2(adpKcalFrom(a)?('„Rückgängig" setzt dein Ziel wieder auf '+fmtNum(adpKcalFrom(a))+' kcal.')
+        :'„Rückgängig" holt dein vorheriges Ziel zurück.')}</small></div>`;
+  }else if(!adpAnswered(a)&&!adpNumbers(a)){
+    // P3 bis zum Ende gedacht: Ohne Herkunftssatz zeigt adpNumbers() die Zahl nicht – dann darf sie auch
+    // nicht in der Fußzeile eines Knopfes stehen („Übernehmen trägt 2.720 kcal ein"), und erst recht darf
+    // die App nicht um ein Ja für eine Zahl bitten, die sie nicht erklären kann. Gemessen in
+    // 15-sonde-randfaelle.png (Fall a): genau das stand vorher da. Also: kein Knopf, sondern die Wahrheit.
+    foot=`<div class="adp-state">Woher diese Zahl kommt, kann ich dir gerade nicht sagen – deshalb schlage ich sie auch nicht vor. Dein Ziel bleibt, wie es ist.</div>`;
+  }else if(!adpAnswered(a)){
+    foot=`<div class="adp-acts"><button class="btn sm sec" onclick="adpApply()">Übernehmen</button>
+      <button class="btn sm ghost" onclick="adpKeep()">Behalten</button>
+      <small>„Übernehmen" trägt ${fmtNum(adpKcalTo(a))} kcal als dein Ziel ein. „Behalten" ändert nichts.</small></div>`;
+  }else{
+    foot=`<div class="adp-state">${esc2(adpKcalFrom(a)
+      ?('Du hast dich entschieden: dein Ziel bleibt bei '+fmtNum(adpKcalFrom(a))+' kcal.')
+      :'Du hast dich entschieden: dein Ziel bleibt, wie es ist.')}</div>`;
+  }
+  return `<div class="card adp-card${st==='applied'?' done':''} mb-3" id="adpCard">
+    <div class="between"><div class="eyebrow">${esc2(head)}</div>${pill}</div>
+    ${body}
+    ${foot}
+    <button class="adp-more" onclick="adpOpenSettings()">${icon('settings',15)} Wie das funktioniert</button>
+  </div>`;}
+// Steht gerade eine offene Entscheidung über das Kalorienziel auf dem Schirm? Dieselben Bedingungen wie
+// in adpCard(), nur als Frage – dtKcalAskNote() liest sie, um seine eigene Rückfrage zurückzunehmen.
+function adpDecisionOpen(){
+  if(!dtIsToday()||!_dietSelf())return false;
+  const a=adpData();if(!a)return false;
+  const st=adpState(a);
+  if(st!=='proposal'&&st!=='applied')return false;
+  if(!adpBody(a))return false;
+  if(st==='applied')return !adpDone(a);           // „Passt" beendet auch diese Rückfrage
+  if(adpAnswered(a)||!adpNumbers(a))return false;
+  return true;}
+// `holding`: die Woche hat zu wenige Log-Tage, also wird NICHT angepasst. Das ist kein Fehler und keine
+// Warnung – es ist der ehrliche Zustand, und er gehört dorthin, wo sonst die Anpassung stünde. Deshalb
+// eine ruhige Statusnotiz statt einer Karte: nichts zu entscheiden, nichts anzutippen.
+function adpHoldCard(a,self){
+  const need=Math.round(+a.needDays||4),got=Math.round(+a.loggedDays||0);
+  const zahl=need?` Du hast an ${fmtNum(got)} von mindestens ${fmtNum(need)} Tagen dieser Woche etwas eingetragen.`:'';
+  const zahlC=need?` Eingetragen wurde an ${fmtNum(got)} von mindestens ${fmtNum(need)} Tagen.`:'';
+  return `<div class="note status adp-hold mb-3">${icon('info',16)}<div class="fill">${esc2(self?ADP_HOLD_TX:ADP_HOLD_TX_COACH)}${esc2(self?zahl:zahlC)}
+    ${self?'<button class="adp-more" onclick="adpOpenSettings()">Wie das funktioniert</button>':''}</div></div>`;}
+// ===== DIE DREI AKTIONEN =====
+// Alle drei brauchen Netz. Sie in die Offline-Outbox zu legen wäre falsch: danach wird das Protokoll neu
+// geholt, und ein Ziel, das erst morgen wirkt, hätte heute eine Karte hinterlassen, die nicht mehr stimmt.
+// Bei status 0 sagt `_dietErrTx` das beim Namen („Dafür brauchst du kurz Netz").
+// „Übernehmen" und „Behalten" sind dieselbe Route mit einem Ja oder Nein (`accept`) – der Server schließt
+// die Zeile in beiden Fällen, deshalb wird die Frage auch in beiden Fällen nur einmal gestellt.
+async function adpDecide(accept){const a=adpData();if(!a)return null;
+  return API.post(adpPath('/decide'),{id:(a.id==null?null:a.id),accept:accept===true});}
+// Nach jeder der drei Aktionen werden BEIDE Reihen neu geholt: das Zielblatt (der Zustand der Karte) und
+// das Protokoll (der Ring rechnet gegen das neue Ziel). Zuerst das Zielblatt – sonst zeichnet
+// refreshFoodlog() die Karte noch einmal aus dem alten Stand.
+async function adpReload(){try{await adpLoad();}catch(e){}
+  await refreshFoodlog(true);}
+async function adpApply(){const a=adpData();if(!a||!_dietSelf())return;
+  if(!adpKcalTo(a))return toast('Für diese Woche liegt kein Vorschlag vor');
+  const r=await adpDecide(true);
+  if(!_dietOk(r))return toast(_dietErrTx(r,'Nicht übernommen'));
+  adpRemember(a);
+  await adpReload();
+  toast('Neues Ziel übernommen ✓');}
+// „Behalten" ändert am Ziel nichts – der Vorschlag war ja nie gesetzt; der Server merkt sich nur, dass
+// entschieden wurde (`status='abgelehnt'`). Deshalb gilt die Antwort auch dann, wenn die Meldung nicht
+// ankommt: das Ziel bleibt so oder so stehen. Die Karte verschwindet trotzdem sofort (adpRemember).
+function adpKeep(){const a=adpData();if(!a||!_dietSelf())return;
+  adpRemember(a);
+  try{const p=adpDecide(false);if(p&&p.then)p.then(()=>{try{adpLoad();}catch(e){}}).catch(()=>{});}catch(e){}
+  if(document.getElementById('dietBody')&&(renderDiet.tab==='track'||!renderDiet.tab))drawTrack();
+  toast('Dein Ziel bleibt bei '+fmtNum(adpKcalFrom(a)||adpKcalTo(a))+' kcal');}
+// Eine bereits gesetzte Anpassung zurücknehmen (BUILD-B1 4.3: „immer widerrufbar"). Der Server holt dafür
+// die vorige Zielzeile zurück – auch den Ausgangswert, den er beim ersten „Übernehmen" nachgetragen hat.
+async function adpUndo(){const a=adpData();if(!a||!_dietSelf())return;
+  const r=await API.post(adpPath('/revert'),{});
+  if(!_dietOk(r))return toast(_dietErrTx(r,'Nicht zurückgenommen'));
+  adpRemember(a);adpRememberDone(a);   // beides beantwortet: die Frage und die Karte danach
+  await adpReload();
+  const zurueck=adpKcalFrom(a);
+  toast(zurueck?('Zurückgenommen – dein Ziel ist wieder '+fmtNum(zurueck)+' kcal'):'Zurückgenommen – es gilt wieder dein vorheriges Ziel');}
+// „Passt": die Karte hat ihren Zweck erfüllt. Der Vorgang bleibt im Sheet nachlesbar, es geht nichts verloren.
+function adpDismiss(){const a=adpData();if(!a)return;adpRememberDone(a);
+  if(document.getElementById('dietBody')&&(renderDiet.tab==='track'||!renderDiet.tab))drawTrack();}
+// ===== DER SCHALTER =====
+// Ein Schalter, ein Satz, was er tut – und derselbe Satz nennt die Quelle der Zahl. Er steht in einem
+// eigenen Sheet statt im Heute-Reiter: eine Einstellung, die man einmal trifft, gehört nicht zwischen
+// Ring und Protokoll. Erreichbar aus der Karte („Wie das funktioniert") und aus den Plan-Optionen.
+const ADP_OFF_TX='Aus: Dein Kalorienziel kommt aus der Formel – Gewicht, Größe, Alter und Ziel aus deinem Profil.';
+const ADP_ON_TX='An: Einmal pro Woche vergleicht die App deinen Gewichtsverlauf mit dem, was du eingetragen hast, schätzt daraus deinen Verbrauch und schlägt höchstens 100 kcal mehr oder weniger vor. Geändert wird nichts ohne dein Ja.';
+function adpOpenSettings(){
+  const a=adpData(),on=adpOn(),self=_dietSelf();
+  const st=adpState(a);
+  let h=`<label class="switch-row rows mb-3"><div class="rl">Automatisch anpassen<small>${on?'An – die App fragt vor jeder Änderung':'Aus (Standard) – dein Ziel kommt aus der Formel'}</small></div>
+    <input type="checkbox" class="rcheck" id="adp_sw" ${on?'checked':''} ${self?'':'disabled'} onchange="adpSetMode(this.checked)"></label>`;
+  h+=`<div class="note mb-3">${esc2(ADP_OFF_TX)}<br><br>${esc2(ADP_ON_TX)}</div>`;
+  // Was JETZT gilt, in einem Satz – und zwar in dem Satz, den auch der Coach-Bereich benutzt (`modeText`
+  // aus `GET /api/targets`). Schickt der Server ihn nicht, steht hier dieselbe Tatsache in eigenen Worten.
+  const mText=adpModeText();
+  if(mText)h+=`<div class="note status mb-3">${esc2(mText)}</div>`;
+  else if(adpHasCoach())h+=`<div class="note status mb-3">${esc2(self
+    ?'Du hast einen Coach – jede Anpassung geht erst an ihn und wird erst nach seiner Freigabe vorgeschlagen.'
+    :'Der Athlet hat einen Coach – die Anpassung wartet auf die Freigabe.')}</div>`;
+  // Der Stand von dieser Woche, mit derselben Herkunftsangabe wie in der Karte. Auch nachdem die Karte
+  // weggetippt wurde, ist hier nachlesbar, was vorgeschlagen wurde und warum.
+  if(a&&st!=='none'){
+    const lbl=st==='applied'?'Diese Woche angepasst':st==='coach'?'Wartet auf Freigabe':st==='holding'?'Diese Woche keine Anpassung':'Vorschlag dieser Woche';
+    h+=`<div class="section-label"><span>${esc2(lbl)}</span></div>
+      <div class="card adp-card mb-3">${st==='holding'?`<div class="adp-reason">${esc2(self?ADP_HOLD_TX:ADP_HOLD_TX_COACH)}</div>`:adpBody(a)}</div>`;
+  }else if(self){
+    h+=`<div class="caption center mb-3">${esc2(on?'Der nächste Wochenlauf schaut sich deine Daten an – du siehst das Ergebnis hier und auf dem Heute-Reiter.':'Solange der Schalter aus ist, schlägt die App nichts vor.')}</div>`;
+  }
+  if(!self)h+=`<div class="note status">${esc2('Nur Ansicht – ob die Ziele automatisch angepasst werden, entscheidet der Athlet. Die Freigabe einer Anpassung machst du in deinem Coach-Bereich.')}</div>`;
+  openSheet('Ziele automatisch anpassen',h);}
+// Der Schalter schreibt nur EINE Sache: den Modus. Er rechnet nichts und setzt kein Ziel – auch das
+// Einschalten ändert heute keine Zahl (P10). Schlägt das Speichern fehl, springt der Schalter zurück,
+// statt einen Zustand zu zeigen, den der Server nicht kennt.
+// GEMESSEN UND REPARIERT (15.09.2026): Hier stand `API.put('/profile',{target_mode:mode})`. Die Route
+// nimmt das Feld nicht an – sie antwortete 200 {"ok":true} und speicherte es nicht; `GET /api/targets/2`
+// meldete danach weiter `mode:"formel"`. Der Schalter blieb also an, der Toast versprach eine Automatik,
+// und nach dem nächsten Laden sprang er zurück. Die zuständige Route ist `POST /api/targets/:uid/mode`
+// (gemessen: 200 {"ok":true,"mode":"adaptiv"}, danach steht der Modus wirklich auf „adaptiv").
+async function adpSetMode(on){
+  const box=document.getElementById('adp_sw');
+  if(!_dietSelf()){if(box)box.checked=adpOn();return void toast(DIET_RO_TX);}
+  const mode=on?'adaptiv':'formel';
+  const r=await API.post(adpPath('/mode'),{mode});
+  if(!_dietOk(r)){if(box)box.checked=!on;return toast(_dietErrTx(r,'Nicht gespeichert'));}
+  if(typeof ME==='object'&&ME)ME.target_mode=mode;
+  const t=adpRaw();if(t)t.mode=mode;   // bis adpLoad() antwortet, zeigt der Schalter schon das Neue
+  toast(on?(adpHasCoach()?'An – die Rechnung läuft; jede Anpassung geht erst an deinen Coach'
+                         :'An – die App schlägt ab der nächsten Woche vor, ändern tut sie nichts ohne dich')
+        :'Aus – dein Ziel kommt wieder aus der Formel');
+  await adpReload();
+  adpOpenSettings();}
 // HEUTE: Ring + Makro-Balken + Nächste Mahlzeit + Hinzufügen + Protokoll nach Slot gruppiert
 function drawTrack(){_dietMark('track');_dietEnsureFoods();const fl=renderDiet.foodlog||{items:[],summary:{}};const sum=fl.summary||{};
   const items=fl.items||[];const el=document.getElementById('dietBody');if(!el)return;
@@ -352,7 +956,12 @@ function drawTrack(){_dietMark('track');_dietEnsureFoods();const fl=renderDiet.f
   // Welcher Status zählt? Der des Protokolls, denn davon handelt diese Ansicht; kam von dort nichts
   // (status 0), entscheidet der Plan mit – so bleibt „kein Netz" dem Fall vorbehalten, in dem wirklich
   // keine der beiden Anfragen angekommen ist.
-  if(!renderDiet.foodlogOk&&!renderDiet.mealsOk){el.innerHTML=dtLoadNote('track',renderDiet.foodlogSt||renderDiet.mealsSt);return;}
+  // Die Datumsleiste steht ÜBER allem anderen – auch über den Fehlerkarten. Wer beim Blättern auf einen
+  // Tag ohne Netz stößt, muss zurückblättern können, ohne die Seite neu zu laden.
+  const bar=dtDateBar();
+  dtSwipeBind(el);
+  if(renderDiet.foodlogLoading){el.innerHTML=bar+skeleton(3);return;}
+  if(!renderDiet.foodlogOk&&!renderDiet.mealsOk){el.innerHTML=bar+dtLoadNote('track',renderDiet.foodlogSt||renderDiet.mealsSt);return;}
   const consumed=Math.round(sum.consumed||0);const T=dietTargets();const target=T.kcal||0;const mac=sum.macros||{};
   const isTrain=fl.isTrain!==false;const V=kcalVerdict(consumed,target);
   // A-III.2: Kam nur der PLAN durch und das Protokoll nicht (mealsOk, aber kein foodlogOk), stand hier
@@ -360,26 +969,36 @@ function drawTrack(){_dietMark('track');_dietEnsureFoods();const fl=renderDiet.f
   // leer –, obwohl über das heutige Essen gar keine Auskunft vorlag. Gegessen ist dann UNBEKANNT, nicht
   // null. Statt des Hero steht dieselbe ehrliche Karte wie oben; der Plan darunter bleibt sichtbar, denn
   // der IST geladen. Das Protokoll weiter unten wiederholt die Karte dann nicht noch einmal.
-  let h=renderDiet.foodlogOk?`<div class="card diet-hero">
+  let h=bar+(renderDiet.foodlogOk?`<div class="card diet-hero">
     <div class="dh-head"><span class="chip day ${isTrain?'train':'rest'}" id="dietDayBadge">${isTrain?'Trainingstag':'Ruhetag'}${target?' · '+fmtNum(target)+' kcal'+dtStartwert(sum):''}</span><span class="meta"><span>${fmtNum(consumed)}${target?' / '+fmtNum(target):''} kcal</span> ${V.text?`<span class="${V.tone}">· ${esc2(V.text)}</span>`:'<span>gegessen</span>'}</span></div>
     <div class="dh-main"><div class="fixed">${calorieRing(consumed,target)}</div>
-      <div class="dh-bars">${macroBar('Protein',mac.protein||0,T.protein,'var(--red)')}${macroBar('Carbs',mac.carbs||0,T.carbs,'var(--amber)')}${macroBar('Fett',mac.fat||0,T.fat,'var(--blue)')}</div></div>
+      <div class="dh-bars">${dtMacroRings(mac,T)}</div></div>
     ${dtTargetsNote(sum)}
     ${dtKcalAskNote(fl.dayType||(isTrain?'training':'rest'),true)}
-  </div>`:`<div class="mb-3">${dtLoadNote('track',renderDiet.foodlogSt)}</div>`;
+  </div>`:`<div class="mb-3">${dtLoadNote('track',renderDiet.foodlogSt)}</div>`);
+  h+=adpCard();   // B-I.4: die Wochenanpassung – nie still, immer mit Begruendung (P3/P10)
   h+=nextMealCard();
-  // Essen trägt nur der Athlet selbst ein – im Coach-Blick statt der Schaltfläche derselbe Hinweis wie beim Check-in
-  h+=_dietSelf()?`<button class="btn block mb-4" onclick="openLogFood({focus:true})">${icon('plus',18)} Essen hinzufügen</button>`
+  // Essen trägt nur der Athlet selbst ein – im Coach-Blick statt der Schaltfläche derselbe Hinweis wie beim Check-in.
+  // Steht darüber schon ein gefülltes „Gegessen" (offene Plan-Mahlzeit), ist DAS der schnellste richtige Weg –
+  // ein Tap, und der Tag stimmt. „Essen hinzufügen" tritt dann eine Stufe zurück (`sec`: eigene Fläche, volle
+  // Breite, volle 52 px – nur eben nicht rot). Gibt es keine offene Plan-Mahlzeit (kein Plan, oder alles
+  // eingetragen), ist „Essen hinzufügen" der Primär-Knopf und trägt den Akzent. Die Trefferfläche und die
+  // Tap-Zahl sind in beiden Fällen dieselben – es ändert sich nur, welcher Knopf zuerst gelesen wird.
+  h+=_dietSelf()?`<button class="btn block mb-2${nextMealCard.planCTA?' sec':''}" onclick="openLogFood({focus:true})">${icon('plus',18)} Essen hinzufügen</button>`
     :`<div class="note status mb-4">${DIET_RO_TX}</div>`;
+  h+=dtRepeatRow();   // „Gestern wiederholen" + gespeicherte Mahlzeit-Vorlagen (je 2 Taps)
   // Leer ist erst leer, wenn der Server das gesagt hat. Fehlt das Protokoll, steht die ehrliche Karte
   // schon oben an der Stelle des Hero – hier dann nichts, sonst stünde sie zweimal auf derselben Seite.
-  if(!items.length&&renderDiet.foodlogOk)h+=emptyState({icon:'utensils',title:'Noch nichts getrackt',text:_dietSelf()?'Trag dein Essen ein oder übernimm eine Mahlzeit aus dem Plan.':'Dein Athlet hat für heute noch nichts eingetragen.'});
+  if(!items.length&&renderDiet.foodlogOk)h+=emptyState({icon:'utensils',title:dtIsToday()?'Noch nichts getrackt':('Für '+dtDayLabelIn(dtDate())+' steht nichts im Protokoll'),text:_dietSelf()?(dtIsToday()?'Trag dein Essen ein oder übernimm eine Mahlzeit aus dem Plan.':'Trag nach, was du an diesem Tag gegessen hast – oder übernimm den Vortag.'):'Dein Athlet hat für diesen Tag nichts eingetragen.'});
   else if(!items.length){/* Karte steht oben */}
   else{
     const groups={};items.forEach(it=>{const k=slotNorm(it.meal_slot);(groups[k]=groups[k]||[]).push(it);});
     const keys=Object.keys(groups).sort((a,b)=>{const ia=SLOT_ORDER.indexOf(a),ib=SLOT_ORDER.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
     keys.forEach(k=>{const g=groups[k];const kc=g.reduce((a,it)=>a+(it.kcal||0),0);
-      h+=`<div class="section-label"><span>${esc2(k)}</span><span class="sl-r">${fmtNum(Math.round(kc))} kcal</span></div><div class="rows mb-3">`;
+      // Die Gruppenzeile trägt jetzt ein Menü: von hier wird aus einer gegessenen Mahlzeit eine Vorlage
+      // („Mein Frühstück") oder derselbe Satz Einträge noch einmal gebucht – beides in 2 Taps.
+      h+=`<div class="section-label"><span>${esc2(k)}</span><span class="sl-r">${fmtNum(Math.round(kc))} kcal</span>${
+        _dietSelf()?`<button class="btn icon sm ghost sl-menu" aria-label="${esc2(k)}: Vorlage speichern oder noch einmal eintragen" onclick="dtSlotMenu('${esc(k)}')">${icon('more',18)}</button>`:''}</div><div class="rows mb-3">`;
       g.forEach(it=>{const isMeal=!!it.details;const amt=isMeal?'ganze Mahlzeit':amountText(it);
         const sub=`<small>${amt?amt+' · ':''}${macroLine(it.protein,it.carbs,it.fat)}</small>`;
         // Wartet noch in der Outbox: zählt bereits mit, ist aber nicht antippbar – Ändern/Entfernen
@@ -418,7 +1037,7 @@ async function changeFoodAmount(id){if(_dietRO())return;const it=(renderDiet.foo
   const base=entryAmount(it);if(base==null)return toast('Diese Menge lässt sich nicht ändern');
   const a=parseFloat(val('fa_amt'))||0;if(a<=0)return showFieldErr(null,'Bitte eine Menge eingeben','fa_amt');
   const k=a/base;
-  const body={user_id:VIEW_USER,date:it.date||today(),meal_slot:it.meal_slot,food:it.food,amount:a,kcal:Math.round((it.kcal||0)*k),fat:r1((it.fat||0)*k),carbs:r1((it.carbs||0)*k),protein:r1((it.protein||0)*k)};
+  const body={user_id:VIEW_USER,date:it.date||dtDate(),meal_slot:it.meal_slot,food:it.food,amount:a,kcal:Math.round((it.kcal||0)*k),fat:r1((it.fat||0)*k),carbs:r1((it.carbs||0)*k),protein:r1((it.protein||0)*k)};
   // Kein Outbox-Fall: POST und DELETE gehören zusammen und der DELETE hängt an einer Server-ID.
   // Getrennt nachgetragen entstünde entweder eine Dublette oder ein Datenverlust – lieber ehrlich warten.
   const r=await API.post('/foodlog',body);if(r.status!==200)return toast(_dietErrTx(r,'Fehler – nicht gespeichert'));
@@ -426,8 +1045,8 @@ async function changeFoodAmount(id){if(_dietRO())return;const it=(renderDiet.foo
   toast(dr.status===200?'Menge geändert ✓':'Neue Menge steht drin – der alte Eintrag ließ sich nicht entfernen');}
 async function dupFood(id){if(_dietRO())return;const it=(renderDiet.foodlog?.items||[]).find(x=>x.id===id);if(!it)return;
   // force:true – dieselbe Plan-Mahlzeit darf bewusst ein zweites Mal eingetragen werden (zweite Portion)
-  let r;if(it.meal_id)r=await API.post('/foodlog/frommeal/'+it.meal_id,{date:today(),meal_slot:slotNorm(it.meal_slot),force:true});
-  else r=await API.post('/foodlog',{user_id:VIEW_USER,date:today(),meal_slot:it.meal_slot,food:it.food,amount:it.amount,kcal:it.kcal,fat:it.fat,carbs:it.carbs,protein:it.protein});
+  let r;if(it.meal_id)r=await API.post('/foodlog/frommeal/'+it.meal_id,{date:dtLogDay(),meal_slot:slotNorm(it.meal_slot),force:true});
+  else r=await API.post('/foodlog',{user_id:VIEW_USER,date:dtLogDay(),meal_slot:it.meal_slot,food:it.food,amount:it.amount,kcal:it.kcal,fat:it.fat,carbs:it.carbs,protein:it.protein});
   if(r.status!==200)return toast(r.data?.error||'Fehler');
   closeAllSheets();await refreshFoodlog();toast(it.food+' noch einmal eingetragen ✓');}
 async function delFood(id){if(_dietRO())return;const it=(renderDiet.foodlog?.items||[]).find(x=>x.id===id);
@@ -436,11 +1055,174 @@ async function delFood(id){if(_dietRO())return;const it=(renderDiet.foodlog?.ite
   closeAllSheets();await refreshFoodlog();
   if(it)toast(`„${it.food}“ entfernt`,{label:'Rückgängig',fn:()=>undoDelFood(it)});else toast('Entfernt');}
 async function undoDelFood(it){let r;
-  if(it.meal_id)r=await API.post('/foodlog/frommeal/'+it.meal_id,{date:it.date||today(),meal_slot:slotNorm(it.meal_slot),force:true});
-  else r=await API.post('/foodlog',{user_id:VIEW_USER,date:it.date||today(),meal_slot:it.meal_slot,food:it.food,amount:it.amount,kcal:it.kcal,fat:it.fat,carbs:it.carbs,protein:it.protein});
+  if(it.meal_id)r=await API.post('/foodlog/frommeal/'+it.meal_id,{date:it.date||dtDate(),meal_slot:slotNorm(it.meal_slot),force:true});
+  else r=await API.post('/foodlog',{user_id:VIEW_USER,date:it.date||dtDate(),meal_slot:it.meal_slot,food:it.food,amount:it.amount,kcal:it.kcal,fat:it.fat,carbs:it.carbs,protein:it.protein});
   // „Rückgängig" bleibt eine Sofort-Aktion: nachgetragen käme die Wiederherstellung ohne den Toast, der sie erklärt
   if(r.status!==200)return toast(_dietErrTx(r,'Konnte nicht wiederherstellen'));
   await refreshFoodlog();toast('Wiederhergestellt ✓');}
+
+// ===== WIEDERHOLEN UND VORLAGEN (A-IV.4 · Punkt 2) =====
+// MacroFactor, MyFitnessPal und Yazio holen ihren Vorsprung nicht bei der Tap-Zahl für EIN Lebensmittel
+// (dort brauchen alle drei ebenfalls 3 Taps), sondern beim WIEDERHOLEN: „Gestern kopieren", Mahlzeiten-
+// Vorlagen, Favoriten. Menschen essen selten neu – sie essen wieder. Genau da lag hier bisher nichts.
+// Eine Zeile, die mehrere Einträge auf einmal bucht, braucht dieselbe Sorgfalt wie eine einzelne: was
+// gebucht wird, steht vorher da, und danach nimmt EIN „Rückgängig" alles wieder zurück.
+
+// Einträge eines Tages als Protokollzeilen buchen. Gibt die neuen IDs zurück (für „Rückgängig").
+// Ganze Plan-Mahlzeiten laufen über /foodlog/frommeal – nur so bleibt die Zutatenliste (`details`) erhalten;
+// POST /api/foodlog kennt dieses Feld nicht. Fehlt die meal_id (alter Eintrag), wird die Zeile als freier
+// Eintrag gebucht: die Kalorien stimmen, die Aufschlüsselung ist weg – das sagt der Toast auch.
+async function dtPostEntries(list,day){const ids=[];let flat=0,fail=0;
+  for(const it of list){
+    let r;
+    if(it.meal_id)r=await API.post('/foodlog/frommeal/'+it.meal_id,{date:day,meal_slot:slotNorm(it.meal_slot),force:true});
+    else{if(it.details)flat++;
+      r=await API.post('/foodlog',{user_id:VIEW_USER,date:day,meal_slot:slotNorm(it.meal_slot),food:it.food,
+        amount:it.details?null:(it.amount??null),kcal:Math.round(it.kcal||0),fat:r1(it.fat),carbs:r1(it.carbs),protein:r1(it.protein)});}
+    if(r.status===200&&r.data?.id)ids.push(r.data.id);else fail++;
+  }
+  return {ids,flat,fail};}
+// Mehrere Einträge zurücknehmen (ein „Rückgängig" für eine Sammelbuchung)
+async function dtUndoEntries(ids){let n=0;for(const id of ids){const r=await API.del('/foodlog/'+id);if(r.status===200)n++;}
+  await refreshFoodlog();toast(n?pl(n,'Eintrag','Einträge')+' zurückgenommen':'Die Einträge sind nicht mehr da');}
+// Schritt 1 (Tap 1): den Vortag holen und zeigen, was übernommen würde. Ohne diese Vorschau wäre es eine
+// Buchung ins Blaue – und beim Essens-Protokoll ist eine falsche Zahl schlimmer als eine fehlende.
+let DT2_REP=null;
+async function dtRepeatPrev(){if(_dietRO())return;
+  const to=dtDate(),from=dtAddDays(to,-1);
+  const title=dtDayLabel(from)+' wiederholen';
+  openSheet(title,'<div class="spinner"></div>');
+  const r=await API.get('/foodlog/'+VIEW_USER+'?date='+from);
+  if(r.status!==200){openSheet(title,`<div class="note err mb-3">${esc2(_dietErrTx(r,'Der Vortag ließ sich nicht laden'))}</div><button class="btn sec" onclick="dtRepeatPrev()">Nochmal versuchen</button>`);return;}
+  const items=(r.data?.items||[]).filter(it=>it&&it.food&&!it._pending);
+  if(!items.length){openSheet(title,emptyState({icon:'utensils',title:'Da steht nichts',
+    text:'Am '+dtDateShort(from)+' ist nichts im Protokoll – es gibt also nichts zu übernehmen.'}));return;}
+  DT2_REP={from,to,items};
+  const kc=items.reduce((a,it)=>a+(it.kcal||0),0);
+  let h=`<div class="note status mb-3">Alle Einträge von ${esc2(dtDateShort(from))} landen als neue Zeilen auf ${esc2(dtIsToday()?'heute':dtDateShort(to))}. Ein „Rückgängig" nimmt sie gemeinsam zurück.</div>`;
+  h+=`<div class="rows mb-3">`+items.map(it=>`<div class="row dt-erow"><div class="rl">${esc2(it.food)}<small>${esc2(slotNorm(it.meal_slot))}${it.details?' · ganze Mahlzeit':(amountText(it)?' · '+amountText(it):'')}</small></div><div class="rr">${fmtNum(Math.round(it.kcal||0))} kcal</div></div>`).join('')+`</div>`;
+  h+=`<div class="lf-done"><span class="fill">${pl(items.length,'Eintrag','Einträge')} · ${fmtNum(Math.round(kc))} kcal</span>
+    <button class="btn sm" onclick="dtRepeatApply()">Übernehmen</button></div>`;
+  openSheet(title,h,{size:'tall'});}
+// Schritt 2 (Tap 2): buchen.
+async function dtRepeatApply(){const R=DT2_REP;if(!R)return;DT2_REP=null;
+  closeAllSheets();
+  const res=await dtPostEntries(R.items,R.to);
+  await refreshFoodlog();
+  if(!res.ids.length)return toast('Nichts übernommen – der Server hat abgelehnt');
+  const tail=res.fail?` · ${res.fail} nicht übernommen`:(res.flat?` · ${res.flat} ohne Zutatenliste`:'');
+  toast(pl(res.ids.length,'Eintrag','Einträge')+' übernommen ✓'+tail,{label:'Rückgängig',fn:()=>dtUndoEntries(res.ids)});}
+
+// ---- Mahlzeit als Vorlage ----
+// Eine Vorlage ist eine BENANNTE Gruppe von Protokollzeilen („Mein Frühstück"). Sie liegt im localStorage
+// und ist nach Konto getrennt (`be_dt_tpl_<id>`) – wie die Favoriten und aus demselben Grund: im Coach-Blick
+// dürfen die Gewohnheiten des Coaches nicht über dem Protokoll des Athleten stehen.
+let DT2_TPL=null;
+const DT2_TPL_MAX=8;
+function dtTplKey(){return 'be_dt_tpl_'+VIEW_USER;}
+function dtTplLoad(){if(DT2_TPL&&DT2_TPL.user===VIEW_USER)return DT2_TPL.list;
+  let list=[];try{const c=JSON.parse(localStorage.getItem(dtTplKey())||'null');
+    if(Array.isArray(c))list=c.filter(t=>t&&t.name&&Array.isArray(t.items)&&t.items.length).slice(0,DT2_TPL_MAX);}catch(e){}
+  DT2_TPL={user:VIEW_USER,list};return list;}
+function dtTplStore(list){DT2_TPL={user:VIEW_USER,list:list.slice(0,DT2_TPL_MAX)};
+  try{localStorage.setItem(dtTplKey(),JSON.stringify(DT2_TPL.list));}catch(e){}}
+// Eine Vorlage ablegen. Derselbe Name ersetzt die vorhandene, statt eine zweite daneben zu legen –
+// „Mein Frühstück" zweimal zu speichern ist eine Korrektur, keine zweite Vorlage. Gibt den Namen zurück.
+function dtTplSave(name,slot,kcal,items){name=String(name||'').trim().slice(0,40)||'Vorlage';
+  const list=dtTplLoad().filter(t=>dtNorm(t.name)!==dtNorm(name));
+  list.unshift({name,slot,kcal,items,ts:Date.now()});
+  dtTplStore(list);
+  if(document.getElementById('dietBody')&&(renderDiet.tab==='track'||!renderDiet.tab))drawTrack();
+  return name;}
+// Aus der Protokollgruppe eines Slots eine Vorlage machen – in ZWEI Taps (⋯ → „Als Vorlage speichern").
+// Der Name steht vorher fest und im Menü darüber („Mein Frühstück"), also wird nicht erst danach gefragt.
+// Wer ihn ändern will, tippt im Toast auf „Umbenennen": der seltenere Fall kostet den dritten Tap, statt
+// ihn jedem abzuverlangen. Beim Essens-Protokoll zählt jeder gesparte Tap doppelt – es bricht unter allen
+// Selbstbeobachtungs-Arten am schnellsten ab (Median 10 Wochen, Carpenter 2022).
+// Gespeichert wird nur das Nötige: die Server-IDs des Ursprungstages gehören nicht dazu, sonst zeigte die
+// Vorlage auf Zeilen, die längst gelöscht sind.
+function dtTplFromSlot(slot){if(_dietRO())return;
+  const items=(renderDiet.foodlog?.items||[]).filter(it=>!it._pending&&slotNorm(it.meal_slot)===slot);
+  if(!items.length)return toast('In dieser Mahlzeit steht nichts');
+  const kc=Math.round(items.reduce((a,it)=>a+(it.kcal||0),0));
+  const slim=items.map(it=>({food:it.food,meal_slot:slot,meal_id:it.meal_id||null,details:it.details?1:0,
+    amount:it.amount??null,kcal:Math.round(it.kcal||0),protein:r1(it.protein),carbs:r1(it.carbs),fat:r1(it.fat)}));
+  closeAllSheets();
+  const name=dtTplSave(dtTplName(slot),slot,kc,slim);
+  toast(`„${name}“ gespeichert – steht jetzt oben im Heute-Reiter`,{label:'Umbenennen',fn:()=>dtTplRename(name)});}
+// Der vorgeschlagene Name – eine Stelle, damit das Menü genau den Namen nennt, der danach wirklich dasteht.
+function dtTplName(slot){return 'Mein '+slot;}
+function dtTplRename(name){const list=dtTplLoad();const i=list.findIndex(t=>dtNorm(t.name)===dtNorm(name));
+  if(i<0)return toast('Diese Vorlage gibt es nicht mehr');
+  openSheet('Vorlage umbenennen',`<div id="tplForm"><div class="field"><label>Name</label><input id="tpl_name" value="${esc2(list[i].name)}" maxlength="40" enterkeyhint="done" onkeydown="if(event.key==='Enter')dtTplRenameSave('${esc(list[i].name)}')"></div>
+    <button class="btn block" onclick="dtTplRenameSave('${esc(list[i].name)}')">Speichern</button></div>`);
+  setTimeout(()=>{const el=document.getElementById('tpl_name');if(el){el.focus();el.select();}},60);}
+function dtTplRenameSave(oldName){const list=dtTplLoad();const i=list.findIndex(t=>dtNorm(t.name)===dtNorm(oldName));
+  if(i<0){closeAllSheets();return;}
+  const name=String(val('tpl_name')||'').trim().slice(0,40);
+  if(!name)return showFieldErr('tplForm','Bitte einen Namen eingeben','tpl_name');
+  const t=list.splice(i,1)[0];t.name=name;
+  const rest=list.filter(x=>dtNorm(x.name)!==dtNorm(name)); // läuft der neue Name auf eine vorhandene Vorlage, ersetzt er sie
+  rest.unshift(t);dtTplStore(rest);closeAllSheets();
+  if(document.getElementById('dietBody')&&(renderDiet.tab==='track'||!renderDiet.tab))drawTrack();
+  toast(`Heißt jetzt „${name}“`);}
+// Ein Tipp = eingetragen. Der Toast nimmt es gemeinsam zurück, deshalb braucht es keine Rückfrage davor.
+async function dtTplLog(i){if(_dietRO())return;const t=dtTplLoad()[i];if(!t)return;
+  const res=await dtPostEntries(t.items,dtLogDay());
+  await refreshFoodlog();
+  if(!res.ids.length)return toast('Nicht eingetragen – der Server hat abgelehnt');
+  toast(`„${t.name}“ eingetragen ✓`+(res.fail?` · ${res.fail} nicht übernommen`:''),{label:'Rückgängig',fn:()=>dtUndoEntries(res.ids)});}
+function dtTplMenu(i){const t=dtTplLoad()[i];if(!t)return;
+  openSheet(t.name,`<div class="meta mb-3">${pl(t.items.length,'Eintrag','Einträge')} · ${fmtNum(t.kcal||0)} kcal · ${esc2(t.slot||'')}</div>
+    <div class="rows mb-3">`+t.items.map(x=>`<div class="row dt-erow"><div class="rl">${esc2(x.food)}</div><div class="rr">${fmtNum(Math.round(x.kcal||0))} kcal</div></div>`).join('')+`</div>
+    <div class="rows">
+      <div class="row tap" role="button" tabindex="0" onclick="closeModal();dtTplLog(${i})"><div class="r-ic">${icon('check')}</div><div class="rl">Jetzt eintragen</div><div class="rr"></div></div>
+      <div class="row tap" role="button" tabindex="0" onclick="dtTplRename('${esc(t.name)}')"><div class="r-ic">${icon('pencil')}</div><div class="rl">Umbenennen</div><div class="rr"></div></div>
+      <div class="row tap" role="button" tabindex="0" onclick="dtTplDel(${i})"><div class="r-ic tone-red">${icon('trash')}</div><div class="rl tone-red">Vorlage löschen</div><div class="rr"></div></div>
+    </div>`);}
+function dtTplDel(i){const list=dtTplLoad();const t=list[i];if(!t)return;
+  list.splice(i,1);dtTplStore(list);closeAllSheets();
+  if(document.getElementById('dietBody')&&(renderDiet.tab==='track'||!renderDiet.tab))drawTrack();
+  toast(`„${t.name}“ gelöscht`);}
+// Das Menü an der Gruppenzeile: aus einer gegessenen Mahlzeit wird in 2 Taps eine Vorlage – oder derselbe
+// Satz Einträge noch einmal (die zweite Portion abends, der gleiche Snack ein zweites Mal).
+function dtSlotMenu(slot){if(_dietRO())return;
+  const items=(renderDiet.foodlog?.items||[]).filter(it=>!it._pending&&slotNorm(it.meal_slot)===slot);
+  const kc=Math.round(items.reduce((a,it)=>a+(it.kcal||0),0));
+  // Beide Zeilen führen sofort aus – kein Zwischenschritt, keine Rückfrage. Deshalb steht im Untertitel
+  // vorher, was genau passiert: unter welchem Namen die Vorlage landet, und wie viele Zeilen ein zweites
+  // Mal gebucht werden. Zurückgenommen wird beides über den Toast.
+  const nochmal=items.length===1?'Denselben Eintrag ein zweites Mal':`Dieselben ${fmtNum(items.length)} Einträge ein zweites Mal`;
+  openSheet(slot,`<div class="meta mb-3">${pl(items.length,'Eintrag','Einträge')} · ${fmtNum(kc)} kcal</div><div class="rows">
+    <div class="row tap" role="button" tabindex="0" onclick="dtTplFromSlot('${esc(slot)}')"><div class="r-ic">${icon('star')}</div><div class="rl">Als Vorlage speichern<small>Als „${esc2(dtTplName(slot))}“ – danach mit einem Tipp eintragen</small></div><div class="rr"></div></div>
+    <div class="row tap" role="button" tabindex="0" onclick="dtSlotAgain('${esc(slot)}')"><div class="r-ic">${icon('copy')}</div><div class="rl">Noch einmal eintragen<small>${esc2(nochmal)}</small></div><div class="rr"></div></div>
+  </div>`);}
+async function dtSlotAgain(slot){if(_dietRO())return;
+  const items=(renderDiet.foodlog?.items||[]).filter(it=>!it._pending&&slotNorm(it.meal_slot)===slot);
+  if(!items.length)return toast('In dieser Mahlzeit steht nichts');
+  closeAllSheets();
+  const res=await dtPostEntries(items,dtDate());
+  await refreshFoodlog();
+  if(!res.ids.length)return toast('Nicht eingetragen – der Server hat abgelehnt');
+  toast(slot+' noch einmal eingetragen ✓',{label:'Rückgängig',fn:()=>dtUndoEntries(res.ids)});}
+// Die Zeile unter „Essen hinzufügen": der Vortag und die gespeicherten Vorlagen. Sie erscheint nur im
+// eigenen Konto und nur dort, wo sie etwas kann – im Coach-Blick wird nichts eingetragen.
+function dtRepeatRow(){if(!_dietSelf())return '';
+  const prev=dtAddDays(dtDate(),-1);
+  const tpl=dtTplLoad();
+  // Eine Zeile, waagrecht scrollend (`chip-row` ohne `wrap`): „Mein Frühstück · 223 kcal" ist breit, im
+  // Umbruch stand jede Vorlage auf einer eigenen Zeile und die Reihe fraß 130 px Höhe für drei Knöpfe.
+  // Waagrecht bleibt „Gestern wiederholen" immer sichtbar, der Rest liegt eine Wischbewegung daneben –
+  // und die Tages-Wischgeste greift hier bewusst nicht (dtSwipeStart lässt querscrollende Kinder aus).
+  let h=`<div class="chip-row dt-repeat mb-4" role="group" aria-label="Wiederholen">`;
+  h+=`<button class="chip soft" onclick="dtRepeatPrev()">${icon('refresh',16)} ${esc2(dtDayLabel(prev))} wiederholen</button>`;
+  tpl.slice(0,3).forEach((t,i)=>{h+=`<button class="chip soft" onclick="dtTplLog(${i})" oncontextmenu="event.preventDefault();dtTplMenu(${i})">${esc2(t.name)} · ${fmtNum(t.kcal||0)} kcal</button>`;});
+  if(tpl.length)h+=`<button class="chip soft" aria-label="Alle Vorlagen" onclick="dtTplAll()">${icon('more',16)}</button>`;
+  return h+`</div>`;}
+function dtTplAll(){const tpl=dtTplLoad();
+  if(!tpl.length)return toast('Noch keine Vorlage – tippe auf ⋯ neben einer Mahlzeit im Protokoll');
+  openSheet('Meine Vorlagen',`<div class="note mb-3">Ein Tipp trägt die Vorlage ein. Über die Zeile öffnest du sie zum Ansehen oder Löschen.</div><div class="rows">`+
+    tpl.map((t,i)=>`<div class="row tap" role="button" tabindex="0" onclick="dtTplMenu(${i})"><div class="rl">${esc2(t.name)}<small>${pl(t.items.length,'Eintrag','Einträge')} · ${esc2(t.slot||'')}</small></div><div class="rr">${fmtNum(t.kcal||0)} kcal</div></div>`).join('')+`</div>`);}
 
 // ===== ESSEN HINZUFÜGEN (Liste / Scan / Manuell / Neu) – Sheet bleibt für Mehrfach-Einträge offen =====
 let LF_SESSION={count:0,kcal:0};
@@ -482,8 +1264,8 @@ function lfTab(t,o){o=o||{};if(typeof stopBarcodeCam==='function')stopBarcodeCam
       <div class="field"><label>Bezeichnung</label><input id="qf_name" placeholder="z.B. Restaurant-Pizza"></div>
       <div class="field"><label>Kalorien (kcal)</label><input id="qf_kcal" type="number" inputmode="numeric" placeholder="z.B. 650"></div>
       <div class="grid-3">
-        <div class="field"><label>Protein</label><input id="qf_p" type="number" inputmode="numeric" placeholder="g"></div>
-        <div class="field"><label>Carbs</label><input id="qf_c" type="number" inputmode="numeric" placeholder="g"></div>
+        <div class="field"><label>Eiweiß</label><input id="qf_p" type="number" inputmode="numeric" placeholder="g"></div>
+        <div class="field"><label>Kohlenhydrate</label><input id="qf_c" type="number" inputmode="numeric" placeholder="g"></div>
         <div class="field"><label>Fett</label><input id="qf_f" type="number" inputmode="numeric" placeholder="g"></div>
       </div>${slotSelect('lf_slot')}
       <button class="btn block" onclick="confirmQuickFood()">Hinzufügen</button></div>`;
@@ -492,8 +1274,8 @@ function lfTab(t,o){o=o||{};if(typeof stopBarcodeCam==='function')stopBarcodeCam
       <div id="nfForm">
       <div class="field"><label>Name</label><input id="nf_name" placeholder="z.B. Mein Proteinriegel"></div>
       <div class="grid-3">
-        <div class="field"><label>Protein /100 g</label><input id="nf_p" type="number" inputmode="decimal" placeholder="g"></div>
-        <div class="field"><label>Carbs /100 g</label><input id="nf_c" type="number" inputmode="decimal" placeholder="g"></div>
+        <div class="field"><label>Eiweiß /100 g</label><input id="nf_p" type="number" inputmode="decimal" placeholder="g"></div>
+        <div class="field"><label>Kohlenhydrate /100 g</label><input id="nf_c" type="number" inputmode="decimal" placeholder="g"></div>
         <div class="field"><label>Fett /100 g</label><input id="nf_f" type="number" inputmode="decimal" placeholder="g"></div>
       </div>
       <button class="btn block" onclick="confirmNewFood()">Speichern und auswählen</button></div>`;
@@ -582,7 +1364,7 @@ function dtFreeRow(r,i){const m=r.m||{};
 async function dtLogRecent(i){if(_dietRO())return;const c=_lfRecentLoad();const r=c&&c.list[i];
   if(!r||!r.m||!(r.m.kcal>0))return toast('Für diesen Eintrag fehlen die Nährwerte');
   const slot=slotDefault();slotRemember(slot);
-  const body={user_id:VIEW_USER,date:today(),meal_slot:slot,food:r.name,amount:null,
+  const body={user_id:VIEW_USER,date:dtLogDay(),meal_slot:slot,food:r.name,amount:null,
     kcal:Math.round(r.m.kcal||0),fat:r1(r.m.fat),carbs:r1(r.m.carbs),protein:r1(r.m.protein)};
   const res=await API.post('/foodlog',body,{queue:true,kind:'food',label:r.name});
   if(!_dietOk(res))return toast(res.data?.error||'Fehler – nicht gespeichert');
@@ -644,7 +1426,7 @@ function lfClear(){LF_SELECTED=null;const ch=document.getElementById('lf_chosen'
 function lfCalc(){if(LF_SELECTED==null)return;const f=FOODS[LF_SELECTED];if(!f)return;const a=parseFloat(val('lf_amt'))||0;
   const fat=f.fat*a,carb=f.carbs*a,prot=f.protein*a,kc=fat*9+carb*4+prot*4;
   const p=document.getElementById('lf_portions');if(p)p.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',+c.dataset.v===a));
-  const out=document.getElementById('lf_out');if(out)out.innerHTML=`<div class="macro kcal"><div class="v">${fmtNum(Math.round(kc))}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${fmtNum(prot,1)}<em>g</em></div><div class="k">Protein</div></div><div class="macro"><div class="v">${fmtNum(carb,1)}<em>g</em></div><div class="k">Carbs</div></div><div class="macro"><div class="v">${fmtNum(fat,1)}<em>g</em></div><div class="k">Fett</div></div>`;}
+  const out=document.getElementById('lf_out');if(out)out.innerHTML=`<div class="macro kcal"><div class="v">${fmtNum(Math.round(kc))}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${fmtNum(prot,1)}<em>g</em></div><div class="k">Eiweiß</div></div><div class="macro"><div class="v">${fmtNum(carb,1)}<em>g</em></div><div class="k">Kohlenhydrate</div></div><div class="macro"><div class="v">${fmtNum(fat,1)}<em>g</em></div><div class="k">Fett</div></div>`;}
 // Nach dem Eintragen: Sheet bleibt offen, Zähler oben, zurück zur Liste
 // o.pending = der Eintrag, der in der Outbox wartet (nur bei 202). Dann NICHT nachladen: die Serverantwort
 // kennt ihn noch nicht und würde den optimistischen Stand sofort wieder wegwischen.
@@ -656,7 +1438,7 @@ async function _lfAfterAdd(kc,name,o){o=o||{};LF_SESSION.count++;LF_SESSION.kcal
 async function confirmLogFood(){if(LF_SELECTED==null)return toast('Bitte ein Lebensmittel wählen');
   const f=FOODS[LF_SELECTED];const a=parseFloat(val('lf_amt'))||0;if(a<=0)return showFieldErr(null,'Bitte eine Menge eingeben','lf_amt');
   const fat=f.fat*a,carb=f.carbs*a,prot=f.protein*a,kc=fat*9+carb*4+prot*4;const slot=val('lf_slot');slotRemember(slot);
-  const body={user_id:VIEW_USER,date:today(),meal_slot:slot,food:f.name,amount:a,kcal:kc,fat,carbs:carb,protein:prot};
+  const body={user_id:VIEW_USER,date:dtLogDay(),meal_slot:slot,food:f.name,amount:a,kcal:kc,fat,carbs:carb,protein:prot};
   const r=await API.post('/foodlog',body,{queue:true,kind:'food',label:f.name});
   if(!_dietOk(r))return toast(r.data?.error||'Fehler – nicht gespeichert');
   f.use_count=(f.use_count||0)+1;
@@ -666,7 +1448,7 @@ async function confirmQuickFood(){const name=val('qf_name')||'Schnell-Eintrag';c
   if(kc==null)return showFieldErr('qfForm','Bitte Kalorien eingeben','qf_kcal');
   const slot=val('lf_slot');slotRemember(slot);
   // amount bleibt leer: ein freier Eintrag („Restaurant-Pizza") hat keine sinnvolle Grammzahl
-  const body={user_id:VIEW_USER,date:today(),meal_slot:slot,food:name,amount:null,kcal:kc,fat:num('qf_f')||0,carbs:num('qf_c')||0,protein:num('qf_p')||0};
+  const body={user_id:VIEW_USER,date:dtLogDay(),meal_slot:slot,food:name,amount:null,kcal:kc,fat:num('qf_f')||0,carbs:num('qf_c')||0,protein:num('qf_p')||0};
   const r=await API.post('/foodlog',body,{queue:true,kind:'food',label:name});
   if(!_dietOk(r))return toast(r.data?.error||'Fehler – nicht gespeichert');
   if(document.getElementById('lfBody'))lfTab(3,{focus:false});
@@ -687,10 +1469,10 @@ async function confirmNewFood(){const name=val('nf_name');if(!name)return showFi
 // 'queued' ist absichtlich ein Wahrheitswert – jede vorhandene truthy-Prüfung bleibt richtig.
 async function logFromMeal(mealId){if(_dietRO())return false;const m=(renderDiet.meals||[]).find(x=>x.id===+mealId);
   const slot=m?mealSlotOf(m):undefined;const mealTx=m?.label||'Mahlzeit';
-  const r=await API.post('/foodlog/frommeal/'+mealId,{date:today(),meal_slot:slot},{queue:true,kind:'food',label:mealTx});
+  const r=await API.post('/foodlog/frommeal/'+mealId,{date:dtLogDay(),meal_slot:slot},{queue:true,kind:'food',label:mealTx});
   if(r.status===409){await refreshFoodlog();  // war schon eingetragen: Ansicht angleichen, zweite Portion anbieten
     toast('Schon eingetragen – heute bereits im Protokoll',{label:'Nochmal',fn:async()=>{
-      const r2=await API.post('/foodlog/frommeal/'+mealId,{date:today(),meal_slot:slot,force:true},{queue:true,kind:'food',label:mealTx});
+      const r2=await API.post('/foodlog/frommeal/'+mealId,{date:dtLogDay(),meal_slot:slot,force:true},{queue:true,kind:'food',label:mealTx});
       if(!_dietOk(r2))return toast(r2.data?.error||'Fehler');
       if(_dietQueued(r2)){_dietPendingMeal(m,mealId,slot,mealTx);return toast(DIET_QUEUED_TX);}
       await refreshFoodlog();toast('Zweite Portion eingetragen ✓');}});
@@ -728,7 +1510,7 @@ async function swapMeal(mealId,mealKcal,mealLabel){
   // Mahlzeit selbst, ohne ihren Zusatz in Klammern („Pre-Workout (60–90 Min. …)" -> „Pre-Workout").
   const mealName=String((m&&m.label)||mealLabel||slot||'').replace(/\s*\([^)]*\)\s*$/,'').trim()||'diese Mahlzeit';
   let h=`<div class="note status mb-3">Wähle ein Rezept für ${esc2(mealName)} (≈${fmtNum(mealKcal)} kcal · ${fmtNum(mealP)} g P). Sortiert nach Ähnlichkeit.</div><div class="rows">`;
-  h+=recipes.map(rc=>{const dk=Math.round((rc.kcal||0)-mealKcal),dp=Math.round((rc.protein||0)-mealP);const dpill=rc.diet==='vegan'?' <span class="pill neutral">🌱</span>':rc.diet==='veg'?' <span class="pill neutral">🥕</span>':'';
+  h+=recipes.map(rc=>{const dk=Math.round((rc.kcal||0)-mealKcal),dp=Math.round((rc.protein||0)-mealP);const dpill=rc.diet==='vegan'?` <span class="pill neutral" role="img" title="Vegan" aria-label="Vegan">${icon('sprout',12)}</span>`:rc.diet==='veg'?` <span class="pill neutral" role="img" title="Vegetarisch" aria-label="Vegetarisch">${icon('carrot',12)}</span>`:'';
     return `<div class="row tap" role="button" tabindex="0" onclick="doSwapMeal(${mealId},${rc.id})"><div class="rl">${esc2(rc.name)}${dpill}<small>${macroLine(rc.protein,rc.carbs,rc.fat)}</small></div><div class="rr wrap"><span class="swap-diff"><b>${fmtNum(Math.round(rc.kcal))} kcal</b><span class="caption ${Math.abs(dk)<=60?'':'tone-amber'}">${sgn(dk)} kcal · ${sgn(dp)} g P</span></span></div></div>`;}).join('')+`</div>`;
   openSheet('Mahlzeit tauschen',h,{size:'tall'});}
 async function doSwapMeal(mealId,recipeId){
@@ -802,7 +1584,13 @@ function dtKcalAskNote(dayType,hero){const ask=renderDiet.foodlog?.summary?.kcal
   const txt=`${self?'Dein gespeichertes Ziel':'Das gespeicherte Ziel'} für ${tagTx} (${fmtNum(saved)} kcal) passt nicht mehr zum aktuellen Gewicht${kg?' von '+kg+' kg':''} – gerechnet wird mit ${fmtNum(sug)} kcal.`;
   // Die Rückfrage steht nur in der Heute-Karte (eine Frage, eine Stelle) und nur im eigenen Konto –
   // das Profil des Athleten schreibt der Coach über „Phase & Ziele", nicht über diese Zeile.
-  const acts=(hero&&self&&!dtAskAnswered(ask))?dtKcalAskActions(ask):'';
+  // B-I.4: Auf EINEM Bildschirm steht nur EINE Frage nach dem Kalorienziel. Zeigt die Wochenanpassung
+  // darunter gerade „Übernehmen / Behalten", tritt diese ältere Rückfrage auf ihren Erklärsatz zurück.
+  // Gemessen, bevor das hier stand (00-konflikt-zwei-fragen.png): zwei Knopfpaare untereinander mit
+  // ZWEI verschiedenen Zielzahlen – 2.975 kcal aus der Formel, 2.720 kcal aus der Messung. Das ist
+  // keine Wahl, das ist ein Widerspruch. Der Satz bleibt stehen (P3), die Entscheidung gehört der
+  // gemessenen Zahl: sie ist die jüngere und die belegtere.
+  const acts=(hero&&self&&!dtAskAnswered(ask)&&!adpDecisionOpen())?dtKcalAskActions(ask):'';
   if(hero)return `<div class="dh-note">${icon('info',16)}<span>${esc2(txt)}${acts}</span></div>`;
   return `<div class="note status dt-ask mb-3"><div class="fill">${esc2(txt)}</div>${
     self?`<button class="btn sm sec" onclick="openProfile()">Im Profil ändern</button>`:''}</div>`;}
@@ -818,8 +1606,12 @@ function dtAskAnswered(ask){try{return !!localStorage.getItem(dtAskKey(ask));}ca
 function dtKcalAskActions(ask){const t=Math.round(ask.train?.suggested||0),r=Math.round(ask.rest?.suggested||0);
   if(!t&&!r)return '';
   const was=[t?fmtNum(t)+' kcal an Trainingstagen':'',r?fmtNum(r)+' kcal an Ruhetagen':''].filter(Boolean).join(' und ');
-  return `<span class="dt-ask-acts"><button class="btn sm" onclick="dtKcalAskApply()">Übernehmen</button>`+
-    `<button class="btn sm sec" onclick="dtKcalAskKeep()">Behalten</button>`+
+  // Beide Knöpfe ohne Akzentfläche: das hier ist eine Rückfrage, nicht der Primär-CTA der Seite. Rot gefüllt
+  // stünde „Übernehmen" lauter da als „Gegessen" darunter – und eine Rückfrage nach dem Kalorienziel ist nie
+  // das Wichtigste auf dem Heute-Reiter (P4). Die Empfehlung bleibt trotzdem erkennbar: eigene Fläche (`sec`)
+  // gegen durchsichtig (`ghost`).
+  return `<span class="dt-ask-acts"><button class="btn sm sec" onclick="dtKcalAskApply()">Übernehmen</button>`+
+    `<button class="btn sm ghost" onclick="dtKcalAskKeep()">Behalten</button>`+
     `<small>Übernehmen trägt ${was} in dein Profil ein.</small></span>`;}
 async function dtKcalAskApply(){const ask=renderDiet.foodlog?.summary?.kcalAsk;if(!ask||!_dietSelf())return;
   const t=Math.round(ask.train?.suggested||0),r=Math.round(ask.rest?.suggested||0);
@@ -862,7 +1654,7 @@ function drawDiet(){_dietMark('plan');const allMeals=renderDiet.meals||[];const 
   h+=dtKcalAskNote(DIET,false);
   if(isToday)h+=nextMealCard();
   if(!meals.length){h+=emptyState({icon:'utensils',title:'Keine Mahlzeiten für diesen Tagtyp',text:'Erstelle den Plan neu, damit beide Tagtypen befüllt werden.',btn:{label:'Plan neu erstellen',onclick:'genMealPlan()'}});el.innerHTML=h;return;}
-  const L=loggedMealIds();const next=isToday?nextPlanMeal():null;const self=_dietSelf();
+  const L=loggedMealIds();const next=isToday?nextPlanMeal(null,dtDate()):null;const self=_dietSelf();
   h+=meals.map(m=>{const t=mealTotals(m);const done=isToday&&mealLogged(m,L);const slot=mealSlotOf(m);
     const open=OPEN_MEALS.has(m.id)||(next&&!next.logged&&next.mealId===m.id&&!OPEN_MEALS.size);
     const norm=s=>String(s||'').toLowerCase().replace(/[^a-zäöüß]/g,'');
@@ -875,9 +1667,13 @@ function drawDiet(){_dietMark('plan');const allMeals=renderDiet.meals||[];const 
         <span class="meal-chev">${icon('chevronDown',18)}</span>
       </div>
       <div class="meal-body" id="mealb-${m.id}">
-        ${(m.items||[]).map(it=>`<div class="fi"><div class="fill"><div class="fn">${esc2(it.food)}${it.amount?` <span class="muted">· ${fmtNum(it.amount)} ${foodUnit(it.food)}${dtCookedTxt(it.food,it.amount)}</span>`:''}</div><div class="fi-mac caption">${macroLine(it.protein,it.carbs,it.fat)}</div>${it.notes?`<div class="fm">${esc2(it.notes)}</div>`:''}</div><div class="fmac">${fmtNum(Math.round(it.kcal||0))} kcal</div></div>`).join('')}
+        ${(m.items||[]).map(it=>`<div class="fi"><div class="fill"><div class="fn">${esc2(it.food)}${it.amount?` <span class="muted">· ${fmtNum(it.amount)} ${foodUnit(it.food)}${dtCookedOf(it)}</span>`:''}</div><div class="fi-mac caption">${macroLine(it.protein,it.carbs,it.fat)}</div>${it.notes?`<div class="fm">${esc2(it.notes)}</div>`:''}</div><div class="fmac">${fmtNum(Math.round(it.kcal||0))} kcal</div></div>`).join('')}
         ${self?`<div class="meal-acts cluster">
-          ${done?`<button class="btn sm sec" disabled>${icon('check',16)} Eingetragen</button>`:`<button class="btn sm" onclick="logFromMeal(${m.id})">${icon('check',16)} Gegessen</button>`}
+          ${/* „Gegessen" in der aufgeklappten Mahlzeit ist NICHT rot gefüllt: über der Liste steht dieselbe
+               Handlung schon einmal als Primär-Knopf in der „Laut Plan als Nächstes"-Karte. Zweimal
+               dieselbe rote Fläche für dieselbe Sache auf einem Bildschirm – genau das meint P4 mit
+               „eine Farbe, eine Bedeutung". Die Handlung bleibt an Ort und Stelle, sie schreit nur nicht. */''}
+          ${done?`<button class="btn sm sec" disabled>${icon('check',16)} Eingetragen</button>`:`<button class="btn sm sec" onclick="logFromMeal(${m.id})">${icon('check',16)} Gegessen</button>`}
           <button class="btn sm ghost" onclick="swapMeal(${m.id},${Math.round(t.kcal)},'${esc(m.label||'')}')">Tauschen</button>
           ${m.recipe_id?`<button class="btn sm ghost" onclick="restoreMeal(${m.id})">Original</button>`:''}
         </div>`:''}
@@ -889,6 +1685,7 @@ function openPlanOptions(){openSheet('Plan-Optionen',`<div class="rows">
     <div class="row tap" role="button" tabindex="0" onclick="closeModal();genMealPlan()"><div class="r-ic">${icon('refresh')}</div><div class="rl">Plan neu erstellen<small>Automatisch aus Profil und Ziel</small></div><div class="rr"></div></div>
     <div class="row tap" role="button" tabindex="0" onclick="closeModal();openDislikes()"><div class="r-ic">${icon('x')}</div><div class="rl">Lebensmittel ausschließen<small>Was nicht im Plan landen soll</small></div><div class="rr"></div></div>
     <div class="row tap" role="button" tabindex="0" onclick="closeModal();openCalc()"><div class="r-ic">${icon('scale')}</div><div class="rl">Nur berechnen<small>Makro-Rechner für ein Lebensmittel</small></div><div class="rr"></div></div>
+    <div class="row tap" role="button" tabindex="0" onclick="closeModal();adpOpenSettings()"><div class="r-ic">${icon('trendUp')}</div><div class="rl">Ziele automatisch anpassen<small>${adpOn()?'An – jede Anpassung fragt dich vorher':'Aus – dein Ziel kommt aus der Formel'}</small></div><div class="rr"></div></div>
     ${_dietSelf()?`<div class="row tap" role="button" tabindex="0" onclick="closeModal();dietTab('cart')"><div class="r-ic">${icon('cart')}</div><div class="rl">Zum Einkaufswagen<small>Einkaufsliste verwalten</small></div><div class="rr"></div></div>`:''}
   </div>`);}
 // Mahlzeitenplan automatisch (neu) erstellen – mit Bestätigung, wenn schon einer existiert, und Rückgängig (Server-Snapshot)
@@ -958,7 +1755,7 @@ function _rcActiveCount(f){const dt=(_dietSelf()?ME.diet_type:VIEW_USER_PROFILE?
   return (f.meal!=='all'?1:0)+(f.goal!=='all'?1:0)+(dt!=='all'?1:0)+(f.source&&f.source!=='all'?1:0)+(f.fit?1:0)+(f.category&&f.category!=='all'?1:0)+(myDisliked().length?1:0);}
 function _rcChips(){const f=RECIPE_FILTER;const dt=(_dietSelf()?ME.diet_type:VIEW_USER_PROFILE?.diet_type)||'all';
   const n=_rcActiveCount(f);
-  const dietLbl={all:'',vegetarian:'🥕 Vegetarisch',vegan:'🌱 Vegan'}[dt];
+  const dietLbl={all:'',vegetarian:'Vegetarisch',vegan:'Vegan'}[dt];
   const goalLbl=({muscle:'Aufbau',fatloss:'Definition',health:'Gesundheit'})[f.goal];
   return `<button class="chip soft${n?' on':''}" onclick="openRecipeFilter()">${icon('filter',16)} Filter${n?' · '+n:''}</button>
     <button class="chip${f.meal!=='all'?' on':''}" onclick="openRecipeFilter()">${f.meal!=='all'?esc2(f.meal):'Alle Mahlzeiten'}</button>
@@ -993,7 +1790,7 @@ async function rcRenderList(){const el=document.getElementById('rcList');if(!el)
   const hideMeal=!q&&f.meal!=='all';const self=_dietSelf();
   el.innerHTML=(q?`<div class="caption mb-2">${recipes.length} Treffer in allen Rezepten</div>`:'')+'<div class="rows">'+recipes.map(rc=>{
     const goalTxt=({muscle:'Aufbau',fatloss:'Definition',health:'Gesundheit'})[rc.goal]||'';
-    const dpill=rc.diet==='vegan'?' <span class="pill neutral" title="Vegan">🌱</span>':rc.diet==='veg'?' <span class="pill neutral" title="Vegetarisch">🥕</span>':'';
+    const dpill=rc.diet==='vegan'?` <span class="pill neutral" role="img" title="Vegan" aria-label="Vegan">${icon('sprout',12)}</span>`:rc.diet==='veg'?` <span class="pill neutral" role="img" title="Vegetarisch" aria-label="Vegetarisch">${icon('carrot',12)}</span>`:'';
     const mine=rc.owner_id===ME?.id, shared=rc.owner_id&&!mine;
     const tag=mine?' <span class="pill neutral">eigenes</span>':shared?' <span class="pill red">geteilt</span>':'';
     const thumb=rc.has_photo?`<div class="rc-thumb" data-rcthumb="${rc.id}"></div>`:'';
@@ -1010,7 +1807,7 @@ function openRecipeFilter(){if(!RECIPE_FILTER)RECIPE_FILTER=defaultRecipeFilter(
   const grp=(label,key,opts,cur,fn)=>`<div class="meta mb-2">${label}</div><div class="chip-row wrap mb-4" data-rfg="${key}">`+opts.map(([v,l])=>`<button class="chip${cur===v?' on':''}" data-v="${esc2(v)}" onclick="${fn?fn+"('"+esc(v)+"')":"recipeFilter('"+key+"','"+esc(v)+"')"}">${esc2(l)}</button>`).join('')+`</div>`;
   let h=grp('Ziel','goal',[['all','Alle'],['muscle','Aufbau'],['fatloss','Definition'],['health','Gesundheit']],f.goal);
   h+=grp('Mahlzeit','meal',[['all','Alle'],...meals.map(m=>[m,m])],f.meal);
-  h+=grp('Ernährungsweise','diet',[['all','Alle'],['vegetarian','🥕 Vegetarisch'],['vegan','🌱 Vegan']],dt,'setDietType');
+  h+=grp('Ernährungsweise','diet',[['all','Alle'],['vegetarian','Vegetarisch'],['vegan','Vegan']],dt,'setDietType');
   h+=grp('Quelle','source',[['all','Alle'],['mine','Eigene'],['shared','Geteilt']],f.source||'all');
   if(RECIPE_CATS.length)h+=grp('Kategorie','category',[['all','Alle'],...RECIPE_CATS.map(c=>[c,c])],f.category||'all');
   if(remaining>0)h+=`<label class="switch-row rows mb-3"><div class="rl">Nur was ins Budget passt<small>${fmtNum(remaining)} kcal übrig</small></div><input type="checkbox" class="rcheck" ${f.fit?'checked':''} onchange="recipeFilter('fit',this.checked)"></label>`;
@@ -1043,7 +1840,7 @@ async function openRecipe(id){let rc=RECIPES_CACHE.find(x=>x.id===id);
   const dr=await API.get('/recipes/'+id);if(dr.status===200)rc=dr.data.recipe;
   if(!rc){openSheet('Rezept',emptyState({icon:'search',title:'Rezept nicht gefunden'}));return;}
   const goalTxt=({muscle:'Muskelaufbau',fatloss:'Definition',health:'Gesundheit'})[rc.goal]||'für alle Ziele';
-  const dpill=rc.diet==='vegan'?' · 🌱 Vegan':rc.diet==='veg'?' · 🥕 Vegetarisch':'';
+  const dpill=rc.diet==='vegan'?' · Vegan':rc.diet==='veg'?' · Vegetarisch':'';
   const isMine=rc.owner_id===ME?.id;
   let h='';
   if(rc.photo)h+=`<img id="rc_photo" alt="Foto des Rezepts ${esc2(rc.name)}" class="rc-photo">`; // src wird unten als Property gesetzt
@@ -1090,7 +1887,7 @@ async function doShareRecipe(id){const boxes=[...document.querySelectorAll('.sh_
 // Rezept als gegessen eintragen. opts.quick=true (aus der Liste): Sheet/Liste bleiben, nur Toast mit Rückgängig
 async function logRecipe(id,opts){if(_dietRO())return;opts=opts||{};const rc=RECIPES_CACHE.find(x=>x.id===id)||(openRecipe.cur&&openRecipe.cur.id===id?openRecipe.cur:null);
   const slot=(rc&&MEAL_SLOTS.includes(rc.meal_type))?rc.meal_type:slotDefault();
-  const r=await API.post('/recipes/'+id+'/log',{user_id:VIEW_USER,date:today(),meal_slot:slot});
+  const r=await API.post('/recipes/'+id+'/log',{user_id:VIEW_USER,date:dtLogDay(),meal_slot:slot});
   if(r.status!==200)return toast(r.data?.error||'Fehler');
   if(!opts.quick){closeAllSheets();}
   const fl=await refreshFoodlog(!opts.quick);
@@ -1112,8 +1909,8 @@ function openNewRecipe(){openSheet('Eigenes Rezept',`
     <div class="field"><label>Mahlzeit</label><select id="nr_meal"><option value="">–</option><option>Frühstück</option><option>Mittag</option><option>Abend</option><option>Snack</option></select></div>
   </div>
   <div class="grid-3">
-    <div class="field"><label>Protein</label><input id="nr_p" type="number" inputmode="numeric" placeholder="g"></div>
-    <div class="field"><label>Carbs</label><input id="nr_c" type="number" inputmode="numeric" placeholder="g"></div>
+    <div class="field"><label>Eiweiß</label><input id="nr_p" type="number" inputmode="numeric" placeholder="g"></div>
+    <div class="field"><label>Kohlenhydrate</label><input id="nr_c" type="number" inputmode="numeric" placeholder="g"></div>
     <div class="field"><label>Fett</label><input id="nr_f" type="number" inputmode="numeric" placeholder="g"></div>
   </div>
   <details class="more mb-4"><summary>Mehr Angaben</summary>
@@ -1123,7 +1920,7 @@ function openNewRecipe(){openSheet('Eigenes Rezept',`
     <div class="field"><label>Zubereitung</label><textarea id="nr_steps" rows="2" placeholder="1. …"></textarea></div>
     <div class="grid-2">
       <div class="field"><label>Kategorie</label><input id="nr_cat" list="catlist" placeholder="z.B. Bowl, Smoothie"><datalist id="catlist">${(RECIPE_CATS||[]).map(c=>`<option value="${esc2(c)}">`).join('')}</datalist></div>
-      <div class="field"><label>Ernährungsweise</label><select id="nr_diet"><option value="">egal</option><option value="veg">🥕 Vegetarisch</option><option value="vegan">🌱 Vegan</option></select></div>
+      <div class="field"><label>Ernährungsweise</label><select id="nr_diet"><option value="">egal</option><option value="veg">Vegetarisch</option><option value="vegan">Vegan</option></select></div>
     </div>
     <div class="field"><label>Foto</label>
       <label class="btn sec">${icon('camera',18)} Foto aufnehmen / auswählen<input type="file" accept="image/*" hidden onchange="recipePhotoPick(event)"></label>
@@ -1317,7 +2114,7 @@ async function dtRememberFood(p){try{
 async function logScannedProduct(){const f=BC_FOUND;if(!f)return;const a=(num('bc_amt')||0);
   if(a<=0)return showFieldErr('bcForm','Bitte eine Menge angeben','bc_amt');
   const k=a/100;const slot=val('bc_slot')||slotDefault();slotRemember(slot);
-  const body={user_id:VIEW_USER,date:today(),meal_slot:slot,food:f.name,amount:a,
+  const body={user_id:VIEW_USER,date:dtLogDay(),meal_slot:slot,food:f.name,amount:a,
     kcal:Math.round(f.kcal*k),protein:r1(f.protein*k),carbs:r1(f.carbs*k),fat:r1(f.fat*k)};
   const r=await API.post('/foodlog',body,{queue:true,kind:'food',label:f.name});
   if(!_dietOk(r))return toast(r.data?.error||'Fehler');
@@ -1333,7 +2130,10 @@ async function logScannedProduct(){const f=BC_FOUND;if(!f)return;const a=(num('b
 
 // ===== MAKRO-RECHNER („Nur berechnen" aus den Plan-Optionen) =====
 let CALC_SEL=null;
-function openCalc(){if(!FOODS.length)return toast('Lädt…');CALC_SEL=null;
+// FOODS füllt seit 2.9.0 nicht mehr der Start, sondern der Ernährungs-Reiter (_dietEnsureFoods) bzw.
+// rpLater() in core.js. Der Rechner ist auch aus der globalen Suche heraus erreichbar, also aus einer
+// Ansicht, die die Liste nie angefordert hat: dort forderte „Lädt…" bisher etwas an, das niemand lud.
+function openCalc(){if(!FOODS.length){_dietEnsureFoods();return toast('Lädt – gleich nochmal tippen');}CALC_SEL=null;
   openSheet('Makro-Rechner',`${infoBox('calc_intro','Such ein Lebensmittel, gib die Menge ein – Kalorien und Makros werden sofort berechnet und lassen sich direkt ins Protokoll übernehmen.')}
     <div class="field lf-search"><label>Lebensmittel suchen</label><div class="lf-searchwrap">${icon('search',18)}<input id="calc_search" type="search" placeholder="z.B. Reis, Hähnchen…" oninput="filterCalcFoods(this.value)" autocomplete="off"></div></div>
     <div id="calc_list" class="mb-3"></div>
@@ -1354,7 +2154,7 @@ function calcPick(i){CALC_SEL=i;const f=FOODS[i];if(!f)return;const s=document.g
 function calcClear(){CALC_SEL=null;const s=document.getElementById('calc_sel');if(s)s.hidden=true;const l=document.getElementById('calc_list');if(l)l.hidden=false;const sf=document.getElementById('calc_search');if(sf){sf.closest('.field').hidden=false;sf.focus();}}
 async function calcAddToLog(){if(_dietRO())return;const f=FOODS[CALC_SEL];const a=parseFloat(val('calc_amt'))||0;
   if(!f||a<=0)return toast('Menge angeben');const slot=val('calc_slot')||slotDefault();slotRemember(slot);
-  const body={user_id:VIEW_USER,date:today(),meal_slot:slot,food:f.name,amount:a,
+  const body={user_id:VIEW_USER,date:dtLogDay(),meal_slot:slot,food:f.name,amount:a,
     kcal:Math.round((f.fat*9+f.carbs*4+f.protein*4)*a),fat:f.fat*a,carbs:f.carbs*a,protein:f.protein*a};
   const r=await API.post('/foodlog',body,{queue:true,kind:'food',label:f.name});
   if(!_dietOk(r))return toast(r.data?.error||'Fehler');
@@ -1363,4 +2163,4 @@ async function calcAddToLog(){if(_dietRO())return;const f=FOODS[CALC_SEL];const 
   await refreshFoodlog(false);dietTab('track');toast(f.name+' eingetragen ✓');}
 function doCalc(){const f=FOODS[CALC_SEL];if(!f)return;const a=parseFloat(val('calc_amt'))||0;
   const fat=f.fat*a,carb=f.carbs*a,prot=f.protein*a,kc=fat*9+carb*4+prot*4;
-  const out=document.getElementById('calc_out');if(out)out.innerHTML=`<div class="macro kcal"><div class="v">${fmtNum(Math.round(kc))}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${fmtNum(prot,1)}<em>g</em></div><div class="k">Protein</div></div><div class="macro"><div class="v">${fmtNum(carb,1)}<em>g</em></div><div class="k">Carbs</div></div><div class="macro"><div class="v">${fmtNum(fat,1)}<em>g</em></div><div class="k">Fett</div></div>`;}
+  const out=document.getElementById('calc_out');if(out)out.innerHTML=`<div class="macro kcal"><div class="v">${fmtNum(Math.round(kc))}</div><div class="k">kcal</div></div><div class="macro"><div class="v">${fmtNum(prot,1)}<em>g</em></div><div class="k">Eiweiß</div></div><div class="macro"><div class="v">${fmtNum(carb,1)}<em>g</em></div><div class="k">Kohlenhydrate</div></div><div class="macro"><div class="v">${fmtNum(fat,1)}<em>g</em></div><div class="k">Fett</div></div>`;}

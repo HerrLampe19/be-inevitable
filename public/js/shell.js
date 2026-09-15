@@ -341,8 +341,17 @@ function myDisliked(){try{const src=(VIEW_USER&&VIEW_USER!==ME?.id&&VIEW_USER_PR
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/\r?\n/g,' ');}
 function goalLabel(g){return{muscle:'Muskelaufbau',fatloss:'Definition',health:'Gesundheit'}[g]||'–';}
 function clampSets(v){let n=parseInt(v);if(isNaN(n))n=3;return Math.max(1,Math.min(10,n));}
-function isBeginner(){return (ME?.experience||'beginner')==='beginner';}
-function isAdvanced(){return (ME?.experience)==='advanced';}
+// P-5 · EINE Erfahrungs-Leiter, nicht zwei. `isBeginner` las bis zur Nachbesserung allein
+// `ME.experience` und übersah damit beides, was seit 2.6.0 darüber steht: die Übersteuerung des
+// Coachs (`experience_coach`) und – im Coach-Blick – das Profil des ANGESEHENEN Athleten. Sobald
+// ein Coach jemanden auf Stufe 2 setzt, trug die Satzzeile das RIR-Feld, während der
+// Anfänger-Infokasten darüber stehen blieb. `twLevel()` (training.js) ist die eine Quelle;
+// die Prüfung auf die Funktion hält den Aufruf robust, falls nur ein Teilbündel geladen ist.
+// Die Zwillingsfunktion `isAdvanced` ist ersatzlos geloescht: `grep -rn isAdvanced public/ src/`
+// fand nur ihre eigene Definition, sie wurde also nie aufgerufen. (Ohne Klammern geschrieben, damit
+// static_check.py den Satz nicht als Aufruf einer entfernten Funktion liest.)
+function isBeginner(){if(typeof twLevel==='function')return twLevel()<=1;
+  return (ME?.experience||'beginner')==='beginner';}
 
 // ===== EINLADUNGSLINK EINLÖSEN (A-II.5 · Einlöseseite zu BUILD-A2 §4 Punkt 11) =====
 // Der Server legt ein Konto ohne gültiges Passwort an und gibt einen einmaligen Link (72 h) aus

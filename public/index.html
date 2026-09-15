@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<!-- Dieselbe Angabe ohne Hersteller-Praefix: Chrome/Edge lesen sie, Safari die Zeile darueber. -->
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BE INEVITABLE">
 <meta name="theme-color" content="#000000">
@@ -11,7 +13,11 @@
 <!-- Die ?v=-Tokens werden beim Ausliefern vom Server durch die Version aus package.json ersetzt (Cache-Buster) -->
 <link rel="icon" type="image/x-icon" href="/favicon.ico?v=__APP_VERSION__">
 <!-- B5 (2.7.0): kein <link rel="icon" type="image/png"> mehr. favicon.ico liefert das Tab-Symbol,
-     manifest.json nennt icon-192/512 fuer die Installation. apple-touch-icon bleibt (iOS). -->
+     manifest.json nennt icon-192/512 fuer die Installation. apple-touch-icon bleibt (iOS).
+     A-V.3 (2.9.0) hat den PNG-Verweis versuchsweise wieder eingesetzt, um die favicon-Anfrage mit der
+     Manifest-Anfrage zu verschmelzen. GEMESSEN (lp-net.mjs, kalter Start angemeldet): Chromium holt
+     /icon-192.png dann ZWEIMAL – einmal als Tab-Symbol, einmal fuer die Installation. Gleiche Zahl
+     Anfragen, aber 6,5 KB mehr. Also zurueckgenommen; siehe DONE-A5-A-V.3.md Abschnitt „Installierbarkeit". -->
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=__APP_VERSION__">
 <title>BE INEVITABLE</title>
 <!-- 2.7.0 (A-III.3): EIN Stylesheet statt neun. /app.css haengt der Server beim Hochfahren in genau
@@ -128,18 +134,84 @@
      Element (ein onclick ohne Rolle wäre ein Versprechen an die Tastatur, das der Hintergrund nicht hält).
      Für die Tastatur schließen Escape (shell.js) und der Schließen-Knopf im Sheet. -->
 <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
-<!-- Pausen-Timer / Trainings-Leiste über der Nav (Logik: training.js; Slot #trainBarSlot für Hantelrechner/Abschließen) -->
+<!-- Pausen-Timer / Trainings-Leiste über der Nav (Logik: training.js; Slot #trainBarSlot für Hantelrechner/Abschließen)
+     B2 (3.0.1): training.js wird nachgeladen. Die Leiste ist bis dahin `hidden` und wird erst von
+     trainBarSync() (training.js) eingeblendet - erreichbar sind diese Knöpfe also nie ohne die Datei.
+     Die typeof-Sicherung steht trotzdem davor, aus demselben Grund wie im Anmeldeformular oben:
+     ein Tipp darf in keinem Zustand einen ReferenceError auslösen. -->
 <div id="restBar" class="restbar hidden">
   <div class="rest-prog" aria-hidden="true"><i id="restProg"></i></div>
-  <button class="rest-time" id="restTimeBtn" aria-label="Pausenlänge wählen" onclick="restPick()"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14" r="7"/><path d="M12 10v4l2 2M10 2h4M12 2v5M18 8l1.5-1.5"/></svg><span class="num" id="restTime">1:30</span></button>
-  <button class="btn sm sec" id="restSub15" aria-label="15 Sekunden kürzer" onclick="restAdd(-15)">−15</button>
-  <button class="btn sm sec" id="restAdd15" aria-label="15 Sekunden länger" onclick="restAdd(15)">+15</button>
+  <button class="rest-time" id="restTimeBtn" aria-label="Pausenlänge wählen" onclick="if(typeof restPick==='function')restPick()"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14" r="7"/><path d="M12 10v4l2 2M10 2h4M12 2v5M18 8l1.5-1.5"/></svg><span class="num" id="restTime">1:30</span></button>
+  <button class="btn sm sec" id="restSub15" aria-label="15 Sekunden kürzer" onclick="if(typeof restAdd==='function')restAdd(-15)">−15</button>
+  <button class="btn sm sec" id="restAdd15" aria-label="15 Sekunden länger" onclick="if(typeof restAdd==='function')restAdd(15)">+15</button>
   <div id="trainBarSlot"></div>
-  <button class="btn sm sec" id="restStop" onclick="restStop()">Fertig</button>
+  <button class="btn sm sec" id="restStop" onclick="if(typeof restStop==='function')restStop()">Fertig</button>
 </div>
 <!-- Toast-Host: genau eine sichtbare Meldung, Warteschlange in shell.js -->
 <div id="toastHost" aria-live="polite"></div>
 <script>window.BE_VERSION='__APP_VERSION__';
+/* WARTUNGSHINWEIS (BUILD-A5 Abschnitt 4 Punkt 5, DEFER-A5 W1) – der fuenfte Laufzeit-Schalter.
+   Der Betreiber setzt eine Zeile in der Verwaltung, der Server gibt sie unter GET /api/notice ohne
+   Anmeldung heraus. Bis zur Fix-Runde stand sie NUR in der Verwaltung: `public/js/coach.js` wird nur
+   fuer Coach und Betreiber nachgeladen (BOOT_MODULES), ein Athlet lud sie nie – gemessen 0 Treffer
+   fuer "notice" in core.js/shell.js/home.js/account.js/index.html. Der Schalter erreichte damit
+   genau die Gruppe nicht, fuer die er gedacht ist.
+   Warum hier in der Huelle und nicht in einem der Module: die Zeile gilt ALLEN – angemeldet wie
+   abgemeldet – und die Huelle ist der einzige Ort, den beide Ansichten teilen.
+   WANN geholt wird, ist eine Messung, keine Laune:
+     · In der App (appView sichtbar) sofort. tools/perf.mjs misst home_cold_slow4g mit 14 Anfragen
+       gegen eine Grundlinie von 16 – diese eine Anfrage (rund 30 Byte) passt hinein.
+     · Auf der ANMELDESEITE erst 2,5 s nach `load`. login_cold_slow4g liegt bei 9 Anfragen und die
+       Grundlinie ebenfalls bei 9 – dort ist keine Anfrage frei. Der Hinweis ist kein Teil des
+       Startpfads: er kommt, wenn die Seite laengst steht. Das ist bewusst so und steht auch im
+       Bericht FIX-A5-A-V.3.md.
+   Faellt der Abruf aus (offline, alter Server), passiert nichts – es gibt dann keine Zeile. */
+(function(){
+  var txt=null,geholt=false,versuche=0,iv=null;
+  function ziel(){
+    var a=document.getElementById('appView');
+    if(a&&!a.classList.contains('hidden'))return a;
+    var l=document.getElementById('loginView');
+    return (l&&!l.classList.contains('hidden'))?l:null;}
+  function zeichnen(){
+    if(!txt)return;
+    var host=ziel();if(!host)return;
+    var alt=document.getElementById('opsNotice');
+    if(alt){if(alt.parentNode===host)return;alt.remove();}   /* Ansicht gewechselt: mitnehmen */
+    var el=document.createElement('div');
+    el.id='opsNotice';el.className='note warn';el.setAttribute('role','status');
+    el.style.margin='8px 16px 12px';el.textContent=txt;      /* textContent: der Text kommt vom Betreiber, nie als HTML */
+    var vor=(host.id==='appView')
+      ?(document.getElementById('ctxBar')||document.getElementById('views'))
+      :host.querySelector('.login-card');
+    if(vor&&vor.parentNode===host)host.insertBefore(el,vor);else host.appendChild(el);}
+  function holen(){
+    if(geholt)return;geholt=true;
+    try{
+      fetch('/api/notice',{credentials:'same-origin'})
+        .then(function(r){return r.ok?r.json():null;})
+        .then(function(d){
+          var t=(d&&d.notice)?String(d.notice).slice(0,300).trim():'';
+          if(!t)return;txt=t;zeichnen();})
+        .catch(function(){});
+    }catch(e){}}
+  /* Der Wechsel Anmeldeseite -> App ist ein Klassenwechsel an #appView (kein Neuladen). Ein
+     Beobachter kostet nichts und faengt ihn auch dann, wenn jemand erst nach Minuten anmeldet;
+     die zwei Ticks danach fangen das Zeichnen, das unmittelbar nach dem Umschalten passiert. */
+  function schauen(){
+    var a=document.getElementById('appView');
+    if(a&&!a.classList.contains('hidden'))holen();
+    zeichnen();}
+  try{
+    var mo=new MutationObserver(function(){schauen();setTimeout(schauen,400);});
+    ['appView','loginView'].forEach(function(id){var el=document.getElementById(id);
+      if(el)mo.observe(el,{attributes:true,attributeFilter:['class']});});
+  }catch(e){
+    iv=setInterval(function(){schauen();if(++versuche>120){clearInterval(iv);iv=null;}},500);}
+  schauen();
+  function spaet(){setTimeout(function(){holen();setTimeout(zeichnen,300);},2500);}
+  if(document.readyState==='complete')spaet();else window.addEventListener('load',spaet);
+})();
 // Tippen auf den Hintergrund schließt die oberste Sheet-Ebene – dieselbe Bedingung wie vorher als
 // onclick am #modal (nur der Hintergrund selbst, nicht das Sheet darin). closeModal() kommt aus
 // shell.js und ist beim ersten Tipp längst geladen.

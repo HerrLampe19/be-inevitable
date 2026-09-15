@@ -11,7 +11,7 @@ import { initMindsetSchema } from './mindset.js'; // Mindset-Modul (2.0.0): eige
 // Index ergaenzt, traegt sie hier nach – sonst prueft der Selbsttest sie nicht.
 export const SCHEMA_EXPECTED = {
   tables: {
-    users: 'id,email,password_hash,name,role,coach_id,dob,gender,height_cm,start_weight,goal,days_per_week,pattern,phase,kcal_target_train,kcal_target_rest,experience,last_health_import,health_reminder,disliked_foods,email_verified,email_notifications,created_at,diet_type,avatar,sleep_goal,steps_goal,water_goal,push_hour,streak_freezes,freeze_last_grant,tour_done,health_token,health_token_at,mindset_push_hour,evening_push,needs_top,priming_minutes,token_version,consent_health_at,consent_version,ai_consent,experience_coach,features,xp_peak,tz',
+    users: 'id,email,password_hash,name,role,coach_id,dob,gender,height_cm,start_weight,goal,days_per_week,pattern,phase,kcal_target_train,kcal_target_rest,experience,last_health_import,health_reminder,disliked_foods,email_verified,email_notifications,created_at,diet_type,avatar,sleep_goal,steps_goal,water_goal,push_hour,streak_freezes,freeze_last_grant,tour_done,health_token,health_token_at,mindset_push_hour,evening_push,needs_top,priming_minutes,token_version,consent_health_at,consent_version,ai_consent,experience_coach,features,xp_peak,tz,tdee_est,tdee_est_at,target_mode',
     day_log: 'id,user_id,date,type,day_name',
     messages: 'id,user_id,from_id,kind,title,body,read,created_at',
     plans: 'id,user_id,title,active,created_at',
@@ -52,8 +52,15 @@ export const SCHEMA_EXPECTED = {
     errors: 'id,ts_utc,route,status,kind,msg_redacted,count',
     jobs: 'name,last_run_utc,last_ok_utc,last_error,state',
     support_grants: 'id,user_id,granted_at,expires_at,revoked_at,actor_id,reason',
+    // 3.0.0 (Welle B-I, Paket B-I.1): Bibliothek, Zielhistorie, Tages-Uebersteuerung, Sicherungen.
+    // Die Spaltenlisten sind der Vertrag fuer die sechs anderen Pakete dieser Welle – Namen wie
+    // in BUILD-B1.md Abschnitt 3, plus die im CREATE-Block begruendeten Zusatzspalten.
+    exercise_catalog: 'id,name,muscle,aliases,equipment,is_seed,owner_id,created_at',
+    target_history: 'id,user_id,week_start,kcal,protein,carbs,fat,source,reason,approved_by,created_at,status,decided_at',
+    session_override: 'id,user_id,date,day_id,note,actor_id,created_at',
+    backups: 'id,created_at,bytes,sha256,kind,ok,note,file',
   },
-  indexes: 'idx_setlogs,idx_setlogs2,idx_foodlog,idx_cardiolog,idx_planversions,idx_messages_thread,idx_cardio_ext,idx_users_healthtoken,idx_foodlog_client,idx_cardiolog_client,idx_intake_client,idx_mindset_sessions_ud,idx_intake_ud,idx_setlogs_cov,idx_photos_cov,idx_audit_ts,idx_errors_ts,idx_support_grants_user',
+  indexes: 'idx_setlogs,idx_setlogs2,idx_foodlog,idx_cardiolog,idx_planversions,idx_messages_thread,idx_cardio_ext,idx_users_healthtoken,idx_foodlog_client,idx_cardiolog_client,idx_intake_client,idx_mindset_sessions_ud,idx_intake_ud,idx_setlogs_cov,idx_photos_cov,idx_audit_ts,idx_errors_ts,idx_support_grants_user,idx_excat_name,idx_targethist_user,idx_backups_created',
 };
 
 // ============================================================
@@ -810,6 +817,122 @@ export function initSchema() {
   CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(ts_utc);
   CREATE INDEX IF NOT EXISTS idx_errors_ts ON errors(ts_utc);
   CREATE INDEX IF NOT EXISTS idx_support_grants_user ON support_grants(user_id, expires_at);`));
+
+  // ============================================================
+  // 3.0.0 – WELLE B-I „DIE STARTVERSION" (Paket B-I.1)
+  // ============================================================
+  // Gleiche Regeln wie 2.6.0: additiv, idempotent, nie destruktiv, nie umbenannt. Ein Server 2.9.0
+  // laeuft mit dieser Datenbank weiter – er sieht die neuen Spalten und Tabellen schlicht nicht,
+  // und keine neue Spalte ist NOT NULL ohne Standardwert.
+
+  // --- users: gemessener Verbrauch statt Formel (B-d) ---
+  // tdee_est ist das Ergebnis von tdeeFromTrend() in src/logic.js: Energiebilanz aus 7-Tage-EMA des
+  // Gewichts und protokollierten Kalorien. NULL = noch nie gerechnet (zu wenig Daten) – das ist der
+  // Normalfall in den ersten zwei Wochen eines Kontos und darf NIE als 0 gelesen werden.
+  addColTo('users', 'tdee_est', 'REAL');
+  // Wann diese Schaetzung entstand (ISO). Ohne den Zeitpunkt kann die Oberflaeche nicht sagen,
+  // wie alt die Zahl ist – und eine drei Wochen alte Schaetzung ist keine Messung von heute (P3).
+  addColTo('users', 'tdee_est_at', 'TEXT');
+  // 'formel' (Standard) = Ziel kommt aus nutritionPlan(), 'adaptiv' = der Wochen-Job darf es
+  // nachfuehren. DEFAULT 'formel' und nicht NULL: ein Bestandskonto darf nach dem Update nicht
+  // versehentlich in die automatische Anpassung rutschen (P10 – die App schlaegt vor, sie aendert nicht).
+  addColTo('users', 'target_mode', "TEXT DEFAULT 'formel'");
+
+  step('b1-tables', () => db.exec(`
+  -- Uebungsbibliothek (B-c). Grundlage fuer Typeahead, Muskel-Autofill und Dublettenerkennung.
+  -- Die Spalte aliases ist eine mit '|' getrennte Liste von Schreibweisen (deutsch UND englisch), damit
+  -- „Beinpresse" und „Leg Press" denselben Eintrag finden. KEIN Fremdschluessel auf exercises:
+  -- der Katalog ist ein Nachschlagewerk, keine Besitzbeziehung – eine geloeschte Uebung im Plan
+  -- darf den Katalogeintrag nicht mitnehmen und umgekehrt.
+  --   is_seed = 1: mitgeliefert, wird beim Start nachgezogen und darf nicht vom Nutzer geloescht werden.
+  --   owner_id (NICHT in BUILD-B1 Abschnitt 3, hier ergaenzt und begruendet): NULL = fuer alle
+  --     sichtbar (Seed + vom Coach gepflegte Eintraege), sonst der Nutzer, der die Uebung selbst
+  --     angelegt hat. Ohne diese Spalte landet jede Eigenschoepfung eines Athleten im Typeahead
+  --     aller anderen – genau die Zersplitterung, die B-c beseitigen soll.
+  CREATE TABLE IF NOT EXISTS exercise_catalog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,                      -- Anzeigename, deutsch ('Beinpresse')
+    muscle TEXT,                             -- Kanon aus muscleCanon() in logic.js
+    aliases TEXT,                            -- 'Leg Press|Beinpresse 45°|Legpress'
+    equipment TEXT,                          -- 'Langhantel' | 'Kurzhantel' | 'Maschine' | 'Kabel' | 'Koerpergewicht' | ...
+    is_seed INTEGER DEFAULT 0,
+    owner_id INTEGER,                        -- siehe oben; bewusst ohne FK (Katalog ueberlebt das Konto nicht als Person, nur als Zahl)
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  -- Zielhistorie (B-d). JEDE Zielaenderung steht hier – auch die von Hand und die des Coaches.
+  -- Erst damit ist „woher kommt diese Zahl?" beantwortbar (P3) und „Behalten" moeglich (P10/P12).
+  --   source : 'formel'  = aus nutritionPlan() beim Onboarding/Zielwechsel
+  --            'adaptiv' = Wochen-Job aus tdeeFromTrend() + adaptTargets()
+  --            'coach'   = der Coach hat die Zahl gesetzt
+  --            'hand'    = der Athlet selbst
+  --   reason : der EINE Begruendungssatz in Du-Form, den adaptTargets() mitliefert.
+  --   approved_by: NULL = keine Freigabe noetig oder noch offen; sonst die id des Coaches.
+  --   status/decided_at (NICHT in BUILD-B1 Abschnitt 3, hier ergaenzt): ohne einen Zustand gibt es
+  --     keinen Unterschied zwischen „gilt", „wartet auf den Coach" und „der Athlet hat behalten".
+  --     'aktiv' = wirkt · 'vorschlag' = wartet auf Freigabe/Uebernahme · 'abgelehnt' = behalten worden.
+  --     DEFAULT 'aktiv': eine Zeile ohne ausdruecklichen Zustand ist eine gesetzte Zahl, kein Vorschlag.
+  CREATE TABLE IF NOT EXISTS target_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    week_start TEXT NOT NULL,                -- Montag der Woche, fuer die das Ziel gilt (weekStart() in logic.js)
+    kcal INTEGER, protein INTEGER, carbs INTEGER, fat INTEGER,
+    source TEXT NOT NULL DEFAULT 'hand',
+    reason TEXT,
+    approved_by INTEGER,
+    created_at TEXT DEFAULT (datetime('now')),
+    status TEXT DEFAULT 'aktiv',
+    decided_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Pivot (B-e): die HEUTIGE Einheit aendern, ohne die Vorlage zu beruehren.
+  -- Eine Zeile je Nutzer und Tag (UNIQUE traegt zugleich den Index, wie bei checkins). Eine zweite
+  -- Aenderung am selben Tag ersetzt die erste; ruecknehmen heisst die Zeile loeschen – die Vorlage
+  -- war nie angefasst, es gibt also nichts wiederherzustellen (P12 ohne Sonderweg).
+  --   day_id NULL = „heute faellt aus" (Ruhetag), sonst der training_days-Eintrag, der heute gilt.
+  --   note = die Begruendung, die der Athlet als Zeile „Heute geändert: … – weil …" liest.
+  --   actor_id = wer geaendert hat (Coach oder Athlet selbst).
+  CREATE TABLE IF NOT EXISTS session_override (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    date TEXT NOT NULL,                      -- lokaler Tag des Athleten (localDay(tz) in logic.js), nicht Serverzeit
+    day_id INTEGER,
+    note TEXT,
+    actor_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, date),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Sicherungen (B-g). Die Tabelle ist die LISTE, nicht die Sicherung selbst – geschrieben wird auf
+  -- die Platte (VACUUM INTO). Ohne Pruefsumme ist eine Sicherung nur eine Datei, von der niemand weiss,
+  -- ob sie lesbar ist; Art. 32(1)(c)(d) verlangt Wiederherstellbarkeit UND ihren regelmaessigen Test.
+  --   kind : 'auto' (naechtlicher Job) | 'manuell' (Knopf) | 'probe' (Wiederherstellungsprobe)
+  --   ok   : 1 = Datei geschrieben und geprueft, 0 = Lauf gescheitert (die Zeile bleibt als Beleg stehen)
+  --   note : Ergebnis der Wiederherstellungsprobe (integrity_check, Zeilen je Tabelle) – kurzer Text,
+  --          KEINE Nutzdaten und kein absoluter Pfad.
+  --   file (NICHT in BUILD-B1 Abschnitt 3, hier ergaenzt): der DATEINAME ohne Verzeichnis. Die
+  --     Aufbewahrung muss die Datei loeschen koennen, die zu dieser Zeile gehoert; sie aus created_at
+  --     zu erraten bricht beim ersten Umbenennen. Das Verzeichnis bleibt Konfiguration, nicht Inhalt.
+  CREATE TABLE IF NOT EXISTS backups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    bytes INTEGER,
+    sha256 TEXT,
+    kind TEXT DEFAULT 'auto',
+    ok INTEGER DEFAULT 0,
+    note TEXT,
+    file TEXT
+  );
+
+  -- Indizes: genau die drei Zugriffe, die es geben wird.
+  --   Katalog: Typeahead sortiert und sucht ueber den Namen (150-300 Zeilen, aber bei JEDEM Tastendruck).
+  --   Zielhistorie: „welches Ziel galt in welcher Woche" und „gibt es einen offenen Vorschlag".
+  --   Sicherungen: die Liste und die Aufbewahrung lesen beide nach Zeit absteigend.
+  CREATE INDEX IF NOT EXISTS idx_excat_name ON exercise_catalog(name);
+  CREATE INDEX IF NOT EXISTS idx_targethist_user ON target_history(user_id, week_start);
+  CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at);`));
 
   console.log('[db] Schema bereit' + (schemaFailures.length ? ' – ' + schemaFailures.length + ' Schritt(e) uebersprungen: ' + schemaFailures.join(', ') : ''));
 }

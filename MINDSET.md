@@ -21,7 +21,7 @@ Vital-Challenge und einen Wissensbereich mit persönlichen Arbeitsblättern.
 |---|---|
 | Reiter **🧠 Mindset** (untere Leiste) | Vier Unterreiter: **Heute · Rad · Challenge · Wissen** |
 | **Home** | Der nächste Mindset-Schritt als kleine Verknüpfung in der „Jetzt"-Karte („Priming", „Abend-Reflexion", „Tag abgerundet ✓"), darunter – falls es etwas zu sehen gibt – eine Zeile für Challenge-Tag bzw. „Rad fällig", plus ein fünfter Ring 🧠 unter „Heute geschafft" |
-| **Profil** → „Mindset-Erinnerungen" | Priming-Erinnerung (Uhrzeit) und Abend-Reflexion ein/aus |
+| **Profil → Erinnerungen** | Priming-Erinnerung (Uhrzeit) und Abend-Reflexion ein/aus – in derselben Liste wie die Trainings-Erinnerung und die Test-Mitteilung |
 | **Analyse → Erfolge** | Sieben neue Mindset-Erfolge und die Mindset-XP im Level |
 
 **So ist der Reiter „Heute" aufgebaut (seit 2.1.0):**
@@ -101,6 +101,18 @@ das Werkzeug direkt und zeigt rechts den Stand (✓ oder „1/3"). Rad des Leben
 Wochencheck stehen darunter unter „Woche & Monat". **Verlauf** zeigt Energie und Stimmung
 der letzten 30 Tage, einen Punkt-Kalender der Priming-Tage und das Verhältnis stärkender
 zu schwächenden Emotionen der letzten acht Wochen.
+
+> **Neu ab 3.0.0 – wofür deine Energie-Angabe zusätzlich benutzt wird.** Die **Energie (1–10)**, die
+> du beim Priming oder in der Abend-Reflexion einträgst, ist der **einzige echte Selbstbericht**, den
+> die App führt. Sie ist deshalb ab 3.0.0 die zweite Hälfte des **Divergenz-Hinweises** bei der
+> Bereitschaft: Wenn deine Messwerte unauffällig sind, deine Energie aber **drei Tage in Folge**
+> deutlich unter deinem eigenen üblichen Wert liegt, sagt die App das – mit einem Ursachen-Angebot
+> („Stress, Schlafrhythmus, Alkohol oder ein beginnender Infekt kommen infrage"), nie mit einer
+> Diagnose. Der Vergleichswert ist dein eigener Median der letzten vier Wochen, nicht irgendein
+> Normwert. **Ohne Mindset-Nutzung gibt es keinen Selbstbericht und damit auch keinen
+> Divergenz-Hinweis** – und die Freitexte der Reflexion werden dafür nicht angefasst, nur die Zahl.
+> Wer sieht was: SICHERHEIT.md Abschnitt 3 (Mindset-Zahlen sieht der Coach, Mindset-Freitexte
+> niemand außer dir).
 
 ---
 
@@ -198,7 +210,7 @@ sind – und die **nur du** siehst (im Coach-Blick werden sie nicht angezeigt):
 
 ## Erinnerungen
 
-Im **Profil** unter „Mindset-Erinnerungen" (Änderungen werden sofort gespeichert):
+Im **Profil → Erinnerungen** (Änderungen werden sofort gespeichert):
 
 - **Priming-Erinnerung:** Aus (Standard) oder eine volle Stunde zwischen 5 und 10 Uhr.
   Push „🧠 Zeit für dein Priming" – nur, wenn an dem Tag noch kein Priming gespeichert ist.
@@ -244,10 +256,19 @@ Start von 2.0.0 automatisch angelegt (keine manuelle Migration):
 | `mindset_entries` | Arbeitsblätter (ein Datensatz je Schlüssel: `beliefs`, `incantation`, `thrive`, `passion`, `vision`, `decisions`) |
 | `users` (neue Spalten) | `mindset_push_hour`, `evening_push`, `priming_minutes`, `needs_top` |
 
+**Einwilligung (seit 2.6.0):** Mindset-Eintragungen sind Gesundheitsdaten nach Art. 9 DSGVO – die
+Abend-Reflexion, die Rad-Texte und die Arbeitsblätter sagen etwas über das Befinden. Deshalb hängen
+**alle schreibenden** Mindset-Routen an derselben Einwilligung wie Check-in und Gewicht: ohne sie
+antworten sie mit **409** und dem Weg zum Häkchen (Profil → Daten & Verbindungen → Einwilligung).
+**Bewusst frei bleiben:** Lesen des eigenen Bestands, Löschen, das Beenden einer laufenden Challenge
+und die Erinnerungs-Einstellungen. Ein Widerruf soll niemanden aus seinem eigenen Konto aussperren,
+sondern nur verhindern, dass **Neues** aufgezeichnet wird.
+
 Die Daten gehören dem Athleten: Schreiben kann nur das eigene Konto. Der Coach sieht
 Werte, Streaks, Rad-Bewertungen und den Challenge-Stand – **nicht** aber die
 Arbeitsblätter, Notizen und persönlichen Texte; die liefert der Server nur dem
-Athleten selbst aus. Der **Daten-Export** (Profil → „Meine Daten exportieren") enthält alle
+Athleten selbst aus. Der **Betreiber (Admin) sieht davon nichts** – auch keine Zahlen (SICHERHEIT.md
+Abschnitt 3). Der **Daten-Export** (Profil → Daten & Verbindungen → „Meine Daten exportieren") enthält alle
 Mindset-Tabellen; beim Löschen eines Kontos werden sie mit entfernt. Die
 Dankbarkeits- und Reflexionsfragen sind bewusst „nur denken" – dafür wird nichts
 gespeichert außer dem Zeitpunkt und deinen freiwilligen Angaben.

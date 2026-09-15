@@ -370,7 +370,9 @@ async function sendReplyCoach(){const body=val('rc_body');
 // Kurzer Hub: Avatar + Name oben, darunter Gruppen-Zeilen, die je ein Unter-Sheet öffnen (Zurück-Chevron über den
 // Sheet-Stapel). Jedes Feld speichert sofort (PUT /api/profile, Teil-Update) – es gibt keinen Speichern-Button mehr.
 let _PF_AVATAR_URL=null; // geladenes Profilbild (Data-URL), damit der Hub nach Rücksprung sofort das Bild zeigt
-const EXP_LABEL={beginner:'Anfänger',intermediate:'Fortgeschritten',advanced:'Profi'};
+// Die Stufen-Namen standen hier ein zweites Mal – dieselbe Tabelle wie in core.js (DS_LV_LABEL) und
+// in coach.js (expLabel). Zwei Quellen für dieselben drei Wörter sind zwei Stellen, an denen sie
+// auseinanderlaufen können; seit Ü-2 hängt an derselben Stufe auch ein Text. Also: eine Quelle.
 const PHASE_LABEL={offseason:'Offseason',prep:'Wettkampf-Prep',maintain:'Maintenance'};
 const DIET_LABEL={all:'Alles',vegetarian:'Vegetarisch',vegan:'Vegan'};
 function roleLabel(r){return {admin:'Administrator',coach:'Coach',athlete:'Athlet'}[r]||'';}
@@ -463,7 +465,7 @@ function profileHubHTML(){const u=ME||{};const staff=u.role==='coach'||u.role===
   <div class="field"><label for="p_name">Name</label><input id="p_name" value="${esc2(u.name||'')}" maxlength="80" autocomplete="name" enterkeyhint="done" onchange="saveProfileName()"></div>`;
   let rows='';
   if(!staff){
-    const goalSub=[goalLabel(u.goal),EXP_LABEL[u.experience]||'',(u.days_per_week||4)+'×/Woche'].filter(Boolean).join(' · ');
+    const goalSub=[goalLabel(u.goal),(typeof DS_LV_LABEL==='object'?DS_LV_LABEL[u.experience]:'')||'',(u.days_per_week||4)+'×/Woche'].filter(Boolean).join(' · ');
     // „· weicht ab" ist der Haken, an dem der Hinweis im Unter-Sheet hängt: die Zahl in dieser Zeile ist
     // dann nicht die, mit der gerechnet wird. Ohne Geburtsjahr ist sie zusätzlich nur ein Startwert (D1).
     const kcalSub=((u.kcal_target_train||u.kcal_target_rest)?`${DIET_LABEL[u.diet_type||'all']} · ${fmtNum(u.kcal_target_train)} / ${fmtNum(u.kcal_target_rest)} kcal`:DIET_LABEL[u.diet_type||'all'])
@@ -474,13 +476,13 @@ function profileHubHTML(){const u=ME||{};const staff=u.role==='coach'||u.role===
       ${pfRow('openGoalSheet()','target','Ziel &amp; Training',esc2(goalSub))}
       ${pfRow('openNutritionSheet()','utensils','Ernährung &amp; Kalorien',esc2(kcalSub))}
       ${pfRow('openGoalsSheet()','moon','Persönliche Ziele',esc2(goalsSub))}
-      ${pfRow('openNotifSheet()','bell','Benachrichtigungen','Push, Erinnerungen, E-Mail')}
+      ${pfRow('openNotifSheet()','bell','Erinnerungen','Push, Uhrzeiten, Test-Mitteilung, E-Mail')}
       ${pfRow('openDataSheet()','apple','Daten &amp; Verbindungen','Gesundheitsdaten, Export, App')}
     </div>`;
   }else{
     rows+=`<div class="note mb-3">Als ${roleLabel(u.role)} verwaltest du ${u.role==='admin'?'das System':'deine Athleten'}. Trainings- und Ernährungsdaten gibt es hier nicht.</div>
     <div class="section-label">Einstellungen</div><div class="rows pf-rows">
-      ${pfRow('openNotifSheet()','bell','Benachrichtigungen','Push, E-Mail')}
+      ${pfRow('openNotifSheet()','bell','Erinnerungen','Push, Test-Mitteilung, E-Mail')}
       ${pfRow('openDataSheet()','download','Daten','Export, als App installieren')}
     </div>`;
   }
@@ -532,13 +534,68 @@ async function saveProfile(){const f={};[['p_name','name'],['p_height','height_c
 // Chip-Auswahl (Ziel/Erfahrung/Phase/Ernährungsweise): sofort speichern, bei Fehler zurückspringen
 function pfChips(key,opts){return opts.map(([v,l])=>`<button type="button" class="chip${String(ME[key]??'')===v?' on':''}" data-v="${v}" onclick="pfPick('${key}','${v}',this)">${l}</button>`).join('');}
 async function pfPick(key,v,btn){if(String(ME[key]??'')===v)return;const row=btn.parentElement;
+  const vorher=String(ME[key]??'');   // Ü-2: die Stufe VOR dem Tipp – sonst ist der Unterschied nicht mehr zu sagen
   row.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===btn));
   const ok=await profileSave({[key]:v});
   if(!ok){row.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.v===String(ME[key]??'')));return;}
   // A5/B15: „Muskelaufbau -> Definition" ändert die Kalorienziele NICHT von selbst – der Server sagt in
   // derselben Antwort, welche Zahlen zum neuen Ziel gehören (suggestedKcal). Bis 2.5.0 wurde das
   // verschwiegen: das Ziel stand auf Definition, gegessen wurde weiter nach Aufbau-Kalorien.
-  if(key==='goal')acGoalAskPaint(profileSave.last&&profileSave.last.suggestedKcal);}
+  if(key==='goal')acGoalAskPaint(profileSave.last&&profileSave.last.suggestedKcal);
+  // Ü-2: dasselbe Versäumnis eine Zeile tiefer. Ein Tipp auf „Anfänger" nahm dem Athleten die
+  // RIR-Spalte, die Satztypen und den e1RM – und sagte dazu „Gespeichert ✓". Jetzt steht der
+  // Unterschied im Kasten unter den Chips. KEIN Dialog: der würde einen Tap kosten (Veto A-IV).
+  if(key==='experience')acExpNotePaint(vorher);}
+// --- Ü-2 · Was die Erfahrungs-Stufe bedeutet, unter den Chips ---
+// Hier stand bis 2.7.0 ein Satz, der zweimal danebenlag: „Profis alle Details (RIR, Volumen)" –
+// den Volumen-Korridor je Muskel sieht in 2.8.0 JEDER (analysis.js anaMuscleHTML hängt an keiner
+// Stufe), und „Profi" zeigt exakt dasselbe wie „Fortgeschritten". Gleichzeitig sagte beim Umstellen
+// NICHTS, was verschwindet. Beides ist derselbe Fehler: die Stufe war eine Vokabel.
+// Der Kasten steht deshalb IMMER da (wer wissen will, was seine Stufe bedeutet, soll dafür nicht
+// erst etwas kaputtmachen müssen) und bekommt nach einem Tipp den Unterschied dazu.
+// Wortlaut und Rangfolge kommen aus core.js (DS_LV_*) – dieselbe Quelle, die twLevel()/an2Level()
+// auswerten, damit hier nicht steht, was die Satzzeile anders macht.
+// `d`  = {weg,neu} aus dsLvDiff, nur direkt nach einer Umstellung · `von` = vorige Selbstangabe.
+function acExpNoteHTML(d,von){
+  const self=String(ME.experience||'beginner');
+  const coach=ME.experience_coach?String(ME.experience_coach):'';
+  const wirk=coach||self;                    // dieselbe Rangfolge wie twLevel()/an2Level()
+  const lab=k=>(typeof dsLvLabel==='function')?dsLvLabel(k):String(k||'');
+  const sees=(typeof dsLvSees==='function')?dsLvSees(wirk):[];
+  const basis=(typeof DS_LV_BASE==='string')?DS_LV_BASE:'';
+  const li=a=>'<ul class="ds-lvlist">'+a.map(x=>'<li>'+esc2(x)+'</li>').join('')+'</ul>';
+  let h='<div class="note status mt-2">';
+  h+='<div><b>'+esc2(lab(wirk))+'</b> · '+(coach?'von deinem Coach gesetzt':'deine Angabe')+'</div>';
+  h+=sees.length?'<div class="mt-2">Das siehst du damit:</div>'+li(sees)
+    :(basis?'<div class="mt-2">'+esc2(basis)+'</div>':'');
+  if(coach){
+    // Die Chips sind dann eine Selbstauskunft, kein Schalter – das muss dastehen, sonst tippt der
+    // Athlet auf „Profi" und wundert sich, dass die Satzzeile gleich bleibt.
+    h+='<div class="mt-2 muted-2">Deine eigene Angabe ist „'+esc2(lab(self))+'". Wirksam ist die Stufe deines Coachs: solange sie steht, ändert ein Tipp auf die Chips oben nichts an dem, was du siehst.</div>';
+  }else if(von!=null&&von!==''){
+    if(!d){
+      h+='<div class="mt-2">Umgestellt auf <b>'+esc2(lab(self))+'</b>. In der App ändert das nichts: „Fortgeschritten" und „Profi" zeigen dieselben Felder – die Stufe hält nur fest, wie du dich selbst einschätzt.</div>';
+    }else{
+      if(d.neu.length)h+='<div class="mt-2">Neu dazugekommen:</div>'+li(d.neu);
+      if(d.weg.length){
+        h+='<div class="mt-2">Weg ist damit:</div>'+li(d.weg);
+        // Der wichtigste Satz des Kastens: die Werte sind NICHT gelöscht. `set_logs.rir` bleibt
+        // stehen, und `recommend()` (logic.js) rechnet unverändert damit – die Funktion kennt gar
+        // kein Stufen-Argument. Weg ist das EINGABEFELD, nicht die Zahl. Genau so steht es hier
+        // auch: „du siehst sie nicht mehr" wäre schon wieder falsch, denn die Begründungszeile
+        // der Satzzeile nennt einen gespeicherten RIR weiterhin (training.js twWhy).
+        if(d.weg.some(x=>/RIR/.test(x)))
+          h+='<div class="mt-2 muted-2">Schon eingetragene RIR-Werte bleiben gespeichert und rechnen weiter an deinen Empfehlungen mit – weg ist nur das Eingabefeld. Tipp oben wieder auf „'+esc2(lab(von))+'", und es ist zurück.</div>';
+      }
+    }
+  }
+  return h+'</div>';}
+// Nach einer Umstellung neu zeichnen. Bei gesetzter Coach-Stufe ändert die eigene Angabe nichts an
+// dem, was zu sehen ist – dann wird auch kein Unterschied behauptet (d=null, der Kasten sagt warum).
+function acExpNotePaint(von){const box=document.getElementById('pf_expNote');if(!box)return;
+  const coach=ME.experience_coach?String(ME.experience_coach):'';
+  const d=(coach||typeof dsLvDiff!=='function')?null:dsLvDiff(von,String(ME.experience||'beginner'));
+  box.innerHTML=acExpNoteHTML(d,von);}
 // Kasten unter den Ziel-Chips: die neu gerechneten Kalorien zum gewählten Ziel, mit einem Weg, sie zu nehmen.
 let AC_GOAL_ASK=null;
 function acGoalAskPaint(s){const box=document.getElementById('pf_goalAsk');
@@ -577,7 +634,7 @@ function openGoalSheet(){const u=ME;const dpw=u.days_per_week||4;
     <div id="pf_goalAsk"></div>
     <div class="section-label">Erfahrung</div>
     <div class="chip-row wrap">${pfChips('experience',[['beginner','Anfänger'],['intermediate','Fortgeschritten'],['advanced','Profi']])}</div>
-    <p class="caption mt-2">Anfänger bekommen mehr Erklärungen, Profis alle Details (RIR, Volumen).</p>
+    <div id="pf_expNote" aria-live="polite">${acExpNoteHTML()}</div>
     <div class="section-label">Phase</div>
     <div class="chip-row wrap">${pfChips('phase',[['offseason','Offseason'],['prep','Wettkampf-Prep'],['maintain','Maintenance']])}</div>
     <div class="section-label">Trainingsrhythmus</div>
@@ -598,7 +655,7 @@ function openNutritionSheet(){const u=ME;
   acKcalAskLoad();   // frisch holen, während das Sheet schon steht – #pf_kcalAsk füllt sich nach
   openSheet('Ernährung & Kalorien',`
     <div class="section-label">Ernährungsweise</div>
-    <div class="chip-row wrap">${pfChips('diet_type',[['all','Alles'],['vegetarian','🥕 Vegetarisch'],['vegan','🌱 Vegan']])}</div>
+    <div class="chip-row wrap">${pfChips('diet_type',[['all','Alles'],['vegetarian','Vegetarisch'],['vegan','Vegan']])}</div>
     <p class="caption mt-2">Filtert Rezepte und deinen Ernährungsplan.</p>
     <div class="section-label">Kalorienziele</div>
     <div id="pf_kcalAsk">${acKcalAskHTML()}</div>
@@ -665,32 +722,85 @@ async function openNotifSheet(){const u=ME;const athlete=u.role==='athlete';
   <p class="caption mb-2">${pushSub}.</p>
   ${mailOk?'':mailNote}
   <div class="note mb-3" id="pf_pushOff">Push-Mitteilungen sind auf diesem Gerät aus – ohne sie kommt keine Erinnerung an.<div class="mt-2"><button class="btn sm sec" onclick="togglePush()">Push einschalten</button></div></div>`;
+  // A-V.3 (BUILD-A5 5.3): Das ERINNERUNGS-CENTER. Bis 2.8.0 standen hier drei Chip-Reihen – und
+  // fünf weitere Push-Arten (Wochen-Rückblick, Coach-Nachricht, Plan-Änderung, Reparatur,
+  // Abend-Hinweis) waren unsichtbar und unschaltbar (RATE-25-engagement M1). Wer nicht weiß, was
+  // ihn erreichen kann, schaltet im Zweifel alles ab. Deshalb steht ab jetzt JEDE Art hier – und
+  // zwar mit dem Zeitfenster, das der Server wirklich benutzt (src/server.js cronTick).
+  // Was noch keinen eigenen Schalter hat, steht trotzdem da und sagt das auch: eine ehrliche Liste
+  // ist mehr wert als ein Schalter, der nichts tut.
+  h+=`<div class="rows mb-3">
+    <div class="switch-row"><div class="r-ic">${icon('bell',24)}</div><div class="rl">Test-Mitteilung<small id="lp_testSub">Zeigt sofort eine Mitteilung auf diesem Gerät – so siehst du, ob Sperrbildschirm und Ton stimmen</small></div><button type="button" class="btn sm sec" id="lp_testBtn" onclick="lpTestNotification()">Senden</button></div>
+  </div>`;
   if(athlete){
     h+=`<div class="section-label">Trainings-Erinnerung</div>
-    <div class="chip-row wrap" id="pf_pushHour">${[['','Aus'],['5','5 Uhr'],['6','6 Uhr'],['7','7 Uhr'],['8','8 Uhr'],['9','9 Uhr'],['10','10 Uhr'],['11','11 Uhr'],['12','12 Uhr']].map(([v,l])=>`<button type="button" class="chip dis${v===ph?' on':''}" data-v="${v}" onclick="pfPushHour('${v}',this)">${l}</button>`).join('')}</div>
-    <p class="caption mt-2">An Trainingstagen zur vollen Stunde · deutsche Zeit · nur mit aktiven Push-Mitteilungen. „Aus" betrifft nur diese Erinnerung.</p>
+    <div class="chip-row wrap" id="pf_pushHour" role="group" aria-label="Uhrzeit der Trainings-Erinnerung">${[['','Aus'],['6','6 Uhr'],['7','7 Uhr'],['8','8 Uhr'],['9','9 Uhr'],['10','10 Uhr'],['12','12 Uhr'],['16','16 Uhr'],['17','17 Uhr'],['18','18 Uhr'],['19','19 Uhr'],['20','20 Uhr']].map(([v,l])=>`<button type="button" class="chip dis${v===ph?' on':''}" data-v="${v}" aria-pressed="${v===ph?'true':'false'}" onclick="pfPushHour('${v}',this)">${l}</button>`).join('')}</div>
+    <p class="caption mt-2">An Trainingstagen zur vollen Stunde · deutsche Zeit · nur mit aktiven Push-Mitteilungen. War der Server zur vollen Stunde gerade neu gestartet, kommt sie bis zu drei Stunden später nach. „Aus" betrifft nur diese Erinnerung.</p>
     <div class="section-label">Priming-Erinnerung</div>
-    <div class="chip-row wrap" id="pf_mindHour">${[['','Aus'],['5','5 Uhr'],['6','6 Uhr'],['7','7 Uhr'],['8','8 Uhr'],['9','9 Uhr'],['10','10 Uhr']].map(([v,l])=>`<button type="button" class="chip dis${v===mh?' on':''}" data-v="${v}" onclick="pfMindHour('${v}',this)">${l}</button>`).join('')}</div>
+    <div class="chip-row wrap" id="pf_mindHour" role="group" aria-label="Uhrzeit der Priming-Erinnerung">${[['','Aus'],['5','5 Uhr'],['6','6 Uhr'],['7','7 Uhr'],['8','8 Uhr'],['9','9 Uhr'],['10','10 Uhr']].map(([v,l])=>`<button type="button" class="chip dis${v===mh?' on':''}" data-v="${v}" aria-pressed="${v===mh?'true':'false'}" onclick="pfMindHour('${v}',this)">${l}</button>`).join('')}</div>
     <p class="caption mt-2">„Zeit für dein Priming" zur gewählten Stunde, solange heute noch kein Priming gespeichert ist.</p>
     <div class="rows mt-3 mb-3">
       <div class="switch-row"><div class="r-ic">${icon('moon',24)}</div><div class="rl">Abend-Reflexion<small>Erinnerung um 20 Uhr</small></div><button type="button" class="tgl dis${u.evening_push?' on':''}" id="p_evepush" role="switch" aria-checked="${u.evening_push?'true':'false'}" aria-label="Abend-Reflexion erinnern" onclick="toggleEvePush(this)"></button></div>
-    </div>`;
+    </div>`+lpOtherPushHTML();
   }
   h+=`<div class="note">Änderungen werden sofort gespeichert.</div>`;
-  openSheet('Benachrichtigungen',h);renderPushRow();}
+  openSheet('Erinnerungen',h);renderPushRow();}
+// Die übrigen Push-Arten – was der Server wirklich verschickt, mit dem Fenster aus cronTick.
+// Reine Anzeige: jede Zeile hier hängt an EINEM Schalter, nämlich „Push-Mitteilungen" ganz oben.
+// Was hier steht, ist gegen src/server.js geprüft – wer dort ein Fenster ändert, ändert diese Zeilen mit.
+function lpOtherPushHTML(){
+  const rows=[
+    ['calendar','Dein Wochenrückblick','Sonntag ab 18 Uhr · Nachricht in der App, Push und (mit bestätigter Adresse) E-Mail'],
+    ['send','Nachrichten deines Coachs','Sofort, wenn dein Coach dir schreibt'],
+    ['dumbbell','Planänderungen','Sofort, wenn dein Coach deinen Plan ändert'],
+    ['shield','Reparatur eingesetzt','Morgens, wenn ein vergessener Tag automatisch nachgetragen wurde'],
+    ['flame','Abend-Hinweis','19–21 Uhr, wenn heute noch kein Check-in da ist']
+  ];
+  return `<div class="section-label">Was dir die App sonst schickt</div>
+    <div class="rows mb-2">`+rows.map(([ic,t,sub])=>
+      `<div class="row"><div class="r-ic">${icon(ic,22)}</div><div class="rl">${esc2(t)}<small>${esc2(sub)}</small></div></div>`).join('')
+    +`</div>
+    <p class="caption mb-3">Diese fünf haben keinen eigenen Schalter – sie hängen am Schalter „Push-Mitteilungen" ganz oben.</p>
+    <!-- 2.9.0 Fix-Runde A-V.3: BUILD-A5 5.3 verlangt außerdem „zuletzt gesendet" und Ruhezeiten.
+         Beides braucht Spalten in der Datenbank (DEFER-A5 A5-4/A5-5) und ist nach Stufe B verschoben.
+         Solange es fehlt, steht das hier – eine Lücke, die man kennt, ist besser als eine, die man
+         beim ersten nächtlichen Ping entdeckt. Ein Ruhezeit-Schalter im Browser wäre wirkungslos:
+         die Mitteilung zeichnet der Service Worker im Auftrag des Servers. -->
+    <p class="caption mb-3">Eine <b>Nachtruhe</b> lässt sich noch nicht einstellen: schreibt dir dein Coach um 2 Uhr, kommt die Mitteilung um 2 Uhr. Auch <b>„zuletzt gesendet"</b> kann die App noch nicht anzeigen – der Server merkt sich bisher nicht, was er dir schon geschickt hat.</p>`;}
+// Test-Mitteilung: wird LOKAL vom Service Worker dieses Geräts gezeichnet (registration.showNotification).
+// Das beweist Erlaubnis, Service Worker und Anzeige – NICHT die Zustellung vom Server. Genau das steht
+// auch dort, wo der Knopf sitzt: eine Prüfung, die mehr behauptet als sie zeigt, ist wertlos.
+// Fuer die echte Zustellung gibt es IPHONE-TEST.md (Paket A-V.4).
+async function lpTestNotification(){
+  const sub=document.getElementById('lp_testSub');
+  const say=(t)=>{if(sub)sub.textContent=t;};
+  const st=await pushStatus();
+  if(st.state==='install'){openInstallSheet();return;}
+  if(st.state!=='on'){toast('Erst Push-Mitteilungen einschalten – sonst hat der Test nichts zu zeigen.');return;}
+  try{
+    const reg=await navigator.serviceWorker.getRegistration('/sw.js');
+    if(!reg){say('Kein Service Worker auf diesem Gerät');toast('Kein Service Worker – lade die App einmal neu');return;}
+    await reg.showNotification('BE INEVITABLE',{
+      body:'So sieht eine Erinnerung aus. Wenn du das hier siehst, funktioniert die Anzeige auf diesem Gerät.',
+      icon:'/icon-192.png',badge:'/icon-192.png',tag:'be-test',data:{url:'/'}});
+    const t=new Date();
+    say('Zuletzt geprüft: heute '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+' · lokal auf diesem Gerät');
+    toast('Test-Mitteilung gezeigt – schau auf deinen Sperrbildschirm');
+  }catch(e){console.error('[lp] test',e);say('Anzeige auf diesem Gerät fehlgeschlagen');toast('Das Gerät hat die Mitteilung nicht angezeigt');}}
 // Trainings-Erinnerung: Stunde als String, '' = Aus. Aus setzt push_hour über den reset-Weg auf NULL
 // (PROFILE_RESETTABLE); das mitgesendete '' greift zusätzlich, falls der Server '' wie bei den Zielfeldern behandelt.
 async function pfPushHour(v,btn){
   if(btn&&btn.classList.contains('dis'))return toast('Erst Push-Mitteilungen einschalten – sonst kommt die Erinnerung nicht an.');
   v=String(v==null?'':v);const cur=ME.push_hour==null?'':String(ME.push_hour);
   if(v===cur)return;const row=btn.parentElement;const off=v==='';
-  row.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===btn));
+  const mark=(sel)=>row.querySelectorAll('.chip').forEach(c=>{const on=sel(c);c.classList.toggle('on',on);c.setAttribute('aria-pressed',String(on));});
+  mark(c=>c===btn);
   const ok=await profileSave(off?{push_hour:'',reset:['push_hour']}:{push_hour:parseInt(v,10)},
     {msg:off?'Trainings-Erinnerung aus':'Erinnerung um '+v+' Uhr ✓',hub:false});
-  if(!ok)row.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.v===cur));}
+  if(!ok)mark(c=>c.dataset.v===cur);}
 function pfMindHour(v,btn){
   if(btn&&btn.classList.contains('dis'))return toast('Erst Push-Mitteilungen einschalten – sonst kommt die Erinnerung nicht an.');
-  btn.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===btn));saveMindsetReminders();}
+  btn.parentElement.querySelectorAll('.chip').forEach(c=>{const on=c===btn;c.classList.toggle('on',on);c.setAttribute('aria-pressed',String(on));});saveMindsetReminders();}
 function toggleEvePush(btn){
   if(btn&&btn.classList.contains('dis'))return toast('Erst Push-Mitteilungen einschalten – sonst kommt die Erinnerung nicht an.');
   const on=!btn.classList.contains('on');btn.classList.toggle('on',on);btn.setAttribute('aria-checked',String(on));saveMindsetReminders();}
@@ -1009,21 +1119,44 @@ async function lgSupportRevoke(){
     lgSupportPaint();toast('Freigabe zurückgenommen');refreshProfileHub();return;}
   if(r.status===404)return toast('Dafür braucht der Server ein Update – bitte den Betreiber informieren.');
   toast(r.data?.error||'Das hat nicht geklappt – bitte erneut versuchen.');}
+// A-V.3 (2.9.0): Dieses Sheet IST der Installations-Trichter aus BUILD-A5 5.1 – die „ruhige Karte
+// mit drei Bildern". Es gibt nur diesen einen Ort dafür (CRITIC K1): home.js öffnet ihn einmal, wenn
+// das erste Training abgeschlossen ist und die App nicht als PWA läuft (maybeShowInstallHint), das Profil
+// öffnet ihn jederzeit über „Als App installieren", und auf iOS führt auch der Push-Schalter
+// hierher – Web-Push gibt es dort nur für die installierte App.
+// Die drei Bilder kommen aus home.js (lpStepsHTML) und sind reine Inline-SVG: kein Netzabruf, im
+// Flugmodus da, in beiden Farbschemata lesbar.
 function openInstallSheet(){let h;
+  const bilder=(typeof lpStepsHTML==='function')?lpStepsHTML():'';
+  const anderer=(typeof lpOtherWayText==='function')?esc2(lpOtherWayText()):'';
   if(isStandalone())h=`<div class="note ok mb-4">BE INEVITABLE läuft auf diesem Gerät bereits als App.</div>`;
-  else if(isIOS())h=`<p class="body mb-3">So landet BE INEVITABLE auf deinem Home-Bildschirm – erst dann funktionieren Push-Mitteilungen:</p>
-    <div class="rows mb-4">
+  else if(isIOS())h=`<p class="body mb-2">Ohne Browserleiste, offline nutzbar – und nur so kann die App dich überhaupt erinnern. Drei Schritte in Safari:</p>
+    ${bilder}
+    <div class="rows mb-3">
       <div class="row"><div class="r-ic num">1</div><div class="rl">In Safari auf <b>Teilen</b> tippen<small>Das Quadrat mit dem Pfeil nach oben, unten in der Leiste</small></div></div>
       <div class="row"><div class="r-ic num">2</div><div class="rl"><b>„Zum Home-Bildschirm"</b> wählen<small>Etwas weiter unten in der Liste</small></div></div>
       <div class="row"><div class="r-ic num">3</div><div class="rl">Oben rechts <b>Hinzufügen</b><small>Danach die App vom Home-Bildschirm starten</small></div></div>
-    </div>`;
-  else if(/android/i.test(navigator.userAgent))h=`<p class="body mb-3">So landet BE INEVITABLE auf deinem Startbildschirm:</p>
-    <div class="rows mb-4">
+    </div>
+    <p class="caption mb-4">${anderer}</p>`;
+  // 2.9.0 Fix-Runde A-V.3: Der Satz „nur so kann die App dich überhaupt erinnern" gilt NUR auf iOS.
+  // Android und Chrome am Rechner können Web-Push auch ohne Installation. Bis die Zeile unter dem
+  // Kopf auf allen Plattformen erschien, hat diesen Absatz praktisch niemand ausserhalb von iOS
+  // gesehen – jetzt schon, und dann darf er nicht das Falsche behaupten.
+  else if(/android/i.test(navigator.userAgent))h=`<p class="body mb-2">Ohne Browserleiste, offline nutzbar, eigenes Symbol auf dem Startbildschirm. So geht es:</p>
+    ${bilder}
+    <div class="rows mb-3">
       <div class="row"><div class="r-ic num">1</div><div class="rl">Browser-Menü öffnen<small>Die drei Punkte oben rechts</small></div></div>
       <div class="row"><div class="r-ic num">2</div><div class="rl"><b>„App installieren"</b> oder <b>„Zum Startbildschirm"</b><small>Danach die App vom Startbildschirm öffnen</small></div></div>
-    </div>`;
-  else h=`<p class="body mb-3">Auf dem Computer: über das Installieren-Symbol in der Adressleiste oder das Browser-Menü („Installieren"). Auf dem Handy nutzt du Safari (iPhone) oder Chrome (Android) und wählst „Zum Home-Bildschirm".</p>`;
-  openSheet('Als App installieren',h+`<button class="btn block sec" onclick="closeModal()">Alles klar</button>`);}
+    </div>
+    <p class="caption mb-4">${anderer}</p>`;
+  else h=`<p class="body mb-2">Ohne Browserleiste und als eigenes Fenster – so geht es am Rechner:</p>
+    ${bilder}
+    <p class="caption mb-4">${anderer}</p>`;
+  // Der Titel folgt der Plattform: einen „Startbildschirm" gibt es am Rechner nicht, und seit der
+  // Fix-Runde führt die Zeile unter dem Kopf auch dort hierher.
+  const titel=(!isStandalone()&&!isIOS()&&!/android/i.test(navigator.userAgent))
+    ?'Als App installieren':'Auf den Startbildschirm legen';
+  openSheet(titel,h+`<button class="btn block sec" onclick="closeModal()">${isStandalone()?'Alles klar':'Später'}</button>`);}
 // --- Unter-Sheet: Konto ---
 function openAccountSheet(){const u=ME;const verified=!!u.email_verified;
   openSheet('Konto',`<div class="rows mt-2 mb-3">
@@ -1375,23 +1508,93 @@ const TOUR_DEFS={
 };
 let TOUR_STEP=0,TOUR_STEPS=[],TOUR_NAME='',TOUR_LAST=0;
 const _tabTourCalls={};
-// iOS-Installhinweis: Safari zeigt keinen automatischen „Installieren"-Prompt. Einmaliger, schließbarer Hinweis als
-// schmale Zeile unter dem Header (nicht mehr als Balken über den Ringen). Nur auf iOS, nur außerhalb der PWA.
+// Installhinweis: Safari zeigt keinen automatischen „Installieren"-Prompt, und auf Android/Desktop
+// zeigt ihn der Browser höchstens versteckt im Menü. Eine schmale, schließbare Zeile unter dem Header
+// (nicht als Balken über den Ringen).
+// A-V.3 (CRITIC K7): NICHT BEIM ERSTEN START. Bis 2.8.0 erschien diese Zeile 1,6 s nach dem
+// allerersten Öffnen – also bevor jemand einen Grund hatte, die App auf seinem Startbildschirm zu
+// wollen. Es gilt dieselbe Bedingung wie für den Rest des Trichters: erst nach dem ersten
+// abgeschlossenen Training, und 30 Tage Ruhe nach einem „Später".
+// 2.9.0 Fix-Runde A-V.3, zwei nachgewiesene Fehler:
+//   (1) `be_ios_install_dismissed` schloss den Trichter FÜR IMMER. Gemessen: nach einem „X" stand
+//       be_ios_install_dismissed="1" neben dem Zeitstempel; 31 Tage vorgespult sagte lpInstallDue()
+//       true, die Zeile kam trotzdem nicht. Jetzt entscheidet NUR lpInstallDue() – die 30 Tage
+//       rechnet es selbst (CRITIC K1: eine Bedingung, ein Ort). Der alte Dauer-Schlüssel wird beim
+//       ersten Lauf in einen Zeitstempel überführt und gelöscht, damit ein Bestandskonto seine
+//       Ablehnung nicht verliert, sie aber auch nicht ewig behält.
+//   (2) `if(!isIOS())return;` sperrte Android und den Rechner komplett aus – gemessen: mit Desktop-UA
+//       war lpInstallDue() true und das Wort „Startbildschirm" stand nirgends auf der Seite. Der
+//       einzige Weg war Profil → Daten. lpStepsHTML()/openInstallSheet() kennen alle drei Wege
+//       längst; die Zeile sagt jetzt je Plattform, was sie einbringt (Web-Push ohne installierte App
+//       gibt es nur auf iOS nicht – anderswo wäre dieser Satz unwahr).
+// Die Zeile hängt VOR #views, zählt also nicht in das Höhenbudget der Startseite (accent.mjs).
+function lpInstallOldKeyMigrate(){
+  // Einmalig: alter Dauer-Merker -> Zeitstempel unter LP_INSTALL_KEY (30 Tage ab jetzt), dann weg.
+  try{
+    if(!localStorage.getItem('be_ios_install_dismissed'))return;
+    if(typeof LP_INSTALL_KEY==='undefined')return;        // home.js fehlt: lieber nichts anfassen
+    if(!localStorage.getItem(LP_INSTALL_KEY))localStorage.setItem(LP_INSTALL_KEY,String(Date.now()));
+    localStorage.removeItem('be_ios_install_dismissed');
+  }catch(e){}
+}
+// Welche Ansicht steht gerade? (Dieselbe Quelle wie maybeStartTour: der aktive Tab in der Leiste.)
+function lpInstallViewNow(){try{return (document.querySelector('.navbtn.on')||{}).dataset?.p||'';}catch(e){return '';}}
+// Der Tabwechsel ist der Anlass, an dem die Zeile kommen oder gehen kann. EIN Zuhörer am Dokument,
+// einmal gesetzt – kein Timer, der im Hintergrund läuft.
+let LP_HINT_NAV=false;
+function lpInstallArmNav(){
+  if(LP_HINT_NAV)return;LP_HINT_NAV=true;
+  try{document.addEventListener('click',function(e){
+    const t=e.target;if(!t||!t.closest||!t.closest('.nav'))return;
+    setTimeout(maybeShowInstallHint,450);},true);}catch(e){}}
 function maybeShowInstallHint(){
   try{
     if(isStandalone())return;                             // läuft schon als installierte App
-    if(!isIOS())return;                                   // Hinweis nur auf iOS nötig
-    if(localStorage.getItem('be_ios_install_dismissed'))return;
+    // Der Trichter entscheidet, nicht die Uhr: lpInstallDue() prüft eigenes Athleten-Konto, erstes
+    // Training abgeschlossen und die 30-Tage-Ruhe. Fehlt home.js (Teilbündel), bleibt der Hinweis weg.
+    if(typeof lpInstallDue!=='function'||typeof homeState!=='function')return;
+    lpInstallOldKeyMigrate();
+    // NICHT auf der Startseite – und das ist eine Messung, kein Geschmack:
+    // Die Startseite ist die einzige Ansicht mit einem Höhenbudget (BUILD-A4: < 1.000 px,
+    // tools/accent.mjs prüft nur sie). Gemessen auf der Referenzdatenbank: ohne die Zeile 981 px,
+    // MIT ihr 1.064 px – accent ROT. Der Prüfer, der die iOS-Sperre beanstandet hat, nahm an, die
+    // Zeile hänge „ausserhalb des Home-Höhenbudgets"; sie hängt zwar vor #views, aber accent misst
+    // document.scrollHeight, und der zählt sie mit. Nebenbei behebt das einen Bruch, den bis eben
+    // niemand sah: accent misst mit Desktop-Browserkennung, auf dem iPhone stand die Startseite
+    // durch genau diese Zeile seit 2.9.0 bei 1.064 px.
+    // Auf allen anderen Tabs (Training, Ernährung, Mindset, Analyse) steht die Zeile – dort gibt es
+    // kein Höhenbudget, und genau dort wird trainiert und eingetragen.
+    if(lpInstallViewNow()==='home'){
+      const alt=document.getElementById('iosInstallHint');if(alt)alt.remove();
+      lpInstallArmNav();return;}
+    lpInstallArmNav();
+    let due=false;try{due=lpInstallDue(homeState());}catch(e){due=false;}
+    if(!due)return;
     if(document.getElementById('iosInstallHint'))return;
     if(document.body.classList.contains('tour-active'))return; // nicht während der Einführungs-Tour
     const bar=document.createElement('div');bar.id='iosInstallHint';bar.className='note install-hint';
-    bar.innerHTML=`<div class="fill">Als App nutzen: in Safari auf <b>Teilen</b> tippen, dann <b>„Zum Home-Bildschirm"</b>. <a onclick="openInstallSheet()">Anleitung</a></div>
+    // A-V.3: Die ganze Zeile führt in den Trichter (drei Bilder + drei Schritte), nicht nur das Wort
+    // „Anleitung" – ein 13-px-Link war die einzige Tuer zu dem, was auf dem iPhone über Erinnerungen
+    // entscheidet. Der Grund steht dabei, und er stimmt je Plattform.
+    const txt=isIOS()
+      ?'Auf den Startbildschirm legen – nur so kann die App dich erinnern.'
+      :'Als App installieren – eigenes Fenster, schnellerer Start, Erinnerungen.';
+    bar.innerHTML=`<button type="button" class="fill" style="all:unset;flex:1;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px" onclick="openInstallSheet()"><span style="flex:1">${esc2(txt)}</span><span style="flex:0 0 auto;display:inline-flex" aria-hidden="true">${icon('chevronRight',16)}</span></button>
       <button class="btn icon sm ghost" aria-label="Hinweis schließen" onclick="dismissInstallHint()">${icon('x',18)}</button>`;
     const views=document.getElementById('views');
     if(views&&views.parentNode)views.parentNode.insertBefore(bar,views);else document.body.appendChild(bar);
   }catch(e){}
 }
-function dismissInstallHint(){try{localStorage.setItem('be_ios_install_dismissed','1');}catch(e){}const b=document.getElementById('iosInstallHint');if(b)b.remove();}
+// Einmal weggetippt gilt für BEIDE Orte: die Zeile hier und jeder andere Trichter-Anstoß. EIN Merker
+// für dieselbe Entscheidung (CRITIC K1) – der Zeitstempel, den lpInstallDue() ohnehin liest. Der alte
+// Dauer-Schlüssel wird hier nicht mehr geschrieben; lpInstallOldKeyMigrate() räumt ihn weg.
+function dismissInstallHint(){
+  try{
+    if(typeof LP_INSTALL_KEY!=='undefined')localStorage.setItem(LP_INSTALL_KEY,String(Date.now()));
+    else localStorage.setItem('be_lp_install_off',String(Date.now()));  // Notnagel ohne home.js
+    localStorage.removeItem('be_ios_install_dismissed');
+  }catch(e){}
+  const b=document.getElementById('iosInstallHint');if(b)b.remove();}
 
 // Home-Tour beim allerersten App-Start: erst wenn Home fertig gezeichnet ist UND ein Plan existiert
 // (ohne Plan zeigt Home nur den Einrichten-Banner). Wird von startApp() früh gerufen -> wartet auf das Rendering.
@@ -1559,7 +1762,15 @@ async function enablePush(){
     if(kr.status!==200){toast(kr.data?.error||'Push auf dem Server nicht eingerichtet');return false;}
     const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlB64ToUint8(kr.data.key)});
     const r=await API.post('/push/subscribe',{subscription:sub.toJSON()});
-    if(r.status===200){toast('Push-Mitteilungen aktiviert ✓');return true;}
+    // A-V.3 (RATE-25-engagement M7): Bis 2.8.0 endete das Aktivieren mit einem Toast – ob auf dem
+    // Gerät je etwas erscheint, sah man erst Tage später (oder nie). Eine Mitteilung direkt nach
+    // dem Ja zeigt es sofort. Sie kommt vom Service Worker dieses Geräts, nicht vom Server: das
+    // beweist Erlaubnis und Anzeige, nicht die Zustellung – die prüft IPHONE-TEST.md am Gerät.
+    if(r.status===200){
+      try{await reg.showNotification('Erinnerungen sind an',{
+        body:'So sieht es aus, wenn ich mich melde. Uhrzeit und Arten änderst du im Profil.',
+        icon:'/icon-192.png',badge:'/icon-192.png',tag:'be-test',data:{url:'/'}});}catch(e){}
+      toast('Push-Mitteilungen aktiviert ✓');return true;}
     toast('Fehler beim Aktivieren');return false;
   }catch(e){console.error('[push]',e);toast('Push konnte nicht aktiviert werden');return false;}}
 function exportMyData(){window.open('/api/export/'+ME.id,'_blank');toast('Export wird heruntergeladen…');}

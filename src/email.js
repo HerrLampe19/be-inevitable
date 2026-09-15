@@ -113,7 +113,7 @@ export function notifyMessageContent(name, fromName, preview) {
     <p><b>${escHtml(fromName || 'Dein Coach')}</b> hat dir eine Nachricht in BE INEVITABLE geschickt:</p>
     <blockquote style="border-left:3px solid #e2231a;margin:12px 0;padding:6px 14px;color:#444">${escHtml(preview || '')}</blockquote>
     <p>${btn(link, 'In der App öffnen')}</p>
-    <p style="color:#666;font-size:13px">Diese Benachrichtigung kannst du in der App unter „Mehr → Profil" abschalten.</p>`);
+    <p style="color:#666;font-size:13px">Diese Benachrichtigung kannst du in der App unter „Profil → Erinnerungen" abschalten.</p>`);
   const text = `Neue Nachricht von ${fromName || 'deinem Coach'} in BE INEVITABLE: ${link}`;
   return { subject: 'Neue Nachricht – BE INEVITABLE', html, text };
 }

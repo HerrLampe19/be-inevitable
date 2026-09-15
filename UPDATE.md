@@ -15,9 +15,11 @@ ohne dass die Daten der Athleten verloren gehen?*
 Beim Neustart prüft die App: „Gibt es die Tabellen schon? Gibt es schon Daten?"
 Wenn ja, fasst sie nichts an (`CREATE TABLE IF NOT EXISTS`, idempotenter Seed).
 Neue Features fügen nur **neue** Tabellen/Spalten hinzu – nie werden alte überschrieben.
-Version 2.0.0 legt beim ersten Start automatisch die fünf Mindset-Tabellen
-(`mindset_sessions`, `wheel_assessments`, `challenges`, `challenge_days`, `mindset_entries`)
-und vier zusätzliche Spalten in `users` an – ohne manuellen Schritt, bestehende Daten bleiben unberührt.
+So sind seit 2.0.0 die fünf Mindset-Tabellen dazugekommen, mit 2.6.0 die vier Betriebstabellen
+(`audit`, `errors`, `jobs`, `support_grants`) und die Einwilligungs-Spalten, mit 3.0.0 vier weitere
+(`exercise_catalog`, `target_history`, `session_override`, `backups`) – jedes Mal beim ersten
+Start, ohne manuellen Schritt, ohne dass bestehende Daten angefasst wurden. Ob eine Migration
+durchgelaufen ist, sagt dir nach dem Deploy `/api/selftest`.
 
 ## So spielst du ein Update ein (Schritt für Schritt)
 
@@ -51,7 +53,20 @@ das Skript mit. Solange wir nur *hinzufügen*, brauchst du dir keine Sorgen zu m
 
 ## Sicherheitsnetz: Backup vor jedem Update (empfohlen)
 
-Sobald echte Nutzer drauf sind, mach vor jedem Update ein schnelles Backup:
+> **Seit 3.0.0 sichert sich die App jede Nacht selbst** (3 Uhr Ortszeit, in `/var/data/backups`,
+> 14 Tage Aufbewahrung). Das ist ein Netz, aber nicht *dein* Netz: die Datei liegt auf **derselben
+> Platte** wie die Datenbank. Vor einem Update ziehst du dir trotzdem eine Kopie auf deinen Rechner –
+> und zwar **vor** dem Deploy, nicht danach. Alles zur nächtlichen Sicherung und zur
+> Wiederherstellungsprobe steht in **DEPLOY-PRUEFEN.md**.
+
+Sobald echte Nutzer drauf sind, mach vor jedem Update ein Backup.
+
+**Der einfache und saubere Weg:** in der App als Admin → **Verwaltung → Betrieb → Sicherung
+herunterladen** (dein Passwort als zweiter Faktor). Das ist eine **konsistente** Kopie
+(`VACUUM INTO`) – eine Datei, garantiert vollständig, ohne Begleitdateien. Sie enthält allerdings
+alle Gesundheitsdaten aller Nutzer: verschlüsselt ablegen, nie per Mail verschicken.
+
+**Der Weg über die Shell** tut es auch, verlangt aber Sorgfalt:
 
 1. Render → dein Service → Reiter **Shell**.
 2. Befehl (alle drei Dateien, siehe Kasten):
@@ -77,15 +92,38 @@ So kannst du im unwahrscheinlichen Problemfall jederzeit zurück.
 - Render → **Logs** ansehen. Fehler stehen dort im Klartext.
 - Die App ist so gebaut, dass ein fehlendes neues Feld den Start nicht verhindert –
   im Zweifel läuft die alte Funktion weiter.
+- **Ein einzelnes Gerät hängt** (weiße Seite, alte Version, Neuladen hilft nicht): Auf diesem Gerät
+  `https://DEINE-APP.onrender.com/?swkill=1` aufrufen. Das meldet den Service Worker ab und leert
+  alle Caches. Erklärung: DEPLOY-PRUEFEN.md, Abschnitt „Notausgang".
 - Schick mir die Log-Zeile, dann finde ich die Ursache.
 
 ## Hinweis zu neuen Abhängigkeiten
 Wenn ein Update neue npm-Pakete braucht (z.B. `nodemailer`, `web-push`), installiert
 Render sie beim Deploy automatisch über die `package.json`. Du musst nichts manuell tun.
 
+## Die eine Regel, die man nicht brechen darf
+
+> ⚠️ **Jede Auslieferung geänderter JS-/CSS-Dateien braucht eine neue Versionsnummer in
+> `package.json`.**
+
+Der Browser lädt Skripte und Stylesheets über einen `?v=`-Parameter mit der Versionsnummer. Wird
+dieselbe Nummer erneut hochgeladen, ist die Adresse unverändert – und der Browser behält die alten
+Dateien **bis zu ein Jahr lang**, ohne dass jemand es merkt. Das gilt seit 2.4.0 ohne Ausnahme; die
+Begründung steht in DEPLOY-PRUEFEN.md.
+
+Dasselbe in kurz für den lokalen Betrieb: Wer eine Datei unter `public/js/` oder `public/css/`
+ändert, muss den **Server neu starten** – er bündelt die Dateien beim Hochfahren, nicht je Anfrage.
+
 ## Prüfen, ob das Update live ist
-Nach dem Deploy `https://DEINE-APP.onrender.com/api/version` öffnen – die angezeigte
-Versionsnummer muss zur neuen Version passen (siehe CHANGELOG.md). Mehr dazu in
-Seit 2.4.0 zusätzlich: `/api/version` muss `"schema":"ok"` tragen; sonst `/api/selftest` öffnen.
-Und: **jede Auslieferung geänderter Dateien braucht eine neue Versionsnummer** (siehe DEPLOY-PRUEFEN.md).
-DEPLOY-PRUEFEN.md.
+
+Nach dem Deploy in dieser Reihenfolge:
+
+1. `https://DEINE-APP.onrender.com/api/version` öffnen – die angezeigte Versionsnummer muss zur neuen
+   Version passen (siehe CHANGELOG.md) **und** `"schema":"ok"` tragen.
+2. Steht dort etwas anderes: `https://DEINE-APP.onrender.com/api/selftest` öffnen. Die Antwort nennt
+   im Klartext, was fehlt (HTTP 503, solange etwas fehlt), ohne personenbezogene Daten.
+3. Als Admin in der App: **Verwaltung → Betrieb** – Mail, `APP_URL`, Schema und Fehlerzahl auf einen
+   Blick.
+
+Die ausführliche Checkliste steht in **DEPLOYMENT.md, Schritt 6**; was zu tun ist, wenn einer der
+Punkte rot bleibt, in **DEPLOY-PRUEFEN.md**.

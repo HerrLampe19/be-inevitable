@@ -4,10 +4,24 @@ Diese App verarbeitet **Gesundheitsdaten** (Gewicht, Schlaf, Puls, HRV, Körperm
 Stimmung) und sehr persönliche Texte (Mindset). Dieses Dokument sagt dir, was die App dafür tut,
 was **du** vor dem Upload tun musst, und was in eine Datenschutzerklärung gehört.
 
-Stand: **2.6.0**. Grundlage ist ein Sicherheits-Audit mit sechs Prüfern, die die App mit echten Konten
+Stand: **3.0.0**. Grundlage ist ein Sicherheits-Audit mit sechs Prüfern, die die App mit echten Konten
 gegen einen laufenden Server angegriffen haben – nicht auf dem Papier. Ergebnis vorweg: Die
 Trennung zwischen Nutzern hält vollständig. Die Lücken lagen bei Sitzungen, Login-Drosselung,
-Konfiguration und Abhängigkeiten – und sind seit 2.4.0 geschlossen.
+Konfiguration und Abhängigkeiten – und sind seit 2.4.0 geschlossen. Das **Rollenmodell** kam mit
+2.6.0 (Abschnitt 10) und ist seither unverändert gültig; 2.7.0 bis 2.9.0 haben daran nichts gelockert.
+
+> **Was seit 2.6.0 dazugekommen ist und diesen Text berührt:** das Bündeln beim Serverstart und der
+> Hüllen-Cache (2.7.0, Abschnitt 5 und 7), die Stände im Gerätespeicher (2.7.0, Abschnitt 5), die
+> Laufzeit-Schalter in der Verwaltung (2.9.0, Abschnitt 13) und – **neu in 3.0.0** – die
+> **nächtliche Sicherung** (Abschnitt 6 und 9, sie ist datenschutzrechtlich der wichtigste Punkt
+> dieser Version) samt vier neuen Tabellen und 19 neuen Routen (Abschnitt 3 und 14). Alles unten ist
+> gegen den laufenden Server nachgemessen worden, nicht abgeschrieben.
+>
+> **Der eine Satz, der sich in 3.0.0 ändert:** Bis 2.9.0 entstand eine vollständige Kopie aller
+> Personendaten nur, wenn ein Mensch einen Knopf drückte. Ab 3.0.0 entsteht sie **jede Nacht von
+> selbst** und bleibt 14 Tage liegen. Das ist gewollt (ohne Sicherung keine Wiederherstellung,
+> Art. 32(1)(c)), es ändert aber, was auf der Platte liegt – und gehört genau deshalb in die
+> Datenschutzerklärung. Abschnitt 9 sagt, was in dieser Datei steht.
 
 **Neu in 2.6.0 – das Rollenmodell (Abschnitt 10):** Bis 2.5.0 war der Administrator technisch der
 Coach jedes Athleten. Er sah Check-ins, Körpermaße, Fotos, Nachrichten, Beschwerdetexte und
@@ -17,14 +31,81 @@ Protokoll, Fehler, Jobs, Zahlen – keine Gesundheitsdaten. Braucht er wirklich 
 Athlet für 30 Minuten frei; jeder Zugriff wird protokolliert und der Athlet bekommt eine Nachricht
 (Abschnitt 12).
 
-Gemessen mit `tools/roles.mjs` (181 Routen × 6 Rollen = 1.086 Zellen, Erwartung je Zelle in
-`tools/ROUTEN-PERSONENBEZUG.md`):
+Gemessen mit `tools/roles.mjs` (Erwartung je Zelle in `tools/ROUTEN-PERSONENBEZUG.md`). Die
+Routenzahl wächst mit jeder Version – **die drei Nullen sind das Ergebnis, nicht die Größe der
+Tabelle**:
 
-| | 2.5.0 | 2.6.0 |
-|---|---|---|
-| Antworten mit Personendaten **für den Administrator** | 18–20 | **0** |
-| belegtes Fremdschreiben (Zeile im Namen eines anderen) | 4 | **0** |
-| offene Aufträge in der Erwartungstabelle | 28 | **0** |
+| | 2.5.0 | 2.6.0 | 2.9.0 | 3.0.0 |
+|---|---|---|---|---|
+| geprüfte Routen × Rollen | 181 × 6 = 1.086 | 181 × 6 = 1.086 | 189 × 6 = 1.134 | 208 × 6 = **1.248** |
+| Antworten mit Personendaten **für den Administrator** | 18–20 | **0** | **0** | **0** |
+| Antworten mit Personendaten für einen **fremden Coach** | – | 0 | **0** | **0** |
+| belegtes Fremdschreiben (Zeile im Namen eines anderen) | 4 | **0** | **0** | **0** |
+| offene Aufträge in der Erwartungstabelle | 28 | **0** | **0** | **0** |
+| Routen ohne Eintrag in der Erwartungstabelle | – | 0 | **0** | **0** |
+
+Der Lauf meldet Abweichungen, und die sind alle derselbe Fall: Für einen Platzhalter in der
+Routenadresse (`mealId`, `photoId`, `cardioId`, `templateId`, `noteId`, `cartId`, `wheelId`,
+`challengeId`, `sessionId`, `token`, `entryKey`) steht in der Prüfdatenbank keine echte Zeile, also
+antwortet die Route 404 statt 200. **Kein einziger Rechtefehler** ist darunter – das Werkzeug zählt
+sie trotzdem, und das soll es auch: eine Abweichung, die man wegdefiniert, sieht man nie wieder.
+
+**Wie viele es sind, sagt nichts über die App, sondern nur darüber, wie voll die Prüfdatenbank ist.**
+Nachgemessen am 15.09.2026 gegen denselben Server, nur mit zwei verschiedenen Datenbankkopien:
+
+| Datenbank | Version | Abweichungen | Platzhalter ohne echte Zeile |
+|---|---|---|---|
+| `scratchpad/rate-engagement.db` | 2.9.0 | 25 | 11 (`mealId`, `photoId`, `cardioId`, `templateId`, `noteId`, `cartId`, `wheelId`, `challengeId`, `sessionId`, `token`, `entryKey`) |
+| `tools/reference.db` | 2.9.0 | 11 | 5 (`templateId`, `wheelId`, `sessionId`, `token`, `entryKey`) |
+| `scratchpad/rate-engagement.db` | 3.0.0 | 25–26 (zwei Läufe) | dieselben 11 – **19 neue Routen, keine neue Abweichung durch sie** |
+
+Beide Läufe melden dieselben drei Nullen. **`roles` bleibt deshalb als einziges der sieben Werkzeuge
+rot** – ein Artefakt der Testdaten, kein Befund am Rechtemodell. Wer die Zahl zitiert, nennt die
+Datenbank dazu; ohne sie ist sie wertlos.
+
+Dazu kamen mit 2.9.0 **vier Betriebsrouten**. Sie stehen als Nr 189–192 in
+`tools/ROUTEN-PERSONENBEZUG.md` (mit Begründung je Route) – der Lauf meldet deshalb
+`routesNotInTable: 0`. Einzeln nachgemessen:
+
+| Route | Coach | Athlet | anonym |
+|---|---|---|---|
+| `GET /api/admin/ops` | 403 | 403 | 401 |
+| `PUT /api/admin/ops` | 403 | 403 | 401 |
+| `POST /api/admin/mailcheck` | 403 | 403 | 401 |
+| `GET /api/notice` | 200 | 200 | **200 – absichtlich öffentlich** |
+
+`/api/notice` liefert **nur** den Wartungstext (`{"notice":null}`, solange keiner gesetzt ist) und
+sonst nichts: kein Zustand, keine Zahl, keine Kennung. Er muss auch ohne Konto lesbar sein – sonst
+erführe gerade der nichts vom Wartungsfenster, der wegen einer Wartung nicht hereinkommt.
+
+Damit ist die Erwartungstabelle wieder vollständig: **keine Route ohne Eintrag, kein Eintrag ohne
+Route** (`routesNotInTable: 0`, `openTasksFromTable: 0`).
+
+**Mit 3.0.0 kommen 19 Routen dazu.** Sie folgen denselben zwei Prüfungen wie alles andere
+(Abschnitt 10) – hier ist, was das je Gruppe heißt, einzeln am laufenden Server nachgemessen:
+
+| Routengruppe | Athlet (er selbst) | sein Coach | Betreiber | anonym |
+|---|---|---|---|---|
+| **Übungskatalog** `GET /api/exercise-catalog`, `…/duplicates`, `POST`, `DELETE /:id` | 200 – Seed-Liste **plus nur seine eigenen** | 200 – für sein eigenes Konto | 200 – für sein eigenes Konto, **keine fremden Einträge** | **401** |
+| **Wochenbericht** `GET /api/weekreport/:userId` | 200, Tonlage „athlet" | 200, Tonlage „coach" | **403 „Kein Zugriff"** | **401** |
+| **Adaptive Ziele** `GET /api/targets/:userId`, `…/run`, `…/decide`, `…/mode`, `…/revert` | 200 | 200 | **403** | **401** |
+| **Pivot** `POST /api/session-override`, `GET`/`DELETE /:userId` | 200 | 200 | **403** für jedes fremde Konto (nachgemessen mit `user_id: 2`). Für sein **eigenes** Konto darf er es – er ist dort der Athlet | **401** |
+| **Plan-Werkzeuge** `POST /api/days/:id/superset`, `POST /api/exercises/:id/replace` | 200 | 200 | **403** | **401** |
+| **Sicherung** `GET /api/admin/backups`, `POST …/run`, `POST …/verify`, `PUT …/keep` | **403 „Nur für Admins"** | **403 „Nur für Admins"** | 200 | **401** |
+
+Zwei Punkte, die man leicht übersieht und die deshalb ausdrücklich geprüft wurden:
+
+1. **Der Katalog ist kein Schlupfloch.** Die Abfrage lautet
+   `WHERE owner_id IS NULL OR owner_id = <ich>` – Seed-Übungen sieht jeder, eigene Einträge nur ihr
+   Besitzer. Ein Übungsname ist harmlos, aber „welche Übungen hat sich dieser Mensch angelegt" ist
+   es nicht mehr unbedingt.
+2. **Der Betreiber bleibt draußen, auch bei den neuen Routen.** Wochenbericht, Ziele und Pivot hängen
+   an `canAccessPersonal()` und antworten ihm für **jedes fremde Konto** mit **403** – gemessen, nicht
+   angenommen (`GET /api/weekreport/2`, `GET /api/targets/2`, `POST /api/session-override
+   {user_id:2}`, `POST /api/days/:id/superset`, `POST /api/exercises/:id/replace`: alle 403). Was er
+   sieht, ist die Liste der Sicherungen – Zeitpunkte, Bytes und Prüfsummen, keine Personendaten.
+   Die Erwartungstabelle führt die 19 neuen Routen als Nr 193–211; der Lauf meldet
+   `routesNotInTable: 0` und `openTasksFromTable: 0`.
 
 Dazu in 2.6.0: ausdrückliche **Einwilligung** nach Art. 9 DSGVO vor der ersten Gesundheitseingabe
 (bei Konten, die es vor dem Update schon gab, einmalig **übernommen** statt eingeholt – Abschnitt 9),
@@ -35,7 +116,9 @@ eine **pseudonyme** Nutzerverwaltung und der **Einladungslink** statt eines Star
 **Weiterhin offen** (Abschnitt 9): CSP `'unsafe-inline'`, der Apple-Health-Schlüssel in der URL,
 die 7-Tage-Gnadenfrist vor der endgültigen Löschung, die **übernommene Einwilligung der
 Bestandskonten** – und die **vollständige Sicherung**, die dem Betreiber weiterhin alles in eine
-Datei legt (dafür mit Passwort, Protokoll und einer Nachricht an jedes betroffene Konto).
+Datei legt. Der Download dafür mit Passwort, Protokoll und einer Nachricht an jedes betroffene Konto;
+die **nächtliche Datei ab 3.0.0 ohne all das** – sie ist unverschlüsselt, liegt 14 Tage auf der
+Platte und enthält denselben vollständigen Bestand (Abschnitt 9).
 
 ---
 
@@ -50,10 +133,23 @@ Render → Service → **Environment**.
 | `NODE_ENV` | **ja** | `production` – schaltet HSTS, Clickjacking-Schutz und `secure`-Cookies scharf. |
 | `APP_URL` | **ja** | Öffentliche Adresse, z.B. `https://deine-app.onrender.com`. Steht in Mail-Links und im Apple-Health-Link. |
 | `EMAIL_HOST/PORT/USER/PASS/FROM` | empfohlen | Mailversand (Bestätigung, Passwort-Reset, Wochenmail). **Ohne SMTP gibt es keinen Passwort-Reset** – der Link wird seit 2.4.0 nicht mehr ins Log geschrieben. |
-| `REGISTER_CODE` | optional | Gesetzt: die Registrierung verlangt diesen Einladungscode. Nicht gesetzt: jeder kann ein Athleten-Konto anlegen (wie bisher). Für eine Ein-Coach-App empfehlenswert. |
+| `REGISTER_CODE` | optional | Der Einladungscode. **Seit 2.9.0 entscheidet der Schalter `ops.registration` in der Verwaltung, OB er verlangt wird** (Abschnitt 13) – solange niemand ihn angefasst hat, gilt wie bisher: Variable gesetzt = Code nötig. |
 | `SELFTEST_KEY` | optional | Gesetzt: `/api/selftest?key=…` zeigt zusätzlich Zählwerte (Nutzer, Sätze …). Ohne Schlüssel bleibt der Selbsttest öffentlich, aber ohne Zahlen. |
-| `ANTHROPIC_API_KEY` | optional | KI-Analyse für Coaches. Wenn gesetzt: Anthropic ist Empfänger von Gesundheitswerten → Datenschutzerklärung und Auftragsverarbeitung (siehe Abschnitt 8). |
+| `ANTHROPIC_API_KEY` | optional | KI-Analyse für Coaches. Wenn gesetzt: Anthropic ist Empfänger von Gesundheitswerten → Datenschutzerklärung und Auftragsverarbeitung (siehe Abschnitt 8). Seit 2.9.0 gibt es dazu einen **Not-Aus ohne Redeploy** (`ops.ai`, Abschnitt 13). |
+| `APP_TZ` | optional | Zeitzone (IANA-Name), in der „heute" und alle Push-Uhrzeiten gerechnet werden. Standard `Europe/Berlin`. Sicherheitsrelevant nur mittelbar: Protokoll und Fehlerspeicher stempeln **UTC** (`ts_utc`), die Oberfläche rechnet um. |
+| `MINIFY` | optional | `0` liefert JS/CSS unverkleinert aus (Notbremse, DEPLOY-PRUEFEN.md). Ändert nichts an Rechten oder Daten. |
+| `BACKUP_DIR` | optional | **Ab 3.0.0 sicherheitsrelevant:** der Ordner, in dem die nächtlichen Sicherungen liegen. Ohne die Variable ist es `backups/` neben der Datenbank, also die persistente Platte. **Jede Datei darin ist ein Vollabzug aller Personendaten** (Abschnitt 9) – zeig die Variable nie auf ein öffentlich erreichbares Verzeichnis und nie auf einen synchronisierten Ordner. Standard `<Ordner von DB_PATH>/backups`. |
 | `ALLOW_DEV_SECRET` | **nur lokal** | `1` erlaubt den Start ohne `JWT_SECRET` auf deinem Rechner. **Niemals auf Render setzen.** |
+| `EMAIL_DEBUG` | **nur lokal** | `1` schreibt den Mailtext **samt Reset-Links** ins Log. Der Code ignoriert die Variable bei `NODE_ENV=production` – setzen muss man sie trotzdem nie. |
+
+Die vollständige Liste samt Render-Checkliste steht in **DEPLOYMENT.md, Schritt 4 und 6**. Diese
+Tabelle hier nennt, was **sicherheitsrelevant** ist; `PORT` und die `COACH_*`-Variablen des
+einmaligen Anlegebefehls sind es nicht.
+
+**Was ausdrücklich KEINE Umgebungsvariable ist:** die **VAPID-Schlüssel** für Web-Push. Der Server
+erzeugt sie beim ersten Bedarf selbst und legt sie in der Tabelle `settings`
+(`vapid_public` / `vapid_private`) ab. Sie liegen damit in der Datenbank – und damit in jeder
+Sicherung. Wer eine Sicherung weitergibt, gibt auch sie weiter.
 
 Nach dem Deploy: **`/api/version`** muss die neue Nummer und `"schema":"ok"` zeigen. Sonst
 **`/api/selftest`** öffnen – er nennt in Klartext, was fehlt (HTTP 503, solange etwas fehlt), ohne
@@ -102,9 +198,11 @@ Die Spalte „Betreiber" gilt ab 2.6.0. Sie ist die wichtigste Änderung dieser 
 „nein"**, wo es um einen Menschen geht. Was dort trotzdem möglich ist, steht in Abschnitt 12
 (Hilfe-Freigabe) – zeitlich begrenzt, vom Athleten erteilt, protokolliert.
 
-Sie gilt für die **App**. Daneben gibt es genau einen Weg, auf dem der Betreiber ohne Hilfe-Freigabe an
-alles kommt: die **vollständige Sicherung** (letzte Tabellenzeile, Abschnitt 9). Der Weg wird nicht
-wegdefiniert – ohne Sicherung gibt es keine Wiederherstellung –, sondern benannt und laut gemacht.
+Sie gilt für die **App**. Daneben kommt der Betreiber ohne Hilfe-Freigabe an alles – über die
+**Sicherung** (die letzten beiden Tabellenzeilen, Abschnitt 9). Bis 2.9.0 war das **ein** Weg: der
+Download-Knopf, mit Passwort und einer Nachricht an jedes betroffene Konto. **Ab 3.0.0 sind es zwei**,
+denn die nächtliche Datei entsteht ohne Knopf und ohne Nachricht. Der Weg wird nicht wegdefiniert –
+ohne Sicherung gibt es keine Wiederherstellung –, sondern benannt und laut gemacht.
 
 | Daten | Athlet | zuständiger Coach | Betreiber (Admin) | anonym |
 |---|---|---|---|---|
@@ -122,7 +220,13 @@ wegdefiniert – ohne Sicherung gibt es keine Wiederherstellung –, sondern ben
 | Datenexport (alle eigenen Tabellen als JSON) | ja | nein | **nein** – seit 2.6.0 auch nicht mehr über eine Hilfe-Freigabe | – |
 | Apple-Health-Schlüssel | nur selbst | nein | nein (auch nicht im Export) | – |
 | Teilen-Link (Rezept/Übung + Vorname des Teilenden) | – | – | – | **ja, 30 Tage, per Token** |
+| **Übungskatalog** (`exercise_catalog`): Seed-Übungen und **eigene** Einträge (Name, Muskel, Gerät, Alias) – ab 3.0.0 | ja: die Seed-Liste **und nur seine eigenen** (`owner_id IS NULL OR owner_id = ich`, nachgemessen) | dasselbe für sein eigenes Konto – **nicht** die eigenen Einträge seiner Athleten | dasselbe für sein eigenes Konto | **nein** – die Route verlangt einen Login (401) |
+| **Zielverlauf** (`target_history`): jede Kalorien-/Makro-Änderung mit Begründungssatz, Quelle und wer freigegeben hat – ab 3.0.0 | ja | ja | **nein** (`GET /api/targets/:id` → **403**, nachgemessen) | – |
+| **Tagesänderung** (`session_override`): „Heute geändert: … – weil …", mit Urheber – ab 3.0.0 | ja | ja | **nein** (403, nachgemessen) | – |
+| **Wochenbericht** (`GET /api/weekreport/:id`): Compliance, PRs, Beschwerden, Gewichts-Delta – ab 3.0.0 | ja (Tonlage „athlet") | ja (Tonlage „coach") | **nein** (403, nachgemessen) | – |
+| **Liste der Sicherungen** (`backups`): Zeitpunkt, Bytes, SHA-256, Ergebnis der Probe – ab 3.0.0. **Keine Personendaten, nur Betriebszahlen.** | – | – | **ja** – das ist Betriebsaufsicht | – |
 | **Vollständige Sicherung der Datenbank** (`POST /api/admin/backup`) | – | – | **ja** – der eine Weg an alles, ohne Hilfe-Freigabe. Zweiter Faktor Passwort, Protokolleintrag, **Nachricht + Push an jedes betroffene Konto**, Abschnitt 9 | – |
+| **Nächtliche Sicherungsdatei** (`/var/data/backups/*.db`, ab 3.0.0) | – | – | **ja, ohne jeden Handgriff** – sie entsteht von selbst und liegt 14 Tage auf der Platte. Inhalt: **dasselbe wie oben, also alles.** Kein Passwort, keine Nachricht an die Konten. Abschnitt 9. | – |
 
 **Wer schreibt was.** Selbstauskünfte schreibt nur der Mensch selbst: Check-in, Körpermaße,
 Ernährungs- und Cardio-Protokoll, Fortschrittsfotos, Apple-Health-Import und die Mindset-Eintragungen.
@@ -144,7 +248,7 @@ E-Mail), bekommt der Athlet eine Nachricht, wer ihn ab jetzt betreut und was er 
 |---|---|---|
 | Dein Mail-Provider (SMTP) | Adresse, Name, Bestätigungs-/Reset-Link, Coach-Nachricht (200 Zeichen), Wochenmail mit Trainingszahlen, Gewichtsdelta, Ø Schlaf | nur an **bestätigte** Adressen |
 | Apple / Google Push | Push-Endpunkt; der Inhalt ist **verschlüsselt** (aes128gcm), der Push-Dienst kann ihn nicht lesen | wenn Push aktiviert |
-| Open Food Facts | Barcode + IP-Adresse, keine Cookies | nur beim Barcode-Scan, direkt aus dem Browser |
+| Open Food Facts | Barcode + IP-Adresse, keine Cookies. Dazu die **Produktbilder**, die der Browser direkt von dort holt (`img-src https://*.openfoodfacts.org`). | nur beim Barcode-Scan bzw. wenn ein Produktbild angezeigt wird, direkt aus dem Browser |
 | unpkg.com (Cloudflare) | IP + Herkunft beim Laden der Barcode-Bibliothek (festgepinnte Version mit Prüfsumme) | nur beim Öffnen des Scanners |
 | Anthropic | Ziel, Erfahrung, Trainingstage/Woche, 14 Tage Check-in-Werte, die letzten 90 Sätze, Anzahl und Daten offener Beschwerden – **ohne Klarnamen, ohne Freitexte** | nur wenn `ANTHROPIC_API_KEY` gesetzt **und** der Athlet den Schalter „KI-Analyse durch meinen Coach erlauben" gesetzt hat (`users.ai_consent`, **Standard aus**) **und** der Coach klickt. Ohne den Schalter antwortet die Route 403 mit Klartext für den Coach. Nach **jeder** Auswertung bekommt der Athlet eine Systemnachricht, die genau diese Aufzählung enthält, und im Protokoll steht eine Zeile `ai.summary`. Anthropic ist **Auftragsverarbeiter** und gehört namentlich in die Datenschutzerklärung. |
 | Render-Log | Startmeldungen, Fehlerstacks **ohne** Request-Inhalt, Nutzer-IDs bei Mailfehlern. Keine Adressen, keine Links, keine IPs. | laufend |
@@ -155,10 +259,26 @@ Google Fonts wird nicht geladen (die Freigabe wurde entfernt).
 
 ## 5. Was auf dem Gerät liegt
 
-Damit die App ohne Netz startet und im Keller loggt, liegen im Browser-Speicher: der letzte Stand des
-eigenen Profils (E-Mail, Name, Ziele – **kein** Token), Plan und Tagesvorschau, sowie die Offline-
-Warteschlange mit den noch nicht gesendeten Einträgen. Der Service Worker hält nur die Programmhülle,
-nie Daten.
+Damit die App ohne Netz startet und im Keller loggt, liegen im Browser-Speicher (`localStorage`):
+
+| Was | Schlüssel | Umfang |
+|---|---|---|
+| Profil des angemeldeten Kontos | `be_me` | E-Mail, Name, Ziele – **kein** Token |
+| Offline-Warteschlange | `be_outbox` | noch nicht gesendete Sätze, Essen, Check-ins, Supplements, Cardio |
+| **Lese-Schnappschüsse** (ab 2.7.0) | `be_snap_v1_<Konto>_<Pfad>` | **jede gelesene API-Antwort**: Startseiten-Zahlen, Check-ins, Sätze, Essensprotokoll, Maße, Bereitschaft, Wochenrückblick, Mindset-Tag. Höchstens **40 Einträge** über alle Konten des Geräts, je Eintrag höchstens 64 KB, Verfall nach **30 Tagen**. |
+
+**Das ist mehr als vor 2.7.0, und es gehört benannt:** Vorher lagen nur Profil, Plan und Tagesvorschau
+auf dem Gerät. Heute liegen dort Gesundheitswerte – deshalb steht in Abschnitt 8 Punkt 6 die
+Gerätespeicherung als eigener Punkt der Datenschutzerklärung.
+
+**Was ausdrücklich NICHT abgelegt wird:** `/me`, `/version`, `/register-info`, `/selftest`, `/login`,
+`/register`, **Fotos** (`/photos/…`), Profilbilder, **Push-Schlüssel**, alle **KI**-Antworten, alle
+**`/admin`**-Antworten, Hilfe-Freigaben, Teilen-Links und Einladungen. Und: Beim Blick eines Coaches
+auf einen Athleten wird **gar nichts** abgelegt – Fremddaten haben auf dem Gerät des Coaches nichts
+verloren.
+
+Der Service Worker hält nur die Programmhülle (`/`, `/app.js`, `/app.css`, `manifest.json`), nie
+Daten: `/api/*` wird von ihm **niemals** gecacht.
 
 **Geteiltes Gerät:** „Abmelden" räumt den Speicher des Kontos komplett auf. Wer unsicher ist, ob ein
 fremdes Gerät noch angemeldet ist, benutzt im Profil **„Alle Geräte abmelden"**. Was bewusst bleibt:
@@ -169,15 +289,28 @@ Netzkontakt bestehen (das Cookie ist ohnehin gültig).
 
 ## 6. Sicherung, Löschung, Auskunft
 
-- **Sicherung:** Verwaltung → „Sicherung herunterladen" (Admin, Passwort nötig, höchstens alle
-  10 Minuten). Das ist eine **konsistente** Kopie (`VACUUM INTO`). Ein `cp` der Datei während des
+- **Sicherung, von Hand:** Verwaltung → „Sicherung herunterladen" (Admin, Passwort nötig, höchstens
+  alle 10 Minuten). Das ist eine **konsistente** Kopie (`VACUUM INTO`). Ein `cp` der Datei während des
   Betriebs ist es **nicht** – die Datenbank schreibt in eine Begleitdatei (WAL). Lege die Sicherung
   verschlüsselt ab: sie enthält alle Gesundheitsdaten aller Nutzer.
+- **Sicherung, nächtlich (ab 3.0.0):** Um 3 Uhr Ortszeit schreibt der Server dieselbe Art Kopie
+  (`VACUUM INTO`) in den Ordner `backups/` **neben der Datenbank**, mit SHA-256 je Datei, und hält
+  sie **14 Tage** (`settings.backup_keep_days`, 1–365). Dazu die **Wiederherstellungsprobe**
+  (`POST /api/admin/backups/verify`, Stand 3.0.0 ohne Knopf in der Verwaltung): die jüngste
+  Sicherung wird in eine Wegwerf-Datei kopiert und dort geprüft
+  (`PRAGMA integrity_check`, Tabellen vollständig, Zeilen je Tabelle) – die laufende Datenbank wird
+  dabei **nicht** angefasst. Das ist die Antwort auf Art. 32(1)(c) **und** (d): Wiederherstellbarkeit
+  *und* ihr regelmäßiger Test. Ablauf, Grenzen und Fallstricke: DEPLOY-PRUEFEN.md.
+  **Datenschutzrechtlich heißt das:** ab 3.0.0 liegen bis zu 14 vollständige Abzüge aller
+  Personendaten auf der Platte, ohne dass jemand etwas dafür tut. Abschnitt 9 sagt, was drinsteht;
+  in der Datenschutzerklärung gehört es unter „Speicherdauer".
 - **Löschung:** Jeder Athlet kann sein Konto im Profil selbst löschen (Passwort, zweistufige
   Rückfrage). Admin: Verwaltung – seit 2.5.0 ebenfalls **mit dem eigenen Passwort** als zweitem Faktor,
   wie bei der Sicherung. Beides löscht **vollständig** – auch Nachrichten, Teilen-Links,
   Push-Registrierungen, Mindset-Daten – in einer Transaktion.
-- **Auskunft (Art. 15):** Profil → Daten exportieren liefert alle Tabellen des Nutzers als JSON
+- **Auskunft (Art. 15):** Profil → Daten & Verbindungen → „Meine Daten exportieren" liefert alle Tabellen des Nutzers als JSON
+  (bei Coach- und Admin-Konten heißt dasselbe Unter-Sheet nur **„Daten"** – nachgemessen; die Zeile
+  „Meine Daten exportieren" steht in allen drei Rollen darin)
   (Fotos optional). Nicht enthalten: Nachrichten, die der Nutzer **gesendet** hat (sie gehören zum
   Postfach des Empfängers) – in der Auskunft benennen.
 - **Auskunft:** Der Export ist ab 2.6.0 **nur noch für den Kontoinhaber selbst** erreichbar – auch
@@ -237,7 +370,13 @@ Netzkontakt bestehen (das Cookie ist ohnehin gültig).
 3. Wer sieht was (Tabelle in Abschnitt 3) und wie die Coach-Zuordnung zustande kommt.
 4. Empfänger (Abschnitt 4) – je nach Konfiguration: Mail-Provider, Apple/Google Push, Open Food
    Facts, unpkg, Anthropic.
-5. Speicherdauer (Abschnitt 6), Löschung und Auskunft, Widerruf von Push.
+5. Speicherdauer (Abschnitt 6), Löschung und Auskunft, Widerruf von Push. **Ab 3.0.0 gehört dazu
+   ausdrücklich die nächtliche Sicherung:** technisch-organisatorische Maßnahme nach Art. 32(1)(c)(d),
+   vollständige Kopie der Datenbank, **auf demselben Server**, Aufbewahrung standardmäßig **14 Tage**,
+   danach automatisch gelöscht. Das ist auch der Satz, den eine Löschanfrage braucht: ein gelöschtes
+   Konto ist in der App sofort weg, in den Sicherungen der letzten 14 Tage aber noch enthalten – sie
+   laufen mit der Frist aus. Wer eine kürzere Frist zusagen will, stellt sie auf einen kleineren Wert
+   (`PUT /api/admin/backups/keep`) und schreibt **den** in die Erklärung.
 6. Speicherung auf dem Gerät (Abschnitt 5).
 
 ---
@@ -257,16 +396,29 @@ Netzkontakt bestehen (das Cookie ist ohnehin gültig).
   /api/admin/backup` liefert dem Betreiber in einer Datei den kompletten Bestand: Freitexte, Fotos,
   Nachrichteninhalte, Geburtsdaten, E-Mail-Adressen und die Passwort-Hashes aller Konten. Die
   Rollentrennung dieser Version endet an dieser Datei, und sie kann es auch nicht anders: eine App
-  ohne Sicherung überlebt keinen Plattenschaden (die Wiederherstellungsprobe ist Paket A-II.0). Was
+  ohne Sicherung überlebt keinen Plattenschaden. Was
   der Weg deshalb hat: das **Passwort** als zweiten Faktor (ein gestohlenes Admin-Cookie genügt
   nicht), höchstens **eine Kopie je 10 Minuten**, einen Protokolleintrag `backup.download` in einem
   Protokoll ohne Löschroute, den Zeitstempel `settings.backup_last` – und seit der Nachbesserung von
   B1 **Nachricht + Push an jedes betroffene Konto, bei jeder einzelnen Kopie**. Ein heimlicher
   Vollabzug ist damit nicht mehr möglich, ein offener schon. Die Datei gehört verschlüsselt abgelegt,
   nie in einen synchronisierten Ordner und nie in eine Mail, mit einer festen Löschfrist.
+- **Die nächtliche Sicherung ab 3.0.0 ist derselbe Vollabzug – nur ohne Knopf, ohne Passwort und
+  ohne Nachricht.** Das gehört so deutlich dagestanden, weil es die einzige Stelle ist, an der 3.0.0
+  die Lage gegenüber 2.9.0 verschärft: In `/var/data/backups` liegen ab jetzt **bis zu 14 Dateien**,
+  und **jede einzelne enthält alles** – Gesundheitswerte, Körpermaße, Fotos, Nachrichten,
+  Mindset-Freitexte, Geburtsdaten, E-Mail-Adressen, Passwort-Hashes, dazu die VAPID-Schlüssel und
+  jeden gültigen Apple-Health-Schlüssel. Wer Zugriff auf die Platte hat, hat Zugriff auf alles; wer
+  eine dieser Dateien weitergibt, gibt alles weiter. **Der Grund, es trotzdem zu bauen:** ohne
+  Sicherung gibt es keine Wiederherstellung, und Art. 32(1)(c)(d) verlangt beides – Fähigkeit *und*
+  regelmäßigen Test. Was der Weg hat: die Datei verlässt den Server **nicht** (kein Upload, kein
+  fremder Dienst, keine Mail), sie liegt unter demselben Verantwortlichen wie die Datenbank selbst,
+  die Aufbewahrung ist begrenzt und einstellbar, und jeder Lauf steht in `backups` und in `jobs`.
+  Was der Weg **nicht** hat: eine Verschlüsselung und eine Nachricht an die betroffenen Konten.
   *Offen (Entscheidung Marco):* eine Sicherung **ohne** Personendaten (nur Struktur und Betriebs-
   tabellen) als zweiter Knopf, oder eine Verschlüsselung der Datei durch den Server selbst, damit der
-  Klartext die Platte nie verlässt. Beides ist eine eigene Welle wert, keine Nachbesserung.
+  Klartext die Platte nie verlässt. Beides ist eine eigene Welle wert, keine Nachbesserung – und mit
+  der nächtlichen Datei ist es dringender geworden als vorher (`DEFER-B1.md`).
 - **Die Einwilligung der Bestandskonten wurde beim Update übernommen, nicht eingeholt.** Der Riegel
   nach Art. 9 (ohne `consent_health_at` nimmt der Server keine Gesundheitsdaten an) trifft jedes
   Konto – auch die, die es vor 2.6.0 schon gab. Gefragt wird aber nur im Onboarding, und das sieht
@@ -284,10 +436,13 @@ Netzkontakt bestehen (das Cookie ist ohnehin gültig).
   heute keine Nutzer gibt (DECISIONS-25 F2). Jedes Konto, das **nach** dem Update entsteht, muss
   ausdrücklich zustimmen – nachgewiesen: neu angelegtes Konto → Check-in und Essen 409 mit
   `needsConsent`, nach `POST /api/consent` 200, nach Widerruf wieder 409.
-  *Offen (Paket A-II.4, `public/js/account.js`):* Das Sheet „Einwilligung" sagt einem übernommenen
-  Konto „Du hast am … eingewilligt". Für ein übernommenes Konto stimmt dieser Satz nicht; er gehört
-  auf „beim Update am … übernommen – bitte einmal bestätigen" geändert. Der Server liefert dafür
-  bereits die Tatsache im Protokoll (`consent.migrated`).
+  ***Offen und bei 2.9.0 nachgemessen weiterhin offen*** (`public/js/account.js`,
+  `lgOpenConsentSheet()`): Das Sheet „Einwilligung" sagt einem übernommenen Konto
+  „Du hast am … eingewilligt". Für ein übernommenes Konto stimmt dieser Satz nicht; er gehört auf
+  „beim Update am … übernommen – bitte einmal bestätigen" geändert. Der Server liefert dafür bereits
+  die Tatsache im Protokoll (`consent.migrated`). Tragbar ist das nur, weil es außer Marcos eigenem
+  Konto keine Bestandsnutzer gibt (DECISIONS-25 F2) – **mit dem ersten echten Bestandskonto wird es
+  ein Befund.** Der Auftrag steht in `DEFER-A5.md`.
 - **Ein Betreiber kann sich selbst eine Rolle geben.** Wer Administrator ist, kann jede Rolle setzen –
   auch sich selbst zum Coach machen und dann Athleten zugeordnet bekommen. Was er dabei **nicht**
   kann: sich stillschweigend Zugriff verschaffen. Jede Rollenänderung steht mit Zeitpunkt und
@@ -327,7 +482,7 @@ wiederholbaren Lauf stehen im Kopf der Tabelle.
 
 | Tabelle | Inhalt | Was ausdrücklich **nicht** drinsteht | Aufbewahrung |
 |---|---|---|---|
-| `audit` | Zeitpunkt, Kennung des Handelnden, seine Rolle, Name der Handlung (`role.change`, `user.create`, `user.delete`, `password.reset` (Coach), `password.reset.link` (Betreiber, mit `mailed`/`shown`), `athlete.profile.set` (Coach setzt Phase/Ziel/Kalorienziele), `backup.download`, `admin.search`, `support.grant`, `support.use`, `support.revoke`, `consent.grant`, `consent.revoke`, `ai.consent.on/off`, `ai.summary`, `invite.accept`, `mail.test`, `job.*`), Art und Kennung des Ziels, ein kleines JSON mit Zahlen | E-Mail, Name, Freitext, Gesundheitswerte. Auch die **gesuchte Adresse** nicht – nur, dass gesucht wurde und ob es einen Treffer gab. | 365 Tage, **keine Löschroute** |
+| `audit` | Zeitpunkt, Kennung des Handelnden, seine Rolle, Name der Handlung (`role.change`, `user.create`, `user.delete`, `password.reset` (Coach), `password.reset.link` (Betreiber, mit `mailed`/`shown`), `athlete.profile.set` (Coach setzt Phase/Ziel/Kalorienziele), `backup.download`, `admin.search`, `support.grant`, `support.use`, `support.revoke`, `consent.grant`, `consent.revoke`, `ai.consent.on/off`, `ai.summary`, `invite.accept`, `mail.test`, `job.*`, seit 2.9.0 `ops.set` für jeden umgelegten Laufzeit-Schalter, **seit 3.0.0** `backup.run`, `backup.verify`, `backup.keep` (Sicherung), `session.override` und `session.override.undo` (Pivot: nur Datum und „Ruhetag ja/nein", **nicht** der Begründungstext), `targets.mode`, `targets.accept`, `targets.keep`, `targets.revert` (Zielanpassung: nur Kennungen und die Nummer der Zielzeile, **keine** Kalorienzahl)), Art und Kennung des Ziels, ein kleines JSON mit Zahlen | E-Mail, Name, Freitext, Gesundheitswerte. Auch die **gesuchte Adresse** nicht – nur, dass gesucht wurde und ob es einen Treffer gab. Und seit 2.9.0 auch **nicht der Wartungstext** selbst: von ihm stehen nur Länge und „geleert ja/nein" im Protokoll. | 365 Tage, **keine Löschroute** |
 | `errors` | Routen**muster** (`/api/checkins/:id`), Status, Fehlerklasse, redigierter Kurztext, Zähler | E-Mails, Tokens, Dateipfade, eingefügte Werte, Datumsangaben – alles wird **vor** dem Schreiben ersetzt, nicht danach | 14 Tage oder 2.000 Zeilen |
 | `jobs` | eine Zeile je wiederkehrendem Lauf: letzter Start, letzter Erfolg, redigierter Fehler, Zustand `up`/`late`/`down` mit Karenz | – | wird überschrieben |
 | `support_grants` | Hilfe-Freigaben: wer, wann erteilt, wann ablaufend, wann zurückgezogen, Grund aus fester Auswahl | Freitext | bleiben stehen (Beleg), fallen mit dem Konto |
@@ -341,7 +496,8 @@ Die Redaktion ist geprüft: aus `UNIQUE constraint failed: users.email ('marco@�
 
 Support muss möglich bleiben – aber nicht als Dauerzugriff.
 
-1. Der **Athlet** öffnet die Tür: Konto → „Hilfe-Freigabe", ein Grund aus einer festen Auswahl
+1. Der **Athlet** öffnet die Tür: Profil → Daten & Verbindungen → **„Einblick für den Betreiber"**
+   (der Begriff *Hilfe-Freigabe* steht im Text daneben), ein Grund aus einer festen Auswahl
    (Fehler in der App · Daten stimmen nicht · Anmeldung/Konto · Anderes). Ein leerer Aufruf öffnet
    nichts (HTTP 400) – eine Tür zu Gesundheitsdaten darf sich nicht durch einen Fehlklick öffnen.
 2. Sie gilt **30 Minuten** und läuft von selbst ab. Der Athlet kann sie jederzeit sofort beenden.
@@ -376,3 +532,54 @@ Support muss möglich bleiben – aber nicht als Dauerzugriff.
 Was bewusst offen bleibt: Der Betreiber sieht während der Freigabe dasselbe wie der Coach. Eine
 feinere Abstufung („nur die Check-ins der letzten drei Tage") wäre ein eigener Mechanismus und ist
 für eine App mit einem Betreiber und wenigen Athleten mehr Versprechen als Schutz.
+
+---
+
+## 13. Laufzeit-Schalter (ab 2.9.0)
+
+Bis 2.8.0 brauchte jede Betriebsentscheidung einen Redeploy. Seit 2.9.0 liegen drei davon in der
+Datenbank (`settings`, Präfix `ops.`) und wirken **sofort, ohne Neustart**. Sie stehen in der
+**Verwaltung → Betrieb** und sind ausschließlich für den Administrator erreichbar
+(`GET`/`PUT /api/admin/ops`; ein Coach bekommt **403 „Nur für Admins"** – nachgemessen).
+
+| Schalter | Werte | Standard | Wirkung |
+|---|---|---|---|
+| `ops.registration` | `open` · `code` · `closed` | `open` (DECISIONS F1) | `code`: die Registrierung verlangt den Einladungscode aus `REGISTER_CODE`. `closed`: `POST /api/register` antwortet **403** mit `registrationClosed:true` und einem Satz im Klartext. |
+| `ops.ai` | `on` · `off` | `on` | `off` ist der **Not-Aus für den ganzen Betrieb**: keine KI-Auswertung mehr, unabhängig davon, was einzelne Athleten erlaubt haben. |
+| `ops.notice` | Freitext, höchstens 200 Zeichen | leer | Ein Wartungshinweis. **Kein** Wartungsmodus, der aussperrt – niemand wird ausgeschlossen, alles bleibt bedienbar. Zur Anzeige siehe die Einschränkung unten. |
+
+> **Einschränkung beim Wartungshinweis (Stand 2.9.0, nachgemessen):** Der Text wird gespeichert, ist
+> über `GET /api/notice` **öffentlich** abrufbar und steht auch in `/api/register-info` – aber die
+> Athleten-Oberfläche zeichnet ihn noch nicht. Gezeichnet wird er heute nur in der Verwaltung. Der
+> Auftrag steht in `DEFER-A5.md` (W1). **Datenschutzrechtlich ist das die harmlose Richtung**: der
+> Text wird weniger weit verteilt als vorgesehen, nicht weiter.
+
+Vier Regeln, die zusammen dafür sorgen, dass ein Schalter kein neues Risiko ist:
+
+1. **Fehlt der Eintrag, gilt der Standard.** Eine frische Datenbank verhält sich exakt wie 2.8.0.
+2. **Ein unbekannter Wert wird abgelehnt, nicht gebogen.** `PUT` mit einem fremden Wert antwortet
+   **400** und nennt die erlaubten (nachgemessen: `{"error":"Erlaubt sind: on, off"}`). Wer von Hand
+   etwas in `settings` schreibt, bekommt beim Lesen den Standard zurück – kein halber Zustand.
+3. **Jedes Umlegen schreibt eine `audit`-Zeile** (`ops.set`) mit Schlüssel, Vorher und Nachher, und
+   die Antwort nennt, **wer** zuletzt gedreht hat – als Pseudonym, nicht als Name.
+   **Der Wartungstext selbst steht NICHT im Protokoll**: er ist Freitext, und `audit` nimmt keinen
+   Freitext auf. Protokolliert werden seine Länge und ob er geleert wurde.
+4. **`REGISTER_CODE` behält Vorrang, bis jemand den Schalter zum ersten Mal anfasst.** Eine
+   bestehende Installation mit gesetzter Variable ändert durch das Update ihr Verhalten nicht. Ab dem
+   ersten Umlegen gilt der Schalter – das ist sein Zweck.
+   **„nur mit Code" lässt sich ohne `REGISTER_CODE` gar nicht erst einstellen:** `PUT` antwortet
+   dann **400** (nachgemessen: *„Für ‚nur mit Code' muss die Umgebungsvariable REGISTER_CODE gesetzt
+   sein. Ohne Code käme niemand mehr durch – das wäre ‚geschlossen'."*), und der Schalter bleibt
+   stehen, wo er stand. Das ist dieselbe Aussage wie in DEPLOYMENT.md 4f.
+   Der Rückfall auf **`open`** mit `codeMissing: true` greift deshalb **nur nachträglich**: wenn
+   `code` bereits gespeichert ist und die Variable **später aus der Umgebung verschwindet**. Eine Tür
+   ohne Schlüssel wäre in Wahrheit zu – die Verwaltung sagt das, statt es zu verschweigen.
+
+**Was es ausdrücklich NICHT gibt:** einen Schalter, der dem Betreiber Personendaten öffnet. Die
+Grenzen aus Abschnitt 3 und 10 sind nicht konfigurierbar – weder über `settings` noch über eine
+Umgebungsvariable.
+
+Daneben zeigt dieselbe Ansicht den **Zustand der wiederkehrenden Läufe** (`jobs`: letzter Start,
+letzter Erfolg, redigierter Fehler, `up`/`late`/`down` mit Karenz) und erlaubt das **Nachholen von
+Hand** (z. B. `POST /api/admin/weekly` für den Sonntagslauf). Auch das schreibt eine `job.*`-Zeile
+ins Protokoll.

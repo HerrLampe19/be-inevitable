@@ -181,7 +181,8 @@ const FULL_TIME_RATIO = 0.6;
 const PRIMING_MIN_STEPS = 4;           // von 6 Schritten
 const PRIMING_STEP_TIME_RATIO = 0.35;  // Schrittweg: gut ein Drittel der gewählten Dauer muss trotzdem gelaufen sein
 const SEC_PER_STEP_MIN = 10;           // je gemeldetem Schritt mindestens 10 s – ein Schritt in 0 s gibt es nicht
-const EVENING_MIN_SEC = 45;
+// `export`, weil `src/server.js` dieselbe Regel braucht (siehe PRIMING_FULL_SQL weiter unten).
+export const EVENING_MIN_SEC = 45;
 const EVENING_PLAN_SEC = 120;     // Abend-Reflexion: 4 Fragen à ~30 s
 const DEFAULT_PRIMING_MIN = 10;
 const primingMin = m => ([5, 10, 15].includes(Number(m)) ? Number(m) : DEFAULT_PRIMING_MIN);
@@ -207,8 +208,19 @@ function fullRuleOf(kind, minutes) {
 }
 // Dieselbe Priming-Regel als SQL-Ausdruck: Streak-, XP- und Kalender-Abfragen aggregieren weiter in
 // SQL und dürfen dabei nicht von isFullSession abweichen – darum nur diese eine Quelle.
-const PRIMING_FULL_SQL = '(duration_sec>=? OR (steps_done>=? AND duration_sec>=? AND duration_sec>=steps_done*?))';
-const primingFullArgs = (minutes) => [fullSecOf('priming', minutes), PRIMING_MIN_STEPS, stepPathSecOf(minutes), SEC_PER_STEP_MIN];
+//
+// A-V.5 (DEFER-A1 B16-Rest/a, bestätigt in DEFER-A4): `export`, damit `src/server.js` die Regel
+// IMPORTIEREN statt ABSCHREIBEN kann. Zwei Zähler dort zählen den Wochenrückblick noch roh
+// (`challengeCompleteDaysIn` und der `COUNT(DISTINCT date) … GROUP BY kind`); ein durchgeklicktes
+// Priming steht deshalb im Sonntagsrückblick als Priming-Tag, während die Mindset-Ansicht es als
+// „übersprungen" zeigt. Die Reparatur ist dort zwei Zeilen:
+//   import { PRIMING_FULL_SQL, primingFullArgs, EVENING_MIN_SEC } from './mindset.js';
+//   … AND ${PRIMING_FULL_SQL}  mit  [..., ...primingFullArgs(minutes)]   bzw.
+//   … AND duration_sec>=?      mit  [..., EVENING_MIN_SEC]
+// Eine dritte Kopie der Bedingung wäre genau die Krankheit, vor der DEFER-A1 wörtlich warnt.
+// `src/server.js` gehört diesem Paket nicht – hier steht nur die Hälfte, die hier hingehört.
+export const PRIMING_FULL_SQL = '(duration_sec>=? OR (steps_done>=? AND duration_sec>=? AND duration_sec>=steps_done*?))';
+export const primingFullArgs = (minutes) => [fullSecOf('priming', minutes), PRIMING_MIN_STEPS, stepPathSecOf(minutes), SEC_PER_STEP_MIN];
 // Vollwertig? Arten ohne eigene Regel (Atmung, State-Change, Wochencheck, Frage) gelten als vollwertig.
 function isFullSession(row, minutes) {
   if (!row) return false;

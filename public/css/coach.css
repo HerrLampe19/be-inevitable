@@ -19,7 +19,7 @@
 .ath-row .rl small{white-space:normal;line-height:1.35}
 .ath-row .rl small.reason{color:var(--ink);font-weight:500}
 .ath-row .rl small.reason.alert{color:var(--red-text)}
-.ath-row .rl small.reason.watch{color:#ffb340}
+.ath-row .rl small.reason.watch{color:var(--amber-text)}
 .ath-search{margin-bottom:12px}
 /* Filter-Chips ueber der Liste. .chip bringt 36 px Hoehe plus ::before-Rand = 44 px Trefferflaeche mit. */
 .co-filters{margin:0 0 12px}
@@ -50,7 +50,7 @@
 .co-kpis .kr{font-size:12px;line-height:1.35;margin-top:6px;color:var(--ink2);font-weight:600}
 /* Die Tonfarbe muss die Grundfarbe der Zeile schlagen: .tone-* aus app.css hat nur eine Klasse Spezifitaet. */
 .co-kpis .kr.tone-green{color:var(--green)}
-.co-kpis .kr.tone-amber{color:#ffb340}
+.co-kpis .kr.tone-amber{color:var(--amber-text)}
 .co-kpis .kr.tone-red{color:var(--red-text)}
 .co-kpis .trend{margin-top:auto;padding-top:6px;color:var(--ink3);display:flex;align-items:center;gap:4px}
 .co-kpis .trend.flat{color:var(--ink3)}
@@ -69,6 +69,18 @@
 .complaint .btn{min-height:44px;font-size:14px}
 .cmp-acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .cmp-acts .btn{width:100%;justify-content:center;padding:0 10px}
+/* A-IV.7 · Gemessen (20-verify-blatt.png, erste Aufnahme): die drei Handlungen hatten EXAKT den Grund
+   der Karte, auf der sie liegen – `.complaint` ist `--surface3` (rgb(42,42,46)) und `.btn.sec` ist es
+   auch (app.css:153). Gemessener Abstand: 1,00:1, kein Rahmen, kein Schatten. Die drei Knoepfe sahen
+   aus wie hingeschriebener Text mit Symbol; die wichtigste Handlung des Coach-Blatts war nicht als
+   Handlung zu erkennen.
+   Das Design-System WILL hier schon `--surface4`: `app.css:541` setzt genau das fuer `.btn.sec` im
+   Sheet – die Regel landet nur nie, weil `:where(...)` sie auf (0,1,0) drueckt und das blosse
+   `.btn.sec` mit (0,2,0) gewinnt, egal wie spaet sie steht. Das ist `app.css` und damit A-IV.5 (steht
+   in DEFER-A4.md); hier wird nur die eigene Komponente geradegerueckt, mit dem Token, das dort
+   ohnehin vorgesehen ist. Der Ring ist derselbe wie bei `.co-status` und `.co2-what`.
+   Gemessen danach: Fuellung 1,17:1, Ring 1,48:1 gegen die Karte – sichtbar begrenzt, ohne neue Farbe. */
+.cmp-acts .btn.sec{background:var(--surface4);box-shadow:inset 0 0 0 1px var(--hairline2)}
 /* Die erste Handlung ist die laengste und die inhaltlich wichtigste: eigene Zeile ueber der ganzen Breite. */
 .cmp-acts .btn:first-child:nth-last-child(3){grid-column:1/-1}
 .rows.mb-4{margin-bottom:16px}
@@ -127,9 +139,31 @@
 /* Rot faerbt nur den Rahmen und die Kopfzeile, nicht die ganze Flaeche: der Streifen steht auf jedem
    Aufruf ganz oben und darf nicht schreien, sondern muss in einer Sekunde lesbar sein. */
 .co-status{background:var(--surface);border-radius:16px;padding:12px 16px 4px;margin-bottom:12px}
-.co-status.bad{box-shadow:inset 0 0 0 1px var(--red-ring)}
+/* A-IV.7 · Akzent-Budget (BUILD-A4 6.1): `accent.mjs` zaehlte in der Admin-Ansicht SECHS rote Elemente
+   ueber dem Falz – und fuenf davon sagten dieselbe Sache („2 Punkte zu pruefen"): der rote Rahmen um die
+   ganze 358x488-Flaeche, die rote Kopfzeile, das Kopf-Icon und zwei Ampelpunkte. Der Rahmen ist der
+   ueberfluessigste davon: er umschliesst 488 px und traegt keine Information, die nicht zwei Zeilen
+   weiter oben in Worten steht. Er wird neutral wie bei jeder anderen Karte; die Kopfzeile bleibt rot,
+   die Ampelpunkte bleiben rot – die sagen, WELCHE Pruefung faellt. Gemessen: 6 -> 5 rote Elemente,
+   `redFilledAboveFold` unveraendert 0. */
+.co-status.bad{box-shadow:inset 0 0 0 1px var(--hairline2)}
+/* A-IV.7 Nachbesserung · DIE AMPEL HAT IHRE EIGENEN TOKEN – sie ist Zustand, nicht Marke.
+   Befund der Abnahme: `accent.mjs` zaehlte die zwei 8-px-Punkte und die Kopfzeile als Akzent und
+   faerbte die ganze Welle rot, obwohl app.css:14-18 den Fehlerfall ausdruecklich als vierten
+   erlaubten Verbraucher von `--accent` fuehrt. Die Farbe stumm zu schalten waere die falsche
+   Antwort gewesen: „E-Mail-Versand fehlt" heisst, dass keine Bestaetigungs- und keine Reset-Mail
+   rausgeht – das ist kein Schoenheitsfehler, und ein amberner Punkt haette es leiser gemacht,
+   als es ist. Stattdessen traegt die Ampel jetzt vier eigene Namen. Was das bringt:
+     1. Wer die Ampel umfaerben will, aendert VIER Zeilen an EINER Stelle – nicht acht Regeln.
+     2. Im Code steht, dass `--co-dot-bad` NICHT dieselbe Rolle hat wie `--accent`, auch wenn
+        derselbe Farbwert dahinter liegt. Genau diese Unterscheidung kann eine Farbe allein nicht
+        treffen – deshalb kennt `accent.mjs` seit dieser Nachbesserung einen Status-Topf
+        (`statusAboveFold`), und `.sdot` faellt hinein statt ins Akzent-Budget.
+     3. Die Ampel ist nie der EINZIGE Traeger: jede Zeile sagt in Worten „fehlt"/„konfiguriert"
+        (WCAG 1.4.1). Der Punkt ist die Zusammenfassung, nicht die Information. */
+.co-status{--co-dot-ok:var(--green);--co-dot-mid:var(--amber);--co-dot-bad:var(--red);--co-dot-none:var(--ink3)}
 .co-status .cs-h{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;margin-bottom:4px}
-.co-status .cs-h.ok{color:var(--green)}
+.co-status .cs-h.ok{color:var(--green-text)}
 .co-status .cs-h.bad{color:var(--red-text)}
 .co-status .rows{background:transparent}
 .co-status .row{min-height:40px;padding:6px 0;gap:10px}
@@ -137,11 +171,11 @@
 .co-status .rl{font-size:14px;color:var(--ink2)}
 .co-status .rl small{display:block;font-size:12px;color:var(--ink3);white-space:normal;line-height:1.3}
 .co-status .rr{font-size:13px;color:var(--ink);max-width:56%;text-align:right;white-space:normal;line-height:1.3}
-.co-status .sdot{width:8px;height:8px;padding:0;border-radius:50%;flex:0 0 auto;background:var(--ink3)}
-.co-status .sdot.ok{background:var(--green)}
-.co-status .sdot.mid{background:var(--amber)}
-.co-status .sdot.bad{background:var(--red)}
-.co-status .sdot.unknown{background:var(--ink3)}
+.co-status .sdot{width:8px;height:8px;padding:0;border-radius:50%;flex:0 0 auto;background:var(--co-dot-none)}
+.co-status .sdot.ok{background:var(--co-dot-ok)}
+.co-status .sdot.mid{background:var(--co-dot-mid)}
+.co-status .sdot.bad{background:var(--co-dot-bad)}
+.co-status .sdot.unknown{background:var(--co-dot-none)}
 /* Die Status-Zeilen sind seit 2.6.0 Knoepfe (Tastatur!). .row bringt display:flex schon mit; hier nur
    der Reset der Browser-Vorgaben und die linke Ausrichtung. */
 .co-status button.ad-srow{width:100%;text-align:left;background:transparent;border:0;
@@ -191,7 +225,12 @@ button.ad-row{align-items:center;gap:12px}
 /* Tabellen (Konten, Protokoll, Fehler). Ein Gitter statt <table>, damit Kopf und Zeilen dieselben
    Spaltenbreiten teilen und jede Zeile trotzdem ein Knopf sein kann. */
 .ad-tbl,.ad-tbody{border-radius:14px;overflow:hidden;background:var(--surface)}
-.ad-thead{display:grid;gap:8px;padding:8px 14px;font:600 11px/1.2 var(--font);color:var(--ink3);
+/* A-V.1 - Die Spaltenkoepfe standen auf 11 px und damit unter der Untergrenze aus CRITIC K10
+   (12 px = --t-min; darunter wird auf dunklem Grund geraten statt gelesen). Gemessen mit
+   A-V1-desk-check.mjs: "kleinste Schrift 11 px (span.)" in der Konten-Tabelle - a11y.mjs sieht das
+   nicht, weil es die Verwaltung im Reiter "Betrieb" misst, wo gar keine Tabelle steht.
+   Nachgemessen (scrollWidth gegen clientWidth bei 390 px und 1280 px): kein Kopf wird abgeschnitten. */
+.ad-thead{display:grid;gap:8px;padding:8px 14px;font:600 var(--t-min)/1.2 var(--font);color:var(--ink3);
   text-transform:uppercase;letter-spacing:.06em}
 button.ad-urow,button.ad-lrow,.ad-urow,.ad-lrow{display:grid;gap:8px;align-items:center;min-height:48px;padding:10px 14px;
   border-bottom:.5px solid var(--hairline2);font-size:14px;color:var(--ink2);
@@ -202,7 +241,13 @@ button.ad-urow,button.ad-lrow,.ad-urow,.ad-lrow{display:grid;gap:8px;align-items
    rechts, vier Luecken a 8 px). Groessere Mindestbreiten schoben die letzte Spalte aus dem Bild –
    „Angelegt" war dann nur noch „ANGELE". */
 .ad-thead,.ad-urow{grid-template-columns:minmax(84px,1.2fr) minmax(46px,.8fr) minmax(50px,.9fr) minmax(46px,.8fr) minmax(56px,.9fr)}
-.ad-thead.four,.ad-lrow{grid-template-columns:minmax(58px,1fr) minmax(72px,1.2fr) minmax(40px,.5fr) minmax(82px,1fr)}
+/* A-V.1 - Die dritte Spalte ("Akteur") hatte 40 px Mindestbreite und kam bei 390 px auf 41 px an;
+   das Wort braucht dort 48 px, der Kopf stand also als "AKTEU..." da (gemessen mit scrollWidth gegen
+   clientWidth, schon vor dieser Welle - mit der 12-px-Untergrenze waeren es 48 statt 44 px).
+   Die 10 px kommen aus der Verteilung, nicht aus einer anderen Spalte: bei 390 px ergeben die
+   Gewichte 85 - 85 - 50 - 89 px. Der Zeitstempel (13 px, "14.09. 04:31" = 78 px) passt weiterhin,
+   "HANDLUNG" (76 px) und "BETRIFFT" (73 px) ebenfalls - nachgemessen, kein Kopf abgeschnitten. */
+.ad-thead.four,.ad-lrow{grid-template-columns:minmax(58px,1.15fr) minmax(72px,1.15fr) minmax(50px,.5fr) minmax(82px,1.2fr)}
 .ad-urow .c1,.ad-lrow .c1{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
 .ad-urow>span,.ad-lrow>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ad-lrow .c1{font-weight:500;color:var(--ink2);font-size:13px}
@@ -211,7 +256,7 @@ button.ad-urow,button.ad-lrow,.ad-urow,.ad-lrow{display:grid;gap:8px;align-items
 .ad-urow .t-live{color:var(--green)}
 .ad-urow .t-warm{color:var(--ink2)}
 .ad-urow .t-quiet{color:var(--ink3)}
-.ad-lrow .t-warn{color:#ffb340}
+.ad-lrow .t-warn{color:var(--amber-text)}
 .ad-lrow .t-bad{color:var(--red-text)}
 .ad-foot{margin:8px 4px 0;line-height:1.45}
 
@@ -238,10 +283,12 @@ button.ad-urow,button.ad-lrow,.ad-urow,.ad-lrow{display:grid;gap:8px;align-items
 /* `padding:0` ist Absicht: app.css kennt eine globale Klasse `.warn` (Hinweiskasten mit 12/16 px
    Innenrand). Ein Ampelpunkt `.sdot.warn` wurde dadurch zu einem 40 px breiten Fleck. Die Tonstufe
    heisst hier deshalb `mid`, und der Punkt setzt seinen Innenrand selbst auf null. */
-.ad-grant .sdot,.ad-job .sdot{width:8px;height:8px;padding:0;border-radius:50%;flex:0 0 auto;margin-top:7px;background:var(--ink3)}
-.ad-grant .sdot.ok,.ad-job .sdot.ok{background:var(--green)}
-.ad-job .sdot.mid{background:var(--amber)}
-.ad-job .sdot.bad{background:var(--red)}
+/* Dieselbe Ampel wie im Status-Streifen – deshalb dieselben vier Namen (siehe Block oben). */
+.ad-grant,.ad-job{--co-dot-ok:var(--green);--co-dot-mid:var(--amber);--co-dot-bad:var(--red);--co-dot-none:var(--ink3)}
+.ad-grant .sdot,.ad-job .sdot{width:8px;height:8px;padding:0;border-radius:50%;flex:0 0 auto;margin-top:7px;background:var(--co-dot-none)}
+.ad-grant .sdot.ok,.ad-job .sdot.ok{background:var(--co-dot-ok)}
+.ad-job .sdot.mid{background:var(--co-dot-mid)}
+.ad-job .sdot.bad{background:var(--co-dot-bad)}
 .ad-grant.off .rl{color:var(--ink3)}
 .ad-grant .btn,.ad-job .btn{flex:0 0 auto;margin-top:2px}
 
@@ -304,3 +351,300 @@ button.ad-urow,button.ad-lrow,.ad-urow,.ad-lrow{display:grid;gap:8px;align-items
    zusaetzliche Breite aus dem Zeilenrand zurueck, damit die Zeile nicht wandert. */
 #tplPage .rows .btn.icon.sm{margin-right:-6px}
 .btn.icon.sm.tpl-del{width:44px;min-height:44px;margin-right:-6px}
+
+/* ---- A-IV.7: Leistung in der Planzeile ----
+   Zweite Zeile unter „3 × 6-10 · Chest". Neutral (--ink2), kein Akzent: die Planzeile hat schon einen
+   Stift und ein Optionsmenue; eine dritte Farbe waere Rauschen (A-IV.5, Akzent-Budget).
+   12 px waere unter dem Dunkelmodus-Mindestwert aus CRITIC K10 – deshalb 13 px. */
+/* Gemessen (07-planzeile-beschwerde.png, erste Aufnahme): die Beschwerdezeile kam in --ink2 statt
+   --red-text heraus und „noch nicht geloggt" in --ink2 statt --ink3. Ursache ist keine Farbe, sondern
+   Spezifitaet: ".row .rl small" (app.css:259) ist (0,2,1) und schlaegt ein blosses ".co2-perf.flag"
+   (0,2,0). Deshalb tragen diese Regeln das ".rl small" mit – gemessen danach: rgb(255,90,82). */
+.rl small.co2-perf{display:block;margin-top:3px;font-size:13px;line-height:1.35;color:var(--ink2);white-space:normal;font-variant-numeric:tabular-nums}
+.rl small.co2-perf.none{color:var(--ink3)}
+/* Offene Beschwerde des Athleten zu genau dieser Uebung: das ist die einzige Stelle der Zeile, die
+   Aufmerksamkeit fordern darf. --red-text ist das Schrift-Rot (AA auf dunklem Grund), nicht das Flaechen-Rot. */
+.rl small.co2-perf.flag{color:var(--red-text);display:flex;align-items:flex-start;gap:5px}
+.rl small.co2-perf.flag .ic{flex:0 0 auto;margin-top:2px}
+.plan-rows .rl small{white-space:normal}
+
+/* ---- A-IV.7: Stufe & Funktionen ----
+   Der Coach setzt hier, wie tief die App fuer diesen einen Athleten wird. Drei Knoepfe, darunter EIN
+   Satz, was sich dadurch aendert – ohne den Satz waere die Stufe eine Vokabel. Alles neutral: die
+   Schalterfarbe (gruen, aus app.css) ist das einzige Signal, --accent bleibt dem einen CTA (A-IV.5). */
+.co2-seg{margin-bottom:10px}
+.co2-seg button[disabled]{opacity:.55;cursor:default}
+/* Der Wirkungssatz. Abgesetzt wie .note.status, aber ohne Hinweis-Ton: das ist keine Warnung,
+   sondern die Erklaerung des Knopfs darueber. 14 px, --ink – er soll gelesen werden. */
+.co2-what{background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline2);border-radius:12px;
+  padding:12px 14px;font-size:14px;line-height:1.45;color:var(--ink)}
+/* Herkunft der Stufe (Selbstangabe vs. Uebersteuerung). CRITIC K1: die Selbstangabe des Athleten bleibt
+   sichtbar, auch wenn der Coach sie uebersteuert hat. 13 px, nie darunter (K10). */
+.co2-src{margin:8px 4px 0;font-size:13px;line-height:1.45;color:var(--ink2)}
+.co2-src b{color:var(--ink)}
+/* Textknopf „Auf Selbstangabe zuruecksetzen": ein Rueckweg, kein CTA – deshalb --ink mit Unterstrich
+   statt Rot. 44 px Trefferflaeche ueber ::before, ohne die Zeile auseinanderzuziehen. */
+.co2-lnk{position:relative;display:inline;color:var(--ink);font-size:13px;font-weight:600;
+  text-decoration:underline;text-underline-offset:3px;cursor:pointer;background:none;padding:0}
+.co2-lnk::before{content:'';position:absolute;inset:-14px -6px}
+/* Unterzeile je Funktion: woher der aktuelle Zustand kommt. Grau, solange die Stufe entscheidet –
+   sobald der Coach uebersteuert hat, heller, denn dann ist es SEINE Entscheidung, die dort steht. */
+.co2-hint{color:var(--ink3)!important;font-size:var(--t-min)!important;margin-top:3px!important}
+.co2-hint.set{color:var(--ink2)!important}
+/* Zustandspunkt des KI-Schalters. Gruen = freigegeben, neutraler Ring = aus. Kein Rot: „aus" ist die
+   vom Athleten gewaehlte Voreinstellung (DECISIONS F5), kein Fehler. */
+.co2-ai{align-items:flex-start}
+.co2-ai .rl small{white-space:normal}
+.co2-ai .rr{align-self:center}
+.co2-dot{flex:0 0 auto;width:10px;height:10px;margin-top:7px;border-radius:50%;background:var(--surface4);
+  box-shadow:inset 0 0 0 1.5px var(--hairline2)}
+.co2-dot.on{background:var(--green);box-shadow:none}
+/* Solange der Server die Stufe nicht speichern kann, stehen Schalter und Knoepfe auf `disabled`. Ohne
+   diese Regel saehen sie aus wie bedienbar – ein gruener Schalter, der auf Tippen nicht reagiert, ist
+   schlimmer als gar keiner. Nur im Blatt, `.tgl` selbst gehoert dem Design-System (A-IV.5). */
+#co2Lv .tgl[disabled]{opacity:.45;cursor:default}
+/* Der technische Teil des Hinweises: derselbe Ton, eine Stufe leiser. Ein Coach soll den ersten Satz
+   lesen und aufhoeren duerfen; die Route-Namen sind fuer den, der sie nachtraegt. 12 px = K10-Untergrenze. */
+.co2-tech{display:block;margin-top:6px;font-size:var(--t-min);line-height:1.45;opacity:.8}
+.co2-tech code{font-size:inherit;word-break:break-word}   /* nie unter --t-min (CRITIC K10) */
+
+/* Ein Knopf, dessen Beschriftung nicht passt, schneidet in dieser App auf BEIDEN Seiten ab
+   (`.btn` zentriert und steht auf `white-space:nowrap`) – gemessen am „Alle Ausnahmen löschen –
+   wieder der Stufe folgen": 389 px Text in 358 px Knopf bei 390 px Geräten. Der Text wurde gekürzt;
+   `.co2-blk` ist der Gürtel dazu, denn „Alexandra um die Freigabe bitten" ist wieder länger als
+   „Marco um die Freigabe bitten". Umbrechen statt abschneiden – die 44-px-Untergrenze bleibt,
+   weil die Höhe nur wachsen kann. */
+.co2-blk{white-space:normal;line-height:1.3;height:auto;min-height:52px;padding-top:10px;padding-bottom:10px}
+
+/* ================= A-V.1 · ARBEITSBREITE: was Coach und Betreiber am Rechner sehen =================
+   Das Raster (linke Leiste, Inhaltsspalte, Inspektor rechts) steht in app.css, Abschnitt 9. Hier steht
+   nur, was die Bausteine DIESER Datei davon haben. Die Bedingung ist dieselbe wie dort:
+   `.app:has(.navbtn[data-p="athletes"],.ctx-bar>*)` – entweder die eigene Navigation von Coach und
+   Betreiber ODER die gefuellte Kontextleiste, die es nur im fremden Konto gibt (Nachbesserung A5-7;
+   die Begruendung steht vollstaendig in app.css, Abschnitt 9). Ein Athlet erfuellt beides nie und
+   bekommt hier deshalb nichts. Die Bausteine dieser Datei stehen ohnehin nur in den Coach- und
+   Verwaltungsansichten; im Athleten-Kontext greift von hier praktisch nichts. */
+
+/* ---- 1 · ZEIGEGERAET MIT MAUS ----------------------------------------------------------------
+   Bis 2.7.0 gab es im ganzen Projekt keine einzige `:hover`-Regel (RATE-25-design H3). app.css hat
+   seit A-IV.5 die Bausteine des Athleten abgedeckt (Zeilen, Chips, Knoepfe, Kacheln) – die Zeilen der
+   Verwaltung sind aber KEINE `.row`: `.ad-urow` (Konten), `.ad-lrow` (Protokoll, Fehler) und
+   `button.ad-srow` (Ampelzeilen) sind eigene Gitterzeilen, und die fielen deshalb durch.
+   Dieselbe Hausregel wie dort: nur unter (hover:hover) and (pointer:fine), genau EINE Flaechenstufe
+   heller, keine neue Farbe, keine Bewegung. `:active` bleibt die staerkere Rueckmeldung. */
+@media (hover:hover) and (pointer:fine){
+  .ad-urow:hover,.ad-lrow:hover,.co-status .ad-srow:hover,.supp-row .supp-main:hover{background:var(--surface2)}
+  /* Im Sheet ist die Seite schon eine Stufe heller – dort muss der Hover eine Stufe hoeher ansetzen,
+     sonst passiert sichtbar nichts (dieselbe Staffel wie `.sheet .row.tap:hover` in app.css). */
+  .sheet .ad-urow:hover,.sheet .ad-lrow:hover,.sheet .co-status .ad-srow:hover,
+  .sheet .supp-row .supp-main:hover{background:var(--surface4)}
+  /* Textziele ohne eigene Flaeche: sie werden heller, nicht bunt. --ink besteht auf allen vier
+     Flaechen (16,8:1 bis 19,3:1), es entsteht also kein neues Kontrast-Paar. */
+  .admin-more summary:hover,.co2-lnk:hover,.coach-chip:hover{color:var(--ink)}
+  .thread-compose textarea:hover{border-color:var(--hairline2)}
+}
+
+/* ---- 2 · DIE ATHLETENLISTE ALS TABELLE ------------------------------------------------------
+   Am Handy bleibt die Kartenliste: Name und Status in Zeile 1, der Grund in Zeile 2, die Kennzahlen
+   in Zeile 3 – drei Zeilen je Athlet, 14 Athleten sind dort ein langer Daumenweg. Am Rechner ist
+   genau das falsch herum: der Coach will UNTEREINANDER vergleichen, und dafuer muessen die gleichen
+   Angaben in derselben Spalte stehen.
+   Gebaut wird das ohne eine Zeile JavaScript, weil `coach.js` diesem Paket nicht gehoert: `.rl` wird
+   zum Raster, und die vier Inhalte bekommen feste Spalten. Der Name ist ein blosser Textknoten
+   (`${esc2(a.name)}` direkt in `.rl`) – im Raster wird daraus ein anonymes Element, das die
+   Auto-Platzierung in Spalte 1 setzt, weil die drei anderen ihre Spalte ausdruecklich nennen.
+   Fehlt eine Angabe (kein Alarm, kein Grund), bleibt ihre Spalte leer und die uebrigen bleiben an
+   ihrem Platz – das ist der Unterschied zwischen einer Tabelle und einer buendigen Liste.
+   WAS HIER NICHT GEBAUT WIRD: Sortieren. Eine Tabelle sortiert man mit einem Klick auf die
+   Spaltenueberschrift, und beides – die Ueberschrift und das Umsortieren – ist Markup und
+   JavaScript, also `public/js/coach.js`. Steht in DEFER-A5.md, mit dem fertigen Spaltenraster hier
+   als Anschluss. */
+@media (min-width:1024px){
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) #athList .rows{margin-bottom:var(--s-4)}
+  /* Ein Suchfeld ueber die volle Arbeitsbreite sieht aus wie das Hauptangebot der Seite. Es ist ein
+     Werkzeug neben den Filter-Chips - 360 px reichen fuer jeden Namen. */
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-search{max-width:360px}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row{min-height:48px;padding:var(--s-2) var(--s-4);gap:var(--s-3)}
+  /* Kleinerer Kreis: bei einzeiligen Zeilen bestimmt er sonst die Zeilenhoehe. 32 px ist die
+     vorhandene Stufe `.ath-av.sm` – keine neue Groesse. */
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row .ath-av{width:32px;height:32px;font-size:var(--t-sm)}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row .rl{
+    display:grid;align-items:center;gap:var(--s-3);
+    grid-template-columns:minmax(150px,1fr) minmax(88px,auto) minmax(0,1.4fr) minmax(0,1.6fr)}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row .rl>.pill{grid-column:2;justify-self:start;margin-left:0}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row .rl>small.reason{grid-column:3}
+  /* Die Kennzahlen-Spalte ist bei den meisten Athleten leer: `drawAthleteList` unterdrueckt
+     "noch kein Training" und "0/3 diese Woche", wenn der Grund dasselbe schon sagt - uebrig bleibt
+     ein <small></small> ohne Inhalt. Dann ist die vierte Spalte 170 px Nichts neben einem Grund, der
+     mit Auslassungspunkten endet. `:empty` trifft genau dieses leere Element; der Grund bekommt den
+     Platz und steht vollstaendig da (gemessen: "noch kein Check-in · noch kein Training geloggt"
+     braucht 270 px, allein bekaeme die Spalte 154 px, zusammen sind es 336 px). */
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row .rl:has(>small:not(.reason):empty)>small.reason{grid-column:3/-1}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row .rl>small:not(.reason){grid-column:4;text-align:right}
+  /* Eine Tabellenzelle ist eine Zeile. Was nicht passt, endet mit Auslassungspunkten – die volle
+     Angabe steht im Inspektor rechts, einen Klick entfernt. */
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ath-row .rl>small{
+    margin-top:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:var(--lh-snug)}
+
+  /* ---- 3 · DIE VERWALTUNG BEKOMMT IHRE SPALTEN ZURUECK ----
+     Die Spaltenbreiten oben sind auf 390 px gerechnet ("Angelegt" wurde dort sonst zu "ANGELE").
+     Bei 672 px Innenraum darf jede Spalte atmen; die Reihenfolge und die Zahl der Spalten bleiben,
+     damit Kopf und Zeilen weiterhin dasselbe Raster teilen. */
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ad-thead,
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ad-urow{
+    grid-template-columns:minmax(150px,1.4fr) minmax(70px,.7fr) minmax(92px,.9fr) minmax(70px,.7fr) minmax(100px,.9fr)}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ad-thead.four,
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ad-lrow{
+    grid-template-columns:minmax(120px,1fr) minmax(150px,1.4fr) minmax(56px,.5fr) minmax(170px,1.4fr)}
+  /* Vier Kennzahlen in zwei Reihen waren auf 390 px richtig. Auf 672 px stehen zwischen "1" und
+     "164" 300 px Leere – nebeneinander sind es vier Zahlen, die man in einem Blick vergleicht. */
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ad-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .ad-kpis .tile{min-height:0}
+}
+
+/* ================= B-I.6 · WOCHEN-REVIEW-INBOX (Praefix `rv`) =================
+   EINE Karte je Athlet, und darunter – nicht in einem zweiten Fenster – das Antwortfeld.
+   Die Karte ist absichtlich eine Karte und keine Zeile: sie traegt sechs Zahlen, eine
+   Beschwerde, eine Zielfrage und ein Eingabefeld; als Zeile waere sie eine Ziehharmonika.
+   FARBE: die Karte ist neutral (--surface). Rot traegt nur, was Zustand ist – die
+   Alarm-Pille (aus dem einen Aufmerksamkeits-Modell), eine offene Beschwerde und eine
+   ungelesene Nachricht. Kein roter Primaerknopf je Karte: bei 14 Karten waeren das 14 rote
+   Flaechen uebereinander und das Akzent-Budget (app.css Abschnitt 1) waere Makulatur.
+   „Senden" traegt deshalb denselben Gurt wie die Beschwerde-Handlungen darueber:
+   --surface4 mit 1-px-Ring, also sichtbar ein Knopf, ohne eine zweite Marke zu sein. */
+.rv-seg{margin:0 0 var(--s-3)}
+.rv-bar{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s-2) var(--s-3);margin:0 var(--s-1) var(--s-3)}
+.rv-weeks{margin:0}
+.rv-span{font-size:var(--t-sm);color:var(--ink2)}
+.rv-cards{display:flex;flex-direction:column;gap:var(--s-3);margin-bottom:var(--s-4)}
+
+.rv-card{background:var(--surface);border-radius:var(--r-md);padding:var(--s-3) var(--s-4) var(--s-4)}
+.rv-h{display:flex;align-items:center;gap:var(--s-2);min-height:44px}
+/* Der Name ist der Weg ins Profil – also ein echter Knopf, nicht ein `div onclick`
+   (dieselbe Regel wie in der Verwaltung, RATE-admin). Die Browser-Vorgaben werden zurueckgesetzt. */
+.rv-name{flex:1;min-width:0;min-height:44px;display:flex;align-items:center;gap:var(--s-2);
+  background:transparent;border:0;margin:0;padding:var(--s-1) 0;text-align:left;cursor:pointer;
+  font:600 var(--t-md)/var(--lh-snug) var(--font);color:var(--ink);letter-spacing:var(--track);
+  -webkit-appearance:none;appearance:none}
+.rv-name .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv-h .pill{flex:0 0 auto}
+.rv-reason{font-size:var(--t-sm);line-height:var(--lh-snug);color:var(--ink2);margin:0 0 var(--s-2)}
+.rv-reason.alert{color:var(--red-text)}
+.rv-reason.watch{color:var(--amber-text)}
+.rv-load{margin-bottom:var(--s-2)}
+.rv-err{margin:0 0 var(--s-3)}
+
+/* Sechs Zellen, zwei Zeilen auf 390 px. `auto-fit` statt fester Spalten: faellt die sechste
+   Zelle weg (kein Essen geloggt), verteilen sich die uebrigen, statt eine Luecke zu lassen. */
+.rv-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:var(--s-2);margin:var(--s-1) 0 var(--s-3)}
+.rv-n{background:var(--surface2);border-radius:var(--r-sm);padding:var(--s-2)}
+.rv-n .v{display:block;font:600 var(--t-lg)/var(--lh-tight) var(--font);color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:var(--track-head)}
+.rv-n .v em{font-style:normal;font-size:var(--t-sm);font-weight:400;color:var(--ink3)}
+.rv-n .l{display:block;margin-top:var(--s-1);font-size:var(--t-min);line-height:var(--lh-snug);color:var(--ink3)}
+/* Die Tonfarbe sitzt am Wert, nicht an der Flaeche: eine eingefaerbte Kachel waere eine zweite
+   Ampel neben der Pille. --red-text/--green/--amber-text sind auf --surface2 alle AA. */
+.rv-n.tone-green .v{color:var(--green-text)}
+.rv-n.tone-amber .v{color:var(--amber-text)}
+.rv-n.tone-red .v{color:var(--red-text)}
+.rv-facts{font-size:var(--t-sm);line-height:var(--lh-body);color:var(--ink2);margin:0 0 var(--s-3)}
+
+.rv-flags{margin:0 0 var(--s-3)}
+.rv-flag{display:flex;align-items:flex-start;gap:var(--s-2);background:var(--red-tint);border-radius:var(--r-sm);
+  padding:var(--s-2) var(--s-3);margin-bottom:var(--s-2);font-size:var(--t-sm);line-height:var(--lh-snug);color:var(--ink)}
+.rv-flag .ic{flex:0 0 auto;margin-top:2px;color:var(--red-text)}
+.rv-flag b{color:var(--red-text);font-weight:600}
+.rv-more{font-size:var(--t-min);color:var(--ink3)}
+
+/* Die Zielfrage. Abgesetzt wie `.co2-what`: eigener Grund plus 1-px-Ring – das ist die einzige
+   Stelle der Karte, an der der Coach etwas ENTSCHEIDET, und sie muss sich von den Zahlen
+   darueber trennen lassen, ohne zu schreien. */
+.rv-goal{background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline2);border-radius:var(--r-sm);
+  padding:var(--s-3);margin:0 0 var(--s-3)}
+.rv-goal .t{display:flex;align-items:center;gap:var(--s-1);font:600 var(--t-sm)/var(--lh-snug) var(--font);color:var(--ink)}
+.rv-goal .t .ic{color:var(--ink2)}
+.rv-goal .b{font-size:var(--t-base);line-height:var(--lh-snug);color:var(--ink);margin-top:var(--s-1)}
+.rv-goal .why{font-size:var(--t-sm);line-height:var(--lh-body);color:var(--ink2);margin-top:var(--s-1)}
+.rv-goal .acts{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);margin-top:var(--s-3)}
+/* Derselbe gemessene Fall wie bei `.cmp-acts` weiter oben: `.btn.sec` IST `--surface3`, und die
+   Karte hier ist es auch – „Behalten" sah aus wie hingeschriebener Text. Der Rueckweg bekommt
+   deshalb einen Ring statt einer Flaeche, die Freigabe eine Flaechenstufe hoeher. So sind beide
+   als Knopf erkennbar, und trotzdem ist zu sehen, welcher der beiden die Handlung ist. */
+.rv-goal .acts .btn{width:100%;min-height:44px;justify-content:center}
+.rv-goal .acts .btn.sec{background:transparent;box-shadow:inset 0 0 0 1px var(--hairline2)}
+.rv-goal .acts .btn.sec.rv-ok{background:var(--surface4)}
+.rv-goal.kept,.rv-goal.hold{display:flex;align-items:flex-start;gap:var(--s-2);font-size:var(--t-sm);
+  line-height:var(--lh-snug);color:var(--ink2);flex-wrap:wrap}
+.rv-goal.hold{display:block}
+.rv-goal .ic{flex:0 0 auto}
+
+.rv-msg{font-size:var(--t-sm);line-height:var(--lh-snug);color:var(--ink2);margin:0 0 var(--s-3)}
+.rv-msg .tx{color:var(--ink)}
+.rv-msg .ag{color:var(--ink3);font-size:var(--t-min)}
+.rv-msg .pill{margin-right:var(--s-1)}
+.rv-msg.sent{display:flex;align-items:center;gap:var(--s-1);color:var(--green-text)}
+.rv-msg.sent .ic{flex:0 0 auto}
+/* P3: woher die Zahlen kommen. 12 px ist die Untergrenze (CRITIC K10) – kleiner wird hier nichts. */
+.rv-src{font-size:var(--t-min);line-height:var(--lh-snug);color:var(--ink3);margin:0 0 var(--s-3)}
+
+/* Das Antwortfeld. Es steht UNTER der Karte-Information und ist der Grund, warum es diese
+   Ansicht gibt – deshalb keine Falttuer, kein Sheet, kein zweiter Tipp zum Aufklappen. */
+.rv-reply{border-top:.5px solid var(--hairline2);padding-top:var(--s-3)}
+.rv-lbl{display:block;font-size:var(--t-min);color:var(--ink3);margin-bottom:var(--s-1)}
+.rv-reply textarea{width:100%;min-height:44px;background:var(--surface2);border:1px solid var(--hairline2);
+  border-radius:var(--r-sm);padding:var(--s-2) var(--s-3);font:400 var(--t-base)/var(--lh-snug) var(--font);
+  color:var(--ink);resize:vertical}
+.rv-reply textarea:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
+.rv-acts{display:flex;flex-wrap:wrap;gap:var(--s-2);margin-top:var(--s-2)}
+/* .btn.sm ist 36 px hoch; die 44-px-Trefferflaeche kaeme aus `.btn.sm::before` und wird von
+   `.btn{overflow:hidden}` weggeschnitten (bekannter app.css-Befund, DEFER-A4). In dieser Ansicht
+   sind das die einzigen Handlungen – sie werden deshalb hier wirklich 44 px, wie bei `.complaint`. */
+.rv-acts .btn.sm{min-height:44px;font-size:var(--t-sm)}
+.rv-acts .btn.sm.sec{background:var(--surface2)}
+/* Die Haupthandlung der Karte, ohne eine zweite Marke: eine Flaechenstufe hoeher plus Ring. */
+.rv-acts .rv-send,.rv-goal .rv-ok{background:var(--surface4);box-shadow:inset 0 0 0 1px var(--hairline2);
+  color:var(--ink);font-weight:600}
+.rv-hint{margin-top:var(--s-2);font-size:var(--t-min);line-height:var(--lh-snug);color:var(--ink3)}
+.rv-hint.err{color:var(--red-text)}
+/* Pivot-Blatt: die Tagzeilen sind Knoepfe wie ueberall in dieser Datei. */
+.rv-day .rr{color:var(--ink3);font-size:var(--t-sm)}
+
+@media (hover:hover) and (pointer:fine){
+  .rv-name:hover{color:var(--ink)}
+  .rv-day:hover{background:var(--surface4)}
+  .rv-reply textarea:hover{border-color:var(--hairline2)}
+}
+
+/* ---- Arbeitsbreite: dieselbe Bedingung wie Abschnitt „A-V.1" oben ----
+   Der Inhalt bleibt bei 720 px (app.css Abschnitt 9) – eine zweite Kartenspalte waere 340 px
+   breit und das Antwortfeld darin ein Streifen. Was hier besser wird, ist die Zahlenzeile:
+   sechs Zellen nebeneinander lassen sich ueber mehrere Karten hinweg untereinander vergleichen,
+   und genau das ist die Arbeit des Coaches am Rechner. */
+@media (min-width:1024px){
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .rv-nums{grid-template-columns:repeat(6,minmax(0,1fr))}
+  /* FIX-B1 B-I.6-4: Die Regel darueber hat hoehere Spezifitaet als `.rv-nums.quiet` weiter unten
+     und hat deshalb auch die STILLE Karte in sechs Spalten geschnitten – vier davon leer, der Satz
+     in der fuenften. Gemessen an `.rv-quiet`: 390 px -> 230 px breit, 2 Zeilen; 1280 px -> 100 px
+     breit, 5 Zeilen. Der grosse Bildschirm brach schmaler um als das Handy, und das auf 28 von 30
+     Karten. Dieselben zwei Spalten wie auf dem Handy, nur hier ausdruecklich. */
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .rv-nums.quiet{grid-template-columns:minmax(88px,auto) minmax(0,1fr)}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .rv-card{padding:var(--s-4)}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .rv-goal .acts{grid-template-columns:repeat(2,max-content)}
+  .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .rv-goal .acts .btn{width:auto;padding:0 var(--s-4)}
+}
+/* Eine Woche ohne jede Eintragung: eine Zeile neben der Trainingszahl statt fuenf Null-Zellen. */
+.rv-nums.quiet{grid-template-columns:minmax(88px,auto) minmax(0,1fr);align-items:center}
+.rv-quiet{font-size:var(--t-sm);line-height:var(--lh-snug);color:var(--ink2)}
+/* Die Herkunft steht einmal ueber den Karten (nicht unter jeder) – dort ist sie ein Satz, keine Tapete. */
+.rv-src{margin:0 var(--s-1) var(--s-3)}
+/* Die Statuszeile unter dem Antwortfeld spricht erst, wenn es etwas zu sagen gibt (gesendet /
+   Fehler). Leer belegt sie keinen Platz – sonst haette jede Karte zwei Zeilen Luft fuer nichts. */
+.rv-hint:empty{display:none;margin:0}
+/* Die Coach-Saetze des Wochenberichts (`lines`). Aufzaehlung ohne Punkte: es sind zwei, drei Zeilen,
+   keine Liste zum Abhaken – der Einzug allein trennt sie genug. */
+.rv-lines{list-style:none;margin:0 0 var(--s-3);padding:0;font-size:var(--t-sm);line-height:var(--lh-body);color:var(--ink)}
+.rv-lines li{padding-left:var(--s-3);position:relative}
+.rv-lines li::before{content:'';position:absolute;left:0;top:.62em;width:4px;height:4px;border-radius:50%;background:var(--ink3)}
+/* Zielanpassung: Makros unter der Kalorienzahl, Herkunft der Begruendung, gemessener Verbrauch. */
+.rv-goal .rv-macro{font-size:var(--t-sm);color:var(--ink2)}
+.rv-goal .rv-src-lbl{color:var(--ink3);font-size:var(--t-min)}
+.rv-goal .rv-tdee{color:var(--ink3)}

@@ -1,8 +1,11 @@
 {
   "name": "be-inevitable",
-  "version": "2.7.0",
+  "version": "3.0.2",
   "description": "BE INEVITABLE - Coaching App (Backend + Frontend)",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/server.js",
     "seed": "node src/seed.js",

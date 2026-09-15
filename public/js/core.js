@@ -70,7 +70,38 @@ const ICONS={
   eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeOff:'M3 3l18 18M10.6 10.6a3 3 0 0 0 4.2 4.2M9.9 5.2A10.5 10.5 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6C3.8 8.5 2 12 2 12s3.5 7 10 7c1.7 0 3.2-.4 4.5-1',
   devices:'<rect x="2" y="5" width="13" height="10" rx="2"/><path d="M6 19h5M8.5 15v4"/><rect x="17" y="8" width="5" height="11" rx="1.5"/>',
-  fileSpreadsheet:'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h8M12 13v4'
+  fileSpreadsheet:'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h8M12 13v4',
+  // --- A-IV.5: die 24 Glyphen, die bis 2.7.0 als Farb-Emoji ausgewichen wurden ---------------
+  // Die App sprach zwei Ikonografien: 62 monochrome SVG hier UND 121 Emoji im Quelltext
+  // (accent.mjs „Emoji im Quelltext"). Emoji zeichnet jedes System anders, sie kennen keinen
+  // Dunkelmodus und keine Strichstärke. Jede Zeile hier ist ein Emoji, das nicht mehr nötig ist –
+  // das Emoji steht im Kommentar NICHT als Zeichen, sondern als Name: accent.mjs zaehlt
+  // Extended_Pictographic im Quelltext, und ein Kommentar-Emoji ist dort derselbe Treffer
+  // wie ein gerendertes. Der Name traegt die Zuordnung genauso gut.
+  lockOpen:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.7"/>',      // offenes Schloss
+  sprout:'M12 21v-7M12 14c0-3.6-2.8-6-7-6 0 3.6 2.8 6 7 6zM12 14c0-3.2 2.5-5.5 6-5.5 0 3.2-2.5 5.5-6 5.5z', // Keimling
+  leaf:'M20 4c0 9.4-5.2 14-13.2 14H4C4 9.6 9.2 4.6 17 4.6zM4.5 20C6.6 14.4 10.4 10.4 15 8',                 // Zweig
+  carrot:'M2.5 21.5c4-1.2 8.6-4.8 11.5-10.5l-4.5-4.5C4.8 9.4 3.4 17.4 2.5 21.5zM14 8.5 16.5 6M16 5.5c0-2 1-3 3-3M18.5 8c2 0 3-1 3-3', // Karotte
+  packageBox:'M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9',                                 // Paket
+  rocket:'M12 2.5c3 2.2 4.8 5.6 4.8 9.2L14.5 15h-5L7.2 11.7c0-3.6 1.8-7 4.8-9.2zM9.5 15 8 21l4-2 4 2-1.5-6M12 9h.01', // Rakete
+  telescope:'m13.5 6.5 5.5 3-9.5 5-5.5-3zM9.5 14.5 6.5 20M13.5 6.5l-1-3 4-1 1.2 3M12 15.5V21M9 21h6',       // Fernrohr
+  compass:'<circle cx="12" cy="12" r="9"/><path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1z"/>',                   // Kompass
+  hourglass:'M6 2.5h12M6 21.5h12M8 2.5V6c0 2.2 4 4 4 6s-4 3.8-4 6v3.5M16 2.5V6c0 2.2-4 4-4 6s4 3.8 4 6v3.5', // Sanduhr
+  wheel:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3v6.5M12 14.5V21M3 12h6.5M14.5 12H21M5.6 5.6l4.6 4.6M13.8 13.8l4.6 4.6M18.4 5.6l-4.6 4.6M10.2 13.8l-4.6 4.6"/>', // Riesenrad
+  handshake:'M12 8.5 9.6 6.1a2 2 0 0 0-2.8 0L3 9.9l4.6 4.6M12 8.5l2.4-2.4a2 2 0 0 1 2.8 0L21 9.9l-4.6 4.6M8.2 15.1l2.4 2.4a1.5 1.5 0 0 0 2.1-2.1M11.4 16.3l2 2a1.5 1.5 0 0 0 2.1-2.1', // Handschlag
+  puzzle:'M10 3.5h4v2.8a1.9 1.9 0 1 0 3.8 0V9h2.7v4h-2.7a1.9 1.9 0 1 0 0 3.8v3.7h-4v-2.8a1.9 1.9 0 1 0-3.8 0v2.8H6v-3.7H3.5v-4H6V9h4z', // Puzzleteil
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 3.2 2.6 14.8 0 18M12 3c-2.6 3.2-2.6 14.8 0 18"/>', // Weltkugel
+  wallet:'<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10.5h18M16.5 14.5h.01M6 6V4.5h11"/>',// Geldsack
+  bowl:'M3 11h18a9 9 0 0 1-18 0zM8 8c-.4-1.8 1-3 2.4-2.4M13 7c.6-1.8 2.6-2.2 3.8-1',                         // Salatschuessel
+  run:'<circle cx="15.5" cy="4.5" r="2"/><path d="m7.5 21.5 2.8-6-2.3-3.3 1-4.7 4 1.9 2.8 2.9M9.5 9.3 5 10.5M12.8 14.4l3.2 2 1.2 5"/>', // Laeufer
+  meditate:'<circle cx="12" cy="5" r="2.5"/><path d="M12 10c-2.1 0-3.2 1.6-3.2 3.6L5.5 17.5l3.4 1 3.1-2 3.1 2 3.4-1-3.3-3.9c0-2-1.1-3.6-3.2-3.6zM4.5 20.5h15"/>', // Meditation
+  ban:'<circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>',                                       // Verbotszeichen
+  meat:'M16.5 2.8a7 7 0 0 0-9.3 9.3c.9 1.9-.1 3-1.6 4.5S3 20.4 4.6 21.4s3.1-.4 4.6-1.9 2.6-2.5 4.5-1.6a7 7 0 0 0 2.8-15.1zM11 12.5a3 3 0 0 1 4.2-4.2', // Steak
+  glass:'M6 3h12l-1.5 11.2a3 3 0 0 1-3 2.6h-3a3 3 0 0 1-3-2.6zM9 21h6M12 16.8V21',                           // Milchglas
+  coffee:'M4 8h13v5.5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 9.5h1.8a2.5 2.5 0 0 1 0 5H17M3.5 21.5H17',           // Kaffee
+  dice:'<rect x="3" y="3" width="18" height="18" rx="4.5"/><path d="M8.4 8.4h.01M15.6 8.4h.01M8.4 15.6h.01M15.6 15.6h.01M12 12h.01"/>', // Wuerfel
+  checkCircle:'<circle cx="12" cy="12" r="9"/><path d="m8 12.2 2.8 2.8L16 9"/>',                              // gruener Haken
+  bookOpen:'M12 6.6C10.4 5 7.9 4.5 4 4.5v13c3.9 0 6.4.5 8 2 1.6-1.5 4.1-2 8-2v-13c-3.9 0-6.4.5-8 2.1zM12 6.6V21' // offenes Buch / Lesezeichen
 };
 function icon(name,size,cls){const b=ICONS[name];if(!b)return '';size=size||20;
   const inner=b.charAt(0)==='<'?b:`<path d="${b}"/>`;
@@ -100,6 +131,48 @@ function coachView(){return !!(ME&&ME.role!=='athlete'&&VIEW_USER!=null&&VIEW_US
 // ===== GEMEINSAME FELDLISTEN =====
 // Körpermaße: von training.js (Eingabe) und analysis.js (Verlauf/Formular) genutzt – deshalb hier.
 const MEASURE_FIELDS=[['waist','Taille'],['chest','Brust'],['arm','Arm'],['thigh','Bein'],['hips','Hüfte'],['shoulders','Schultern'],['neck','Nacken'],['body_fat','Körperfett %']];
+
+// ===== A-IV.5 · DIE ERFAHRUNGS-STUFE, IN WORTEN (Präfix `ds`) =====
+// Die Stufe schaltet in der App Felder an und aus. Gelesen wird sie an drei Stellen, alle mit
+// derselben Rangfolge `experience_coach || experience` (CRITIC K1: `experience` ist die Selbstangabe
+// des Athleten, `experience_coach` die Übersteuerung des Coachs):
+//   training.js  twLevel / twRirOn / twSetTypesOn   analysis.js  an2Level   coach.js  co2LevelOf
+// GESAGT wurde bis 2.7.0 nur dem COACH, was die Stufe bewirkt (coach.js CO2_LV_TXT). Der Athlet,
+// der dieselbe Stufe im Profil mit EINEM Tipp selbst umstellt, bekam „Gespeichert ✓" – und die
+// RIR-Spalte war weg, ohne dass irgendein Satz sie je erwähnt hätte (Befund Ü-2, STRATEGY 4.0/P10).
+// Warum der Text HIER steht und nicht in coach.js: coach.js ist ein nachgeladenes Modul
+// (server.js BOOT_MODULES) und beim Athleten überhaupt nicht im Dokument. core.js lädt jede Rolle.
+// P9 ist bindend – hier steht nur, was einen echten Verbraucher hat:
+//   KEIN Tempo (gibt es in 2.8.0 nirgends, DEFER-A4) und KEIN Muskel-Korridor
+//   (den zeigt analysis.js `anaMuscleHTML` JEDEM, er hängt an keiner Stufe).
+const DS_LV_KEYS=['beginner','intermediate','advanced'];
+const DS_LV_LABEL={beginner:'Anfänger',intermediate:'Fortgeschritten',advanced:'Profi'};
+function dsLvNum(k){const i=DS_LV_KEYS.indexOf(String(k||'').toLowerCase());return i<0?1:i+1;}
+function dsLvLabel(k){return DS_LV_LABEL[String(k||'').toLowerCase()]||DS_LV_LABEL.beginner;}
+// Was ab dieser Stufe DAZUKOMMT – je Eintrag genau eine Sache, die der Athlet danach wirklich sieht.
+// „Profi" ist heute bewusst leer: in der App unterscheidet nichts Stufe 3 von Stufe 2, und das
+// zu behaupten wäre dieselbe Lüge, die im Coach-Blatt schon gestrichen wurde.
+const DS_LV_ADDS={
+  beginner:[],
+  intermediate:[
+    'das RIR-Feld in der Satzzeile',
+    // Die Zeile muss in BEIDE Richtungen stimmen („das siehst du damit" und „weg ist damit"),
+    // deshalb steht die Folge als Bedingung da und nicht als Zeitangabe.
+    'die Satztypen Aufwärmen, Drop und Backoff (lang auf die Satznummer) – nur mit ihnen bleiben Aufwärmsätze aus Volumen, e1RM und Bestleistung heraus',
+    'den geschätzten e1RM neben jeder Übung in der Analyse'],
+  advanced:[]};
+// Alles, was auf dieser Stufe sichtbar ist (kumulativ, in der Reihenfolge der Stufen).
+function dsLvSees(k){const n=dsLvNum(k);const out=[];
+  for(let i=0;i<n;i++)(DS_LV_ADDS[DS_LV_KEYS[i]]||[]).forEach(x=>out.push(x));
+  return out;}
+// Der Satz für Stufe 1: sie fügt nichts hinzu, also wird beschrieben, wie die Zeile bleibt –
+// statt einen leeren Halbsatz („Du siehst .") stehen zu lassen.
+const DS_LV_BASE='Die Satzzeile bleibt [kg] [Wdh] [✓] – kein RIR, keine Satztypen, Empfehlungen ohne Fachbegriffe.';
+// Unterschied zweier Stufen aus der Sicht des Athleten: {weg,neu}. null, wenn sich nichts ändert
+// (heute der Fall bei „Fortgeschritten" ↔ „Profi") – dann darf auch nichts behauptet werden.
+function dsLvDiff(from,to){const a=dsLvSees(from),b=dsLvSees(to);
+  const weg=a.filter(x=>b.indexOf(x)<0),neu=b.filter(x=>a.indexOf(x)<0);
+  return (weg.length||neu.length)?{weg,neu}:null;}
 
 // ===== API =====
 // Vierter Parameter opts={queue:true,kind,label} NUR für schreibende Aufrufe, die offline nachgetragen werden dürfen.
@@ -1246,8 +1319,15 @@ function crAgeFromDob(dob){const t=Date.parse(String(dob||'')+'T00:00:00Z');
   if(isNaN(t))return null;return Math.floor((Date.now()-t)/(365.25*864e5));}
 function onbNext(){if(ONB.step<ONB_STEPS.length-1){ONB.step++;renderOnb();}}
 function onbBack(){if(ONB.step>0){ONB.step--;renderOnb();}}
-function bigChoice(k,v,emoji,title,desc,cur){return `<button class="card" style="display:block;width:100%;text-align:left;margin-bottom:12px;border:2px solid ${cur===v?'var(--red)':'transparent'}" onclick="onbSet('${k}','${v}')">
-  <div style="font-size:28px">${emoji}</div><div style="font-weight:700;font-size:18px;margin-top:6px">${title}</div><div style="color:var(--ink2);font-size:14px;margin-top:2px">${desc}</div></button>`;}
+// Die grosse Auswahlkarte des Onboardings. Zwei Aenderungen aus A-IV.5, beide messbar:
+// (1) Das Farb-Emoji wird ein Symbol aus icon() in einer .ic-tile - dieselbe Ikonografie wie der
+//     Rest der App (BUILD-A4 6.5). Der dritte Parameter heisst deshalb `ico`, nicht `emoji`.
+// (2) Die Auswahl war eine 2-px-Rotkante und damit der fuenfte "ausgewaehlt"-Dialekt der App
+//     (BUILD-A4 6.6). Jetzt .card.sel = Stil B ("weich gewaehlt", app.css) - dieselbe Flaeche und
+//     derselbe Ring wie .chip.soft.on und .seg button.on. `aria-pressed` sagt es der Vorlesehilfe,
+//     die Kante hat das nie getan.
+function bigChoice(k,v,ico,title,desc,cur){const on=cur===v;return `<button type="button" class="card${on?' sel':''}" aria-pressed="${on?'true':'false'}" style="display:block;width:100%;text-align:left;margin-bottom:12px" onclick="onbSet('${k}','${v}')">
+  <span class="ic-tile lg">${icon(ico,28)}</span><div style="font-weight:700;font-size:18px;margin-top:10px">${title}</div><div style="color:var(--ink2);font-size:14px;margin-top:2px">${desc}</div></button>`;}
 
 // ===== FOKUS IM ONBOARDING (A-II.4, Nachbesserung) =====
 // renderOnb() ersetzt den ganzen Schritt (`v.innerHTML`). Damit stirbt auch das Element, das gerade
@@ -1290,25 +1370,25 @@ async function renderOnb(){const v=document.getElementById('onbView');const s=ON
   // Fortschrittsbalken nur über die fünf Inhaltsschritte – Willkommen und Ergebnis sind keine Schritte
   const content=ONB_STEPS.filter(x=>x.key!=='welcome'&&x.key!=='result'&&x.key!=='consent');
   const cIdx=content.findIndex(x=>x.key===s.key);
-  const prog=cIdx<0?'':`<div style="display:flex;gap:6px;margin-bottom:24px">${content.map((_,i)=>`<div style="flex:1;height:4px;border-radius:2px;background:${i<=cIdx?'var(--red)':'var(--line)'}"></div>`).join('')}</div>`;
+  const prog=cIdx<0?'':`<div style="display:flex;gap:6px;margin-bottom:24px">${content.map((_,i)=>`<div style="flex:1;height:4px;border-radius:2px;background:${i<=cIdx?'var(--ink)':'var(--surface3)'}"></div>`).join('')}</div>`;
   const backBtn=ONB.step>0&&s.key!=='result'?`<button class="btn sec" style="margin-top:8px" onclick="onbBack()">Zurück</button>`:'';
   let h=`<div style="padding-top:20px">${prog}`;
   if(s.key==='welcome'){
-    h+=`<div style="text-align:center"><div style="font-size:48px">💪</div>
+    h+=`<div style="text-align:center"><span class="ic-tile lg">${icon('rocket',28)}</span>
       <h1 id="onbTitle" tabindex="-1" style="font-size:28px;font-weight:700;margin:16px 0 8px">Willkommen, ${esc2(ME.name.split(' ')[0])}!</h1>
       <p style="color:var(--ink2);font-size:16px;line-height:1.5;margin-bottom:28px">In 5 kurzen Schritten erstellen wir deinen persönlichen Trainings- und Ernährungsplan. Dauert keine Minute.</p>
       <button class="btn" onclick="onbNext()">Los geht's</button>
       ${ONB.fromApp?`<button class="btn sec" style="margin-top:10px" onclick="cancelOnboarding()">Abbrechen</button>`:''}</div>`;
   } else if(s.key==='goal'){
     h+=`<h2 id="onbTitle" tabindex="-1" style="font-size:24px;font-weight:700;margin-bottom:6px">Was ist dein Ziel?</h2><p style="color:var(--ink2);margin-bottom:20px">Danach richten wir alles aus.</p>`;
-    h+=bigChoice('goal','muscle','🏋️','Muskeln aufbauen','Masse &amp; Kraft, leichter Kalorienüberschuss',d.goal);
-    h+=bigChoice('goal','fatloss','🔥','Abnehmen / definieren','Fett verlieren, Muskeln erhalten',d.goal);
-    h+=bigChoice('goal','health','❤️','Fit &amp; gesund werden','Allgemeine Fitness, Gewicht halten',d.goal);
+    h+=bigChoice('goal','muscle','dumbbell','Muskeln aufbauen','Masse &amp; Kraft, leichter Kalorienüberschuss',d.goal);
+    h+=bigChoice('goal','fatloss','flame','Abnehmen / definieren','Fett verlieren, Muskeln erhalten',d.goal);
+    h+=bigChoice('goal','health','heart','Fit &amp; gesund werden','Allgemeine Fitness, Gewicht halten',d.goal);
   } else if(s.key==='experience'){
     h+=`<h2 id="onbTitle" tabindex="-1" style="font-size:24px;font-weight:700;margin-bottom:6px">Wie viel Erfahrung hast du?</h2><p style="color:var(--ink2);margin-bottom:20px">Das bestimmt, wie ausführlich die App dich begleitet.</p>`;
-    h+=bigChoice('experience','beginner','🌱','Anfänger','Neu im Training oder Wiedereinstieg',d.experience);
-    h+=bigChoice('experience','intermediate','📈','Fortgeschritten','Trainiere seit Monaten regelmäßig',d.experience);
-    h+=bigChoice('experience','advanced','🏆','Profi','Erfahren, will alle Details &amp; Kontrolle',d.experience);
+    h+=bigChoice('experience','beginner','sprout','Anfänger','Neu im Training oder Wiedereinstieg',d.experience);
+    h+=bigChoice('experience','intermediate','trendUp','Fortgeschritten','Trainiere seit Monaten regelmäßig',d.experience);
+    h+=bigChoice('experience','advanced','trophy','Profi','Erfahren, will alle Details &amp; Kontrolle',d.experience);
   } else if(s.key==='body'){
     // Geburtsjahr statt Alter (D1): das Alter veraltet jedes Jahr still, das Geburtsjahr nie.
     const yMax=crMaxBirthYear(),yVal=(typeof d.dob==='string'&&d.dob)?String(d.dob).slice(0,4):'';
@@ -1324,7 +1404,7 @@ async function renderOnb(){const v=document.getElementById('onbView');const s=ON
       <button class="btn" onclick="onbBody()">Weiter</button>`;
   } else if(s.key==='frequency'){
     h+=`<h2 id="onbTitle" tabindex="-1" style="font-size:24px;font-weight:700;margin-bottom:6px">Wie oft willst du trainieren?</h2><p style="color:var(--ink2);margin-bottom:20px">Pro Woche – ehrlich sein bringt die besten Ergebnisse.</p>
-      <div style="text-align:center;margin-bottom:8px"><span id="onbFreqNum" style="font-size:52px;font-weight:700;color:var(--red)">${fmtNum(d.days_per_week)}</span><span style="font-size:20px;color:var(--ink2)"> ×/Woche</span></div>
+      <div style="text-align:center;margin-bottom:8px"><span id="onbFreqNum" style="font-size:52px;font-weight:700;color:var(--ink)">${fmtNum(d.days_per_week)}</span><span style="font-size:20px;color:var(--ink2)"> ×/Woche</span></div>
       <input id="onbFreqRange" class="onb-range" type="range" min="1" max="6" step="1" value="${+d.days_per_week||3}" aria-label="Trainingstage pro Woche" style="--pct:${((+d.days_per_week||3)-1)/5*100}%" oninput="onbFreq(this.value)">
       <p id="onbFreqHint" style="text-align:center;color:var(--ink2);font-size:14px;margin:0 0 24px">${esc2(freqHint(d.days_per_week))}</p>
       <button class="btn" onclick="onbNext()">Weiter</button>`;
@@ -1332,7 +1412,7 @@ async function renderOnb(){const v=document.getElementById('onbView');const s=ON
     const dt=d.diet_type||'all';
     h+=`<h2 id="onbTitle" tabindex="-1" style="font-size:24px;font-weight:700;margin-bottom:6px">Ernährung</h2><p style="color:var(--ink2);margin-bottom:16px">Damit dein Plan und die Rezepte passen. Alles später änderbar.</p>
       <div style="margin-bottom:8px;font-size:14px;font-weight:600">Ernährungsweise</div>
-      <div class="chip-row" style="margin-bottom:18px">${[['all','Alles'],['vegetarian','🥕 Vegetarisch'],['vegan','🌱 Vegan']].map(([v,l])=>`<button id="onbDiet_${v}" class="daychip ${dt===v?'now':''}" onclick="ONB.data.diet_type='${v}';renderOnb()">${l}</button>`).join('')}</div>
+      <div class="chip-row" style="margin-bottom:18px">${[['all','','Alles'],['vegetarian','carrot','Vegetarisch'],['vegan','sprout','Vegan']].map(([v,ic,l])=>`<button type="button" id="onbDiet_${v}" class="daychip ${dt===v?'now':''}" aria-pressed="${dt===v?'true':'false'}" onclick="ONB.data.diet_type='${v}';renderOnb()">${ic?icon(ic,16):''}${l}</button>`).join('')}</div>
       <div style="margin-bottom:8px;font-size:14px;font-weight:600">Was magst du nicht? <span style="font-weight:400;color:var(--ink3)">(optional)</span></div>
       <div id="onbDislikes"><div class="spinner"></div></div>
       <button class="btn" style="margin-top:8px" onclick="onbNext()">Weiter</button>`;
@@ -1368,11 +1448,11 @@ async function loadOnbDislikes(){const el=document.getElementById('onbDislikes')
   const r=await API.get('/disliked/'+ME.id);const opts=r.data?.options||[];
   if(!ONB.data.disliked)ONB.data.disliked=[];
   const sel=new Set(ONB.data.disliked);
-  el.innerHTML=`<div style="display:flex;flex-wrap:wrap">`+opts.map(o=>`<button class="daychip ${sel.has(o)?'now':''}" style="margin:0 6px 8px 0" onclick="toggleOnbDislike('${esc(o)}',this)">${sel.has(o)?'✓ ':''}${o}</button>`).join('')+`</div>`;}
+  el.innerHTML=`<div style="display:flex;flex-wrap:wrap">`+opts.map(o=>`<button type="button" class="daychip ${sel.has(o)?'now':''}" aria-pressed="${sel.has(o)?'true':'false'}" style="margin:0 6px 8px 0" onclick="toggleOnbDislike('${esc(o)}',this)">${o}</button>`).join('')+`</div>`;}
 function toggleOnbDislike(name,btn){if(!ONB.data.disliked)ONB.data.disliked=[];
   const i=ONB.data.disliked.indexOf(name);
-  if(i>=0){ONB.data.disliked.splice(i,1);btn.classList.remove('now');btn.textContent=name;}
-  else{ONB.data.disliked.push(name);btn.classList.add('now');btn.textContent='✓ '+name;}}
+  if(i>=0){ONB.data.disliked.splice(i,1);btn.classList.remove('now');btn.setAttribute('aria-pressed','false');}
+  else{ONB.data.disliked.push(name);btn.classList.add('now');btn.setAttribute('aria-pressed','true');}}
 // Fehler stehen am Feld, nicht als Toast über den Feldern (WP0-Helfer showFieldErr)
 function onbBody(){const y=+val('o_year'),h=+val('o_h'),w=+val('o_w');
   const yMax=crMaxBirthYear();
@@ -1401,18 +1481,18 @@ async function loadOnbResult(){
   const p=r.data;const n=p.nutrition;
   const goalTxt={muscle:'Muskelaufbau',fatloss:'Definition',health:'Gesundheit'}[ONB.data.goal];
   document.getElementById('onbResult').innerHTML=`
-    <div style="font-size:40px">✅</div>
+    <span class="ic-tile lg" style="color:var(--green-text)">${icon('checkCircle',28)}</span>
     <h2 id="onbTitle" tabindex="-1" style="font-size:24px;font-weight:700;margin:12px 0 6px">Dein Plan steht!</h2>
     <p style="color:var(--ink2);margin-bottom:6px">Ziel: ${goalTxt}${p.bmi?' · BMI '+fmtNum(p.bmi,1):''}</p>
     ${(ME&&ME.email&&mailOk===true)?`<p class="caption" style="margin-bottom:22px">Bestätigungs-Mail an ${esc2(ME.email)} unterwegs.</p>`:'<div style="height:16px"></div>'}
     <div class="surface pad" style="text-align:left;margin-bottom:14px">
-      <div style="font-weight:600;margin-bottom:10px">🍽️ Deine Kalorienziele</div>
+      <div style="font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">${icon('utensils',18)}Deine Kalorienziele</div>
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--line)"><span style="color:var(--ink2)">Trainingstag</span><b>${fmtNum(n.trainKcal)} kcal</b></div>
       <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--line)"><span style="color:var(--ink2)">Ruhetag</span><b>${fmtNum(n.restKcal)} kcal</b></div>
       <div style="display:flex;justify-content:space-between;padding:6px 0"><span style="color:var(--ink2)">Protein / Carbs / Fett</span><b>${fmtNum(n.macros.protein)} / ${fmtNum(n.macros.carbs)} / ${fmtNum(n.macros.fat)} g</b></div>
     </div>
     <div class="surface pad" style="text-align:left;margin-bottom:20px">
-      <div style="font-weight:600;margin-bottom:10px">🏋️ Dein Trainingsplan (${p.plan.length} Tage)</div>
+      <div style="font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">${icon('dumbbell',18)}Dein Trainingsplan (${p.plan.length} Tage)</div>
       ${p.plan.map(d=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:.5px solid var(--line)"><span>${d.name}</span><span style="color:var(--ink2);font-size:13px">${d.exercises.length} Übungen</span></div>`).join('')}
     </div>
     <button class="btn" onclick="onbNext()">Weiter</button>
@@ -1426,8 +1506,9 @@ async function loadOnbResult(){
 // auf /datenschutz.html, verlinkt direkt darunter.
 // KEIN zweites Häkchen, keine vorangekreuzte Box, keine Angstmache. Der KI-Schalter und die
 // Hilfe-Freigabe bleiben ausdrücklich AUS und werden hier nicht mitverkauft.
-function lgConsentCard(emoji,title,text){return `<div class="surface pad" style="text-align:left;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start">
-  <div style="font-size:22px;line-height:1.2" aria-hidden="true">${emoji}</div>
+// Symbol statt Farb-Emoji (BUILD-A4 6.5): icon() haengt selbst aria-hidden an das SVG.
+function lgConsentCard(ico,title,text){return `<div class="surface pad" style="text-align:left;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start">
+  <span class="ic-tile sm">${icon(ico,18)}</span>
   <div><div style="font-weight:600;margin-bottom:2px">${title}</div><div style="color:var(--ink2);font-size:14px;line-height:1.45">${text}</div></div></div>`;}
 // Wer die Einwilligung schon erteilt hat (z. B. beim Start gefragt, oder weil er das Onboarding aus der
 // App ein zweites Mal durchläuft), bekommt hier KEIN zweites Häkchen vorgesetzt – nur die Bestätigung,
@@ -1442,9 +1523,9 @@ function lgConsentStepHTML(){
     </label>`;
   return `<div id="onbConsent">
     <h2 id="onbTitle" tabindex="-1" style="font-size:24px;font-weight:700;margin-bottom:16px">Bevor du loslegst</h2>
-    ${lgConsentCard('📦','Was wir speichern','Training, Essen, Gewicht, Schlaf, Puls, Maße, Fotos, Mindset – dazu deine Notizen und Nachrichten. Für deinen Plan.')}
-    ${lgConsentCard('👀','Wer es sieht','Du und dein Coach. Der Betreiber nur mit deiner Freigabe – und in der Sicherung der Datenbank. Verkauft wird nichts.')}
-    ${lgConsentCard('🔓','Was du jederzeit kannst','Exportieren, widerrufen, alles löschen – im Profil.')}
+    ${lgConsentCard('packageBox','Was wir speichern','Training, Essen, Gewicht, Schlaf, Puls, Maße, Fotos, Mindset – dazu deine Notizen und Nachrichten. Für deinen Plan.')}
+    ${lgConsentCard('eye','Wer es sieht','Du und dein Coach. Der Betreiber nur mit deiner Freigabe – und in der Sicherung der Datenbank. Verkauft wird nichts.')}
+    ${lgConsentCard('lockOpen','Was du jederzeit kannst','Exportieren, widerrufen, alles löschen – im Profil.')}
     ${ask}
     <div id="onbConsentErr" class="hidden" style="color:var(--red-text);font-size:13px;margin:0 4px 10px" role="alert"></div>
     <button class="btn" onclick="lgConsentGo()">Loslegen</button>
@@ -1479,6 +1560,59 @@ async function finishOnboarding(){
   document.getElementById('onbView').classList.add('hidden');
   startApp();toast('Willkommen an Bord! 🎉');}
 
+// ===== NACH DEM START (Präfix rp · A-V.5) =====
+// Drei Anfragen lagen bis 2.9.0 im KALTEN Start, ohne dass das erste Bild sie braucht: die
+// Versionsprüfung (ein Hinweis, kein Startschritt), das Profilbild im Kopf (Zierde) und der
+// Lebensmittel-Katalog (gehört dem Ernährungs-Reiter). Gemessen waren das vier der vierzehn
+// Anfragen – das Profilbild zählt zweimal, einmal der Abruf und einmal das Bild selbst.
+// rpLater() schiebt eine Aufgabe hinter die erste vollständige Seite: erst wenn der Browser Luft hat
+// (requestIdleCallback), frühestens aber nach `min` Millisekunden. Das Idle-Fenster allein reicht
+// nicht – es öffnet sich auf einem schnellen Rechner oft schon 50 ms nach dem ersten Bild, und dann
+// stünde die Anfrage wieder mitten im Start. 2500 ms ist die Grenze, ab der auf einem gedrosselten
+// Netz (Slow-4G: 1,6 Mbit/s, 150 ms RTT) auch die letzte Startanfrage durch ist; vorher wäre
+// „später" nur ein anderes Wort für „gleichzeitig".
+function rpLater(fn,min){
+  const wait=Math.max(0,+min||2500);
+  setTimeout(()=>{
+    // requestIdleCallback gibt es auf iOS-Safari nicht – dort läuft die Aufgabe direkt.
+    try{if(typeof requestIdleCallback==='function'){requestIdleCallback(()=>{try{fn();}catch(e){console.error('[rpLater]',e);}},{timeout:2000});return;}}catch(e){}
+    try{fn();}catch(e){console.error('[rpLater]',e);}
+  },wait);}
+// Das Profilbild im Kopf: die Initiale steht SOFORT, das Bild kommt, wenn die App steht.
+// applyAvatar() (training.js) fragt /api/avatar/<id> ab und setzt das Ergebnis als Hintergrundbild –
+// zwei Anfragen, bevor die erste Trainingszeile auf dem Schirm war. Die Initiale ist kein Platzhalter
+// für nichts: sie ist die Anzeige, die jedes Konto ohne Bild dauerhaft hat.
+// applyAvatar() selbst bleibt unverändert – account.js ruft es nach dem Hochladen auf und muss dort
+// sofort zeichnen.
+// Das Technik-Lexikon (/api/definitions): 5,7 KB gepackt und damit nach app.js, app.css und
+// icon-192 der viertgrößte Posten des kalten Starts – für Inhalte, die ausschließlich im
+// Trainings-Reiter stehen (Technik-Karte einer Grundübung, Technik-Auswahl im Übungsformular,
+// Lexikon-Sheet). Die Startseite zeigt keinen einzigen Eintrag davon.
+// Einmal je Seitenladen, egal wer zuerst fragt: rpLater() nach dem Start oder der Trainings-Reiter
+// (_trEnsureDefs in training.js), wenn jemand schneller dort ist. Schlägt der Abruf fehl, darf der
+// nächste Aufrufer es erneut versuchen – deshalb wird die Zusage im Fehlerfall verworfen.
+function rpLoadDefs(){
+  if(DEFS&&DEFS.length)return Promise.resolve(DEFS);
+  if(!rpLoadDefs._p)rpLoadDefs._p=fetch('/api/definitions').then(r=>r.json())
+    .then(d=>{DEFS=d.definitions||[];return DEFS;})
+    // ohne Netz wirft fetch – kein Grund für einen Fehler-Toast, das Lexikon ist Beiwerk
+    .catch(()=>{rpLoadDefs._p=null;return DEFS||[];});
+  return rpLoadDefs._p;}
+function rpAvatarBoot(){
+  try{const el=document.getElementById('avatar');
+    if(el&&ME){el.style.backgroundImage='';el.textContent=(ME.name||'?').charAt(0).toUpperCase();}}catch(e){}
+  // B2 (3.0.1): applyAvatar() wohnt in training.js, und training.js ist seit diesem Stand nachgeladen.
+  // Ohne die Zeile unten waere das Profilbild im Kopf ein Zufall: mal da (Datei schon im Cache), mal
+  // nicht (erster Start), und im zweiten Fall stuende ein ReferenceError im Protokoll. Also: wenn die
+  // Funktion da ist, sofort - sonst das Modul anstossen und danach zeichnen. Kein eigener Abruf, kein
+  // frueheres Nachladen: rpLater() feuert ohnehin erst, wenn die Startseite steht.
+  if(!(ME&&ME.has_avatar))return;
+  rpLater(()=>{
+    const mal=()=>{try{applyAvatar();}catch(e){console.error('[avatar]',e);}};
+    if(typeof applyAvatar==='function')return mal();
+    if(window.bootLoad)window.bootLoad('training').then(ok=>{if(ok)mal();});
+  });}
+
 // ===== START =====
 async function startApp(){
   document.getElementById('loginView').classList.add('hidden');
@@ -1501,12 +1635,16 @@ async function startApp(){
   // Läuft absichtlich ohne await: der Start darf nicht auf eine Netzantwort warten.
   try{lgConsentGate();}catch(e){}
   invalidateView();CUR_TAB=null;
-  applyAvatar();
+  rpAvatarBoot();
   setTimeout(checkPendingShare,700); // wartender Teilen-Link? -> Übernehmen-Dialog
   // Die Home-Tour startet jetzt am Ende von renderHome (kein Timer mehr, nie über dem Spinner)
   setTimeout(maybeShowInstallHint,1600); // iOS: Hinweis „Zum Home-Bildschirm" (einmalig, schlanke Notiz unter dem Header)
-  API.get('/foods').then(r=>FOODS=r.data?.foods||[]);
-  fetch('/api/definitions').then(r=>r.json()).then(d=>DEFS=d.definitions||[]).catch(()=>{}); // ohne Netz wirft fetch – kein Grund für einen Fehler-Toast
+  // Der Lebensmittel-Katalog gehört dem Ernährungs-Reiter, nicht dem Start: drawTrack() zieht ihn über
+  // _dietEnsureFoods() nach, das Hinzufügen-Sheet und die Suche haben je einen eigenen Nachlader.
+  // Bis 2.9.0 stand er im kalten Start und kostete dort eine von vierzehn Anfragen, obwohl das erste
+  // Bild (Startseite) kein einziges Lebensmittel zeigt.
+  rpLater(()=>{if(!FOODS.length)API.get('/foods').then(r=>{if(!FOODS.length)FOODS=r.data?.foods||[];}).catch(()=>{});});
+  rpLater(()=>{rpLoadDefs();});
   COACH_CONTEXT=null;
   // Neue Version deployt? (Frontend gecacht) -> Aktions-Toast statt stummem Auseinanderlaufen.
   // Dieselbe Antwort, die shell.js beim Laden schon angefordert hat – keine zweite Anfrage.
@@ -1528,14 +1666,21 @@ async function startApp(){
 // Genau EIN Abgleich mit dem Server je Seitenladen: shell.js (Zeile unter dem Anmeldeformular) und
 // startApp (Aktions-Toast) hängen sich an dieselbe Antwort. Bis 2.3 liefen zwei Anfragen, die erste davon
 // blockierend VOR /api/me – die Versionsprüfung ist ein Hinweis, kein Startschritt.
+// 2.9.0: die Abfrage läuft nicht mehr im Startpfad, sondern hinter der ersten vollständigen Seite
+// (rpLater). Sie ist ein Hinweis – der Kommentar darüber sagt das seit 2.3 – und hat als solcher
+// nichts vor der ersten Trainingszeile zu suchen; gemessen war sie eine von vierzehn Anfragen im
+// kalten Start. Beide Aufrufer (shell.js beim Laden, startApp) hängen unverändert an derselben
+// Zusage; sie wird nur ein paar Sekunden später eingelöst. Kein Aufrufer wartet darauf.
 function checkVersion(){
-  if(!checkVersion._p)checkVersion._p=API.get('/version').then(vr=>{
-    const server=(vr.status===200&&vr.data&&vr.data.version)?String(vr.data.version):'';
-    return {server,mismatch:!!(server&&server!==APP_VERSION)};}).catch(()=>({server:'',mismatch:false}));
+  if(!checkVersion._p)checkVersion._p=new Promise(resolve=>{
+    rpLater(()=>{API.get('/version').then(vr=>{
+      const server=(vr.status===200&&vr.data&&vr.data.version)?String(vr.data.version):'';
+      resolve({server,mismatch:!!(server&&server!==APP_VERSION)});}).catch(()=>resolve({server:'',mismatch:false}));});});
   return checkVersion._p;}
 // Deep-Links aus Push-Mitteilungen: #mindset, #mindset/wheel, #mindset/challenge, #tracker/woche
 // (Sonntags-Push „Deine Woche") sowie die PWA-Kurzwege ?go=workout|food|priming aus manifest.json
-// (die Tab-Namen home|workout|diet|mindset|tracker gehen weiterhin, ältere Kurzwege bleiben gültig).
+// (die Tab-Namen home|workout|diet|mindset|tracker gehen als ?go= UND als #-Ziel, ältere Kurzwege
+// bleiben gültig).
 // Alles nur im eigenen Athleten-Konto. Ziel wird nach dem Sprung aus der Adresse entfernt, damit ein
 // Neuladen wieder auf der Home landet und der Kurzweg nicht ein zweites Mal feuert.
 function applyHashRoute(){
@@ -1567,6 +1712,14 @@ function applyHashRoute(){
     const sub=(h.split('/')[1]||'heute').replace(/[^a-z]/gi,'');
     renderMindset.tab=sub||'heute';
     clean(true);go('mindset');return true;}
+  // Ein Tab-Name als HASH ist derselbe Kurzweg wie ?go=<Tab>. Bis 2.9.0 prüfte die Liste unten nur
+  // ?go=, während der Kommentar über dieser Funktion behauptete, die Tab-Namen gingen „weiterhin":
+  // gemessen landeten /#workout, /#diet und /#home still auf der Startseite, und aus der laufenden App
+  // heraus tat ein Klick auf einen solchen Link gar nichts (der hashchange-Zweig unten fiel durch).
+  // #tracker und #mindset haben eigene Zweige darüber – sie tragen Unterziele und kommen nie hierher.
+  // clean(true) wie in jenen Zweigen: die Suchparameter gehören nicht uns, der Hash schon.
+  const hg=(((location.hash||'').slice(1).split('/')[0])||'').replace(/[^a-z]/gi,'').toLowerCase();
+  if({home:1,workout:1,diet:1}[hg]){clean(true);go(hg);return true;}
   let g='';try{g=(new URLSearchParams(location.search)).get('go')||'';}catch(e){}
   if({home:1,workout:1,diet:1,mindset:1,tracker:1}[g]){clean(false);go(g);return true;}
   // Kurzwege, die eine HANDLUNG versprechen („Essen loggen", „Priming"): erst der Tab, dann das Sheet –
@@ -1585,6 +1738,11 @@ let COACH_CONTEXT=null;
 let VIEW_USER_PROFILE=null; // Profil des aktuell betrachteten Nutzers (für Coach-Kontext)
 // Nav-Varianten (WP1): Athlet 5 Tabs · Coach: Athleten/Nachrichten/Vorlagen · Admin: Verwaltung/Athleten ·
 // Coach/Admin im Athleten-Kontext: die 5 Athleten-Tabs mit identischen Labels (Verlassen über die Kontextleiste).
+// Ein Reiter ist „aktuell" in zwei Sprachen: `class="on"` fürs Auge, `aria-current="page"` fürs Ohr.
+// `false` statt Entfernen wäre falsch – der Standard kennt nur „false" als Wert, und VoiceOver liest
+// ihn nicht als „nicht aktuell", sondern gar nicht. Deshalb wird das Attribut weggenommen.
+function _navMark(b,on){if(!b)return;b.classList.toggle('on',!!on);
+  if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
 function buildNav(){const nav=document.getElementById('navBar');if(!nav||!ME)return;
   let items;
   const athleteTabs=[['home','home','Home'],['workout','dumbbell','Training'],['diet','utensils','Ernährung'],['mindset','brain','Mindset'],['tracker','chartLine','Analyse']];
@@ -1593,7 +1751,10 @@ function buildNav(){const nav=document.getElementById('navBar');if(!nav||!ME)ret
   else if(ME.role==='coach')items=[['athletes','users','Athleten'],['messages','mail','Nachrichten'],['templates','fileSpreadsheet','Vorlagen']];
   else items=athleteTabs;
   nav.innerHTML=items.map(([p,ic,l])=>`<button class="navbtn" data-p="${p}" aria-label="${l}" onclick="go('${p}')">${icon(ic,24)}<div class="nl">${l}</div></button>`).join('');
-  const cur=CUR_TAB;if(cur)nav.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('on',b.dataset.p===cur));
+  // A-V.5 (DEFER-A1, N12-Rest): die Landmarken stehen seit 2.6.0 in index.html, `aria-current` fehlte.
+  // Ohne es sagt ein Screenreader nur „Home, Schalter" – welcher Reiter GERADE offen ist, verrät allein
+  // die Farbe. Gesetzt wird es an derselben Stelle wie die Klasse `on`, damit es nie auseinanderläuft.
+  const cur=CUR_TAB;if(cur)nav.querySelectorAll('.navbtn').forEach(b=>_navMark(b,b.dataset.p===cur));
   // Weniger als zwei Ziele -> Leiste ausblenden (kein Platzhalter, kein Abstand unten)
   document.body.classList.toggle('no-nav',items.length<2);document.body.classList.toggle('has-nav',items.length>=2);}
 
@@ -1633,7 +1794,7 @@ function go(p,opts){
   const same=CUR_TAB===p;
   if(CUR_TAB&&!same)_snapshotView(CUR_TAB); // verlassene Ansicht für die Rückkehr merken
   CUR_TAB=p;
-  document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('on',b.dataset.p===p));
+  document.querySelectorAll('.navbtn').forEach(b=>_navMark(b,b.dataset.p===p));
   const ht=document.getElementById('hdrTitle');
   if(ht)ht.innerHTML=(p==='home'&&!coachView())?'<span class="wordmark" aria-label="BE INEVITABLE">BE INEVITABLE</span>':esc2(TITLES[p]||'');
   mountCtxBar();
@@ -1660,7 +1821,7 @@ async function _renderMessagesFallback(v,opts){opts=opts||{};
     if(m<60)return 'vor '+pl(Math.max(1,m),'Min.','Min.');const h=Math.round(m/60);if(h<24)return 'vor '+pl(h,'Std.','Std.');
     const d=Math.round(h/24);return d<7?'vor '+pl(d,'Tag','Tagen'):fmtDate(iso,{});};
   let h='<div class="page on" id="msgPage">';
-  if(ME.role!=='athlete'&&typeof openBroadcast==='function')h+=`<button class="btn block mb-4" onclick="openBroadcast()">${icon('send',18)} Nachricht an alle Athleten</button>`;
+  if(ME&&ME.role!=='athlete'&&typeof openBroadcast==='function')h+=`<button class="btn block mb-4" onclick="openBroadcast()">${icon('send',18)} Nachricht an alle Athleten</button>`;
   if(!msgs.length)h+=emptyState({icon:'mail',title:'Keine Nachrichten',text:'Antworten deiner Athleten und Systemhinweise erscheinen hier.'});
   else h+='<div class="rows">'+msgs.map(m=>`<div class="row tap" role="button" tabindex="0" onclick="openMessages()"><div class="r-ic">${icon(m.kind==='system'?'info':'mail',22)}</div><div class="rl"><span class="truncate">${esc2(m.title||'Nachricht')}</span><small>${esc2(m.from_name||(m.kind==='system'?'System':''))}${m.from_name?' · ':''}${rel(m.created_at)}</small></div><div class="rr">${m.read?'':'<span class="pill red">Neu</span>'}</div></div>`).join('')+'</div>';
   h+='</div>';v.innerHTML=h;cacheView('messages');}
@@ -1688,7 +1849,12 @@ async function loadToday(){const r=await API.get('/today/'+VIEW_USER);
   if(r.status===200){TODAY=r.data;if(snapAllowed())snapSave('be_today_'+VIEW_USER+'_'+today(),TODAY);}
   else if(r.status===0&&!TODAY){const s=snapLoad('be_today_'+VIEW_USER+'_'+today());if(s)TODAY=s;}}
 // Glocken-Badge = NUR ungelesene Nachrichten (System-Hinweise zählen nicht mehr mit – sie leben im Nachrichten-Sheet/Profil)
-async function loadMessages(){const r=await API.get('/messages/'+ME.id);const m=r.data?.messages||[];
+// Ohne angemeldetes Konto gibt es nichts zu holen. Der Zweig ist kein Schönheitsfehler: beim
+// Rollenwechsel (abmelden, anmelden) kann ein nachgereichter Zeichner noch aus dem alten Dokument
+// feuern, während ME schon null ist – gemessen einmal als „[go] messages TypeError … reading 'id'
+// of null". loadUnread() daneben hat denselben Wächter seit jeher.
+async function loadMessages(){if(!ME)return [];
+  const r=await API.get('/messages/'+ME.id);const m=r.data?.messages||[];
   // Kein Netz / keine Antwort: den Zähler stehen lassen, sonst verschwände die Glocke bei jedem Aussetzer.
   if(r.status===200)setBellBadge(m.filter(x=>!x.read).length);
   return m;}

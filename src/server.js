@@ -5,15 +5,36 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import vm from 'node:vm';
-import { readFileSync, statSync, createReadStream, unlinkSync } from 'node:fs';
+// 3.0.0 (B-g): `mkdirSync/readdirSync/copyFileSync/openSync/readSync/closeSync/statfsSync` kommen fuer
+// den naechtlichen Sicherungs-Job dazu. Alles aus node:fs, keine neue Abhaengigkeit. `statfsSync` gibt
+// es seit Node 18.15 – der Job prueft damit den freien Plattenplatz, BEVOR er schreibt (Render-Disks
+// sind klein, und eine vollgelaufene Platte nimmt die laufende Datenbank mit).
+import { readFileSync, statSync, existsSync, createReadStream, unlinkSync, mkdirSync, readdirSync, copyFileSync, openSync, readSync, closeSync, statfsSync } from 'node:fs';
 import { db } from './db.js';
 import { hashPassword, verifyPassword, signToken, auth, requireCoach, requireCoachOrAdmin, requireAdmin, cookieOptsFor, isHttps, DUMMY_HASH, passwordProblem } from './auth.js';
-import { recommend, buildPattern, slotType, slotDay, suggestForToday, dayNutrition, estimateCardioKcal, nutritionPlan, generatePlan, personalRecords, estimate1RM, calendarRange, generateMealPlan, dislikeOptions, pieceInfo, streakDays, attentionStatus, weeklyGoalStreak, tzToday, tzHour, tzWeekday, mondayOf, MEAL_SLOTS, normalizeSlot, slotFromLabel, recipeToItems, readinessScore, weekHighlights, weekFocus } from './logic.js';
+import { recommend, buildPattern, slotType, slotDay, suggestForToday, dayNutrition, estimateCardioKcal, nutritionPlan, generatePlan, muscleCanon, personalRecords, estimate1RM, calendarRange, generateMealPlan, dislikeOptions, pieceInfo, cookedEquivalent, streakDays, attentionStatus, weeklyGoalStreak, tzToday, tzHour, tzWeekday, mondayOf, MEAL_SLOTS, normalizeSlot, slotFromLabel, recipeToItems, readinessScore, weekHighlights, weekFocus, FORM_GUIDES, formGuideFor, formGuideDef } from './logic.js';
 // Zusaetzlich als Namensraum, NICHT als benannter Import: `fatFloorG` wird von Paket A-I.1 beigestellt
 // (Welle A-I). Ein benannter Import waere ein harter Startfehler, solange die Beistellung fehlt – der
 // Server soll aber auch mit einer aelteren logic.js starten. Ist die Funktion da, gilt sie; sonst
 // dieselbe Regel lokal (siehe fatFloorG unten).
 import * as LOGIC from './logic.js';
+// FIX-A5: `reminderLadder` (Wiederkehr-Leiter) und `weekConsistency` (die eine Streak-Mechanik)
+// stammen aus Paket A-V.3 und werden hier ueber den Namensraum geholt, NICHT als benannter Import.
+// Grund ist derselbe wie bei `fatFloorG` eine Zeile weiter oben: ein benannter Import auf eine
+// Funktion, die eine andere Datei besitzt, waere ein harter Startfehler, sobald sie dort umbenannt
+// oder entfernt wird. Fehlt sie, faellt der Server auf das dokumentierte Ersatzverhalten zurueck
+// (Leiter: keine Sperre, also wie bis 2.8.0; Konsistenz: die Rechnung steht als Notfassung darunter).
+const reminderLadder = (...a) => (typeof LOGIC.reminderLadder === 'function' ? LOGIC.reminderLadder(...a) : null);
+// Rueckgabe wie weekConsistency, aber nur die beiden Felder, die der Abend-Hinweis braucht.
+function weekConsistencyOf(dates, plannedPerWeek, todayStr) {
+  if (typeof LOGIC.weekConsistency === 'function') return LOGIC.weekConsistency(dates, plannedPerWeek, todayStr);
+  const planned = Math.max(1, Math.min(7, Math.round(Number(plannedPerWeek) || 0) || 3));
+  const mon = mondayOf(todayStr);
+  const inWeek = new Set((dates || []).filter(d => mondayOf(d) === mon));
+  const left = Math.max(0, planned - inWeek.size);
+  const daysLeft = Math.max(0, Math.min(7, 7 - Math.round((Date.parse(todayStr + 'T00:00:00Z') - Date.parse(mon + 'T00:00:00Z')) / 864e5)));
+  return { planned, done: inWeek.size, left, daysLeft, hit: left === 0, reachable: left <= daysLeft };
+}
 import { sendEmail, verifyEmailContent, resetPasswordContent, notifyMessageContent } from './email.js';
 // CHALLENGE_RULES: Regel-Liste samt Auto-Erkennung – der Wochenrückblick zählt „abgehakte" Challenge-Tage
 // nach derselben Definition wie das Modul selbst (siehe challengeCompleteDaysIn).
@@ -442,22 +463,49 @@ app.use((req, res, next) => {
 // 486 KB je Kaltstart. 156 KB davon (Analyse, Mindset, Coach, Suche) braucht ein Athlet auf der
 // Startseite nie. Jetzt haengt der Server die Dateien BEIM HOCHFAHREN zusammen - kein Build-Schritt,
 // keine neue Abhaengigkeit, genau wie die __APP_VERSION__-Ersetzung darueber:
-//   /app.js       core, home, training, diet, account, shell  (+ Nachlade-Lader am Ende)
+//   /app.js       core, home, account, shell  (+ Nachlade-Lader am Ende)
 //   /app.css      alle Stylesheets in der Reihenfolge aus index.html
-//   /mod/<n>.js   analysis | mindset | coach | search - erst, wenn die Ansicht gebraucht wird
+//   /mod/<n>.js   training | diet | analysis | mindset | coach | search - erst, wenn gebraucht
+//
+// B2 (3.0.1): training.js (208 KB roh) und diet.js (197 KB roh) sind aus dem Startbuendel heraus und
+// werden wie die anderen vier nachgeladen. Begruendung: wer die App oeffnet, landet auf der STARTSEITE.
+// Die braucht core, home, account und shell - und keine einzige Zeile aus dem Trainings- oder
+// Ernaehrungs-Reiter. Die Welle B-I hatte /app.js um 117 KB Quelltext wachsen lassen (+13 KB gepackt);
+// gegenueber der eigenen Grundlinie 2.9.0 war das ein Rueckschritt, und der Zuschnitt hier holt ihn
+// mit Abstand wieder herein, statt ihn wegzudiskutieren. Damit der erste Tap trotzdem nie wartet,
+// holt der Lader beide im LEERLAUF vor (Stufe "heiss", siehe BOOT_HOT_MS) und haelt ausserdem
+// Platzhalter fuer die drei Einstiege bereit, die die Startseite anbietet (openLogFood, logFromMeal,
+// openCalendar) - sonst haette ein Tipp darauf einen Umweg ueber den Tab genommen (ein Tap mehr).
 //
 // REIHENFOLGE IST BINDEND (BUILD-A3-ZAHLEN Abschnitt 5a): account.js ruft am Dateiende
 // renderLoginView() auf und muss deshalb VOR shell.js (INIT) laufen. Die Reihenfolge unten ist exakt
-// die von index.html 2.6.0, nur ohne die vier nachgeladenen Dateien. Kein Name wechselt die Datei,
+// die von index.html 2.6.0, nur ohne die nachgeladenen Dateien. Kein Name wechselt die Datei,
 // der EINE globale Scope bleibt einer: die nachgeladenen Dateien werden unveraendert (nur verkleinert)
 // ausgeliefert und setzen dieselben globalen Namen wie vorher.
 //
 // Faellt eine Datei weg oder ist sie nicht lesbar, startet der Server trotzdem und sagt es im Protokoll.
 const BOOT_PUBLIC = path.join(__dirname, '..', 'public');
-const BOOT_CORE_JS = ['js/core.js', 'js/home.js', 'js/training.js', 'js/diet.js', 'js/account.js', 'js/shell.js'];
+const BOOT_CORE_JS = ['js/core.js', 'js/home.js', 'js/account.js', 'js/shell.js'];
 const BOOT_CSS = ['app.css', 'mindset.css', 'css/home.css', 'css/training.css', 'css/diet.css',
   'css/analysis.css', 'css/coach.css', 'css/account.css', 'css/search.css'];
-const BOOT_MODULES = { analysis: 'js/analysis.js', mindset: 'mindset.js', coach: 'js/coach.js', search: 'js/search.js' };
+// OFFEN, MIT ZAHL (FIX-B2, 3.0.2): Hier liegt weiter das CSS der SECHS nachgeladenen Bereiche mit im
+// Startbuendel - nach genau derselben Begruendung, mit der training.js und diet.js gerade herausgeflogen
+// sind. Nachgemessen an der ausgelieferten /app.css (FIXB2-css.mjs, brotli 11): gesamt 148.457 B roh /
+// 23.338 B br; die sechs nachladbaren Teile darin 83.585 B roh (mindset 17.618 · training 18.769 ·
+// diet 11.637 · analysis 9.428 · coach 25.035 · search 1.098). Nur Start-CSS (app + home + account)
+// 64.872 B roh / 11.892 B br. Ersparnis also 11.446 B brotli = 8,5 % des gemessenen Kaltstarts.
+// NICHT in diesem Paket, und zwar aus einem Grund, der zu diesem Paket gehoert: der naheliegende Weg
+// (in bootLoad() erst <link> einhaengen, auf link.onload warten, dann das <script>) macht jedes
+// Nachladen zu ZWEI nacheinander liegenden Rundreisen - und verlaengert damit genau den ersten Tap,
+// den Befund 1 oben gerade um 168 ms verkuerzt hat. Beides zusammen in einem Lauf zu aendern hiesse,
+// zwei gegenlaeufige Effekte in einer Zahl zu messen. Die Kaskade spricht nicht dagegen: die
+// Reihenfolge der neun Dateien wuerde sich beim Herausloesen an fuenf Stellen drehen, aber in KEINEM
+// dieser Paare teilen sich zwei Dateien auch nur einen Selektor (FIXB2-kaskade.mjs: 0 von 0).
+// Das eigene Paket braucht also: paralleles Holen statt serielles, eine Messung des ersten Taps
+// gegen die Zahlen aus FIXB2-ersttap-*.json, und einen Bilddurchlauf (a11y, accent, contrast).
+// Die Reihenfolge hier ist die Reihenfolge des Vorabladens (Object.entries) - training und diet zuerst.
+const BOOT_MODULES = { training: 'js/training.js', diet: 'js/diet.js',
+  analysis: 'js/analysis.js', mindset: 'mindset.js', coach: 'js/coach.js', search: 'js/search.js' };
 // MINIFY=0 beim Start liefert alles unveraendert aus (Marcos Notausgang, falls je ein Verdacht auf den
 // Verkleinerer faellt). Jede andere Belegung - auch gar keine - laesst ihn an.
 const BOOT_MINIFY = String(process.env.MINIFY == null ? '1' : process.env.MINIFY) !== '0';
@@ -653,15 +701,16 @@ function bootReadCss(rel) {
 // Bewusst ohne Backticks und ohne Backslashes, damit dieser Text unveraendert durch das Template hier
 // hindurchgeht.
 const BOOT_LOADER_JS = `
-/* ---- Nachlade-Lader (A-III.3) --------------------------------------------------------------
-   analysis, mindset, coach und search stehen nicht mehr in index.html. Sie kommen, wenn die Ansicht
-   sie braucht - und spaetestens im Leerlauf, kurz nachdem die Startseite fertig ist: home.js zeichnet
+/* ---- Nachlade-Lader (A-III.3, erweitert in B2/3.0.1) ---------------------------------------
+   training, diet, analysis, mindset, coach und search stehen nicht im Startbuendel. Sie kommen, wenn
+   die Ansicht sie braucht - und spaetestens im Leerlauf, kurz nachdem die Startseite fertig ist
+   (training und diet in einer eigenen, frueheren Stufe, siehe BOOT_HOT_MS): home.js zeichnet
    Erfolgs-Chip, Mindset-Widget und Coach-Karte mit Funktionen aus diesen Dateien. Alle 30 Aufrufe sind
    mit typeof abgesichert, die Inhalte wuerden also lautlos FEHLEN statt zu krachen - genau deshalb
    laeuft der Nachlauf und zeichnet die Startseite danach genau einmal an Ort und Stelle neu
    (renderHome(v,{cached:true}): kein Skelett, kein Sprung, keine Scroll-Ruecksetzung). */
 (function(){
-  var MODS={analysis:1,mindset:1,coach:1,search:1};
+  var MODS={training:1,diet:1,analysis:1,mindset:1,coach:1,search:1};
   var done={},pend={};
   /* ME und CUR_TAB stehen in core.js als let-Deklaration auf oberster Ebene - die liegen NICHT auf window.
      Aus einem anderen klassischen Skript sind sie trotzdem sichtbar; try/catch faengt nur den Fall ab,
@@ -690,9 +739,89 @@ const BOOT_LOADER_JS = `
       if(typeof f==='function')return f.apply(null,a);
       if(typeof toast==='function')toast('Dieser Bereich braucht kurz Verbindung - gleich nochmal versuchen.');
     });};
+  /* ---- Platzhalter fuer die Einstiege der STARTSEITE (B2, 3.0.1) ---------------------------
+     home.js bietet drei Wege an, die in training.js/diet.js enden, und prueft jeden mit typeof:
+       "typeof openLogFood==='function'?openLogFood({focus:true}):go('diet')"   (Ring und Haupt-CTA)
+       "typeof openCalendar==='function'?openCalendar():go('workout')"          (Kachel "Kalender")
+       "if(typeof logFromMeal!=='function')return go('diet')"                   (Knopf "Gegessen")
+     Ohne Platzhalter waere die Antwort in den ersten Sekunden nach dem Kaltstart "nein" - und der
+     Nutzer landete auf dem TAB statt im Sheet. Das ist genau ein Tap mehr (tools/tapcount.mjs, Fluss "food").
+     Der Platzhalter macht die Antwort "ja", holt beim Tipp das Modul und ruft dann die echte Funktion.
+     Sobald die Datei da ist, ueberschreibt ihre eigene function-Deklaration den Platzhalter - ein
+     klassisches Skript legt seine Funktionen auf denselben globalen Namen. Deshalb wird im Moment des
+     Aufrufs neu nachgesehen (f!==stub), nie die gemerkte Fassung benutzt.
+     NICHT belegt werden Funktionen, deren RUECKGABE die Startseite sofort braucht (nextPlanMeal,
+     twLevel, calDay): ein Platzhalter kann einen Wert nicht nachreichen. Sie bleiben ungesetzt, home.js
+     nimmt seinen eigenen Rueckfall - und das Nachziehen der Startseite unten malt sie einmal richtig. */
+  function bootStub(mod,fn){
+    if(typeof window[fn]==='function')return;      /* echte Fassung ist schon da */
+    var stub=function(){
+      var a=[].slice.call(arguments);
+      return window.bootLoad(mod).then(function(ok){
+        var f=window[fn];
+        if(ok&&typeof f==='function'&&f!==stub)return f.apply(null,a);
+        if(typeof toast==='function')toast('Dieser Bereich braucht kurz Verbindung - gleich nochmal versuchen.');
+      });
+    };
+    window[fn]=stub;
+  }
+  bootStub('diet','openLogFood');
+  bootStub('diet','logFromMeal');
+  bootStub('training','openCalendar');
+  /* ---- Profil: braucht training.js ---------------------------------------------------------
+     account.js bleibt im Startbuendel, borgt sich aber drei Namen aus training.js - und zwar OHNE
+     typeof davor: _mrow und cycleText in openGoalSheet, applyAvatar nach dem Speichern von Name und
+     Profilbild. Alle drei haengen unter openProfile(). Also wartet dieser eine Einstieg, bis
+     training.js da ist; nach dem Vorabladen ist das kein Warten mehr, sondern nur die Zusicherung.
+     openGoalSheet ist zusaetzlich umhuellt, weil search.js (Kurzwege) direkt dorthin springt.
+     FIX-B2 (3.0.2): Das Ergebnis des Ladens wird GEPRUEFT - aber nur dort, wo f0 OHNE das Modul
+     wirklich zerbricht. Bis hierher rief bootNeeds f0 in JEDEM Fall, auch wenn /mod/training.js gar
+     nicht gekommen war. Gemessen (pruef-b2-fehlschlag.mjs, genau diese eine Datei blockiert):
+     Profil -> "Ziel & Training" blieb stumm auf dem Profil-Hub stehen und warf zweimal
+     "ReferenceError: _mrow is not defined at openGoalSheet". Ein Knopf, der nichts tut und nichts
+     sagt, ist schlimmer als einer, der sagt, dass er kurz Netz braucht - der Tab daneben macht es
+     mit der Karte "Bereich nicht geladen" laengst richtig.
+     WARUM ZWEI STUFEN und nicht einfach ueberall abbrechen: die erste Fassung dieses Fixes brach
+     auch openProfile ab - und damit oeffnete sich bei blockiertem training.js GAR KEIN Profil mehr
+     (gemessen: "Profil-Sheet offen= false"), also kein Name, keine Abmeldung, keine Einwilligung.
+     openProfile selbst steht vollstaendig in account.js und zeichnet den Hub ohne training.js
+     einwandfrei; es haengt nur mit applyAvatar() an der Datei, und das erst NACH einem erfolgreich
+     gespeicherten Namen. Also: warten ja, verweigern nein. Verweigert wird nur, wo der Aufruf sonst
+     sicher in einen ReferenceError laeuft - hart=1. */
+  function bootNeeds(mod,fn,hart){
+    var f0=window[fn];
+    if(typeof f0!=='function')return;
+    window[fn]=function(){
+      var self=this,a=arguments;
+      if(done[mod])return f0.apply(self,a);
+      return window.bootLoad(mod).then(function(ok){
+        if(!ok&&hart){
+          if(typeof toast==='function')toast('Dieser Bereich braucht kurz Verbindung - gleich nochmal versuchen.');
+          return;
+        }
+        return f0.apply(self,a);
+      });
+    };
+  }
+  bootNeeds('training','openProfile');
+  bootNeeds('training','openGoalSheet',1);   /* _mrow und cycleText, beide ohne typeof */
+  /* FIX-B2 (3.0.2): Der Rhythmus-Chip der Startseite. shOpenRhythmDay (home.js, im Startbuendel)
+     braucht calDay() aus training.js und hat einen eigenen Rueckfall: fehlt calDay, oeffnet es
+     openCalendar(). Das ist genau der Platzhalter oben - also oeffnete ein Tipp auf "Do · Lower 1"
+     in den ersten Sekunden nach dem Kaltstart den GANZEN Kalender statt des Tages (gemessen
+     PRUEF-reparatur.mjs: Sheet-Text 463 statt 153 Zeichen) und nahm damit die Zusage aus 2.8.0
+     zurueck, dass jeder Chip genau seinen Tag oeffnet (RATE-shell-home H2).
+     Umhuellt wird der AUFRUFER, nicht calDay: ein Platzhalter fuer calDay kann dessen Rueckgabewert
+     nicht nachreichen (siehe bootStub oben), der Umhang dagegen laesst shOpenRhythmDay danach
+     vollstaendig laufen - samt der drawCalendar.byDate-Vorbefuellung, die das Sheet erst richtig
+     befuellt. Bewusst OHNE hart=1: kommt training.js wirklich nicht, laeuft f0 in seinen eigenen
+     Rueckfall openCalendar() - und der ist ein Platzhalter, der dann selbst den Toast zeigt. Ein
+     zweiter Riegel davor wuerde nur dieselbe Meldung doppelt bringen. */
+  bootNeeds('training','shOpenRhythmDay');
   /* Ansichten, die in einem nachgeladenen Modul wohnen. go() zeichnet sonst NICHTS: _renderer(p)
      findet den Zeichner nicht und kehrt still zurueck. */
-  var VIEWMOD={tracker:'analysis',mindset:'mindset',athletes:'coach',admin:'coach',messages:'coach',templates:'coach'};
+  var VIEWMOD={workout:'training',diet:'diet',tracker:'analysis',mindset:'mindset',
+    athletes:'coach',admin:'coach',messages:'coach',templates:'coach'};
   var go0=window.go;
   if(typeof go0==='function')window.go=function(p,opts){
     var m=VIEWMOD[p];
@@ -737,6 +866,18 @@ const BOOT_LOADER_JS = `
      Adresse JETZT lesen: core.js raeumt ?go= und #... gleich nach dem Start aus der URL (clean()). */
   var URL_Q='',URL_H='';
   try{URL_Q=String(location.search||'');URL_H=String(location.hash||'');}catch(e){}
+  /* B2 (3.0.1): Zeigt die Adresse schon beim Start in ein nachgeladenes Modul, wird es SOFORT geholt -
+     nicht erst, wenn applyHashRoute() nach /api/me zu go() kommt. Auf Slow-4G ist das eine ganze
+     Rundreise. Betrifft nur den direkten Aufruf einer tiefen Adresse; ein normaler Start auf "/" faellt
+     durch (early=''), holt also nichts zusaetzlich. #workout/#diet brauchen danach keine Sonderbehandlung:
+     der Zweig in applyHashRoute() ruft schlicht go(tab), und go() ist oben umhuellt. */
+  var EARLY={workout:'training',diet:'diet',food:'diet',tracker:'analysis',mindset:'mindset',priming:'mindset'};
+  (function(){
+    var eg='';try{eg=(new URLSearchParams(URL_Q)).get('go')||'';}catch(e){}
+    var eh=String(URL_H.slice(1).split('/')[0]||'').replace(/[^a-z]/gi,'').toLowerCase();
+    var m=EARLY[eg]||EARLY[eh]||'';
+    if(m)window.bootLoad(m);
+  })();
   function modOfHash(h){return /^#mindset/.test(h)?'mindset':(/^#tracker/.test(h)?'analysis':'');}
   /* Den Link einloesen, sobald das Modul da ist. core.js hat den Anker unterwegs vielleicht schon aus der
      URL geraeumt (clean()) - dann wird er ohne History-Eintrag zurueckgeschrieben, damit applyHashRoute()
@@ -803,7 +944,36 @@ const BOOT_LOADER_JS = `
      156 KB Nachlauf mit genau den API-Antworten, auf die der Nutzer wartet. Wer die vier Bereiche
      nie oeffnet, zahlt sie auf Mobilfunk trotzdem - deshalb spaet und nur einmal. */
   var BOOT_IDLE_MS=1800;
-  var ran=false;
+  /* B2 (3.0.1): training und diet sind KEIN Nachlauf im selben Sinn - sie sind der Weg, den der Nutzer
+     als naechstes geht ("Upper 1 starten", "Essen loggen"). Sie bekommen deshalb eine eigene, fruehere
+     Stufe. Warum trotzdem eine Wartezeit und nicht sofort nach dem ersten Zeichnen:
+       1. Der Kaltstart ist erst dann fertig, wenn die Startseite steht UND ihre Anfragen durch sind.
+          tools/perf.mjs sammelt genau dafuer noch 600 ms Nachzuegler ein. Was frueher startet, ist
+          Teil des Kaltstarts - und damit haetten wir 12 statt 10 Anfragen und 2 Module Bandbreite in
+          genau dem Fenster, das dieses Paket entlasten soll.
+       2. Kurz nach "die Seite steht" hat noch niemand getippt; 1,6 Mbit/s reichen fuer beide Dateien
+          lange, bevor der erste Tipp kommt. Und wer FRUEHER tippt, wartet trotzdem nicht: go() und die
+          Platzhalter oben holen das Modul dann eben im Moment des Tipps.
+     FIX-B2 (3.0.2): 1000 war geschaetzt, 800 ist GEMESSEN. Der Wert ist ein Tauschgeschaeft zwischen
+     zwei Zahlen, und beide liegen jetzt auf dem Tisch (Slow-4G, kalt, angemeldet, ohne Worker,
+     Median aus 3-4 Laeufen; FIXB2-fenster-*.json und FIXB2-abstand-*.json):
+       FENSTER (so lange ist ein Tap teuer, ab "interaktiv" bis training.js ausgefuehrt)
+         1000 ms -> 1470 ms   800 ms -> 1302 ms   (diet: 1777 -> 1609 ms)
+       ABSTAND (so weit VOR dem Ende des perf-Messfensters startet /mod/training.js)
+         1000 ms -> ~500 ms   800 ms -> 304..327 ms   600 ms -> 95..122 ms
+     600 ms sieht in vier perf-Laeufen noch gruen aus (10 Anfragen, 134,2 KB), haelt den Kaltstart aber
+     nur noch um rund 100 ms auf Abstand - ein etwas traegerer Rechner, eine etwas spaetere API-Antwort,
+     und die 36 KB liegen MITTEN im gemessenen Kaltstart: 11 Anfragen statt 10, rund 170 statt 134 KB.
+     Das ist kein Messfehler, das waere die Rueckkehr genau des Rueckschritts, den dieses Paket
+     abgetragen hat. 800 ms nimmt 168 ms vom teuren Fenster und behaelt gut 300 ms Abstand - die
+     kleinste Zahl, die noch Luft hat. Belegt mit je drei perf-Laeufen: 10 Anfragen / 134,2 KB /
+     1287..1295 ms, unveraendert gegenueber 1000 ms.
+     Was NICHT geht (geprueft, verworfen): beide Dateien direkt nach dem ersten Zeichnen per
+     fetch(url,{priority:'low'}) in den HTTP-Cache holen. Dann waere der Tap in der ersten Sekunde ein
+     Cache-Treffer - aber die Bytes liegen dafuer per Definition IM Kaltstart-Fenster: +2 Anfragen und
+     rund 70 KB auf gemessene 134 KB. Der Kaltstart hat 43,9 KB Luft bis 178 KB, nicht 70. */
+  var BOOT_HOT_MS=800;
+  var ran=false,ranHot=false;
   function after(){
     /* Erfolgs-Chip, Mindset-Widget und Coach-Karte stehen erst jetzt zur Verfuegung: Startseite einmal
        an Ort und Stelle nachziehen. {cached:true} heisst: kein Skelett, kein Sprung, kein Scroll-Reset. */
@@ -814,8 +984,19 @@ const BOOT_LOADER_JS = `
       }
     }catch(e){}
   }
+  /* Stufe "heiss": training, dann diet - und danach die Startseite EINMAL an Ort und Stelle nachziehen.
+     Sie fragt beide Dateien naemlich: twLevel() (training) entscheidet die Erfahrungsstufe hinter den
+     Hinweisen, nextPlanMeal() und die Kalorien-Notizen (diet) fuellen die Ernaehrungskarte. Bis hierher
+     stand dort der Rueckfall aus home.js - richtig, aber nicht vollstaendig. */
+  function runHot(){
+    if(ranHot)return;ranHot=true;
+    window.bootLoad('training').then(function(){
+      return window.bootLoad('diet');
+    }).then(function(){after();});
+  }
   function run(){
     if(ran)return;ran=true;
+    runHot();     /* falls die heisse Stufe aus irgendeinem Grund nicht lief: hier ist sie Pflicht */
     /* mindset.js zuerst - und die Startseite SOFORT danach nachziehen, nicht erst hinter allen vieren.
        Von den vier nachgeladenen Dateien aendert naemlich genau eine die schon gezeichnete Startseite
        des Athleten: mindset.js bringt den Mindset-Kurzweg, den Ring und die Statuszeile. Bis hierher
@@ -857,6 +1038,13 @@ const BOOT_LOADER_JS = `
       return;
     }
     scharf=true;
+    /* Zwei Wecker aus EINEM Bereitschaftsmoment: erst die heisse Stufe (training, diet), dann der
+       Nachlauf. Beide im Leerlauf, beide mit Frist - requestIdleCallback ohne timeout kann auf einer
+       beschaeftigten Seite beliebig lange gar nicht feuern. Faellt requestIdleCallback aus (aeltere
+       Safari-Staende), bleibt der setTimeout der Rueckfall, und die Reihenfolge stimmt trotzdem. */
+    setTimeout(function(){
+      if(window.requestIdleCallback)requestIdleCallback(runHot,{timeout:3000}); else runHot();
+    },BOOT_HOT_MS);
     setTimeout(function(){
       if(window.requestIdleCallback)requestIdleCallback(run,{timeout:5000}); else run();
     },BOOT_IDLE_MS);
@@ -899,14 +1087,83 @@ const BOOT = bootBuild();
   console.log('[buendel] /app.js ' + kb(BOOT.appJs) + ' KB roh · /app.css ' + kb(BOOT.appCss) + ' KB roh · '
     + Object.keys(BOOT.mods).length + ' Module nachladbar' + (BOOT_MINIFY ? '' : ' · MINIFY=0 (unverkleinert)'));
 }
-app.get('/app.js', (req, res) => { res.setHeader('Content-Type', 'application/javascript; charset=utf-8'); res.send(BOOT.appJs); });
-app.get('/app.css', (req, res) => { res.setHeader('Content-Type', 'text/css; charset=utf-8'); res.send(BOOT.appCss); });
+// ---------------- VORAB-KOMPRIMIERUNG DES BUENDELS (A-IV.3, 2.8.0) ----------------
+// Diese sechs Dateien stehen ab dem Serverstart fest und aendern sich bis zum naechsten Start kein
+// Byte mehr. Sie trotzdem bei jeder Anfrage durch gzip Stufe 6 zu schicken (die allgemeine Schicht
+// oben, gebaut fuer die je Nutzer verschiedenen /api-Antworten) ist doppelt verschenkt: der Kaltstart
+// bezahlt Rechenzeit, die er nicht bezahlen muesste, UND er bekommt die schlechtere Packung.
+// Hier wird jede Datei EINMAL gepackt - und dann so fest wie moeglich:
+//   brotli Stufe 11 fuer jeden Browser, der "br" annimmt (alle seit 2017, Safari seit 11),
+//   gzip Stufe 9 als Rueckfall, roh als letzter Rueckfall.
+// Gemessen an 2.8.0 auf dieser Maschine (A/B gegen den 2.7.0-Stand aus backup-2.7.0):
+//   /app.js   gzip6 150,3 KB -> brotli 121,0 KB   (2.7.0 mit gzip6: 132,1 KB)
+//   /app.css  gzip6  24,1 KB -> brotli  20,5 KB   (2.7.0 mit gzip6:  21,0 KB)
+// Zusammen 141,5 statt 174,4 KB - und damit 11,6 KB WENIGER als der 2.7.0-Kaltstart, obwohl die Welle
+// A-IV 59 KB Quelltext hinzugefuegt hat. Das ist keine Entschuldigung fuer den Zuwachs (der Zuschnitt
+// steht in DEFER-A4 als erste Aufgabe von A-V), sondern nur der Grund, warum er heute niemanden mehr
+// Bytes kostet als vorher.
+// WARUM ASYNCHRON: brotli 11 kostet fuer alle sechs Dateien zusammen rund 1,2 s. Synchron am Modulende
+// waere das 1,2 s, in denen Render den Dienst fuer tot haelt. zlib rechnet im Threadpool, der eine
+// Node-Thread bleibt also frei: der Server nimmt sofort Anfragen an. Wer in der ersten Sekunde kommt,
+// bekommt die Datei ueber die allgemeine gzip-Schicht - korrekt, nur ein paar KB groesser.
+// Nacheinander statt alle sechs auf einmal, damit die vier Threadpool-Plaetze nicht fuer eine Sekunde
+// komplett belegt sind (dort liegen auch die Datei- und Krypto-Aufgaben).
+const BOOT_ASSETS = new Map();          // Pfad -> { raw, type, br, gz }
+for (const [p, text, type] of [
+  ['/app.js', BOOT.appJs, 'application/javascript; charset=utf-8'],
+  ['/app.css', BOOT.appCss, 'text/css; charset=utf-8'],
+  ...Object.keys(BOOT.mods).map(n => ['/mod/' + n, BOOT.mods[n], 'application/javascript; charset=utf-8'])
+]) BOOT_ASSETS.set(p, { raw: Buffer.from(text, 'utf8'), type, br: null, gz: null });
+
+(function bootPrecompress() {
+  const list = [...BOOT_ASSETS.values()];
+  const t0 = Date.now();
+  let i = 0;
+  const next = () => {
+    if (i >= list.length) {
+      const kb = b => b ? Math.round(b.length / 102.4) / 10 : 0;
+      const a = BOOT_ASSETS.get('/app.js'), c = BOOT_ASSETS.get('/app.css');
+      console.log('[buendel] vorab gepackt in ' + (Date.now() - t0) + ' ms · /app.js ' + kb(a.br) + ' KB br / '
+        + kb(a.gz) + ' KB gzip · /app.css ' + kb(c.br) + ' KB br / ' + kb(c.gz) + ' KB gzip');
+      return;
+    }
+    const a = list[i++];
+    zlib.brotliCompress(a.raw, { params: {
+      [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+      [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
+      [zlib.constants.BROTLI_PARAM_SIZE_HINT]: a.raw.length
+    } }, (e, b) => {
+      if (!e && b) a.br = b;
+      zlib.gzip(a.raw, { level: 9 }, (e2, g) => { if (!e2 && g) a.gz = g; setImmediate(next); });
+    });
+  };
+  setImmediate(next);
+})();
+
+// Nimmt der Client diese Kodierung an? Dasselbe Muster wie in gzipLayer, inklusive "q=0 heisst nein".
+function bootAccepts(req, enc) {
+  return new RegExp('\\b' + enc + '\\b(?!\\s*;\\s*q=0(\\.0*)?\\b)', 'i').test(String(req.headers['accept-encoding'] || ''));
+}
+// ETag und Content-Length setzt res.send selbst - und zwar je Kodierung verschieden, weil jede Kodierung
+// einen anderen Puffer schickt. Zusammen mit Vary: Accept-Encoding darf kein Zwischenspeicher die
+// brotli-Fassung an einen Client ohne brotli weiterreichen. Steht Content-Encoding, laesst die
+// allgemeine gzip-Schicht die Antwort unveraendert durch (sie prueft genau diesen Kopf).
+function bootSendAsset(req, res, a) {
+  res.setHeader('Content-Type', a.type);
+  withVary(res);
+  if (a.br && bootAccepts(req, 'br')) { res.setHeader('Content-Encoding', 'br'); return res.send(a.br); }
+  if (a.gz && bootAccepts(req, 'gzip')) { res.setHeader('Content-Encoding', 'gzip'); return res.send(a.gz); }
+  return res.send(a.raw);               // noch nicht gepackt: die gzip-Schicht oben springt ein
+}
+app.get('/app.js', (req, res) => bootSendAsset(req, res, BOOT_ASSETS.get('/app.js')));
+app.get('/app.css', (req, res) => bootSendAsset(req, res, BOOT_ASSETS.get('/app.css')));
 // /mod/<name>.js - genau die vier Namen aus BOOT_MODULES, nie ein Pfad aus der Anfrage.
 app.get('/mod/:name', (req, res) => {
   const name = String(req.params.name || '').replace(/\.js$/, '');
   if (!Object.prototype.hasOwnProperty.call(BOOT.mods, name)) return res.status(404).type('text/plain').send('unbekanntes Modul');
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.send(BOOT.mods[name]);
+  const a = BOOT_ASSETS.get('/mod/' + name);
+  if (!a) return res.status(404).type('text/plain').send('unbekanntes Modul');
+  return bootSendAsset(req, res, a);
 });
 
 // dotfiles: 'deny' -> nichts wie /.claude/… oder /.env aus public/ ausliefern; index: false -> index.html nur über sendIndex
@@ -1135,6 +1392,109 @@ function clampNum(v, min, max, asInt) {
   n = Math.max(min, Math.min(max, n));
   return asInt ? Math.round(n) : n;
 }
+
+/* ============================================================================
+   3.0.0 · WELCHER TAG IST DAS FUER DIESEN MENSCHEN (Welle B-I, BUILD-B1 4.6 · B-k)
+   ============================================================================
+   `users.tz` steht seit 2.6.0 in der Tabelle und wurde nie gelesen. Bis 2.9.0 kannte der Server genau
+   EINEN Tag: `tzToday()` in APP_TZ (Europe/Berlin). Fuer Marco in Wien stimmt das. Fuer einen Athleten
+   in Dubai (+2 h) ist der Check-in um 23:59 Ortszeit ein Eintrag von 21:59 Berliner Zeit - noch
+   derselbe Tag, gut. Umgekehrt: 01:30 Ortszeit in Dubai sind 23:30 in Berlin - der Eintrag landet auf
+   dem VORTAG, die Streak zaehlt ihn fuer gestern, und die Wochenkonsistenz verschiebt sich um einen Tag.
+   Ab hier gibt es deshalb genau eine Stelle fuer die Frage:
+     userToday(uid)      - welcher Tag ist fuer DIESEN Nutzer gerade
+     userWeekStart(uid)  - der Montag SEINER Woche
+     userHour(uid)       - seine Ortsstunde (fuer push_hour im Stundentakt)
+   Die Rechnung selbst gehoert nach logic.js (`localDay`/`weekStart`, Paket B-I.1). Wie bei
+   `reminderLadder` und `fatFloorG` wird sie ueber den Namensraum geholt, NICHT als benannter Import:
+   ein harter Import auf eine Funktion, die eine andere Datei besitzt, waere ein Startfehler, sobald
+   sie dort umbenannt wird. Fehlt sie, rechnet die Notfassung darunter - mit demselben Verfahren
+   (Intl.DateTimeFormat auf die Zeitzone), damit beide Wege dasselbe Ergebnis liefern.
+   KEINE rueckwirkende Verschiebung: gespeicherte Datumszeilen bleiben, wie sie eingetragen wurden.
+   Wer die Zeitzone wechselt, bekommt ab dem naechsten Eintrag den neuen Tag - die Vergangenheit
+   umzuschreiben waere eine Faelschung (und in der Streak sichtbar). */
+const APP_TZ_NAME = LOGIC.APP_TZ || process.env.APP_TZ || 'Europe/Berlin';
+const TZ_FMT_CACHE = new Map();
+function tzDayFmt(tz) {
+  let f = TZ_FMT_CACHE.get(tz);
+  if (!f) {
+    try { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }); }
+    catch (e) { return null; }     // unbekannte Zone -> Aufrufer faellt auf APP_TZ zurueck
+    TZ_FMT_CACHE.set(tz, f);
+  }
+  return f;
+}
+const TZ_HOUR_CACHE = new Map();
+function tzHourFmt(tz) {
+  let f = TZ_HOUR_CACHE.get(tz);
+  if (!f) {
+    try { f = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hour12: false }); }
+    catch (e) { return null; }
+    TZ_HOUR_CACHE.set(tz, f);
+  }
+  return f;
+}
+// Die Zeitzone eines Nutzers. Leer, unbekannt oder unlesbar -> APP_TZ. Ein ungueltiger Wert in der
+// Spalte darf NIE dazu fuehren, dass eine Route 500 wirft: „welcher Tag ist heute" ist eine Frage,
+// die immer eine Antwort hat.
+const USER_TZ_CACHE = new Map();
+function userTz(uidOrUser) {
+  if (uidOrUser && typeof uidOrUser === 'object') {
+    const t = String(uidOrUser.tz || '').trim();
+    return t && tzDayFmt(t) ? t : APP_TZ_NAME;
+  }
+  const uid = Number(uidOrUser);
+  if (!Number.isInteger(uid) || uid < 1) return APP_TZ_NAME;
+  if (USER_TZ_CACHE.has(uid)) return USER_TZ_CACHE.get(uid);
+  let t = APP_TZ_NAME;
+  try {
+    const raw = String(db.get('SELECT tz FROM users WHERE id=?', [uid])?.tz || '').trim();
+    if (raw && tzDayFmt(raw)) t = raw;
+  } catch (e) { t = APP_TZ_NAME; }
+  USER_TZ_CACHE.set(uid, t);
+  return t;
+}
+// Wird die Zone im Profil geaendert, muss der Merker weg - sonst rechnet der Prozess bis zum
+// naechsten Neustart mit der alten Zone weiter.
+function userTzForget(uid) { USER_TZ_CACHE.delete(Number(uid)); }
+// Der lokale Tag. Erst logic.localDay (B-I.1), sonst die Notfassung.
+function userToday(uidOrUser, at = new Date()) {
+  const tz = userTz(uidOrUser);
+  if (typeof LOGIC.localDay === 'function') {
+    try { const d = LOGIC.localDay(tz, at); if (typeof d === 'string' && ISO_DATE.test(d)) return d; } catch (e) {}
+  }
+  const f = tzDayFmt(tz);
+  return f ? f.format(at) : tzToday(at);       // en-CA formatiert als YYYY-MM-DD
+}
+// Der Montag SEINER Woche. `mondayOf` rechnet rein auf dem Datumsstring - die Zone steckt also
+// bereits in `userToday`, und eine zweite Zeitrechnung darueber waere ein zweiter Ort fuer dieselbe
+// Frage (genau das, was CRITIC K1 verbietet).
+function userWeekStart(uidOrUser, at = new Date()) {
+  const tz = userTz(uidOrUser);
+  if (typeof LOGIC.weekStart === 'function') {
+    try { const d = LOGIC.weekStart(tz, at); if (typeof d === 'string' && ISO_DATE.test(d)) return d; } catch (e) {}
+  }
+  return mondayOf(userToday(uidOrUser, at));
+}
+// Seine Ortsstunde (0-23). Nur der Stundentakt braucht sie: die Erinnerung um 6 Uhr soll um 6 Uhr
+// SEINER Zeit kommen, nicht um 6 Uhr Berliner Zeit.
+// Seit 3.0.0 ueber den Rechenkern - genau wie `userToday` und `userWeekStart`, und aus demselben
+// Grund: `userHour` baute sich einen ZWEITEN Intl.DateTimeFormat fuer dieselbe Frage, waehrend
+// `LOGIC.localHour` (B-I.1) dafuer da war und im ganzen Server null Aufrufe hatte. Zwei Orte fuer
+// dieselbe Frage ist genau das, was der Kommentar bei `userWeekStart` ausschliesst (CRITIC K1).
+// Die Notfassung darunter ist wortgleich die von `userToday`: eine Frage nach der Uhrzeit hat immer
+// eine Antwort, auch wenn der Rechenkern fehlt oder die Zone unlesbar ist.
+function userHour(uidOrUser, at = new Date()) {
+  const tz = userTz(uidOrUser);
+  if (typeof LOGIC.localHour === 'function') {
+    try { const h = LOGIC.localHour(tz, at); if (Number.isInteger(h) && h >= 0 && h <= 23) return h; } catch (e) {}
+  }
+  const f = tzHourFmt(tz);
+  if (!f) return tzHour(at);
+  const n = parseInt(f.format(at), 10);
+  return Number.isFinite(n) ? n % 24 : tzHour(at);
+}
+
 // ---- Eingabe-Validierung (klein & gemeinsam genutzt) ----
 // Freitext: als String, ohne < > (kein HTML), getrimmt und auf max Zeichen begrenzt.
 const str = (v, max) => String(v ?? '').replace(/<[^>]*>/g, '').replace(/[<>]/g, '').trim().slice(0, max);
@@ -1210,6 +1570,95 @@ const GOALS = ['muscle', 'fatloss', 'health'], PHASES = ['offseason', 'prep', 'm
 const EXPERIENCES = ['beginner', 'intermediate', 'advanced'], GENDERS = ['male', 'female', 'other'];
 const pick = (v, list, fb = null) => (list.includes(v) ? v : fb);
 
+/* ================= LAUFZEIT-SCHALTER (BUILD-A5 Abschnitt 4, Welle A-V) =================
+   Marcos Auftrag fuer die Verwaltung lautet „alles moeglich ueberwachen und EINSTELLEN koennen".
+   Bis 2.8.0 hiess „einstellen" in Wahrheit: eine Umgebungsvariable aendern und neu ausliefern. Auf
+   Render kostet das mehrere Minuten Ausfall – fuer eine Entscheidung, die eine Sekunde dauert
+   („keine neuen Anmeldungen mehr" / „KI sofort aus").
+
+   Die Schalter liegen in `settings` (key/value, gibt es seit jeher; `updated_at`/`updated_by` seit
+   dieser Welle im Schema). Sie werden bei JEDEM Zugriff gelesen, mit einer kurzen Zwischenablage von
+   OPS_TTL_MS – so wirkt ein Umlegen ohne Neustart, kostet aber im Normalbetrieb keine Abfrage.
+
+   Drei Grundsaetze:
+   1. **Fehlt der Eintrag, gilt der Standard** (`OPS_DEFAULTS`). Eine frische Datenbank verhaelt sich
+      genau wie 2.8.0 – der Schalter ist ein Zusatz, kein neuer Zustand.
+   2. **Ein unbekannter Wert wird abgelehnt, nicht stillschweigend gebogen.** Wer etwas von Hand in
+      `settings` schreibt, bekommt beim Lesen den Standard zurueck (siehe opsGet) und in der
+      Verwaltung den Hinweis – kein halber Zustand.
+   3. **Jedes Umlegen schreibt eine `audit`-Zeile** (`ops.set`) mit Schluessel, Vorher und Nachher.
+      Beim Wartungstext steht der TEXT NICHT im Protokoll (er ist Freitext, und `audit` nimmt keinen
+      Freitext auf, siehe schema.js) – nur seine Laenge und ob er leer wurde. */
+const OPS_DEFAULTS = {
+  'ops.registration': 'open',   // 'open' | 'code' | 'closed'  (DECISIONS F1: Standard offen)
+  'ops.ai': 'on',               // 'on' | 'off'                (DECISIONS F5: Not-Aus fuer den Betrieb)
+  'ops.notice': '',             // Wartungstext, eine Zeile – KEIN Wartungsmodus, der aussperrt
+};
+const OPS_ENUM = { 'ops.registration': ['open', 'code', 'closed'], 'ops.ai': ['on', 'off'] };
+const OPS_NOTICE_MAX = 200;     // eine Zeile, nicht eine Mitteilung
+const OPS_TTL_MS = 3000;
+let OPS_CACHE = null, OPS_CACHE_AT = 0;
+// Welche Schalter ueberhaupt eine Zeile haben – der Unterschied zwischen „steht auf dem Standard"
+// und „jemand hat ihn ausdruecklich auf den Standard gestellt". Nur er erlaubt es, eine bestehende
+// Installation mit REGISTER_CODE unveraendert weiterlaufen zu lassen (siehe opsRegistration).
+const OPS_STORED = new Set();
+function opsAll() {
+  if (OPS_CACHE && Date.now() - OPS_CACHE_AT < OPS_TTL_MS) return OPS_CACHE;
+  const out = { ...OPS_DEFAULTS };
+  OPS_STORED.clear();
+  try {
+    for (const r of db.all("SELECT key,value FROM settings WHERE key LIKE 'ops.%'")) {
+      if (!(r.key in OPS_DEFAULTS)) continue;
+      OPS_STORED.add(r.key);
+      const list = OPS_ENUM[r.key];
+      if (list) { if (list.includes(String(r.value))) out[r.key] = String(r.value); }   // sonst: Standard
+      else out[r.key] = String(r.value ?? '').slice(0, OPS_NOTICE_MAX);
+    }
+  } catch (e) { /* Tabelle nicht lesbar -> Standardverhalten, nie ein Ausfall */ }
+  OPS_CACHE = out; OPS_CACHE_AT = Date.now();
+  return out;
+}
+const opsGet = key => opsAll()[key];
+// Schreiben: prueft den Wert, schreibt `settings` samt Spur (wer, wann) und legt eine audit-Zeile an.
+// Gibt { ok, from, to } zurueck oder { ok:false, error } – der Aufrufer antwortet damit im Klartext.
+function opsSet(key, raw, actor) {
+  if (!(key in OPS_DEFAULTS)) return { ok: false, error: 'Unbekannter Schalter' };
+  const list = OPS_ENUM[key];
+  let value;
+  if (list) {
+    value = String(raw ?? '');
+    if (!list.includes(value)) return { ok: false, error: 'Erlaubt sind: ' + list.join(', ') };
+  } else {
+    value = str(raw, OPS_NOTICE_MAX);
+  }
+  const from = opsGet(key);
+  if (String(from) === String(value)) return { ok: true, from, to: value, changed: false };
+  try {
+    // `updated_at`/`updated_by` sind die Spur am Schalter selbst; fehlen die Spalten (uebersprungener
+    // Migrationsschritt, /api/selftest meldet das), bleibt der Schalter trotzdem bedienbar.
+    try {
+      db.run('INSERT INTO settings(key,value,updated_at,updated_by) VALUES(?,?,datetime(\'now\'),?) '
+        + 'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by',
+        [key, value, actor?.id ?? null]);
+    } catch (e) {
+      db.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', [key, value]);
+    }
+  } catch (e) { return { ok: false, error: 'Der Schalter konnte nicht gespeichert werden.' }; }
+  OPS_CACHE = null;
+  // Der Wartungstext ist Freitext – er gehoert nicht ins Protokoll (schema.js: „Verboten: E-Mail,
+  // Name, Freitext"). Protokolliert wird, DASS er geaendert wurde und wie lang er jetzt ist.
+  const meta = list ? { key, from, to: value } : { key, chars: value.length, cleared: value ? 0 : 1 };
+  auditLog(actor, 'ops.set', 'setting', null, meta);
+  return { ok: true, from, to: value, changed: true };
+}
+// Wann wurde zuletzt an einem Schalter gedreht (fuer die Verwaltung: „gesetzt von B-0003, vor 2 Std.")
+function opsMeta(key) {
+  try {
+    const r = db.get('SELECT updated_at, updated_by FROM settings WHERE key=?', [key]);
+    return r ? { updatedAt: r.updated_at || null, updatedBy: r.updated_by ?? null } : { updatedAt: null, updatedBy: null };
+  } catch (e) { return { updatedAt: null, updatedBy: null }; }
+}
+
 // Einladungscode (Vertrag V3, UX-Linse: OPTIONAL per Umgebungsvariable). Ist REGISTER_CODE gesetzt,
 // verlangt die Registrierung das Feld `code`; ohne Variable bleibt alles wie heute (offene Registrierung).
 // Vergleich in konstanter Zeit, damit sich der Code nicht Zeichen fuer Zeichen erraten laesst.
@@ -1219,11 +1668,45 @@ function inviteCodeOk(given) {
   const a = Buffer.from(String(given || '')), b = Buffer.from(REGISTER_CODE);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+// Der Schalter aus der Verwaltung, zusammengelegt mit der Umgebungsvariablen. EINE Stelle beantwortet
+// „darf sich gerade jemand anmelden?" – Route, Auskunft und Verwaltung lesen dieselbe Funktion.
+// „nur mit Code" braucht REGISTER_CODE: ohne den Code waere der Modus eine Tuer ohne Schluessel und
+// damit in Wahrheit „geschlossen". Deshalb lehnt opsRegistration() ihn dann ab und faellt auf „offen"
+// zurueck – und `codeMissing` sagt der Verwaltung genau das, statt es zu verschweigen.
+function opsRegistration() {
+  // Solange niemand am Schalter gedreht hat, entscheidet weiter die Umgebungsvariable – eine
+  // bestehende Installation mit REGISTER_CODE aendert durch dieses Update ihr Verhalten NICHT.
+  // Ab dem ersten Umlegen gilt der Schalter, auch gegen die Variable: das ist sein Zweck.
+  const all = opsAll();   // fuellt zugleich OPS_STORED
+  const stored = OPS_STORED.has('ops.registration') ? all['ops.registration'] : null;
+  const mode = stored || (REGISTER_CODE ? 'code' : 'open');
+  const codeMissing = mode === 'code' && !REGISTER_CODE;
+  const effective = codeMissing ? 'open' : mode;     // Tuer ohne Schluessel waere in Wahrheit „zu"
+  return { mode, effective, codeMissing, stored: !!stored,
+    envCode: !!REGISTER_CODE,
+    // `inviteRequired` bleibt das alte Feld: aeltere Clients zeigen damit weiter das Code-Feld.
+    inviteRequired: effective === 'code',
+    closed: effective === 'closed' };
+}
+const REGISTER_CLOSED_TEXT = 'Die Registrierung ist derzeit geschlossen. Wenn du einen Zugang brauchst, wende dich an deinen Coach.';
 // Ohne Login: braucht die Registrierung einen Einladungscode? (Die Oberflaeche zeigt das Feld nur dann.)
 // `mailConfigured` (A5/B15): Ohne SMTP behauptete das Sheet „Passwort vergessen" trotzdem „eine E-Mail
 // ist unterwegs", waehrend im Log stand „Mail nicht versandt - SMTP fehlt". Die Oberflaeche konnte den
 // Mailzustand gar nicht wissen – jetzt kann sie es und schreibt stattdessen, wie es wirklich weitergeht.
-app.get('/api/register-info', (req, res) => res.json({ inviteRequired: !!REGISTER_CODE, mailConfigured: !!process.env.EMAIL_HOST }));
+// `mode`/`closed` kommen seit 2.9.0 aus dem Laufzeit-Schalter (BUILD-A5 Abschnitt 4 Punkt 1). Der
+// `notice` daneben ist der Wartungstext: die Anmeldeseite ist die einzige Ansicht, die auch OHNE
+// Konto sichtbar ist – wer wegen einer Wartung nicht hereinkommt, soll den Grund dort lesen koennen.
+app.get('/api/register-info', (req, res) => {
+  const reg = opsRegistration();
+  res.json({ inviteRequired: reg.inviteRequired, closed: reg.closed, mode: reg.effective,
+    closedText: reg.closed ? REGISTER_CLOSED_TEXT : null,
+    notice: opsGet('ops.notice') || null,
+    mailConfigured: !!process.env.EMAIL_HOST });
+});
+// Der Wartungstext allein – ohne Login, winzig, fuer jede Huelle, die ihn oben anzeigen will.
+// Bewusst eine eigene Route und kein Feld in /api/me: der Hinweis gilt ALLEN (auch dem, der gerade
+// nicht angemeldet ist), und eine Zeile Text soll keine Nutzerabfrage kosten.
+app.get('/api/notice', (req, res) => res.json({ notice: opsGet('ops.notice') || null }));
 
 const regAttempts = new Map();
 app.post('/api/register', (req, res) => {
@@ -1233,7 +1716,11 @@ app.post('/api/register', (req, res) => {
   if (Date.now() - rl.first > 60 * 60000) { rl.count = 0; rl.first = Date.now(); }
   rl.count++; regAttempts.set(ipKey, rl);
   if (rl.count > 8) return res.status(429).json({ error: 'Zu viele Registrierungen. Bitte später erneut versuchen.' });
-  if (!inviteCodeOk(req.body.code)) return res.status(403).json({ error: 'Einladungscode fehlt oder falsch' });
+  // Laufzeit-Schalter „Registrierung" (2.9.0). Er steht VOR der Codepruefung: bei „geschlossen" soll
+  // auch ein gueltiger Code nicht mehr durchkommen, sonst waere „geschlossen" nur „mit Code".
+  const reg = opsRegistration();
+  if (reg.closed) return res.status(403).json({ error: REGISTER_CLOSED_TEXT, registrationClosed: true });
+  if (reg.effective === 'code' && !inviteCodeOk(req.body.code)) return res.status(403).json({ error: 'Einladungscode fehlt oder falsch' });
   const email = String(req.body.email || '').trim();
   const password = req.body.password;
   const name = str(req.body.name, 80);
@@ -1823,7 +2310,7 @@ app.post('/api/onboarding/complete', auth, (req, res) => {
     d.exercises.forEach((e, ei) => {
       db.run(`INSERT INTO exercises(day_id,muscle,name,technique,target_sets,target_reps,position,source,coach_locked)
         VALUES(?,?,?,?,?,?,?,?,?)`,
-        [dayId, e.muscle, e.name, e.technique || null, e.target_sets, e.target_reps, ei, 'system', 0]);
+        [dayId, muscleCanon(e.muscle), e.name, e.technique || null, e.target_sets, e.target_reps, ei, 'system', 0]);
     });
   });
   // Abgelehnte Lebensmittel merken und gleich einen Mahlzeitenplan erzeugen
@@ -1839,6 +2326,7 @@ app.post('/api/onboarding/complete', auth, (req, res) => {
 
 /* ---------------- PROFIL ---------------- */
 app.put('/api/profile', auth, (req, res) => {
+  userTzForget(req.user.id);   // B-k: eine geaenderte tz darf nicht bis zum Neustart nachwirken
   const f = req.body || {};
   // Art. 9 DSGVO: Geburtsjahr, Geschlecht, Groesse und Startgewicht sind dieselbe Datenkategorie wie
   // ein Check-in – datenschutz.html Abschnitt 2 zaehlt sie ausdruecklich dazu. Ohne Einwilligung
@@ -1900,23 +2388,80 @@ app.put('/api/profile', auth, (req, res) => {
 // Felder, die per PUT /api/profile {reset:[...]} auf den App-Standard (NULL) zurückgesetzt werden dürfen
 const PROFILE_RESETTABLE = ['sleep_goal', 'steps_goal', 'water_goal', 'push_hour', 'dob', 'height_cm'];
 
+// Profi-Schalter, die ein Coach je Konto setzen darf (`users.features`, JSON). Die Liste ist bewusst
+// geschlossen: `features` ist eine Freitext-Spalte, und was hier nicht steht, kommt auch nicht hinein.
+// Dieselben vier Schluessel kennt das Coach-Blatt (coach.js CO2_FEATS) und die Trainingsansicht.
+const COACH_FEATURE_KEYS = ['rir', 'set_types', 'tempo', 'muscle_corridor'];
+// Spalten, die diese Route aendern darf – und an denen gemessen wird, ob sie wirklich etwas geaendert hat.
+const ATHLETE_PROFILE_COLS = 'phase,goal,kcal_target_train,kcal_target_rest,experience_coach,features';
 // Coach darf Profil/Phase eines Athleten setzen
 app.put('/api/athlete/:id/profile', auth, requireCoach, (req, res) => {
   const a = db.get('SELECT coach_id FROM users WHERE id=?', [req.params.id]);
   if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
   const f = req.body || {};
+  const has = k => Object.prototype.hasOwnProperty.call(f, k);
+  // STRATEGY 4.0: „Der Coach setzt die Stufe, nicht der Athlet" (Helms-Vorbehalt zu RIR). Bis 2.8.0
+  // stand das im Vertrag und im Coach-Blatt – nur nahm diese Route die beiden Spalten gar nicht an:
+  // sie antwortete 200 und schrieb nichts. `experience` bleibt dabei unangetastet (CRITIC K1): das ist
+  // die Selbstangabe des Athleten. `experience_coach` ist die Uebersteuerung daneben, und ein
+  // ausdrueckliches null/'' nimmt sie wieder zurueck – deshalb hier KEIN COALESCE, sondern
+  // „gesetzt oder unveraendert". Ein unbekannter Wert wird abgelehnt statt still zu NULL zu werden.
+  if (has('experience_coach') && f.experience_coach != null && f.experience_coach !== ''
+      && !EXPERIENCES.includes(String(f.experience_coach))) {
+    return res.status(400).json({ error: 'Unbekannte Stufe (beginner, intermediate oder advanced)' });
+  }
+  const expSet = has('experience_coach') ? 1 : 0;
+  const expVal = expSet ? (pick(f.experience_coach, EXPERIENCES) || null) : null;
+  // `features` (JSON) ist die Feinsteuerung unter der Stufe: eine EINZELNE Funktion abweichend davon.
+  // Angenommen wird nur ein Objekt (oder dessen JSON-Text) und daraus nur die vier bekannten Schluessel
+  // als echte Ja/Nein-Werte. Bleibt danach nichts uebrig, wird NULL geschrieben – „keine Ausnahme"
+  // heisst leer, nicht „{}", sonst haette dieselbe Aussage zwei Schreibweisen.
+  let featSet = 0, featVal = null;
+  if (has('features')) {
+    let raw = f.features;
+    if (typeof raw === 'string') { try { raw = raw.trim() ? JSON.parse(raw) : {}; } catch (e) { raw = undefined; } }
+    if (raw === null) raw = {};
+    if (raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
+      return res.status(400).json({ error: 'features muss ein Objekt mit den bekannten Schaltern sein' });
+    }
+    const clean = {};
+    for (const k of COACH_FEATURE_KEYS) if (Object.prototype.hasOwnProperty.call(raw, k)) clean[k] = !!raw[k];
+    featSet = 1;
+    featVal = Object.keys(clean).length ? JSON.stringify(clean) : null;
+  }
   // Auch das ist eine Sonderhandlung am fremden Konto: der Coach setzt Phase, Ziel und Kalorienziele.
   // Der Athlet bekommt darueber eine Nachricht, der Betreiber bisher nichts – jetzt steht es im
-  // Protokoll (nur IDs, keine Werte).
+  // Protokoll (nur IDs, keine Werte). Protokolliert wird der VERSUCH, nicht erst der Erfolg.
   auditLog(req.user, 'athlete.profile.set', 'user', Number(req.params.id), null);
+  const vorher = db.get(`SELECT ${ATHLETE_PROFILE_COLS} FROM users WHERE id=?`, [req.params.id]) || {};
   db.run(`UPDATE users SET phase=COALESCE(?,phase),goal=COALESCE(?,goal),
-    kcal_target_train=COALESCE(?,kcal_target_train),kcal_target_rest=COALESCE(?,kcal_target_rest) WHERE id=?`,
-    [pick(f.phase, PHASES), pick(f.goal, GOALS), clampNum(f.kcal_target_train, 0, 15000, true), clampNum(f.kcal_target_rest, 0, 15000, true), req.params.id]);
-  // Athlet bekommt eine Nachricht über die Änderung
-  db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
-    [req.params.id, req.user.id, 'change', 'Coach hat dein Profil angepasst',
-     'Phase/Ziele wurden aktualisiert. Schau dir deinen Plan und deine Kalorienziele an.']);
-  res.json({ ok: true });
+    kcal_target_train=COALESCE(?,kcal_target_train),kcal_target_rest=COALESCE(?,kcal_target_rest),
+    experience_coach=CASE WHEN ?=1 THEN ? ELSE experience_coach END,
+    features=CASE WHEN ?=1 THEN ? ELSE features END WHERE id=?`,
+    [pick(f.phase, PHASES), pick(f.goal, GOALS), clampNum(f.kcal_target_train, 0, 15000, true), clampNum(f.kcal_target_rest, 0, 15000, true),
+     expSet, expVal, featSet, featVal, req.params.id]);
+  const nachher = db.get(`SELECT ${ATHLETE_PROFILE_COLS} FROM users WHERE id=?`, [req.params.id]) || {};
+  // Die Nachricht geht nur raus, wenn sich wirklich etwas geaendert hat. Bis 2.8.0 wurde sie
+  // bedingungslos verschickt: ein Speichern mit unveraenderten Werten (oder, vor dieser Nachbesserung,
+  // ein Aufruf, der nachweislich NICHTS geschrieben hat) erzeugte trotzdem „Coach hat dein Profil
+  // angepasst". Eine Meldung ueber eine Aenderung, die es nicht gab, ist eine Falschaussage – und die
+  // naechste echte liest der Athlet dann nicht mehr.
+  const geaendert = k => String(vorher[k] ?? '') !== String(nachher[k] ?? '');
+  const planChanged = ['phase', 'goal', 'kcal_target_train', 'kcal_target_rest'].some(geaendert);
+  const levelChanged = ['experience_coach', 'features'].some(geaendert);
+  if (planChanged || levelChanged) {
+    const title = planChanged ? 'Coach hat dein Profil angepasst' : 'Coach hat deine Trainingsstufe angepasst';
+    const body = planChanged && levelChanged
+      ? 'Phase/Ziele und deine Trainingsstufe wurden aktualisiert. Schau dir deinen Plan, deine Kalorienziele und die Trainingsansicht an.'
+      : planChanged
+        ? 'Phase/Ziele wurden aktualisiert. Schau dir deinen Plan und deine Kalorienziele an.'
+        : 'Deine Trainingsstufe wurde angepasst – in der Trainingsansicht stehen dir jetzt andere Felder zur Verfügung.';
+    db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+      [req.params.id, req.user.id, 'change', title, body]);
+  }
+  // `changed` sagt dem Coach-Blatt, was tatsaechlich geschrieben wurde – „200 OK" allein hat das
+  // bisher nicht getan (coach.js liest deshalb zur Sicherheit weiterhin gegen).
+  res.json({ ok: true, changed: Object.keys(nachher).filter(geaendert) });
 });
 
 /* ---------------- COACH: ATHLETEN ---------------- */
@@ -1934,19 +2479,23 @@ function coachScopeAthletes(reqUser, cols = 'id,name') {
 }
 // Ampel eines Athleten – EINE Quelle (logic.attentionStatus) für Liste, Übersichts-Kachel und Aufmerksamkeits-Liste.
 // „Training" = Tag mit echten Sätzen (reps>0) ODER bestätigter Trainingstag im Kalender.
-function athleteAttention(uid, today = tzToday()) {
-  const lc = db.get('SELECT MAX(date) d FROM checkins WHERE user_id=?', [uid])?.d || null;
-  const ltSets = db.get('SELECT MAX(date) d FROM set_logs WHERE user_id=? AND reps>0', [uid])?.d || null;
-  const ltDay = db.get("SELECT MAX(date) d FROM day_log WHERE user_id=? AND type='train' AND date<=?", [uid, today])?.d || null;
+// 3.0.0 (B-k): `pre` ist der VORAB geholte Satz Werte fuer diesen Athleten. Er aendert die Rechnung
+// nicht - er erspart ihr nur die sechs Einzelabfragen. Die Ampel bleibt damit EINE Quelle (der
+// Grund, aus dem diese Funktion ueberhaupt existiert): wer `pre` weglaesst, bekommt exakt dasselbe
+// Ergebnis, nur teurer. Gemessen an der Coach-Liste mit 14 Athleten: 170 -> 25 Abfragen.
+function athleteAttention(uid, today = tzToday(), pre = null) {
+  const lc = pre ? (pre.lastCheckin ?? null) : (db.get('SELECT MAX(date) d FROM checkins WHERE user_id=?', [uid])?.d || null);
+  const ltSets = pre ? (pre.lastSets ?? null) : (db.get(`SELECT MAX(date) d FROM set_logs WHERE user_id=? AND ${SQL_REAL}`, [uid])?.d || null);
+  const ltDay = pre ? (pre.lastTrainDay ?? null) : (db.get("SELECT MAX(date) d FROM day_log WHERE user_id=? AND type='train' AND date<=?", [uid, today])?.d || null);
   const lt = [ltSets, ltDay].filter(Boolean).sort().pop() || null;
-  const flags = db.get('SELECT COUNT(*) c FROM exercise_notes WHERE user_id=? AND flagged=1', [uid]).c;
+  const flags = pre ? (pre.flags || 0) : db.get('SELECT COUNT(*) c FROM exercise_notes WHERE user_id=? AND flagged=1', [uid]).c;
   // D37: Die Schwellen waren fest („ab 6 Tagen ohne Training gelb") – unabhaengig davon, wie oft der
   // Athlet ueberhaupt trainieren soll. Wer 1x/Woche plant, stand an 2 von 7 Tagen auf Gelb, obwohl er
   // den Plan zu 100 % befolgte; bei 5x/Woche bedeutete dieselbe Lampe drei verpasste Einheiten.
   // Deshalb geht die geplante Frequenz mit in die Bewertung – und das Alter der aeltesten offenen
   // Beschwerde, damit eine acht Monate alte, vergessene Notiz nicht dauerhaft Rot erzeugt.
-  const u = db.get('SELECT days_per_week, pattern FROM users WHERE id=?', [uid]);
-  const oldestFlag = db.get('SELECT MIN(date) d FROM exercise_notes WHERE user_id=? AND flagged=1', [uid])?.d || null;
+  const u = pre?.user || db.get('SELECT days_per_week, pattern FROM users WHERE id=?', [uid]);
+  const oldestFlag = pre ? (pre.oldestFlag ?? null) : (db.get('SELECT MIN(date) d FROM exercise_notes WHERE user_id=? AND flagged=1', [uid])?.d || null);
   const ds = d => (d ? Math.max(0, daysBetween(d, today)) : null);
   const st = attentionStatus({ daysSinceCheckin: ds(lc), daysSinceTraining: ds(lt), openFlags: flags,
     daysPerWeek: weeklyRateOf(u), oldestFlagDays: ds(oldestFlag) });
@@ -1962,16 +2511,16 @@ function athleteAttention(uid, today = tzToday()) {
 // kannte nur `trainsThisWeek` (ROLLENDE sieben Tage aus day_log) und `plannedPerWeek` (die stufenlose
 // Durchschnittsrate 4,67) – drei Zahlen fuer eine Frage. Rechnung und Fenster sind hier absichtlich
 // Zeile fuer Zeile dieselben wie in insightsView (server.js ~3645), damit beide Seiten nicht auseinanderlaufen.
-function athleteWeekGoal(uid, today = tzToday()) {
+function athleteWeekGoal(uid, today = tzToday(), pre = null) {
   const weekStart = mondayOf(today);
   let target = 0;
-  try { target = rhythmRange(uid, weekStart, 7).filter(e => e.type === 'train').length; } catch (e) { target = 0; }
+  try { target = rhythmRange(uid, weekStart, 7, pre?.rhythm || null).filter(e => e.type === 'train').length; } catch (e) { target = 0; }
   if (!target) {
-    const u = db.get('SELECT days_per_week FROM users WHERE id=?', [uid]);
+    const u = pre?.rhythm?.u || db.get('SELECT days_per_week FROM users WHERE id=?', [uid]);
     target = Math.max(1, Math.min(7, Number(u?.days_per_week) || 3));
   }
-  const done = db.get('SELECT COUNT(DISTINCT date) c FROM set_logs WHERE user_id=? AND reps>0 AND date>=?',
-    [uid, weekStart])?.c || 0;
+  const done = pre ? (pre.done || 0) : (db.get(`SELECT COUNT(DISTINCT date) c FROM set_logs WHERE user_id=? AND ${SQL_REAL} AND date>=?`,
+    [uid, weekStart])?.c || 0);
   return { target, done, weekStart };
 }
 const STATUS_RANK = { alert: 0, watch: 1, ok: 2 };
@@ -1990,7 +2539,7 @@ app.get('/api/coach/overview', auth, requireCoach, (req, res) => {
   const trainWeek = ids.length ? byUser(db.all(`SELECT user_id, COUNT(*) c FROM day_log
     WHERE user_id IN (${inList}) AND type='train' AND date>=? GROUP BY user_id`, [...ids, weekAgo])) : new Map();
   const sessionsAll = ids.length ? byUser(db.all(`SELECT user_id, COUNT(DISTINCT date) c FROM set_logs
-    WHERE user_id IN (${inList}) AND reps>0 GROUP BY user_id`, ids)) : new Map();
+    WHERE user_id IN (${inList}) AND ${SQL_REAL} GROUP BY user_id`, ids)) : new Map();
   for (const a of athletes) {
     if (a.goal && goalCounts[a.goal] != null) goalCounts[a.goal]++;
     if (a.phase && phaseCounts[a.phase] != null) phaseCounts[a.phase]++;
@@ -2022,7 +2571,7 @@ app.get('/api/coach/overview', auth, requireCoach, (req, res) => {
     recentActivity = db.all(`SELECT sl.date, u.name, td.name dayName, COUNT(*) sets
       FROM set_logs sl JOIN users u ON u.id=sl.user_id
       JOIN exercises e ON e.id=sl.exercise_id JOIN training_days td ON td.id=e.day_id
-      WHERE sl.user_id IN (${ids.map(() => '?').join(',')}) AND sl.reps>0
+      WHERE sl.user_id IN (${ids.map(() => '?').join(',')}) AND ${SQL_REAL_SL}
       GROUP BY sl.user_id, sl.date ORDER BY sl.date DESC LIMIT 8`, ids);
   }
   res.json({
@@ -2037,13 +2586,59 @@ app.get('/api/athletes', auth, requireCoach, (req, res) => {
   // `email` ist hier bewusst NICHT mehr dabei (Datenminimierung, RATE-coach 16): die Liste zeigt Name,
   // Training, Wochenzahl, Ziel und Gewicht – die Adresse stand nur im Payload und damit in Devtools,
   // Cache und jedem Screenshot. Wer einen bestehenden Athleten zuordnet, tippt sie ohnehin selbst.
-  const list = coachScopeAthletes(req.user, 'id,name,goal,phase,days_per_week,start_weight,experience,(avatar IS NOT NULL) AS has_avatar');
-  // Pro Athlet: letzte Aktivität + Trainings diese Woche + Ampel (status/reasons) aus dem gemeinsamen Modell
-  const today = tzToday(), weekAgo = isoAddDays(today, -7);
+  // `pattern` und `created_at` kommen seit 3.0.0 mit: die Rhythmus-Simulation braucht beide, und
+  // eine Spalte mehr in EINER Abfrage ist billiger als eine zweite Abfrage je Athlet.
+  const list = coachScopeAthletes(req.user, 'id,name,goal,phase,days_per_week,start_weight,experience,pattern,created_at,(avatar IS NOT NULL) AS has_avatar');
+  const today = tzToday(), weekAgo = isoAddDays(today, -7), weekStart = mondayOf(today);
+  /* 3.0.0 (B-k, BUILD-B1 4.7): Diese Route machte rund zwoelf Abfragen JE ATHLET - gemessen
+     170 Abfragen fuer 14 Athleten. Bei 50 Athleten waeren es ueber 600, und SQLite bedient sie im
+     selben Thread, der gerade die Satzzeile eines anderen speichert.
+     Die Rechnung bleibt Zeile fuer Zeile dieselbe (athleteAttention/athleteWeekGoal sind weiter die
+     EINE Quelle, sie bekommen ihre Werte jetzt nur vorab gereicht). Was sich aendert, ist die Zahl
+     der Wege zur Datenbank: aus 12 x N werden 10 gruppierte Abfragen plus die Liste. */
+  const ids = list.map(a => a.id);
+  const IN = ids.map(() => '?').join(',');
+  const mapOf = (rows, key, val) => { const m = new Map(); for (const r of rows || []) m.set(r[key], r[val]); return m; };
+  const noRows = [];
+  const q = (sql, args) => (ids.length ? db.all(sql, args) : noRows);
+  const trainWeekM = mapOf(q(`SELECT user_id, COUNT(*) c FROM day_log WHERE user_id IN (${IN}) AND type='train' AND date>=? GROUP BY user_id`, [...ids, weekAgo]), 'user_id', 'c');
+  const lastTrainDayM = mapOf(q(`SELECT user_id, MAX(date) d FROM day_log WHERE user_id IN (${IN}) AND type='train' AND date<=? GROUP BY user_id`, [...ids, today]), 'user_id', 'd');
+  const lastCiM = mapOf(q(`SELECT user_id, MAX(date) d FROM checkins WHERE user_id IN (${IN}) GROUP BY user_id`, ids), 'user_id', 'd');
+  const lastSetsM = mapOf(q(`SELECT user_id, MAX(date) d FROM set_logs WHERE user_id IN (${IN}) AND ${SQL_REAL} GROUP BY user_id`, ids), 'user_id', 'd');
+  const doneWeekM = mapOf(q(`SELECT user_id, COUNT(DISTINCT date) c FROM set_logs WHERE user_id IN (${IN}) AND ${SQL_REAL} AND date>=? GROUP BY user_id`, [...ids, weekStart]), 'user_id', 'c');
+  const flagRows = q(`SELECT user_id, COUNT(*) c, MIN(date) d FROM exercise_notes WHERE user_id IN (${IN}) AND flagged=1 GROUP BY user_id`, ids);
+  const flagsM = mapOf(flagRows, 'user_id', 'c'), oldestFlagM = mapOf(flagRows, 'user_id', 'd');
+  // Letztes Gewicht: das juengste Datum je Nutzer, dann die Zeile dazu. Zwei Abfragen statt N -
+  // ein Fensterausdruck waere kuerzer, laeuft aber nicht auf jeder SQLite-Fassung, die hier
+  // vorkommen kann (better-sqlite3 und das eingebaute node:sqlite).
+  const wDateM = mapOf(q(`SELECT user_id, MAX(date) d FROM checkins WHERE user_id IN (${IN}) AND weight IS NOT NULL GROUP BY user_id`, ids), 'user_id', 'd');
+  const lastWeightM = new Map();
+  if (wDateM.size) {
+    const pairs = [...wDateM.entries()];
+    const rows = db.all(`SELECT user_id, date, weight FROM checkins WHERE weight IS NOT NULL AND (${pairs.map(() => '(user_id=? AND date=?)').join(' OR ')})`,
+      pairs.flatMap(([u, d]) => [u, d]));
+    for (const r of rows) if (!lastWeightM.has(r.user_id)) lastWeightM.set(r.user_id, r.weight);
+  }
+  // Rhythmus-Zutaten fuer alle auf einmal: bestaetigte Tage und die Namen der Trainingstage.
+  const logByUser = new Map();
+  for (const r of q(`SELECT user_id, date, type, day_name as dayName FROM day_log WHERE user_id IN (${IN}) ORDER BY user_id, date`, ids)) {
+    if (!logByUser.has(r.user_id)) logByUser.set(r.user_id, []);
+    logByUser.get(r.user_id).push({ date: r.date, type: r.type, dayName: r.dayName });
+  }
+  const dayNamesByUser = new Map();
+  for (const r of q(`SELECT p.user_id, td.name FROM plans p JOIN training_days td ON td.plan_id=p.id
+    WHERE p.user_id IN (${IN}) AND p.active=1 AND td.deleted=0 ORDER BY p.user_id, td.position, td.id`, ids)) {
+    if (!dayNamesByUser.has(r.user_id)) dayNamesByUser.set(r.user_id, []);
+    dayNamesByUser.get(r.user_id).push(r.name);
+  }
   for (const a of list) {
-    const trainsThisWeek = db.get("SELECT COUNT(*) c FROM day_log WHERE user_id=? AND type='train' AND date>=?", [a.id, weekAgo]).c;
-    const lastWeight = db.get('SELECT weight FROM checkins WHERE user_id=? AND weight IS NOT NULL ORDER BY date DESC LIMIT 1', [a.id])?.weight;
-    const att = athleteAttention(a.id, today);
+    const trainsThisWeek = trainWeekM.get(a.id) || 0;
+    const lastWeight = lastWeightM.get(a.id);
+    const att = athleteAttention(a.id, today, {
+      lastCheckin: lastCiM.get(a.id) || null, lastSets: lastSetsM.get(a.id) || null,
+      lastTrainDay: lastTrainDayM.get(a.id) || null, flags: flagsM.get(a.id) || 0,
+      oldestFlag: oldestFlagM.get(a.id) || null, user: a,
+    });
     a.lastTrain = att.lastTraining;
     a.trainsThisWeek = trainsThisWeek;
     a.lastWeight = lastWeight ?? null;
@@ -2056,10 +2651,17 @@ app.get('/api/athletes', auth, requireCoach, (req, res) => {
     // Dieselbe Woche, dieselbe Zahl wie beim Athleten ({target,done,weekStart}, Montag–Sonntag).
     // `trainsThisWeek` daneben bleibt bewusst stehen: es ist das rollende Sieben-Tage-Fenster, an dem
     // die Ampel haengt – der Client beschriftet beide getrennt, statt sie zu vermischen.
-    a.weekGoal = athleteWeekGoal(a.id, today);
+    a.weekGoal = athleteWeekGoal(a.id, today, {
+      done: doneWeekM.get(a.id) || 0,
+      rhythm: { u: a, trainingDays: dayNamesByUser.get(a.id) || [], allLog: logByUser.get(a.id) || [] },
+    });
     a.daysSinceTrain = att.daysSinceTraining;
     a.daysSinceCheckin = att.daysSinceCheckin;
     a.attention = att.status !== 'ok'; // Alt-Feld (bisheriges Frontend) – aus demselben Modell abgeleitet
+    // `pattern` und `created_at` waren Zutaten fuer die Rechnung, nicht Inhalt der Antwort. Sie
+    // gehen wieder raus: die Coach-Liste liefert damit BYTE FUER BYTE dasselbe wie 2.9.0 (gemessen,
+    // siehe DONE-B1-B-I.2), und die Datenminimierung aus RATE-coach 16 bleibt, wie sie war.
+    delete a.pattern; delete a.created_at;
   }
   list.sort((x, y) => (STATUS_RANK[x.status] - STATUS_RANK[y.status]) || String(x.name).localeCompare(String(y.name), 'de'));
   res.json({ athletes: list });
@@ -2178,7 +2780,7 @@ app.get('/api/admin/users', auth, requireAdmin, (req, res) => {
 // Server NICHT - daraus wird die Klasse aktiv/ruhig/inaktiv (siehe adminUserRow).
 const ADMIN_USER_SQL = `SELECT u.id, u.role, u.coach_id, u.created_at,
     (SELECT COUNT(*) FROM users a WHERE a.coach_id=u.id) AS athlete_count,
-    MAX(COALESCE((SELECT MAX(date) FROM set_logs s WHERE s.user_id=u.id AND s.reps>0), ''),
+    MAX(COALESCE((SELECT MAX(date) FROM set_logs s WHERE s.user_id=u.id AND s.reps>0 AND COALESCE(s.set_type,'work') NOT IN ('warmup','deleted')), ''),
         COALESCE((SELECT MAX(date) FROM checkins ck WHERE ck.user_id=u.id), ''),
         COALESCE((SELECT SUBSTR(MAX(created_at),1,10) FROM messages m WHERE m.from_id=u.id), '')) AS last_active
     FROM users u`;
@@ -2439,7 +3041,17 @@ app.get('/api/admin/coaches', auth, requireAdmin, (req, res) => {
 // Check-in-Spalten, die ein Coach sehen darf. notes (Freitext) und training (Selbstbeschreibung) bleiben beim
 // Athleten – /api/checkins redigiert sie seit 2.4.0, Dashboard und Startseite muessen es genauso halten,
 // sonst laufen die Privatnotizen ueber die Hintertuer doch zum Coach.
-const CHECKIN_COLS = 'id,user_id,date,weight,sleep,sleep_quality,steps,cardio,water,coach_notes,active_kcal,exercise_min,resting_hr,hrv';
+// B7: `source` gehoert dazu. Die Startseite schreibt unter jedes vorbelegte Check-in-Feld, WOHER der
+// Wert stammt – und hatte bis 2.8.0 keine Angabe dazu, sondern eine Regel („health_sync an + heute +
+// Feld, das die Uhr liefern kann"). Ein von Hand getippter Schlafwert bekam damit „von deiner Uhr".
+// `checkins.source` ist die gelesene Wahrheit (D19, Spalte seit 2.6.0): 'health' = Zeile stammt
+// ausschliesslich aus dem Apple-Health-Import und wurde seither von keiner Handeingabe beruehrt
+// (POST /api/checkins setzt beim ersten echten Wert auf 'manual'), 'manual'/NULL = ein Mensch hat
+// diesen Tag geschrieben, 'carried' = die Zeile enthaelt ausschliesslich uebernommene Werte aus der
+// Vorbelegung (der Mensch hat bestaetigt, aber nichts gemessen oder getippt – siehe POST /api/checkins).
+// Keine Privatnotiz, sondern Metadatum – der Coach darf es sehen, und er MUSS es sehen: sonst liest er
+// eine fortgeschriebene Schrittzahl als Messung.
+const CHECKIN_COLS = 'id,user_id,date,weight,sleep,sleep_quality,steps,cardio,water,coach_notes,active_kcal,exercise_min,resting_hr,hrv,source';
 
 app.get('/api/dashboard/:userId', auth, requireCoach, (req, res) => {
   const uid = Number(req.params.userId);
@@ -2451,7 +3063,7 @@ app.get('/api/dashboard/:userId', auth, requireCoach, (req, res) => {
       FROM set_logs sl
       JOIN exercises e ON e.id=sl.exercise_id
       JOIN training_days td ON td.id=e.day_id
-      WHERE sl.user_id=? AND sl.reps>0
+      WHERE sl.user_id=? AND ${SQL_REAL_SL}
       GROUP BY sl.date ORDER BY sl.date DESC LIMIT 10`, [uid]);
   // Gewichtsverlauf
   const weights = db.all('SELECT date, weight FROM checkins WHERE user_id=? AND weight IS NOT NULL ORDER BY date DESC LIMIT 30', [uid]);
@@ -2461,8 +3073,8 @@ app.get('/api/dashboard/:userId', auth, requireCoach, (req, res) => {
   // Cardio der letzten 14 Tage
   const cardio = db.all('SELECT date,kind,minutes,kcal,intensity FROM cardio_log WHERE user_id=? ORDER BY date DESC LIMIT 14', [uid]);
   // Volumen-Trend: Gesamt-Tonnage (kg*reps) je Trainingstag, letzte 8
-  const volume = db.all(`SELECT date, SUM(COALESCE(weight,0)*COALESCE(reps,0)) tonnage
-      FROM set_logs WHERE user_id=? AND reps>0 GROUP BY date ORDER BY date DESC LIMIT 8`, [uid]);
+  const volume = db.all(`SELECT date, SUM(${SQL_LOAD}*COALESCE(reps,0)) tonnage
+      FROM set_logs WHERE user_id=? AND ${SQL_REAL} GROUP BY date ORDER BY date DESC LIMIT 8`, [uid]);
   // D10/D1 (Anzeige): Der Coach setzt die Kalorienziele hier – und genau hier muss er sehen, wenn der
   // Server sie inzwischen ueberstimmt. Bis 2.5.0 stand im Coach-Blatt „3.017 / 2.600 kcal", waehrend die
   // Ernaehrung des Athleten laengst mit dem neu gerechneten Wert arbeitete. `kcalAsk` traegt beide Zahlen,
@@ -2477,7 +3089,14 @@ app.get('/api/dashboard/:userId', auth, requireCoach, (req, res) => {
       // aus dem gespeicherten Rhythmus, mit der der Server selbst rechnet (6-Tage-Zyklus mit 4 Trainings
       // = 4,67, gespeichert aber „4"). Ohne sie zeigte dieses Blatt eine andere Frequenz als die Liste.
       days_per_week: a.days_per_week, plannedPerWeek: weeklyRateOf(a),
-      experience: a.experience, start_weight: a.start_weight,
+      // `experience` ist die Selbstangabe des Athleten, `experience_coach` die Uebersteuerung des
+      // Coaches (CRITIC K1 – zwei Felder, nicht eines), `features` die Feinsteuerung darunter.
+      // Beide gehoeren hierher: das Coach-Blatt prueft ihr VORHANDENSEIN, um zu entscheiden, ob es
+      // die Schalter ueberhaupt anbieten darf (coach.js co2CanSet). Fehlten sie – so war es bis
+      // 2.8.0 –, blieb das ganze Blatt „Stufe & Funktionen" ehrlich, aber tot.
+      // `null` ist dabei eine Aussage („nicht gesetzt") und kein fehlendes Feld.
+      experience: a.experience, experience_coach: a.experience_coach ?? null, features: a.features ?? null,
+      start_weight: a.start_weight,
       kcal_target_train: a.kcal_target_train, kcal_target_rest: a.kcal_target_rest,
       sleep_goal: a.sleep_goal, steps_goal: a.steps_goal, water_goal: a.water_goal },
     sessions, weights, checkins, cardio, volume,
@@ -2508,6 +3127,28 @@ app.get('/api/plan/:userId', auth, (req, res) => {
   const days = db.all('SELECT * FROM training_days WHERE plan_id=? AND deleted=0 ORDER BY position,id', [plan.id]);
   for (const d of days) {
     d.exercises = db.all('SELECT * FROM exercises WHERE day_id=? AND deleted=0 ORDER BY position,id', [d.id]);
+    // `form_guide`: der Name der Technik-Karte dieser Uebung (logic.js FORM_GUIDES) – abgeleitet, nie
+    // gespeichert. Zwei Gruende: Plaene aus der Zeit vor 2.8.0 haben `technique=NULL` (ihr Anfaenger
+    // saehe sonst weiter nichts), und eine umbenannte Uebung bekommt so die Karte, die zu ihrem
+    // heutigen Namen passt, statt der, die beim Anlegen gepasst hat. Leere Werte bleiben weg.
+    // `muscle` geht kanonisch raus (2.8.0, `muscleCanon`): der Bestand aus der Zeit vor dem Kanon
+    // traegt noch „Chest"/„Lats"/„Calves" in der Datenbank. Ohne diese Zeile stuende im Plan ein
+    // anderes Wort als in der Analyse – und die Analyse zaehlt die Muskeln des Plans MIT (analysis.js
+    // sammelt sie aus PLAN), sodass jede Gruppe mit englischem Bestandsnamen dort zweimal erschiene:
+    // einmal mit Saetzen (aus der Serverzahl) und einmal mit null (aus dem Plan). Eine Wanderung ueber
+    // den Bestand braucht es dafuer nicht – gespeichert bleibt, was da ist, bis jemand die Uebung
+    // das naechste Mal speichert (dann greift der Kanon im Schreibweg).
+    for (const e of d.exercises) {
+      e.muscle = muscleCanon(e.muscle); const g = formGuideFor(e.name); if (g) e.form_guide = g;
+      // 3.0.0 (B-c): getauschte Uebungen tragen ihren Vorgaenger mit. Der Plan kann damit
+      // „früher: Leg Press" danebenschreiben, ohne selbst zu suchen. `replaces_id` steht seit 2.6.0
+      // in der Tabelle und wurde bis heute nie gelesen. Nur der unmittelbare Vorgaenger, nicht die
+      // ganze Kette: im Plan ist EIN Satz Platz, und die Kette liefert der Uebungsverlauf.
+      if (e.replaces_id) {
+        const prev = db.get('SELECT id,name FROM exercises WHERE id=?', [e.replaces_id]);
+        if (prev) e.replaced = { id: prev.id, name: prev.name };
+      }
+    }
   }
   res.json({ plan, days });
 });
@@ -2558,7 +3199,21 @@ function exerciseInput(b, cur) {
   if (!name) return { error: 'Name fehlt' };
   let video_url = cur.video_url ?? null;
   if (b.video_url !== undefined) { video_url = urlOrNull(b.video_url); if (video_url === undefined) return { error: 'Video-Link muss mit http(s):// beginnen' }; }
-  return { name, muscle: take('muscle', 60), technique: take('technique', 300), notes: take('notes', 1000), target_reps: take('target_reps', 20), video_url };
+  // 2.8.0: Schrittweite je Uebung (`exercises.step_kg`, Spalte seit 2.6.0 – bis jetzt hat sie niemand
+  // beschrieben und deshalb hat auch niemand sie gelesen). Sie steuert den ± Stepper der Satzzeile und
+  // die Empfehlung. 0,25–25 kg; `null`/leer heisst „Standard" (2,5 kg). An einer Kurzhantelreihe mit
+  // 1-kg-Stufen war „+2,5 kg" bis 2.7.0 eine Empfehlung auf ein Gewicht, das es nicht gibt (D23-Rest).
+  let step_kg = cur.step_kg ?? null;
+  if (b.step_kg !== undefined) {
+    step_kg = (b.step_kg === null || b.step_kg === '') ? null : clampNum(b.step_kg, 0.25, 25);
+    if (b.step_kg !== null && b.step_kg !== '' && step_kg === null) return { error: 'Schrittweite muss eine Zahl zwischen 0,25 und 25 kg sein' };
+  }
+  // 2.8.0: die Muskelgruppe wird auf den deutschen Kanon gebracht (`muscleCanon`, logic.js). Das Feld
+  // ist frei – und genau deshalb standen bis 2.7.0 „Brust" und „Chest" nebeneinander in DERSELBEN
+  // Liste, was jede Auswertung ueber `GROUP BY e.muscle` zweigeteilt hat. Der Platzhalter im Formular
+  // schlug sogar „z.B. Quads" vor. Wer weiter „Chest" tippt, darf das; gespeichert wird „Brust".
+  // Unbekannte Woerter bleiben unveraendert stehen.
+  return { name, muscle: muscleCanon(take('muscle', 60)), technique: take('technique', 300), notes: take('notes', 1000), target_reps: take('target_reps', 20), video_url, step_kg };
 }
 
 // Trainingstag loeschen – WEICH (deleted=1), wie bei der einzelnen Uebung. Bis 2.3.0 war das ein hartes
@@ -2572,7 +3227,7 @@ function exerciseInput(b, cur) {
 app.delete('/api/days/:id', auth, (req, res) => {
   const d = db.get('SELECT td.*, p.user_id FROM training_days td JOIN plans p ON p.id=td.plan_id WHERE td.id=?', [req.params.id]);
   if (!d || !canAccessPersonal(req.user, d.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const sets = db.get('SELECT COUNT(*) c FROM set_logs sl JOIN exercises e ON e.id=sl.exercise_id WHERE e.day_id=? AND sl.reps>0', [d.id]).c;
+  const sets = db.get(`SELECT COUNT(*) c FROM set_logs sl JOIN exercises e ON e.id=sl.exercise_id WHERE e.day_id=? AND ${SQL_REAL_SL}`, [d.id]).c;
   const exercises = db.get('SELECT COUNT(*) c FROM exercises WHERE day_id=? AND deleted=0', [d.id]).c;
   if (!d.deleted) { // idempotent: ein zweiter DELETE (Wiederholung aus der Warteschlange) aendert nichts mehr
     db.run('UPDATE training_days SET deleted=1 WHERE id=?', [d.id]);
@@ -2600,10 +3255,10 @@ app.post('/api/exercises', auth, (req, res) => {
   const x = exerciseInput(req.body);
   if (x.error) return res.status(400).json({ error: x.error });
   const pos = db.get('SELECT COALESCE(MAX(position),0)+1 p FROM exercises WHERE day_id=?', [req.body.day_id]).p;
-  const r = db.run(`INSERT INTO exercises(day_id,muscle,name,technique,video_url,target_sets,target_reps,notes,position,source,coach_locked)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+  const r = db.run(`INSERT INTO exercises(day_id,muscle,name,technique,video_url,target_sets,target_reps,notes,step_kg,position,source,coach_locked)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
     [day.id, x.muscle, x.name, x.technique, x.video_url,
-     clampSets(req.body.target_sets), x.target_reps, x.notes, pos,
+     clampSets(req.body.target_sets), x.target_reps, x.notes, x.step_kg, pos,
      isCoach ? 'coach' : 'athlete', isCoach ? 1 : 0]);
   res.json({ id: r.lastInsertRowid });
 });
@@ -2632,7 +3287,7 @@ app.put('/api/exercises/:id', auth, (req, res) => {
   // und ohne source/coach_locked anzufassen (die Reihenfolge ist keine inhaltliche Abweichung vom Coach-Plan).
   const position = b.position === undefined ? null : clampNum(b.position, 0, 999, true);
   if (b.position !== undefined && position === null) return res.status(400).json({ error: 'Ungültige Position' });
-  const contentKeys = ['name', 'muscle', 'technique', 'video_url', 'target_sets', 'target_reps', 'notes'];
+  const contentKeys = ['name', 'muscle', 'technique', 'video_url', 'target_sets', 'target_reps', 'notes', 'step_kg'];
   if (position !== null && !contentKeys.some(k => b[k] !== undefined)) {
     const order = moveExercise(ex.day_id, ex.id, position);
     return res.json({ ok: true, position: order.indexOf(ex.id), order });
@@ -2649,10 +3304,10 @@ app.put('/api/exercises/:id', auth, (req, res) => {
   }
 
   const newSets = clampSets(req.body.target_sets, ex.target_sets);
-  db.run(`UPDATE exercises SET muscle=?,name=?,technique=?,video_url=?,target_sets=?,target_reps=?,notes=?,
+  db.run(`UPDATE exercises SET muscle=?,name=?,technique=?,video_url=?,target_sets=?,target_reps=?,notes=?,step_kg=?,
     source=?, coach_locked=?, position=COALESCE(?,position) WHERE id=?`,
     [x.muscle, x.name, x.technique, x.video_url,
-     newSets, x.target_reps, x.notes,
+     newSets, x.target_reps, x.notes, x.step_kg,
      isCoach ? 'coach' : 'athlete',           // wer zuletzt editiert hat
      isCoach ? 1 : 0,                          // Coach lockt wieder, Athlet entlockt
      position, ex.id]);
@@ -2707,6 +3362,568 @@ app.post('/api/exercises/:id/restore', auth, (req, res) => {
 });
 
 /* ---------------- SET-LOGS ---------------- */
+/* ---------------- SATZARTEN, RIR UND DER PAPIERKORB (2.8.0) ---------------- */
+// Die Spalten `set_logs.set_type` und `set_logs.rir` gibt es seit 2.6.0; 2.8.0 ist die Welle, in der
+// sie benutzt werden. Vier Satzarten, mehr braucht niemand:
+//   'work'    – Arbeitssatz. Zaehlt ueberall. (Auch der Wert fuer jede Bestandszeile mit NULL.)
+//   'warmup'  – Aufwaermsatz. Zaehlt NIRGENDS in Volumen, e1RM, Bestleistung, Satzzahl je Muskel
+//               und auch nicht bei der Frage „war das ein Trainingstag?". Bis 2.7.0 machte
+//               60 kg x 15 als Aufwaermsatz rechnerisch ein 1RM von 90 kg (D14/D38).
+//   'drop'    – Drop-Satz nach dem Arbeitssatz. Echte Arbeit, zaehlt wie 'work'.
+//   'backoff' – Backoff-Satz (reduziertes Gewicht nach dem schweren Satz). Zaehlt wie 'work'.
+// Dazu eine fuenfte, die kein Nutzer waehlen kann:
+//   'deleted' – weich geloescht (siehe DELETE /api/logs/:id). Die Zeile bleibt vollstaendig stehen,
+//               faellt aber aus JEDER Rechnung und aus jeder Liste heraus.
+const SET_TYPES = ['work', 'warmup', 'drop', 'backoff'];
+const SET_TYPE_DELETED = 'deleted';
+// Die drei SQL-Bausteine. Sie stehen EINMAL hier, damit nicht wieder – wie bei der 1RM-Schaetzung
+// (D14: SQL rechnete mit jedem Satz, JS deckelte bei 12 Wiederholungen) – zwei Regeln fuer dieselbe
+// Frage entstehen. `_SL` ist die Fassung mit Tabellen-Alias `sl`.
+const SQL_SET_LIVE = "COALESCE(set_type,'work')<>'deleted'";          // alles ausser dem Papierkorb
+const SQL_SET_WORK = "COALESCE(set_type,'work') NOT IN ('warmup','deleted')";  // zaehlbare Arbeit
+const SQL_SET_WORK_SL = "COALESCE(sl.set_type,'work') NOT IN ('warmup','deleted')";
+// „Echter Satz" = Arbeitssatz mit Wiederholungen. Die Formel stand bisher 30x als `reps>0` im Code.
+const SQL_REAL = 'reps>0 AND ' + SQL_SET_WORK;
+const SQL_REAL_SL = 'sl.reps>0 AND ' + SQL_SET_WORK_SL;
+// ---- REKORDFAEHIG (3.0.0, Welle B-I, Befund B5) ------------------------------------------------
+// GEMESSEN: Ein Drop-Satz 230 x 10 auf der Leg Press stand danach als „230,0 kg Bestleistung",
+// „+30,0 kg seit Beginn" und „e1RM 306,7 kg" in der Analyse; GET /api/exercise-history lieferte
+// prs = {maxWeight:230, best1RM:306.7}. Ein Drop-Satz ist per Definition ein Satz NACH dem Versagen
+// mit reduziertem Gewicht - er ist echte Arbeit, aber nie eine Bestleistung. Dasselbe gilt fuer den
+// Backoff-Satz. `src/logic.js` macht es in `e1rmSeries` seit 3.0.0 richtig (`t===null || t==='work'`);
+// das SQL war die zweite, laxere Fassung derselben Regel.
+// Deshalb ZWEI Ausdruecke statt eines:
+//   SQL_SET_WORK = zaehlbare Arbeit  -> Saetze, Tonnage, Volumen, Last. Gehobene Kilos sind gehobene
+//                  Kilos: daran aendert ein Drop-Satz nichts.
+//   SQL_SET_PR   = rekordfaehig      -> Bestleistung, e1RM, „Neuer Rekord", PR-Zaehler.
+// Die JS-Fassung daneben gilt fuer Zeilen, die schon geholt sind (movementSetLogs traegt `set_type`).
+const SQL_SET_PR = "COALESCE(NULLIF(set_type,''),'work')='work'";
+const SQL_SET_PR_SL = "COALESCE(NULLIF(sl.set_type,''),'work')='work'";
+const SQL_REAL_PR = 'reps>0 AND ' + SQL_SET_PR;
+const SQL_REAL_PR_SL = 'sl.reps>0 AND ' + SQL_SET_PR_SL;
+const isPrSet = r => { const t = r?.set_type; return t === null || t === undefined || t === '' || t === 'work'; };
+/* ============================================================================
+   3.0.0 · UEBUNGSBIBLIOTHEK, TAUSCHEN, SUPERSAETZE (Welle B-I, BUILD-B1 4.2 · B-c)
+   ============================================================================
+   Der Befund, der diesen Abschnitt ausgeloest hat, steht in RECHEN-REVIEW D15 und in Marcos echtem
+   Plan: dort liegen „Leg Press" und „Beinpresse" als ZWEI Uebungen nebeneinander, jede mit eigener
+   Bestleistung und eigener Empfehlung. Die Gruppierung des Verlaufs laeuft ueber LOWER(TRIM(name))
+   (movementSetLogs) - zwei Schreibweisen sind fuer sie zwei Bewegungen. Wer das reparieren will,
+   muss frueher ansetzen: beim TIPPEN. Also ein Nachschlagewerk mit deutschen und englischen
+   Schreibweisen, eine Suche, die Umlaute nicht verlangt, und ein Hinweis, BEVOR die Dublette entsteht.
+   Die Spalten `replaces_id` und `group_id` gibt es seit 2.6.0 und sie hatten bis heute 0 Treffer im
+   Code - gebaut, nie benutzt. Sie tragen jetzt das Tauschen und die Supersaetze. */
+
+// Umlautfeste Normalisierung - dasselbe Verfahren wie `dtNorm()` in public/js/diet.js (B18), damit
+// Lebensmittel- und Uebungssuche sich gleich anfuehlen. EIN bewusster Unterschied: hier fallen auch
+// Satzzeichen weg (`.replace(/[^a-z0-9 ]+/g,' ')`). Grund sind die Uebungsnamen selbst - „Beinpresse
+// 45°", „SA Hammer Strength Row", „Leg Raises - Superset - Crunches". Ohne diesen Schritt findet
+// „beinpresse 45" den Eintrag „Beinpresse 45°" nicht, und genau solche Namen stehen im Bestand.
+function exNorm(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/ae/g, 'a').replace(/oe/g, 'o').replace(/ue/g, 'u')
+    .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const exToks = q => exNorm(q).split(' ').filter(Boolean);
+// Mehrwort-UND ueber Name UND Aliasse: „beinpresse" und „leg press" treffen denselben Eintrag.
+const exHit = (hay, toks) => toks.every(t => hay.includes(t));
+
+// Der mitgelieferte Grundstock. Deutsch als Anzeigename, englisch (und die gaengigen Kurzformen) als
+// `aliases` - so findet der Katalog auch den, der englisch tippt, und schlaegt trotzdem EINEN Namen
+// vor. Das ist der ganze Trick gegen die Zersplitterung: nicht verbieten, sondern anbieten.
+// Bewusst rund 80 Eintraege und nicht 300: jede Zeile hier ist ein Vorschlag, den Marco im Typeahead
+// sieht: eine Liste, in der er scrollen muss, ist schlechter als eine, die trifft.
+const EXERCISE_SEED = [
+  ['Bankdrücken', 'Brust', 'Bench Press|Barbell Bench Press|Flachbankdrücken|Bankdruecken', 'Langhantel'],
+  ['Schrägbankdrücken', 'Brust', 'Incline Bench Press|Incline Press|Schraegbankdruecken', 'Langhantel'],
+  ['Negativbankdrücken', 'Brust', 'Decline Bench Press|Decline Press', 'Langhantel'],
+  ['Kurzhantel-Bankdrücken', 'Brust', 'Dumbbell Bench Press|DB Bench Press|DB Press', 'Kurzhantel'],
+  ['Kurzhantel-Schrägbankdrücken', 'Brust', 'Incline Dumbbell Press|Incline DB Press', 'Kurzhantel'],
+  ['Brustpresse (Maschine)', 'Brust', 'Chest Press|Machine Chest Press|Hammer Strength Chest Press', 'Maschine'],
+  ['Schrägbankdrücken (Smith)', 'Brust', 'Incline Smith Machine Press|Smith Incline Press', 'Maschine'],
+  ['Butterfly', 'Brust', 'Pec Deck|Chest Fly Machine|Fliegende', 'Maschine'],
+  ['Kabelzug-Fliegende', 'Brust', 'Cable Fly|Cable Flies|Seated Incline Cable Flies|Cable Crossover', 'Kabel'],
+  ['Liegestütz', 'Brust', 'Push Up|Push-Ups|Liegestuetze', 'Körpergewicht'],
+  ['Dips', 'Brust', 'Chest Dips|Barrenstütz', 'Körpergewicht'],
+  ['Klimmzug', 'Rücken', 'Pull Up|Pull-Ups|Klimmzuege', 'Körpergewicht'],
+  ['Latzug', 'Rücken', 'Lat Pull Down|Lat Pulldown|Wide Grip Lat Pull Down|Latziehen', 'Kabel'],
+  ['Enger Latzug', 'Rücken', 'Close Grip Lat Pulldown|Narrow Grip Pulldown', 'Kabel'],
+  ['Langhantelrudern', 'Rücken', 'Barbell Row|Bent Over Row|Rudern vorgebeugt', 'Langhantel'],
+  ['Kurzhantelrudern', 'Rücken', 'Dumbbell Row|DB Row|One Arm Row|Einarmiges Rudern', 'Kurzhantel'],
+  ['Maschinenrudern', 'Rücken', 'Hammer Strength Row|SA Hammer Strength Row|Machine Row|Seated Machine Row', 'Maschine'],
+  ['Kabelrudern', 'Rücken', 'Seated Cable Row|Cable Row|Rudern am Kabel', 'Kabel'],
+  ['T-Bar-Rudern', 'Rücken', 'T-Bar Row|Tbar Row', 'Langhantel'],
+  ['Überzüge am Kabel', 'Rücken', 'Straight Arm Pulldown|Cable Pullover|Ueberzuege', 'Kabel'],
+  ['Kreuzheben', 'Unterer Rücken', 'Deadlift|Conventional Deadlift', 'Langhantel'],
+  ['Rumänisches Kreuzheben', 'Beinbeuger', 'Romanian Deadlift|RDL|Rumaenisches Kreuzheben', 'Langhantel'],
+  ['Hyperextension', 'Unterer Rücken', 'Back Extension|Rückenstrecker|Rueckenstrecker', 'Körpergewicht'],
+  ['Schulterdrücken', 'Schultern', 'Overhead Press|Shoulder Press|Military Press|OHP', 'Langhantel'],
+  ['Kurzhantel-Schulterdrücken', 'Schultern', 'Dumbbell Shoulder Press|DB Shoulder Press|Arnold Press', 'Kurzhantel'],
+  ['Schulterpresse (Maschine)', 'Schultern', 'Machine Shoulder Press|Hammer Strength Shoulder Press', 'Maschine'],
+  ['Seitheben', 'Seitliche Schulter', 'Lateral Raise|Side Lateral Raise|DB Lateral Raises|Chest Supported DB Lateral Raises', 'Kurzhantel'],
+  ['Seitheben am Kabel', 'Seitliche Schulter', 'Cable Lateral Raise|Cable Side Raise', 'Kabel'],
+  ['Reverse Butterfly', 'Hintere Schulter', 'Reverse Pec Deck|Rear Delt Fly|Reverse Cable Flies|Reverse Flies', 'Maschine'],
+  ['Face Pulls', 'Hintere Schulter', 'Face Pull|Rope Face Pull', 'Kabel'],
+  ['Frontheben', 'Vordere Schulter', 'Front Raise|DB Front Raise', 'Kurzhantel'],
+  ['Nackenziehen', 'Nacken', 'Shrugs|Barbell Shrug|Dumbbell Shrug', 'Langhantel'],
+  ['Langhantel-Curls', 'Bizeps', 'Barbell Curl|BB Curl|Bizepscurls', 'Langhantel'],
+  ['Kurzhantel-Curls', 'Bizeps', 'Dumbbell Curl|DB Curl|Alternating Curl', 'Kurzhantel'],
+  ['Hammercurls', 'Bizeps', 'Hammer Curl|Neutral Grip Curl', 'Kurzhantel'],
+  ['Scottcurls', 'Bizeps', 'Preacher Curl|Scott Curl|EZ Preacher Curl', 'Maschine'],
+  ['Kabelcurls', 'Bizeps', 'Cable Curl|Rope Curl', 'Kabel'],
+  ['Trizepsdrücken am Kabel', 'Trizeps', 'Triceps Pushdown|Rope Pushdown|Cable Pushdown|Trizepsdruecken', 'Kabel'],
+  ['Trizeps Überkopfdrücken', 'Trizeps', 'Overhead Triceps Extension|French Press|Ueberkopfdruecken', 'Kurzhantel'],
+  ['Enges Bankdrücken', 'Trizeps', 'Close Grip Bench Press|CGBP', 'Langhantel'],
+  ['Trizepspresse (Smith)', 'Trizeps', 'Triceps Smith Machine Press|Smith Triceps Press', 'Maschine'],
+  ['Dips am Gerät', 'Trizeps', 'Assisted Dips|Triceps Dip Machine|Bench Dips', 'Maschine'],
+  ['Unterarm-Curls', 'Unterarme', 'Wrist Curl|Reverse Wrist Curl|Forearm Curl', 'Kurzhantel'],
+  ['Kniebeuge', 'Quadrizeps', 'Squat|Back Squat|Barbell Squat|Kniebeugen', 'Langhantel'],
+  ['Frontkniebeuge', 'Quadrizeps', 'Front Squat', 'Langhantel'],
+  ['Kniebeuge (Smith)', 'Quadrizeps', 'Smith Machine Squat|Smith Squat', 'Maschine'],
+  ['Hackenschmidt', 'Quadrizeps', 'Hack Squat|Hack Squat Machine', 'Maschine'],
+  ['Beinpresse', 'Quadrizeps', 'Leg Press|Legpress|Beinpresse 45°|45 Degree Leg Press', 'Maschine'],
+  ['Beinstrecker', 'Quadrizeps', 'Leg Extension|Quad Extensions|Quad Extension', 'Maschine'],
+  ['Ausfallschritte', 'Quadrizeps', 'Lunges|Walking Lunges|Ausfallschritt', 'Kurzhantel'],
+  ['Bulgarische Kniebeuge', 'Gesäß', 'Bulgarian Split Squat|Bulgarian Splits Squats|Split Squat|Bulgarian Splits Squats (Smith Machine)', 'Kurzhantel'],
+  ['Beinbeuger liegend', 'Beinbeuger', 'Lying Leg Curl|Lying Hamstring Curl|Lying Hamstring Curls|Leg Curl', 'Maschine'],
+  ['Beinbeuger sitzend', 'Beinbeuger', 'Seated Leg Curl|Seated Hamstring Curl', 'Maschine'],
+  ['Good Mornings', 'Beinbeuger', 'Good Morning|Barbell Good Morning', 'Langhantel'],
+  ['Hüftstoß', 'Gesäß', 'Hip Thrust|Barbell Hip Thrust|Hueftstoss|Glute Bridge', 'Langhantel'],
+  ['Gesäßmaschine', 'Gesäß', 'Glute Kickback|Glute Machine|Cable Kickback', 'Maschine'],
+  ['Adduktorenmaschine', 'Adduktoren', 'Adductor Machine|Hip Adduction|Adduktoren', 'Maschine'],
+  ['Abduktorenmaschine', 'Abduktoren', 'Abductor Machine|Hip Abduction|Abduktoren', 'Maschine'],
+  ['Wadenheben stehend', 'Waden', 'Standing Calf Raise|Calf Raise|Calves Press|Wadenheben', 'Maschine'],
+  ['Wadenheben sitzend', 'Waden', 'Seated Calf Raise', 'Maschine'],
+  ['Crunches', 'Bauch', 'Crunch|Cable Crunch|Bauchpresse', 'Körpergewicht'],
+  ['Beinheben', 'Bauch', 'Leg Raises|Hanging Leg Raise|Beinheben hängend', 'Körpergewicht'],
+  ['Plank', 'Bauch', 'Unterarmstütz|Front Plank|Planke', 'Körpergewicht'],
+  ['Russian Twist', 'Bauch', 'Russian Twists|Rumpfdrehen', 'Körpergewicht'],
+  ['Ab Wheel', 'Bauch', 'Bauchroller|Ab Roller|Rollout', 'Körpergewicht'],
+  ['Laufband', 'Cardio', 'Treadmill|Laufen|Running', 'Cardio'],
+  ['Crosstrainer', 'Cardio', 'Elliptical|Ellipsentrainer', 'Cardio'],
+  ['Rudergerät', 'Cardio', 'Rowing Machine|Rower|Ergometer Rudern', 'Cardio'],
+  ['Fahrradergometer', 'Cardio', 'Stationary Bike|Bike|Spinning|Radfahren', 'Cardio'],
+  ['Stepper', 'Cardio', 'Stairmaster|Stair Climber|Treppensteiger', 'Cardio'],
+];
+// Katalog nachziehen: idempotent, beim Start, wie `syncFoodCatalog()` fuer Lebensmittel. Zwei Quellen:
+//   1. der Grundstock oben (is_seed=1 - der Nutzer kann ihn nicht wegwerfen),
+//   2. die Uebungsnamen, die in DIESER Datenbank schon in Plaenen stehen (is_seed=0). Ohne (2) waere
+//      der Katalog am ersten Tag leer fuer genau die Uebungen, die der Athlet taeglich benutzt.
+// Verglichen wird ueber exNorm() gegen Name UND Aliasse - „Leg Press" aus dem Bestand faellt damit
+// unter „Beinpresse" und legt keinen zweiten Eintrag an. Das ist die Dublettenerkennung, einmal
+// rueckwaerts angewandt.
+function syncExerciseCatalog() {
+  if (!hasTable('exercise_catalog')) { console.warn('[katalog] Tabelle exercise_catalog fehlt – Bibliothek inaktiv'); return { added: 0 }; }
+  // Der Merker ist seit 3.0.0 BESITZERBEWUSST: ein Eintrag mit `owner_id` gilt nur fuer diesen
+  // Nutzer, ein Eintrag ohne fuer alle. Ohne diese Trennung wuerde die private Uebung des einen
+  // verhindern, dass der naechste dieselbe Uebung in seinem eigenen Katalog bekommt - und genau
+  // dieses Verwischen der Grenze ist der Befund, den dieser Abschnitt behebt.
+  const kk = (ownerId, word) => (ownerId == null ? '*' : String(ownerId)) + ':' + word;
+  const known = new Map();      // '<Besitzer-Id oder *>:' + exNorm(Wort) -> id
+  const kennt = (ownerId, word) => known.has(kk(null, word)) || (ownerId != null && known.has(kk(ownerId, word)));
+  try {
+    for (const r of db.all('SELECT id,name,aliases,owner_id FROM exercise_catalog')) {
+      const o = r.owner_id ?? null;
+      known.set(kk(o, exNorm(r.name)), r.id);
+      for (const a of String(r.aliases || '').split('|')) { const k = exNorm(a); if (k && !known.has(kk(o, k))) known.set(kk(o, k), r.id); }
+    }
+  } catch (e) { return { added: 0 }; }
+  let added = 0, fromPlans = 0;
+  const insert = (name, muscle, aliases, equipment, isSeed, ownerId) => {
+    const r = db.run('INSERT INTO exercise_catalog(name,muscle,aliases,equipment,is_seed,owner_id) VALUES(?,?,?,?,?,?)',
+      [name, muscleCanon(muscle), aliases || null, equipment || null, isSeed ? 1 : 0, ownerId ?? null]);
+    const o = ownerId ?? null;
+    known.set(kk(o, exNorm(name)), r.lastInsertRowid);
+    for (const a of String(aliases || '').split('|')) { const k = exNorm(a); if (k && !known.has(kk(o, k))) known.set(kk(o, k), r.lastInsertRowid); }
+    added++;
+    return r.lastInsertRowid;
+  };
+  try {
+    db.tx(() => {
+      for (const [name, muscle, aliases, equip] of EXERCISE_SEED) {
+        if (known.has(kk(null, exNorm(name)))) continue;
+        insert(name, muscle, aliases, equip, 1, null);
+      }
+      // Bestand aus den Plaenen. `deleted=0` bewusst NICHT gefiltert: eine Uebung, die der Coach
+      // gestern aus dem Plan genommen hat, ist trotzdem eine Uebung, die dieser Mensch kennt.
+      // GEMESSEN (Welle B-I): Diese Zeilen landeten mit `owner_id = NULL` im Katalog - und
+      // EXCAT_VISIBLE zeigt `owner_id IS NULL` JEDEM. Der Kommentar direkt darueber verspricht das
+      // Gegenteil, SICHERHEIT.md 89/223 ebenfalls. Gemessen mit einer Uebung „Reha rechte Schulter
+      // Dr. Weber" im Plan von Athlet 2: nach dem Neustart fanden fremder Athlet, fremder Coach UND
+      // Admin diesen Namen ueber GET /api/exercise-catalog?q=Reha. Ein Uebungsname kann eine Diagnose,
+      // einen Arztnamen oder einen Spitznamen enthalten - er gehoert dem, in dessen Plan er steht.
+      // Jetzt wird die Besitzer-Id mitgeschrieben. Gruppiert wird je Nutzer und Name: dieselbe Uebung
+      // in drei Plaenen ergibt drei Zeilen, jede beim ihren. Das ist beabsichtigt - eine geteilte
+      // Zeile waere wieder eine Zeile, die jeder sieht.
+      for (const r of db.all(`SELECT p.user_id uid, e.name name, MAX(e.muscle) muscle
+        FROM exercises e JOIN training_days td ON td.id=e.day_id JOIN plans p ON p.id=td.plan_id
+        WHERE e.name IS NOT NULL AND p.user_id IS NOT NULL
+        GROUP BY p.user_id, LOWER(TRIM(e.name))`)) {
+        const nm = String(r.name || '').trim();
+        if (!nm) continue;
+        // Bekannt heisst hier: mitgeliefert/allgemein (owner_id NULL) oder DIESEM Nutzer schon bekannt.
+        if (kennt(r.uid, exNorm(nm))) continue;
+        insert(nm, r.muscle, null, null, 0, r.uid);
+        fromPlans++;
+      }
+    });
+  } catch (e) { console.error('[katalog]', e?.message || e); }
+  // EINMALIGE NACHZIEHUNG: Zeilen, die der alte Import angelegt hat (`is_seed=0 AND owner_id IS NULL`).
+  // Sie sind der eigentliche Schaden - sie stehen im Katalog ALLER. In rate-coach.db betrifft es heute
+  // „Probe-Uebung" und „Leg Raises - Superset - Crunches". Jede solche Zeile bekommt den Besitzer, in
+  // dessen Plan der Name steht; steht er in mehreren Plaenen, bekommt jeder seine eigene Zeile. Steht
+  // er in keinem mehr, ist die Zeile gegenstandslos und faellt weg. Danach gibt es diesen Zustand nicht
+  // mehr, der Schritt ist also von selbst idempotent.
+  let nachgezogen = 0, verwaist = 0;
+  try {
+    const offen = db.all('SELECT id,name FROM exercise_catalog WHERE is_seed=0 AND owner_id IS NULL');
+    if (offen.length) {
+      const besitzer = new Map();   // exNorm(Name) -> [user_id, ...]
+      for (const r of db.all(`SELECT DISTINCT p.user_id uid, e.name name FROM exercises e
+        JOIN training_days td ON td.id=e.day_id JOIN plans p ON p.id=td.plan_id
+        WHERE e.name IS NOT NULL AND p.user_id IS NOT NULL`)) {
+        const k = exNorm(r.name); if (!k) continue;
+        if (!besitzer.has(k)) besitzer.set(k, []);
+        if (!besitzer.get(k).includes(r.uid)) besitzer.get(k).push(r.uid);
+      }
+      db.tx(() => {
+        for (const row of offen) {
+          const uids = besitzer.get(exNorm(row.name)) || [];
+          if (!uids.length) { db.run('DELETE FROM exercise_catalog WHERE id=?', [row.id]); verwaist++; continue; }
+          db.run('UPDATE exercise_catalog SET owner_id=? WHERE id=?', [uids[0], row.id]);
+          nachgezogen++;
+          for (const u of uids.slice(1)) {
+            if (kennt(u, exNorm(row.name))) continue;
+            db.run('INSERT INTO exercise_catalog(name,muscle,aliases,equipment,is_seed,owner_id) SELECT name,muscle,aliases,equipment,0,? FROM exercise_catalog WHERE id=?', [u, row.id]);
+            nachgezogen++;
+          }
+        }
+      });
+      console.log('[katalog] Besitzer nachgezogen: ' + nachgezogen + ' Zeile(n)' + (verwaist ? ', ' + verwaist + ' gegenstandslose entfernt' : ''));
+    }
+  } catch (e) { console.error('[katalog] Nachziehung', e?.message || e); }
+  if (added) console.log('[katalog] ' + added + ' Eintraege ergaenzt (' + (added - fromPlans) + ' mitgeliefert, ' + fromPlans + ' aus vorhandenen Plaenen)');
+  return { added, fromPlans };
+}
+// Sichtbarkeit: mitgeliefert und gepflegt (owner_id IS NULL) sehen alle; selbst angelegte nur der,
+// der sie angelegt hat. Ohne diese Grenze landet jede Eigenschoepfung eines Athleten im Typeahead
+// aller anderen - genau die Zersplitterung, die B-c beseitigen soll.
+const EXCAT_VISIBLE = 'SELECT id,name,muscle,aliases,equipment,is_seed,owner_id FROM exercise_catalog WHERE owner_id IS NULL OR owner_id=?';
+function exCatSearch(userId, q, limit = 20) {
+  let rows = [];
+  try { rows = db.all(EXCAT_VISIBLE, [userId]); } catch (e) { return []; }
+  const toks = exToks(q);
+  const out = [];
+  for (const r of rows) {
+    const n = exNorm(r.name);
+    const alias = String(r.aliases || '').split('|').map(exNorm).filter(Boolean);
+    const hay = [n, ...alias].join(' ');
+    if (toks.length && !exHit(hay, toks)) continue;
+    // Rang: genauer Treffer vor Wortanfang vor „steht irgendwo drin". Der Alias zaehlt eine Stufe
+    // schwaecher als der Anzeigename - wer „press" tippt, soll zuerst die Uebungen sehen, die so
+    // HEISSEN, nicht die, bei denen es nur in der englischen Schreibweise vorkommt.
+    const ql = toks.join(' ');
+    let rank = 4;
+    if (!toks.length) rank = 3;
+    else if (n === ql) rank = 0;
+    else if (n.startsWith(ql)) rank = 1;
+    else if (n.includes(ql)) rank = 2;
+    else if (alias.some(a => a === ql || a.startsWith(ql))) rank = 3;
+    out.push({ id: r.id, name: r.name, muscle: r.muscle, equipment: r.equipment,
+      aliases: String(r.aliases || '').split('|').filter(Boolean), is_seed: !!r.is_seed, own: r.owner_id != null, _r: rank });
+  }
+  out.sort((a, b) => (a._r - b._r) || (b.is_seed - a.is_seed) || String(a.name).localeCompare(String(b.name), 'de'));
+  return out.slice(0, limit).map(({ _r, ...rest }) => rest);
+}
+// Findet den Katalogeintrag zu einem getippten Namen (exakt ueber Name ODER Alias) - die Grundlage
+// sowohl fuer das Muskel-Autofill als auch fuer „die hast du schon".
+function exCatMatch(userId, name) {
+  const all = exCatMatchAll(userId, name);
+  return all.exact[0] || null;
+}
+// GEMESSEN (Welle B-I, Befund B8): Die Dublettenerkennung war ASYMMETRISCH. Wer „Incline Smith
+// Machine Press" tippte, bekam den Hinweis („Schrägbankdrücken (Smith)", zweimal im Plan, 27 und 3
+// Saetze); wer denselben Geraet DEUTSCH tippte („Schrägbankdrücken"), bekam duplicate:false - der
+// exakte Treffer landete auf dem LANGHANTEL-Eintrag, dessen Aliasse die Plan-Schreibweise nicht
+// enthalten, und der passende Smith-Eintrag wurde gar nicht mehr betrachtet, weil `exCatMatch` nach
+// dem ERSTEN Treffer aufhoerte. Ergebnis: wer richtig deutsch tippt, legt Dublette Nummer fuenf an.
+// Deshalb liefert die Suche jetzt ZWEI Mengen:
+//   `exact`    - Name oder Alias ist genau der getippte Name (fuer Muskel-Autofill und Namensvorschlag;
+//                dort darf es nur EINEN geben, sonst waere der Vorschlag beliebig).
+//   `related`  - jeder Eintrag, dessen Name oder Alias sich mit dem getippten Namen UEBERSCHNEIDET:
+//                der eine steckt vollstaendig im anderen, an Wortgrenzen. „Schrägbankdrücken" trifft
+//                damit auch „Schrägbankdrücken (Smith)" und „Kurzhantel-Schrägbankdrücken".
+// Die Wortgrenze und die Mindestlaenge sind der Riegel gegen Rauschen: „press" allein soll nicht
+// jede Druckuebung des Katalogs als Dublette melden.
+const EXCAT_REL_MIN = 6;                 // kuerzere Eingaben sind zu unspezifisch fuer „ueberschneidet sich"
+function exCatOverlap(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [kurz, lang] = a.length <= b.length ? [a, b] : [b, a];
+  if (kurz.length < EXCAT_REL_MIN) return false;
+  const i = lang.indexOf(kurz);
+  if (i < 0) return false;
+  const vor = i === 0 || lang[i - 1] === ' ';
+  const nach = i + kurz.length === lang.length || lang[i + kurz.length] === ' ';
+  return vor && nach;
+}
+function exCatMatchAll(userId, name) {
+  const k = exNorm(name);
+  const out = { exact: [], related: [] };
+  if (!k) return out;
+  let rows = [];
+  try { rows = db.all(EXCAT_VISIBLE, [userId]); } catch (e) { return out; }
+  for (const r of rows) {
+    const woerter = [exNorm(r.name), ...String(r.aliases || '').split('|').map(exNorm)].filter(Boolean);
+    if (woerter.some(w => w === k)) { out.exact.push(r); out.related.push(r); continue; }
+    if (woerter.some(w => exCatOverlap(w, k))) out.related.push(r);
+  }
+  return out;
+}
+
+// ---- Typeahead. Keine Personendaten: Uebungsnamen, Muskelgruppen, Geraete. Jede angemeldete Rolle
+// darf suchen (ein Coach tippt die Uebung fuer seinen Athleten, ein Athlet fuer sich). ----
+app.get('/api/exercise-catalog', auth, (req, res) => {
+  if (!hasTable('exercise_catalog')) return res.json({ available: false, items: [] });
+  const q = str(req.query.q, 60);
+  const limit = clampNum(req.query.limit, 1, 50, true) || 20;
+  res.json({ available: true, q, items: exCatSearch(req.user.id, q, limit) });
+});
+// ---- Dublettenerkennung, BEVOR etwas entsteht. Zwei Antworten in einer:
+//   `catalog` = „Meinst du Beinpresse? So heisst sie hier."   (Namensvorschlag)
+//   `inPlan`  = „Du hast sie schon - im Plan, mit N geloggten Saetzen." (die eigentliche Dublette)
+// Die Route ENTSCHEIDET nichts. Sie sagt, was da ist; anlegen darf der Nutzer trotzdem (P10). ----
+app.get('/api/exercise-catalog/duplicates', auth, (req, res) => {
+  const uid = Number(req.query.userId || req.user.id);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const name = str(req.query.name, 120);
+  if (!name) return res.status(400).json({ error: 'name fehlt' });
+  const found = hasTable('exercise_catalog') ? exCatMatchAll(uid, name) : { exact: [], related: [] };
+  const hit = found.exact[0] || null;
+  // Die Aliasse zaehlen mit: wer „Leg Press" tippt und „Beinpresse" im Plan hat, soll genau das
+  // erfahren. Ohne die Aliasse fiele die haeufigste Dublette ueberhaupt durch.
+  // B8 (3.0.0): Und zwar die Aliasse ALLER Eintraege, die sich mit dem getippten Namen ueberschneiden -
+  // nicht nur die des einen exakten Treffers. Sonst findet die deutsche Schreibweise nicht, was die
+  // englische findet (siehe exCatMatchAll).
+  const keys = new Set([exNorm(name)]);
+  for (const r of found.related) {
+    keys.add(exNorm(r.name));
+    for (const a of String(r.aliases || '').split('|')) { const k = exNorm(a); if (k) keys.add(k); }
+  }
+  const inPlan = [];
+  try {
+    const rows = db.all(`SELECT e.id, e.name, e.deleted, td.name dayName FROM exercises e
+      JOIN training_days td ON td.id=e.day_id JOIN plans p ON p.id=td.plan_id
+      WHERE p.user_id=? AND p.active=1 AND e.deleted=0`, [uid]);
+    for (const r of rows) {
+      if (!keys.has(exNorm(r.name))) continue;
+      const sets = db.get(`SELECT COUNT(*) c FROM set_logs WHERE user_id=? AND exercise_id=? AND ${SQL_REAL}`, [uid, r.id])?.c || 0;
+      inPlan.push({ id: r.id, name: r.name, dayName: r.dayName, sets });
+    }
+  } catch (e) { /* leer ist eine gueltige Antwort */ }
+  const suggest = hit && exNorm(hit.name) !== exNorm(name) ? hit.name : null;
+  res.json({
+    name, duplicate: inPlan.length > 0,
+    catalog: hit ? { id: hit.id, name: hit.name, muscle: hit.muscle, equipment: hit.equipment } : null,
+    suggestName: suggest,
+    // Der Satz, den der Nutzer liest - hier gebaut, damit Training und Coach dieselbe Formulierung
+    // zeigen und nicht jede Ansicht ihre eigene erfindet.
+    // B8 (3.0.0): Heisst die Uebung im Plan ANDERS als das Getippte, steht ihr Name jetzt im Satz.
+    // Seit die Schluesselmenge aus allen ueberschneidenden Katalogeintraegen kommt, kann der Treffer
+    // eine andere Schreibweise tragen als die getippte - „Die hast du schon" ohne den gefundenen
+    // Namen waere dann eine Behauptung, die der Nutzer nicht nachpruefen kann (P3).
+    message: inPlan.length
+      ? (exNorm(inPlan[0].name) === exNorm(name)
+          ? 'Die hast du schon – ' + inPlan[0].dayName + ', ' + inPlan[0].sets + ' geloggte Sätze.'
+          : 'Die hast du schon – als „' + inPlan[0].name + '" in ' + inPlan[0].dayName + ', ' + inPlan[0].sets + ' geloggte Sätze.')
+      : (suggest ? 'Im Katalog heißt sie „' + suggest + '".' : null),
+    inPlan,
+  });
+});
+// ---- Eigenen Eintrag anlegen. Landet mit owner_id beim Anlegenden, nicht im Katalog aller.
+// 409 mit dem Treffer statt eines stillen zweiten Eintrags: die Bibliothek darf sich nicht selbst
+// zersplittern. Mit `confirm:true` geht es trotzdem - der Nutzer entscheidet, nicht die App. ----
+app.post('/api/exercise-catalog', auth, (req, res) => {
+  if (!hasTable('exercise_catalog')) return res.status(503).json({ error: 'Bibliothek nicht verfügbar' });
+  const name = str(req.body?.name, 120);
+  if (!name) return res.status(400).json({ error: 'Name fehlt' });
+  const hit = exCatMatch(req.user.id, name);
+  if (hit && req.body?.confirm !== true)
+    return res.status(409).json({ duplicate: { id: hit.id, name: hit.name, muscle: hit.muscle, equipment: hit.equipment },
+      message: 'Meinst du „' + hit.name + '"? Die gibt es schon.' });
+  const aliases = Array.isArray(req.body?.aliases)
+    ? req.body.aliases.map(a => str(a, 60)).filter(Boolean).slice(0, 10).join('|')
+    : (strOrNull(req.body?.aliases, 300) || null);
+  const r = db.run('INSERT INTO exercise_catalog(name,muscle,aliases,equipment,is_seed,owner_id) VALUES(?,?,?,?,0,?)',
+    [name, muscleCanon(strOrNull(req.body?.muscle, 60)), aliases, strOrNull(req.body?.equipment, 40), req.user.id]);
+  res.json({ ok: true, id: r.lastInsertRowid, name });
+});
+// ---- Eigenen Eintrag loeschen. Mitgeliefertes (is_seed=1) und fremdes bleibt stehen. ----
+app.delete('/api/exercise-catalog/:id', auth, (req, res) => {
+  if (!hasTable('exercise_catalog')) return res.status(503).json({ error: 'Bibliothek nicht verfügbar' });
+  const row = db.get('SELECT id,is_seed,owner_id FROM exercise_catalog WHERE id=?', [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Nicht gefunden' });
+  if (row.is_seed || row.owner_id !== req.user.id) return res.status(403).json({ error: 'Nur eigene Einträge löschbar' });
+  db.run('DELETE FROM exercise_catalog WHERE id=?', [row.id]);
+  res.json({ ok: true, id: row.id });
+});
+
+// ---- UEBUNG TAUSCHEN (`replaces_id`). Der Slot bleibt, der Verlauf bleibt verknuepft.
+// Was hier NICHT passiert: die alten Saetze wandern nicht mit. Sie gehoeren zur alten Bewegung und
+// waeren unter dem neuen Namen eine Faelschung (eine Beinpresse ist keine Kniebeuge). Verknuepft
+// wird stattdessen: die neue Uebung weiss, woraus sie hervorging, und die Oberflaeche kann
+// „früher: Leg Press" danebenschreiben - samt der Zahl der Saetze, die dort liegen.
+// Die alte Uebung wird WEICH geloescht (deleted=1) - genau wie DELETE /api/exercises/:id. Ihre
+// Saetze bleiben in Analyse, Verlauf und Export; nur aus dem Plan verschwindet sie.
+app.post('/api/exercises/:id/replace', auth, (req, res) => {
+  const ex = db.get(`SELECT e.*, p.user_id FROM exercises e JOIN training_days td ON td.id=e.day_id
+    JOIN plans p ON p.id=td.plan_id WHERE e.id=?`, [req.params.id]);
+  if (!ex || !canAccessPersonal(req.user, ex.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  if (ex.deleted) return res.status(404).json({ error: 'Diese Übung ist bereits aus dem Plan genommen' });
+  const x = exerciseInput(req.body);
+  if (x.error) return res.status(400).json({ error: x.error });
+  if (exNorm(x.name) === exNorm(ex.name)) return res.status(400).json({ error: 'Das ist dieselbe Übung – zum Umbenennen reicht „Ändern".' });
+  // Muskel automatisch fuellen, wenn der Katalog ihn kennt und nichts mitgeschickt wurde. Dieselbe
+  // Regel wie im Typeahead - der Nutzer soll nicht zweimal dasselbe wissen muessen.
+  let muscle = x.muscle;
+  if (!muscle && hasTable('exercise_catalog')) { const hit = exCatMatch(ex.user_id, x.name); if (hit?.muscle) muscle = hit.muscle; }
+  const isCoach = req.user.role !== 'athlete' && req.user.id !== ex.user_id;
+  // GEMESSEN (Welle B-I): Diese Route pruefte `canAccessPersonal`, aber nicht `coach_locked`. PUT und
+  // DELETE auf dieselbe Uebung antworten seit 2.1.0 mit 409 und einem Satz, wenn ein Athlet eine vom
+  // Coach erstellte Uebung anfasst - „Tauschen" legte stattdessen ohne Rueckfrage die neue Zeile mit
+  // source='athlete' an und setzte deleted=1 auf der Coach-Uebung. Dass die Oberflaeche (B-I.3)
+  // vorher fragt, ist gut, aber kein Schutz: der Schutz gehoert an die Route, nicht an einen von
+  // mehreren moeglichen Aufrufern. Wortlaut und Mechanik wie in DELETE /api/exercises/:id.
+  if (!isCoach && ex.coach_locked && req.body?.confirm !== true) {
+    return res.status(409).json({ warning: true, confirm: 'replace',
+      message: 'Diese Übung wurde von deinem Coach erstellt. Tauschen? Dein Plan weicht dann von der Vorgabe ab.' });
+  }
+  const sets = db.get(`SELECT COUNT(*) c FROM set_logs WHERE user_id=? AND exercise_id=? AND ${SQL_REAL}`, [ex.user_id, ex.id])?.c || 0;
+  const created = db.tx(() => {
+    const r = db.run(`INSERT INTO exercises(day_id,muscle,name,technique,video_url,target_sets,target_reps,notes,step_kg,position,source,coach_locked,replaces_id,group_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [ex.day_id, muscle, x.name, x.technique, x.video_url,
+       clampSets(req.body?.target_sets, ex.target_sets || 3), x.target_reps ?? ex.target_reps, x.notes,
+       x.step_kg ?? ex.step_kg, ex.position, isCoach ? 'coach' : 'athlete', isCoach ? 1 : 0, ex.id, ex.group_id ?? null]);
+    db.run('UPDATE exercises SET deleted=1 WHERE id=?', [ex.id]);
+    return r.lastInsertRowid;
+  });
+  res.json({ ok: true, id: created, replaces: { id: ex.id, name: ex.name, sets },
+    note: 'früher: ' + ex.name + (sets ? ' (' + sets + ' geloggte Sätze bleiben im Verlauf)' : '') });
+});
+// Vorgaenger einer Uebung, aufgeloest ueber die Kette `replaces_id` (hoechstens fuenf Glieder - wer
+// achtmal hintereinander tauscht, bekommt die letzten fuenf; eine endlose Kette waere sonst eine
+// endlose Abfrage, und eine im Kreis zeigende Kette eine Endlosschleife).
+function exerciseAncestry(exId) {
+  const out = [];
+  let cur = exId, guard = 0;
+  const seen = new Set([Number(exId)]);
+  while (guard++ < 5) {
+    const row = db.get('SELECT id,replaces_id FROM exercises WHERE id=?', [cur]);
+    const prevId = row?.replaces_id;
+    if (!prevId || seen.has(Number(prevId))) break;
+    seen.add(Number(prevId));
+    const prev = db.get('SELECT id,name,muscle FROM exercises WHERE id=?', [prevId]);
+    if (!prev) break;
+    out.push({ id: prev.id, name: prev.name, muscle: muscleCanon(prev.muscle) });
+    cur = prevId;
+  }
+  return out;
+}
+
+// ---- SUPERSAETZE (`group_id`). Eine Marke auf mehreren Uebungen desselben Tages: sie gehoeren
+// zusammen, und dazwischen wird nicht pausiert. Die Pause der GRUPPE ist die Pause ihrer letzten
+// Uebung - das entscheidet die Oberflaeche, der Server haelt nur die Zugehoerigkeit fest.
+// Eine Uebung ist in hoechstens einer Gruppe; wer sie neu vergibt, nimmt sie aus der alten.
+// `dissolve:true` loest die Gruppe der genannten Uebungen wieder auf. ----
+app.post('/api/days/:id/superset', auth, (req, res) => {
+  const d = db.get('SELECT td.*, p.user_id FROM training_days td JOIN plans p ON p.id=td.plan_id WHERE td.id=?', [req.params.id]);
+  if (!d) return res.status(404).json({ error: 'Trainingstag nicht gefunden' });
+  if (!canAccessPersonal(req.user, d.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+  if (!ids.length) return res.status(400).json({ error: 'ids muss eine Liste von Übungs-IDs sein' });
+  const own = new Set(db.all('SELECT id FROM exercises WHERE day_id=? AND deleted=0', [d.id]).map(r => r.id));
+  if (ids.some(id => !own.has(id)) || new Set(ids).size !== ids.length)
+    return res.status(400).json({ error: 'ids enthält fremde oder doppelte Übungs-IDs' });
+  const dissolve = req.body?.dissolve === true;
+  if (!dissolve && ids.length < 2) return res.status(400).json({ error: 'Ein Supersatz braucht mindestens zwei Übungen' });
+  const group = dissolve ? null : 'g' + crypto.randomBytes(5).toString('hex');
+  // GEMESSEN (Welle B-I, Befund B11): Der Kommentar oben sagt „wer sie neu vergibt, nimmt sie aus der
+  // alten" - der Code nahm aber nur die GENANNTEN Uebungen um. Gemessen: superset {ids:[7,8,9]} ->
+  // Gruppe A; danach {ids:[7,8]} -> Gruppe B; im Plan stand 9 weiter allein in Gruppe A. Sichtbar
+  // wurde das nicht (libBuild ignoriert Gruppen unter zwei Mitgliedern), es blieb aber Datenmuell -
+  // und der Kommentar behauptete das Gegenteil. Jetzt zaehlt dieselbe Transaktion die verlassenen
+  // Gruppen nach und loest auf, was auf ein einzelnes Mitglied zusammengeschrumpft ist: eine Gruppe
+  // mit einem Mitglied ist kein Supersatz, sondern eine Uebung.
+  const aufgeloest = [];
+  db.tx(() => {
+    const vorher = new Set(db.all(`SELECT DISTINCT group_id g FROM exercises
+      WHERE id IN (${ids.map(() => '?').join(',')}) AND group_id IS NOT NULL`, ids).map(r => r.g));
+    for (const id of ids) db.run('UPDATE exercises SET group_id=? WHERE id=?', [group, id]);
+    for (const g of vorher) {
+      if (g === group) continue;
+      const rest = db.all('SELECT id FROM exercises WHERE group_id=? AND deleted=0', [g]).map(r => r.id);
+      if (rest.length >= 2) continue;
+      for (const id of rest) db.run('UPDATE exercises SET group_id=NULL WHERE id=?', [id]);
+      aufgeloest.push(g);
+    }
+  });
+  res.json({ ok: true, group_id: group, ids, dissolved: dissolve, orphansCleared: aufgeloest.length });
+});
+
+syncExerciseCatalog();   // beim Start, idempotent - wie der Lebensmittel-Katalog
+
+// D16 (2.8.0, Nachbesserung): Die Last eines Satzes ist nicht immer das, was an der Stange haengt.
+// 24 Saetze Klimmzuege sind rund 15.360 kg echte Arbeit und standen mit `weight=0` in der Tonnage.
+// `set_logs.bodyweight` (Spalte seit 2.6.0) traegt das BEIM SATZ gueltige Koerpergewicht – beim Satz,
+// nicht bei der Uebung, weil es sich mit der Zeit aendert und ein alter Satz mit dem heutigen Gewicht
+// neu gerechnet falsch waere. Bis 2.8.0 wurde die Spalte weder gelesen noch geschrieben; der
+// aufgeschobene Rest war `exercises.bodyweight` (die Frage, OB eine Uebung eine Koerpergewichtsuebung
+// ist) – eine andere Tabelle und eine andere Frage. Hier ist die Leitung: NULL = nichts anrechnen,
+// also fuer jede bestehende Zeile bitgleich dieselbe Zahl wie vorher.
+const SQL_LOAD = '(COALESCE(weight,0)+COALESCE(bodyweight,0))';
+const SQL_LOAD_SL = '(COALESCE(sl.weight,0)+COALESCE(sl.bodyweight,0))';
+// Tonnage als ganzzahlige Summe von round(Last*100)*Wdh. – exakt und unabhaengig von der Reihenfolge
+// der Addition. EIN Ausdruck fuer alle Aggregate (Analyse, Muskelverteilung), damit dieselbe Frage
+// nicht an zwei Stellen mit zwei Formeln beantwortet wird.
+const SQL_VOL100_SL = `SUM(CAST(ROUND(${SQL_LOAD_SL}*100) AS INTEGER)*sl.reps)`;
+// Dieselbe Regel in JS, fuer die Summen, die aus geholten Zeilen gebildet werden.
+const setLoad = r => (Number(r?.weight) || 0) + (Number(r?.bodyweight) || 0);
+
+// Papierkorb fuer geloeschte Saetze: 24 Stunden, danach bleibt die Zeile geloescht. Der Merker liegt
+// in `settings` (Schluessel/Wert) – dieselbe Tabelle, die schon die Auto-Trainingstage traegt. Kein
+// ALTER TABLE, keine neue Tabelle, und vor allem: kein hartes DELETE. CRITIC K9 – in `set_logs` hat
+// ein Hard-Delete ueber ON DELETE CASCADE schon einmal 4.185 von 8.345 Zeilen zerstoert.
+const TRASH_HOURS = 24;
+const trashKey = (uid, id) => 'setltrash_' + uid + '_' + id;
+function trashPut(uid, row) {
+  try {
+    db.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',
+      [trashKey(uid, row.id), JSON.stringify({ id: row.id, exercise_id: row.exercise_id, date: row.date,
+        set_no: row.set_no, weight: row.weight, reps: row.reps, rir: row.rir ?? null,
+        set_type: row.set_type || 'work', note: row.note ?? null, at: Date.now() })]);
+    trashSweep(uid);
+  } catch (e) { console.error('[papierkorb]', e?.message || e); }
+}
+// Abgelaufene Merker wegraeumen. Laeuft beim Schreiben und beim Lesen – so waechst `settings` nicht,
+// und niemand braucht einen zusaetzlichen Hintergrundjob dafuer.
+function trashSweep(uid) {
+  const cut = Date.now() - TRASH_HOURS * 3600e3;
+  for (const r of db.all('SELECT key,value FROM settings WHERE key LIKE ?', ['setltrash_' + uid + '_%'])) {
+    let at = 0; try { at = JSON.parse(r.value)?.at || 0; } catch (e) {}
+    if (at < cut) db.run('DELETE FROM settings WHERE key=?', [r.key]);
+  }
+}
+function trashList(uid) {
+  trashSweep(uid);
+  const out = [];
+  for (const r of db.all('SELECT key,value FROM settings WHERE key LIKE ?', ['setltrash_' + uid + '_%'])) {
+    try { const v = JSON.parse(r.value); if (v && v.id) out.push(v); } catch (e) {}
+  }
+  return out.sort((a, b) => b.at - a.at);
+}
+
 // Merker fuer den automatisch erkannten Trainingstag (B16, siehe POST /api/logs). Er haelt fest, was
 // vor der automatischen Aenderung im Kalender stand, damit sie rueckgaengig gemacht werden kann.
 // Bewusst in `settings` (Schluessel/Wert) statt in einer neuen Spalte: Welle A-I aendert kein Schema.
@@ -2729,6 +3946,51 @@ function getAutoDay(key) {
   catch (e) { return null; }
 }
 function clearAutoDay(key) { try { db.run('DELETE FROM settings WHERE key=?', [key]); } catch (e) {} }
+// D8/B16, EINE Auswertung fuer ALLE Wege, auf denen sich die Satzlage eines Tages aendert:
+// Satz speichern (POST /api/logs), Satz weich loeschen (DELETE /api/logs/:id) und Satz zurueckholen
+// (POST /api/logs/:id/restore). Bis 2.8.0 stand die Rechnung zweimal da – und im dritten Weg gar nicht:
+// „Rueckgaengig" holte die Satzzeilen zurueck, aber nicht den Trainingstag. Gemessen an einem freien
+// Tag: 3 Saetze -> day_log 'train' + Merker; loeschen -> beides korrekt zurueck; wiederherstellen ->
+// die drei Saetze wieder da, day_log LEER und der Merker fuer immer weg. Auf der Startseite stand
+// danach „Ruhetag" ueber sieben eingetragenen Saetzen, das Kalorienziel fiel um 417 kcal, und der
+// Kalender verschob die Rotation um einen Tag. Genau der D8-Schaden aus 2.5.0, nur durch eine andere Tuer.
+//
+// `exercise_id` liefert nur den Tagesnamen („Lower 1") fuer einen neu angelegten Tag – ohne sie bleibt
+// er leer, nie falsch. `rollbackOnly` ist der Sonderfall DELETE: dort darf ein Tag zurueckgenommen,
+// aber keiner neu angelegt werden. Sonst holte das Loeschen eines Satzes einen Tag zurueck, den der
+// Athlet kurz zuvor im Kalender bewusst entfernt hat.
+function syncAutoDay(uid, date, exercise_id, { rollbackOnly = false } = {}) {
+  // 2.8.0: Aufwaermsaetze zaehlen hier nicht mit. Drei Aufwaermsaetze aus zwei Uebungen sind kein
+  // Trainingstag – sonst verschoebe eine Aufwaermrunde vor einer abgebrochenen Einheit die Rotation.
+  const done = db.get(`SELECT COUNT(*) c, COUNT(DISTINCT exercise_id) ex FROM set_logs WHERE user_id=? AND date=? AND ${SQL_REAL}`, [uid, date]);
+  const counted = (done?.c || 0) >= 3 && (done?.ex || 0) >= 2;
+  const autoKey = autoDayKey(uid, date);
+  if (counted) {
+    if (rollbackOnly) return counted;
+    const exMeta = exercise_id
+      ? db.get('SELECT td.name dn FROM exercises e JOIN training_days td ON td.id=e.day_id WHERE e.id=?', [exercise_id])
+      : null;
+    const dayRow = db.get('SELECT id,type,day_name FROM day_log WHERE user_id=? AND date=?', [uid, date]);
+    if (!dayRow) {
+      db.run('INSERT INTO day_log(user_id,date,type,day_name) VALUES(?,?,?,?)', [uid, date, 'train', exMeta?.dn || null]);
+      setAutoDay(uid, date, { neu: 1 });
+    } else if (dayRow.type !== 'train') {
+      db.run('UPDATE day_log SET type=?,day_name=? WHERE id=?', ['train', exMeta?.dn || null, dayRow.id]);
+      setAutoDay(uid, date, { typ: dayRow.type, name: dayRow.day_name ?? null });
+    }
+  } else {
+    const vorher = getAutoDay(autoKey);
+    if (vorher) {
+      const dayRow = db.get('SELECT id,type FROM day_log WHERE user_id=? AND date=?', [uid, date]);
+      if (dayRow && dayRow.type === 'train') {
+        if (vorher.neu) db.run('DELETE FROM day_log WHERE id=?', [dayRow.id]);
+        else db.run('UPDATE day_log SET type=?,day_name=? WHERE id=?', [vorher.typ, vorher.name ?? null, dayRow.id]);
+      }
+      clearAutoDay(autoKey);
+    }
+  }
+  return counted;
+}
 // Sätze eines Nutzers. `?date=` liefert einen Tag, `?exercise_id=` den VOLLSTÄNDIGEN Verlauf einer
 // Übung (ohne das 500er-Fenster – sonst schneidet der Übungs-Drilldown ältere Einheiten stumm ab),
 // ohne Filter die letzten 500 Sätze (`truncated:true`, wenn das Fenster voll ist).
@@ -2741,17 +4003,34 @@ app.get('/api/logs/:userId', auth, (req, res) => {
   const exId = req.query.exercise_id != null && String(req.query.exercise_id).trim() !== '' ? Number(req.query.exercise_id) : null;
   if (exId != null && (!Number.isInteger(exId) || exId <= 0)) return res.status(400).json({ error: 'Ungültige Übungs-ID' });
   let rows, truncated = false;
+  // Weich geloeschte Saetze (set_type='deleted') fallen ueberall heraus – sie liegen im Papierkorb
+  // (GET /api/logs/:userId/trash) und kommen nur ueber POST /api/logs/:id/restore zurueck.
   if (exId != null) {
     rows = date
-      ? db.all('SELECT * FROM set_logs WHERE user_id=? AND exercise_id=? AND date=? ORDER BY set_no, id', [uid, exId, date])
-      : db.all('SELECT * FROM set_logs WHERE user_id=? AND exercise_id=? ORDER BY date DESC, set_no, id', [uid, exId]);
+      ? db.all(`SELECT * FROM set_logs WHERE user_id=? AND exercise_id=? AND date=? AND ${SQL_SET_LIVE} ORDER BY set_no, id`, [uid, exId, date])
+      : db.all(`SELECT * FROM set_logs WHERE user_id=? AND exercise_id=? AND ${SQL_SET_LIVE} ORDER BY date DESC, set_no, id`, [uid, exId]);
   } else if (date) {
-    rows = db.all('SELECT * FROM set_logs WHERE user_id=? AND date=?', [uid, date]);
+    rows = db.all(`SELECT * FROM set_logs WHERE user_id=? AND date=? AND ${SQL_SET_LIVE}`, [uid, date]);
   } else {
-    rows = db.all('SELECT * FROM set_logs WHERE user_id=? ORDER BY date DESC LIMIT 500', [uid]);
+    rows = db.all(`SELECT * FROM set_logs WHERE user_id=? AND ${SQL_SET_LIVE} ORDER BY date DESC LIMIT 500`, [uid]);
     truncated = rows.length === 500;
   }
   res.json({ logs: rows, truncated });
+});
+
+// Papierkorb: was in den letzten 24 Stunden geloescht wurde. Die Oberflaeche baut daraus „Zuletzt
+// geloescht" (A-IV.2 Punkt 7). Jede Zeile traegt `at` (Millisekunden) und `expiresAt`, damit der
+// Client die Restzeit anzeigen kann, ohne selbst zu rechnen, wie lange der Korb haelt.
+app.get('/api/logs/:userId/trash', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const items = trashList(uid).map(v => ({ ...v, expiresAt: v.at + TRASH_HOURS * 3600e3 }));
+  // Uebungsnamen dazu, damit der Toast „Bankdruecken · Satz 3" sagen kann statt „Satz 3".
+  const ids = [...new Set(items.map(i => i.exercise_id).filter(Boolean))];
+  const names = new Map(ids.length
+    ? db.all(`SELECT id,name FROM exercises WHERE id IN (${ids.map(() => '?').join(',')})`, ids).map(r => [r.id, r.name])
+    : []);
+  res.json({ trash: items.map(i => ({ ...i, exercise: names.get(i.exercise_id) || null })), hours: TRASH_HOURS });
 });
 
 // Satz speichern (upsert pro user+exercise+date+set_no)
@@ -2770,29 +4049,66 @@ app.post('/api/logs', auth, (req, res) => {
   // Werte begrenzen: kein negatives Gewicht / unrealistische Wiederholungen
   const weight = clampNum(req.body.weight, 0, 1000) ?? 0;
   const reps = clampNum(req.body.reps, 0, 1000, true) ?? 0;
+  // 2.8.0: RIR und Satzart. Beide Spalten gibt es seit 2.6.0, geschrieben wurden sie bis jetzt nicht.
+  // `rir` (Reps in Reserve) 0–5: 0 = nichts mehr gegangen, 5 = sehr locker. Wer nichts schickt,
+  // bekommt NULL – „nicht erfasst" ist eine eigene Aussage und darf nicht als 0 verkauft werden
+  // (0 bedeutet Muskelversagen und wuerde die Empfehlung fuer die naechste Einheit nach unten ziehen).
+  const rir = req.body.rir === undefined || req.body.rir === null || req.body.rir === ''
+    ? null : clampNum(req.body.rir, 0, 5, true);
+  // D16: das beim Satz gueltige Koerpergewicht in kg. Wird es geschickt, zaehlt es zur Last dieses
+  // Satzes (Klimmzug, Dip, Liegestuetz); fehlt es, bleibt NULL = „nicht anrechnen" – dann rechnet
+  // alles weiter wie bisher. Dieselben Grenzen wie beim Check-in-Gewicht (20–500 kg).
+  const bodyweight = req.body.bodyweight === undefined || req.body.bodyweight === null || req.body.bodyweight === ''
+    ? null : clampNum(req.body.bodyweight, 20, 500);
+  // Satzart: nur die vier waehlbaren. 'deleted' kommt hier bewusst NICHT durch – ein Satz wandert nur
+  // ueber DELETE /api/logs/:id in den Papierkorb, sonst koennte ein verirrter Client Verlauf verstecken.
+  const setTypeIn = req.body.set_type === undefined || req.body.set_type === null || req.body.set_type === ''
+    ? null : String(req.body.set_type).trim().toLowerCase();
+  if (setTypeIn !== null && !SET_TYPES.includes(setTypeIn)) {
+    return res.status(400).json({ error: 'Unbekannte Satzart (work, warmup, drop oder backoff)' });
+  }
+  // Ein Aufwaermsatz ist kein Rekordversuch und keine Grundlage fuer die naechste Empfehlung – seit
+  // 3.0.0 (B5) gilt dasselbe fuer Drop- und Backoff-Saetze, siehe `isPrSet`/SQL_SET_PR.
   // Persönlicher Rekord? Vergleich gegen das Bestgewicht aller FRÜHEREN Tage dieser BEWEGUNG – nur echte
   // Sätze (reps>0). (Erster Trainingstag einer Übung feiert nicht – es gibt noch keine Messlatte.)
   // D15: Bis 2.4.0 zählte die Übungs-ID. Dieselbe Bewegung steht in der Prüf-Datenbank viermal doppelt
   // im Plan („Beinpresse" als id 3 UND id 4): 170 kg auf id 4 meldeten „Neuer Rekord · 170 kg", obwohl
   // auf id 3 längst 207,5 kg standen – und die Empfehlung startete 47,5 kg zu niedrig. Verglichen wird
   // jetzt über den normalisierten Namen (Groß/Klein und Leerzeichen egal), also über die Bewegung.
+  // D38 (2.8.0): Aufwaermsaetze zaehlen auf BEIDEN Seiten des Vergleichs nicht mehr mit – weder als
+  // neuer Rekord noch als bisherige Messlatte. Ein Aufwaermsatz mit 60 kg hat nie einen Rekord gemacht.
+  // B5 (3.0.0): Auf BEIDEN Seiten des Vergleichs zaehlen nur rekordfaehige Saetze (SQL_SET_PR) -
+  // also weder Aufwaermen noch Drop- oder Backoff-Saetze. Bis 3.0.0 stand hier SQL_REAL_SL, und ein
+  // Drop-Satz konnte sowohl selbst „Neuer Rekord" ausloesen als auch die Messlatte hochsetzen.
   const prevMax = db.get(`SELECT MAX(sl.weight) m FROM set_logs sl JOIN exercises e ON e.id=sl.exercise_id
-    WHERE sl.user_id=? AND sl.date<? AND sl.reps>0
+    WHERE sl.user_id=? AND sl.date<? AND ${SQL_REAL_PR_SL}
       AND LOWER(TRIM(e.name)) = (SELECT LOWER(TRIM(name)) FROM exercises WHERE id=?)`,
     [user_id, date, exercise_id])?.m || 0;
-  const pr = reps > 0 && weight > 0 && prevMax > 0 && weight > prevMax;
+  const pr = isPrSet({ set_type: setTypeIn }) && reps > 0 && weight > 0 && prevMax > 0 && weight > prevMax;
   const ex = db.get('SELECT * FROM set_logs WHERE user_id=? AND exercise_id=? AND date=? AND set_no=?',
     [user_id, exercise_id, date, set_no]);
   if (ex) {
-    db.run('UPDATE set_logs SET weight=?,reps=?,note=? WHERE id=?', [weight, reps, note, ex.id]);
+    // Beim Aendern gilt: was der Client nicht schickt, bleibt stehen. Sonst verloere ein alter Client
+    // (oder ein Nachtrag aus der Offline-Ablage, der die Felder nicht kennt) mit jedem Speichern die
+    // Satzart und den RIR-Wert der Zeile. Ein weich geloeschter Satz wird durch erneutes Speichern
+    // wieder lebendig – genau das erwartet man, wenn man die Zeile noch einmal eintippt.
+    const nextType = setTypeIn !== null ? setTypeIn
+      : (ex.set_type === SET_TYPE_DELETED || !ex.set_type ? 'work' : ex.set_type);
+    const nextRir = req.body.rir === undefined ? (ex.rir ?? null) : rir;
+    // Wie beim RIR-Wert: was der Client nicht schickt, bleibt stehen (D16).
+    const nextBw = req.body.bodyweight === undefined ? (ex.bodyweight ?? null) : bodyweight;
+    db.run('UPDATE set_logs SET weight=?,reps=?,note=?,rir=?,set_type=?,bodyweight=? WHERE id=?',
+      [weight, reps, note, nextRir, nextType, nextBw, ex.id]);
+    if (ex.set_type === SET_TYPE_DELETED) { try { db.run('DELETE FROM settings WHERE key=?', [trashKey(user_id, ex.id)]); } catch (e) {} }
   } else {
     // D38: Die Satzart wird MIT dem Satz geschrieben. Die Oberfläche für Aufwärm-/Drop-/Backoff-Sätze
     // baut Welle A-IV – bis dahin ist jeder hier geloggte Satz ein Arbeitssatz, und genau das hält die
     // Zeile fest. Ohne den Vermerk wäre für jede ab jetzt entstehende Zeile nicht mehr feststellbar,
     // ob sie ein Arbeitssatz war, sobald die Oberfläche die Auswahl anbietet.
     // (Bestandszeilen bleiben NULL und sind als 'work' zu lesen – DEFER-A2, COALESCE(set_type,'work').)
-    db.run("INSERT INTO set_logs(user_id,exercise_id,date,set_no,weight,reps,note,set_type) VALUES(?,?,?,?,?,?,?,'work')",
-      [user_id, exercise_id, date, set_no, weight, reps, note]);
+    // 2.8.0: Die Oberflaeche waehlt die Satzart jetzt wirklich – ohne Angabe bleibt es bei 'work'.
+    db.run('INSERT INTO set_logs(user_id,exercise_id,date,set_no,weight,reps,note,rir,set_type,bodyweight) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      [user_id, exercise_id, date, set_no, weight, reps, note, rir, setTypeIn || 'work', bodyweight]);
   }
   // Sätze mit reps 0 werden gespeichert (z.B. Gewicht schon getippt), zählen aber nirgends als „gemacht".
   // D8: Und ein EINZELNER Zusatzsatz ist noch kein Trainingstag. Bis 2.4.0 machten 15 Crunches am
@@ -2809,31 +4125,66 @@ app.post('/api/logs', auth, (req, res) => {
   // Tabelle). Der Merker haelt fest, was vorher dastand: nichts (dann wird die Zeile entfernt) oder
   // ein vom Nutzer bestaetigter Tag (dann wird genau der wiederhergestellt). Ein im Kalender
   // bestaetigter Tag wird NIE automatisch geloescht – POST/DELETE /api/today raeumen den Merker weg.
-  const done = db.get('SELECT COUNT(*) c, COUNT(DISTINCT exercise_id) ex FROM set_logs WHERE user_id=? AND date=? AND reps>0', [user_id, date]);
-  const counted = (done?.c || 0) >= 3 && (done?.ex || 0) >= 2;
-  const autoKey = autoDayKey(user_id, date);
-  if (counted) {
-    const exMeta = db.get('SELECT td.name dn FROM exercises e JOIN training_days td ON td.id=e.day_id WHERE e.id=?', [exercise_id]);
-    const dayRow = db.get('SELECT id,type,day_name FROM day_log WHERE user_id=? AND date=?', [user_id, date]);
-    if (!dayRow) {
-      db.run('INSERT INTO day_log(user_id,date,type,day_name) VALUES(?,?,?,?)', [user_id, date, 'train', exMeta?.dn || null]);
-      setAutoDay(user_id, date, { neu: 1 });
-    } else if (dayRow.type !== 'train') {
-      db.run('UPDATE day_log SET type=?,day_name=? WHERE id=?', ['train', exMeta?.dn || null, dayRow.id]);
-      setAutoDay(user_id, date, { typ: dayRow.type, name: dayRow.day_name ?? null });
-    }
-  } else {
-    const vorher = getAutoDay(autoKey);
-    if (vorher) {
-      const dayRow = db.get('SELECT id,type FROM day_log WHERE user_id=? AND date=?', [user_id, date]);
-      if (dayRow && dayRow.type === 'train') {
-        if (vorher.neu) db.run('DELETE FROM day_log WHERE id=?', [dayRow.id]);
-        else db.run('UPDATE day_log SET type=?,day_name=? WHERE id=?', [vorher.typ, vorher.name ?? null, dayRow.id]);
-      }
-      clearAutoDay(autoKey);
-    }
+  // Die Rechnung selbst steht seit 2.8.0 in `syncAutoDay` – dieselbe Auswertung benutzen Loeschen
+  // und Zurueckholen, sonst laufen die drei Wege wieder auseinander.
+  const counted = syncAutoDay(user_id, date, exercise_id);
+  // `set_type`/`rir` kommen zurueck, damit die Satzzeile nach dem Speichern nicht raten muss, was
+  // der Server daraus gemacht hat (Nachtrag aus der Offline-Ablage, alter Client, Bestandszeile).
+  const saved = db.get('SELECT id,rir,set_type,bodyweight FROM set_logs WHERE user_id=? AND exercise_id=? AND date=? AND set_no=?',
+    [user_id, exercise_id, date, set_no]);
+  res.json({ ok: true, pr, prevMax, counted, id: saved?.id ?? null,
+    rir: saved?.rir ?? null, set_type: saved?.set_type || 'work', bodyweight: saved?.bodyweight ?? null });
+});
+
+// Satz loeschen – WEICH. CRITIC K9: ein hartes DELETE hat in `set_logs` schon einmal 4.185 Zeilen
+// zerstoert (ueber ON DELETE CASCADE beim Loeschen eines Trainingstags). Hier passiert deshalb genau
+// zweierlei: die Zeile bekommt `set_type='deleted'` (sie faellt damit aus Listen und Rechnungen, bleibt
+// aber Wort fuer Wort erhalten), und ein Merker in `settings` haelt 24 Stunden lang fest, was sie
+// vorher war. Zurueckholen: POST /api/logs/:id/restore. Nach 24 Stunden verschwindet nur der MERKER –
+// die Datenzeile selbst bleibt fuer immer stehen und laesst sich notfalls von Hand wiederbeleben.
+app.delete('/api/logs/:id', auth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ungültige Satz-ID' });
+  const row = db.get('SELECT * FROM set_logs WHERE id=?', [id]);
+  if (!row) return res.status(404).json({ error: 'Satz nicht gefunden' });
+  if (!canAccessPersonal(req.user, row.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  // Idempotent: eine Wiederholung aus der Offline-Warteschlange darf den Merker nicht ueberschreiben
+  // (sonst begaenne die 24-Stunden-Frist von vorn und der alte Zustand waere weg).
+  if (row.set_type !== SET_TYPE_DELETED) {
+    trashPut(row.user_id, row);
+    db.run('UPDATE set_logs SET set_type=? WHERE id=?', [SET_TYPE_DELETED, id]);
   }
-  res.json({ ok: true, pr, prevMax, counted });
+  // Faellt der Tag durch das Loeschen unter „mindestens 3 Saetze aus 2 Uebungen", nimmt derselbe
+  // Rueckweg wie in POST /api/logs den automatisch erkannten Trainingstag wieder zurueck.
+  // `rollbackOnly`: Loeschen darf einen Tag zuruecknehmen, aber niemals einen anlegen – sonst holte
+  // das Entfernen eines Satzes einen Tag zurueck, den der Athlet im Kalender gerade verworfen hat.
+  syncAutoDay(row.user_id, row.date, null, { rollbackOnly: true });
+  res.json({ ok: true, id, restorable: true, hours: TRASH_HOURS, undoUntil: Date.now() + TRASH_HOURS * 3600e3 });
+});
+
+// Geloeschten Satz zurueckholen (Rueckgaengig-Toast oder „Zuletzt geloescht"). Ohne Merker ist die
+// vorherige Satzart nicht mehr bekannt – dann wird die Zeile als Arbeitssatz wiederbelebt, was der
+// Wahrheit naeher kommt als sie geloescht zu lassen.
+app.post('/api/logs/:id/restore', auth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ungültige Satz-ID' });
+  const row = db.get('SELECT * FROM set_logs WHERE id=?', [id]);
+  if (!row) return res.status(404).json({ error: 'Satz nicht gefunden' });
+  if (!canAccessPersonal(req.user, row.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  let prev = null;
+  try { const v = db.get('SELECT value FROM settings WHERE key=?', [trashKey(row.user_id, id)])?.value; prev = v ? JSON.parse(v) : null; } catch (e) {}
+  const back = (prev?.set_type && prev.set_type !== SET_TYPE_DELETED) ? prev.set_type : 'work';
+  db.run('UPDATE set_logs SET set_type=? WHERE id=?', [back, id]);
+  try { db.run('DELETE FROM settings WHERE key=?', [trashKey(row.user_id, id)]); } catch (e) {}
+  // D8 (Nachbesserung 2.8.0): „Rueckgaengig" holt den Satz zurueck – und damit auch den Trainingstag.
+  // Bis hierher lief dieselbe Auswertung nur beim Speichern und beim Loeschen; nach dem Zurueckholen
+  // standen die Saetze wieder da, der Tag aber blieb ein Ruhetag. Auf der Startseite hiess das
+  // „Ruhetag" ueber sieben eingetragenen Saetzen, das Kalorienziel fiel um 417 kcal auf den Ruhetagwert,
+  // das Wochenziel von 1/5 auf 1/4, und der Kalender verschob die Rotation um einen Tag.
+  // Es ist genau dieselbe Rechnung wie beim Speichern: 3 echte Saetze aus 2 Uebungen. Sie stellt auch
+  // den urspruenglich uebersteuerten Tagtyp wieder her (der Merker wird dabei neu gesetzt).
+  const counted = syncAutoDay(row.user_id, row.date, row.exercise_id);
+  res.json({ ok: true, id, set_type: back, fromTrash: !!prev, counted });
 });
 
 /* ---------------- CHECK-INS ---------------- */
@@ -2864,7 +4215,10 @@ app.post('/api/checkins', auth, (req, res) => {
   if (!canAccessPersonal(req.user, c.user_id)) return res.status(403).json({ error: 'Kein Zugriff' });
   if (!ownRecordOnly(req, res, c.user_id)) return;          // B24: kein Check-in im Namen des Athleten
   if (!consentOk(req, res, c.user_id)) return;              // Art. 9 DSGVO: ohne Einwilligung keine Gesundheitsdaten
-  const ciDateErr = dateProblem(c.date);   // D32: kein Check-in in der Zukunft (gab +5 XP je Zeile)
+  // B-k: gemessen gegen den lokalen Tag des ATHLETEN. Bis 2.9.0 stand hier der Servertag - ein
+  // Check-in um 23:59 in Dubai (= 21:59 in Berlin) ging durch, einer um 00:30 Ortszeit aber nicht
+  // („Das Datum liegt in der Zukunft"), obwohl er der ehrlichste Eintrag ueberhaupt ist.
+  const ciDateErr = dateProblem(c.date, userToday(c.user_id));   // D32: kein Check-in in der Zukunft (gab +5 XP je Zeile)
   if (ciDateErr) return res.status(400).json({ error: ciDateErr });
   // Werte begrenzen (null = nicht übergeben -> COALESCE behält Bestand). Schützt vor
   // unrealistischen Eingaben (z.B. negatives Gewicht, 999 Stunden Schlaf).
@@ -2876,29 +4230,67 @@ app.post('/api/checkins', auth, (req, res) => {
   const water = clampNum(c.water, 0, 30);
   const training = strOrNull(c.training, 60);
   const notes = strOrNull(c.notes, 1000);
-  const ex = db.get('SELECT id,source FROM checkins WHERE user_id=? AND date=?', [c.user_id, c.date]);
+  const ex = db.get('SELECT * FROM checkins WHERE user_id=? AND date=?', [c.user_id, c.date]);
+  // --- Uebernommene Werte (A-IV.1 Vorbelegung) --------------------------------------------------
+  // Seit 2.8.0 stehen im Check-in-Formular VIER vorbelegte Felder (BUILD-A4 3.4): der letzte bekannte
+  // Wert bzw. das Ziel aus dem Profil. Zwei Taps – oeffnen, speichern – schrieben damit bis hierher
+  // eine Zeile, die sich nicht mehr von einer gemessenen unterscheiden liess: Gewicht von gestern,
+  // Schritte von vorgestern, alles mit `source='manual'`. Unter dem Feld stand die Herkunft
+  // („zuletzt Sa., 12. Sept."), in der gespeicherten Zeile stand sie nicht – und die Zahl geht danach
+  // in Wochenmittel, Bereiche und den Coach-Blick ein.
+  // `carried` nennt die Felder, die der Mensch NICHT angefasst hat (home.js vergleicht den Feldwert
+  // mit dem vorbelegten). Zwei Folgen:
+  //   1. Ein uebernommener Wert ueberschreibt NIE einen vorhandenen (`feld=COALESCE(feld,?)`) – er
+  //      fuellt nur eine Luecke. Sonst ersetzte eine um 7 Uhr geoeffnete Vorbelegung um 10 Uhr die
+  //      echten Schritte, die die Uhr inzwischen geschickt hat.
+  //   2. Kam AUSSCHLIESSLICH Uebernommenes, ist die Zeile keine Messung: sie bekommt
+  //      `source='carried'` (die Spalte kennt seit D19 'manual'/'health'/NULL, 'carried' ist der
+  //      dritte belegte Fall). Sobald ein getippter Wert dabei ist, bleibt es 'manual'.
+  // Ein alter Client schickt kein `carried` – dann ist alles Handeingabe wie bisher.
+  const CARRY_OK = new Set(['weight', 'sleep', 'sleep_quality', 'steps', 'cardio', 'water']);
+  const carried = new Set((Array.isArray(c.carried) ? c.carried : [])
+    .map(k => String(k || '')).filter(k => CARRY_OK.has(k)));
+  const FIELDS = [['weight', weight], ['sleep', sleep], ['sleep_quality', sleepQ], ['steps', steps],
+    ['cardio', cardio], ['water', water], ['training', training], ['notes', notes]];
   // D19: Die Herkunft der Zeile wird MIT der Zeile geschrieben – sie ist später nicht mehr
   // rekonstruierbar. Hier tippt ein Mensch, also `source='manual'`. `last_health_import` hält nur den
   // letzten Importzeitpunkt fest und kann eine einzelne Zeile nicht erklären.
-  const handwert = [weight, sleep, sleepQ, steps, cardio, water, training, notes].some(v => v != null);
+  const handwert = FIELDS.some(([k, v]) => v != null && !carried.has(k));
+  const carrywert = FIELDS.some(([k, v]) => v != null && carried.has(k));
+  // Eine leere Bestaetigung („Tag gesehen, nichts gemessen") bleibt Handeingabe – der Mensch war da.
+  const src = handwert ? 'manual' : (carrywert ? 'carried' : 'manual');
   if (ex) {
-    db.run(`UPDATE checkins SET
-      weight=COALESCE(?,weight), sleep=COALESCE(?,sleep), sleep_quality=COALESCE(?,sleep_quality),
-      steps=COALESCE(?,steps), cardio=COALESCE(?,cardio), water=COALESCE(?,water),
-      training=COALESCE(?,training), notes=COALESCE(?,notes) WHERE id=?`,
-      [weight, sleep, sleepQ, steps, cardio, water, training, notes, ex.id]);
+    const sets = [], args = [];
+    for (const [k, v] of FIELDS) {
+      if (v == null) continue;                       // nicht uebergeben -> Bestand bleibt (wie COALESCE(?,feld))
+      sets.push(carried.has(k) ? `${k}=COALESCE(${k},?)` : `${k}=?`);
+      args.push(v);
+    }
+    if (sets.length) { args.push(ex.id); db.run(`UPDATE checkins SET ${sets.join(',')} WHERE id=?`, args); }
+    // Hat der Uebernahme-Anteil ueberhaupt etwas geschrieben? Nur dort, wo die Spalte leer WAR.
+    const gefuellt = FIELDS.some(([k, v]) => v != null && carried.has(k) && ex[k] == null);
     // Eine vom Health-Import angelegte Zeile wird zur Handeingabe, sobald hier wirklich ein Wert
     // ankommt: der Tag ist dann von Hand bestätigt. Ein leerer POST ändert die Herkunft nicht.
+    // Uebernommenes zaehlt dabei NICHT als Handeingabe.
     if (handwert && ex.source !== 'manual') db.run("UPDATE checkins SET source='manual' WHERE id=?", [ex.id]);
+    // Fuellt eine Uebernahme Luecken in einer Uhr-Zeile (oder in einer Bestandszeile ohne Herkunft),
+    // ist die Zeile nicht mehr reine Messung. Eine Spalte kann nur EINE Herkunft tragen, also gilt die
+    // vorsichtigere: 'carried'. Der umgekehrte Weg waere der gefaehrliche – eine 'health'-Zeile
+    // behauptet in der Oberflaeche „von deiner Uhr", und das stuende dann ueber einem Gewicht, das in
+    // Wahrheit von Freitag fortgeschrieben ist. Lieber eine Messung zu vorsichtig ausgewiesen als eine
+    // Fortschreibung als Messung. 'manual' bleibt 'manual': dort hat ein Mensch getippt.
+    else if (!handwert && gefuellt && ex.source !== 'manual') db.run("UPDATE checkins SET source='carried' WHERE id=?", [ex.id]);
   } else {
     db.run(`INSERT INTO checkins(user_id,date,weight,sleep,sleep_quality,steps,cardio,water,training,notes,source)
-      VALUES(?,?,?,?,?,?,?,?,?,?,'manual')`,
-      [c.user_id, c.date, weight, sleep, sleepQ, steps, cardio, water, training, notes]);
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+      [c.user_id, c.date, weight, sleep, sleepQ, steps, cardio, water, training, notes, src]);
   }
   // Wurde dieser Tag schon automatisch durch einen Streak-Joker geschützt und jetzt doch nachgetragen,
   // gibt es den Joker zurück – Nachtragen soll nicht bestraft werden (D36, siehe refundFreeze).
   const jokerRefunded = refundFreeze(c.user_id, c.date);
-  res.json({ ok: true, jokerRefunded });
+  // `source` zurueck an die Oberflaeche: die Startseite zeigt nach dem Speichern „übernommen" statt
+  // einer Messung, ohne dafuer neu laden zu muessen.
+  res.json({ ok: true, jokerRefunded, source: ex ? (db.get('SELECT source FROM checkins WHERE id=?', [ex.id])?.source || null) : src });
 });
 // D36: Die Joker-Rückgabe hing bis 2.4.0 daran, dass ausgerechnet Gewicht, Schlaf, Schritte oder Wasser
 // im Nachtrag standen – die Streak dagegen an der bloßen Existenz der Check-in-Zeile. Wer den Tag nur
@@ -3131,7 +4523,16 @@ app.post('/api/health/push', (req, res) => {
   const out = applyHealthDays(u.id, days, { overwrite: false });
   const wo = applyHealthWorkouts(u.id, req.body?.workouts, u);
   // Antwort kurz halten: der Kurzbefehl zeigt sie als Mitteilung an.
-  res.json({ ok: true, days: out.days, neu: out.created, aktualisiert: out.updated, einheiten: wo.added });
+  // FIX-A5: Bis 2.9.0 quittierte die Route auch eine unbrauchbare Nutzlast mit `ok:true` und lauter
+  // Nullen (gemessen: {"quatsch":1} -> 200 ok, days 0). Ein falsch gebauter Kurzbefehl meldete damit
+  // „ok" und uebertrug nichts - und das faellt erst Tage spaeter auf. `ok` bleibt true (die
+  // Uebertragung selbst war in Ordnung, und ein 400 wuerde den Kurzbefehl als Fehler abbrechen
+  // lassen), aber die Antwort sagt es jetzt in einem Satz, den die Mitteilung anzeigt.
+  const nichts = !out.days && !wo.added;
+  res.json({ ok: true, days: out.days, neu: out.created, aktualisiert: out.updated, einheiten: wo.added,
+    hinweis: nichts
+      ? 'Nichts übernommen – die Nutzlast enthielt keine bekannten Felder. Erwartet werden z. B. date, weight, sleep, steps (siehe HEALTH-IMPORT.md).'
+      : undefined });
 });
 app.put('/api/checkins/:id/coachnote', auth, requireCoach, (req, res) => {
   const c = db.get('SELECT c.*, u.coach_id FROM checkins c JOIN users u ON u.id=c.user_id WHERE c.id=?', [req.params.id]);
@@ -3185,11 +4586,33 @@ app.post('/api/exercise-notes', auth, (req, res) => {
   }
   res.json({ ok: true, coachNotified });
 });
+// „Erledigt" schliesst die Schleife jetzt auch beim Athleten (RATE-coach 17, DEFER-A1). Bis 2.8.0
+// setzte die Route nur `flagged=0`: der Athlet meldete „Knie zwickt", der Coach sah es, hakte es ab –
+// und der Athlet erfuhr nie, dass seine Rueckmeldung ueberhaupt angekommen war. Wer keine Antwort
+// bekommt, meldet beim naechsten Mal nichts mehr. Die Zeile muss vom Server kommen: der Client
+// duerfte sie nicht im Namen des Coaches schreiben (Kein Fremdschreiben, BUILD-A2 Punkt 2).
+// Nur beim ECHTEN Schliessen – ein zweites „erledigt" auf eine schon erledigte Notiz sagt nichts Neues.
 app.post('/api/exercise-notes/:id/resolve', auth, requireCoach, (req, res) => {
   const n = db.get('SELECT en.*, u.coach_id FROM exercise_notes en JOIN users u ON u.id=en.user_id WHERE en.id=?', [req.params.id]);
   if (!n || !coachOwns(req.user, n.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const warOffen = Number(n.flagged) === 1;
   db.run('UPDATE exercise_notes SET flagged=0 WHERE id=?', [req.params.id]);
-  res.json({ ok: true });
+  let told = false;
+  // Nur wenn der ATHLET sie gemeldet hat: eine Notiz, die der Coach selbst eingetragen hat, braucht
+  // keine Rueckmeldung an den Athleten ueber ihr Erledigtsein.
+  if (warOffen && String(n.author_role || 'athlete') === 'athlete' && Number(n.user_id) !== req.user.id) {
+    const exName = db.get('SELECT name FROM exercises WHERE id=?', [n.exercise_id])?.name || 'einer Übung';
+    const coachName = String(db.get('SELECT name FROM users WHERE id=?', [req.user.id])?.name || 'Dein Coach').trim().split(/\s+/)[0];
+    try {
+      db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+        [n.user_id, req.user.id, 'system', 'Deine Rückmeldung ist angekommen',
+         coachName + ' hat deine Rückmeldung zu „' + exName + '" gesehen und als erledigt markiert. '
+         + 'Wenn sich nichts geändert hat, meld dich einfach noch einmal – lieber einmal zu oft.']);
+      told = true;
+    } catch (e) { /* die Nachricht darf das Abhaken nie verhindern */ }
+    if (told) sendPush(n.user_id, { title: 'Deine Rückmeldung ist angekommen', body: coachName + ' hat sie gesehen und als erledigt markiert.' });
+  }
+  res.json({ ok: true, athleteNotified: told });
 });
 // Gegenstück zu /resolve: „Als erledigt markiert" wieder aufmachen (Rückgängig-Toast im Coach-Bereich)
 app.post('/api/exercise-notes/:id/flag', auth, requireCoach, (req, res) => {
@@ -3218,7 +4641,10 @@ app.post('/api/measurements', auth, (req, res) => {
   if (!ownRecordOnly(req, res, m.user_id)) return;          // B24
   if (!consentOk(req, res, m.user_id)) return;
   const date = m.date || tzToday();
-  if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
+  // D32 (2.8.0): auch hier die Lage des Datums, nicht nur seine Form. Ein Maß auf 2029-12-31 legte eine
+  // Zeile an, die in keiner Ansicht je wieder auftauchte – dieselbe Falle wie bei Essen und Supplements.
+  const mDateErr = dateProblem(date);
+  if (mDateErr) return res.status(400).json({ error: mDateErr });
   const ex = db.get('SELECT id FROM measurements WHERE user_id=? AND date=?', [m.user_id, date]);
   const f = ['body_fat', 'chest', 'waist', 'hips', 'arm', 'thigh', 'neck', 'shoulders'];
   // Begrenzen: Körperfett 0–80 %, Umfänge 0–300 cm. null = nicht übergeben.
@@ -3270,7 +4696,8 @@ app.post('/api/photos', auth, (req, res) => {
   if (typeof image !== 'string' || image.length > 3_000_000) return res.status(413).json({ error: 'Bild zu groß (max ~2 MB)' });
   if (!IMG_RE.test(image)) return res.status(400).json({ error: 'Ungültiges Bild' });
   const date = req.body.date || tzToday();
-  if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
+  const phDateErr = dateProblem(date);   // D32: ein Fortschrittsfoto in der Zukunft ist kein Fortschritt
+  if (phDateErr) return res.status(400).json({ error: phDateErr });
   const pose = ['front', 'side', 'back'].includes(req.body.pose) ? req.body.pose : 'front';
   // Vorschaubild (<=200 px, vom Client erzeugt) – optional; ohne Abhängigkeiten kann der Server nicht skalieren
   let thumb = null;
@@ -3293,7 +4720,19 @@ app.get('/api/meals/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
   const meals = db.all('SELECT * FROM meals WHERE user_id=? ORDER BY day_type, position, meal_no', [uid]);
-  for (const m of meals) m.items = db.all('SELECT * FROM meal_items WHERE meal_id=? ORDER BY id', [m.id]);
+  // D3-Rest (2.8.0): Das Kochgewicht kam aus ZWEI Quellen. `logic.js` traegt seit 2.5.0 `cookedFactor`
+  // je Zutat und exportiert `cookedEquivalent()` – aufgerufen hat es niemand, weil ein ESM-Export aus
+  // `src/` im klassischen Client nicht erreichbar ist. `diet.js:312` hielt darum `DT_COOKED` als
+  // 1:1-Kopie von fuenf Faktoren. Jetzt rechnet der Server die Zahl und schickt sie an der Planzeile mit
+  // (BUILD-A4 §5 Punkt 5) – die Kopie im Client kann ersatzlos wegfallen.
+  // Rein additiv: `cookedG` ist `null`, wo es keinen Unterschied macht (Gemuese, Quark, Oel …).
+  for (const m of meals) {
+    m.items = db.all('SELECT * FROM meal_items WHERE meal_id=? ORDER BY id', [m.id]).map(it => {
+      const ck = cookedEquivalent(it.food, it.amount);
+      return ck ? { ...it, cookedG: ck.cookedG, cookedFactor: ck.factor, cookedText: ck.text }
+        : { ...it, cookedG: null, cookedFactor: null, cookedText: null };
+    });
+  }
   res.json({ meals });
 });
 
@@ -3674,7 +5113,7 @@ app.post('/api/share', auth, (req, res) => {
       JOIN training_days d ON d.id=e.day_id JOIN plans p ON p.id=d.plan_id WHERE e.id=?`, [id]);
     if (!ex || ex.deleted) return res.status(404).json({ error: 'Übung nicht gefunden' });
     if (!canAccessPersonal(req.user, ex.plan_user)) return res.status(403).json({ error: 'Kein Zugriff auf diese Übung' });
-    payload = { name: ex.name, muscle: ex.muscle, technique: ex.technique, video_url: ex.video_url,
+    payload = { name: ex.name, muscle: muscleCanon(ex.muscle), technique: ex.technique, video_url: ex.video_url,
       target_sets: ex.target_sets, target_reps: ex.target_reps, notes: ex.notes };
   } else return res.status(400).json({ error: 'Unbekannter Typ' });
   const token = crypto.randomBytes(12).toString('hex');
@@ -3711,7 +5150,7 @@ app.post('/api/share/:token/accept', auth, (req, res) => {
     const pos = db.get('SELECT COALESCE(MAX(position),0)+1 p FROM exercises WHERE day_id=?', [dayId]).p;
     db.run(`INSERT INTO exercises(day_id,muscle,name,technique,video_url,target_sets,target_reps,notes,position,source)
       VALUES(?,?,?,?,?,?,?,?,?,'athlete')`,
-      [dayId, strOrNull(it.muscle, 60), str(it.name, 120) || 'Geteilte Übung', strOrNull(it.technique, 300), urlOrNull(it.video_url) || null,
+      [dayId, muscleCanon(strOrNull(it.muscle, 60)), str(it.name, 120) || 'Geteilte Übung', strOrNull(it.technique, 300), urlOrNull(it.video_url) || null,
        clampSets(it.target_sets), strOrNull(it.target_reps, 20) || '8-12', strOrNull(it.notes, 1000), pos]);
   } else return res.status(400).json({ error: 'Unbekannter Typ' });
   db.run('UPDATE share_links SET uses=uses+1 WHERE id=?', [row.id]);
@@ -3827,7 +5266,7 @@ app.post('/api/templates/:id/apply/:userId', auth, requireCoach, (req, res) => {
     (day.exercises || []).forEach((ex, j) => {
       db.run(`INSERT INTO exercises(day_id,muscle,name,technique,video_url,target_sets,target_reps,notes,position,source,coach_locked)
         VALUES(?,?,?,?,?,?,?,?,?,'coach',1)`,
-        [td.lastInsertRowid, ex.muscle || null, ex.name || 'Übung', ex.technique || null, ex.video_url || null,
+        [td.lastInsertRowid, muscleCanon(ex.muscle) || null, ex.name || 'Übung', ex.technique || null, ex.video_url || null,
          clampSets(ex.target_sets), ex.target_reps || '8-12', ex.notes || null, j]);
     });
   });
@@ -3845,10 +5284,20 @@ app.delete('/api/templates/:id', auth, requireCoach, (req, res) => {
 
 // ===== WEB-PUSH (Erinnerungen) =====
 // web-push wird lazy geladen (wie nodemailer): fehlt das Modul, wird Push einfach übersprungen.
-let _webpush = null, _webpushTried = false;
-async function getWebpush() {
-  if (_webpushTried) return _webpush;
-  _webpushTried = true;
+// FIX-A5 (beim Nachweis der Wiederkehr-Leiter gemessen): Bis 2.9.0 stand hier
+//   `if (_webpushTried) return _webpush; _webpushTried = true; ... await import(...)`.
+// `_webpushTried` wurde gesetzt, BEVOR der Import aufgeloest war. Jeder weitere Aufruf in
+// derselben synchronen Runde bekam damit `null` zurueck und verwarf seine Mitteilung stumm
+// (`if (!wp) return;`). Genau das passiert im ersten Stundentick nach einem Neustart: dort gehen
+// Reparatur-, Leiter-, Trainings- und Abend-Mitteilungen in EINEM Durchlauf raus - gemessen kam
+// nur die allererste an, die anderen vier verschwanden.
+// Jetzt wird das VERSPRECHEN gemerkt, nicht das Ergebnis: alle Aufrufer warten auf denselben
+// Import, und der Import selbst laeuft weiterhin genau einmal.
+let _webpushP = null;
+function getWebpush() {
+  if (_webpushP) return _webpushP;
+  _webpushP = (async () => {
+  let _webpush = null;
   try {
     const m = await import('web-push'); _webpush = m.default || m;
     let pub = db.get("SELECT value FROM settings WHERE key='vapid_public'")?.value;
@@ -3859,8 +5308,10 @@ async function getWebpush() {
       db.run("INSERT OR REPLACE INTO settings(key,value) VALUES('vapid_private',?)", [priv]);
     }
     _webpush.setVapidDetails('mailto:' + (process.env.EMAIL_FROM || 'coach@be-inevitable.app'), pub, priv);
-  } catch (e) { console.log('[push] web-push nicht verfügbar – Push deaktiviert (' + e.message + ')'); }
+  } catch (e) { console.log('[push] web-push nicht verfügbar – Push deaktiviert (' + e.message + ')'); _webpush = null; }
   return _webpush;
+  })();
+  return _webpushP;
 }
 // Push an alle Geräte eines Nutzers (best effort; tote Abos werden aufgeräumt)
 async function sendPush(userId, { title, body, url = '/' }) {
@@ -4010,9 +5461,16 @@ app.post('/api/admin/testmail', auth, requireAdmin, async (req, res) => {
 app.post('/api/admin/weekly', auth, requireAdmin, (req, res) => {
   auditLog(req.user, 'job.weekly.run', null, null, null);
   const monday = lastFullWeekMonday();
-  let messages = 0;
-  try { messages = sendWeekMessages(monday); } catch (e) { console.error('[weekpush] manuell', e?.message || e); }
-  res.json({ ok: true, sent: sendWeeklyReviews(monday), messages, week: monday });
+  // 2.9.0: das Nachholen von Hand traegt sich in DIESELBE Zeile ein wie der Sonntagslauf. Sonst
+  // steht der Job nach einem erfolgreichen Nachholen weiter auf „ueberfaellig" – und der Betreiber
+  // drueckt ein zweites Mal, weil die Ampel ihm nicht glaubt.
+  jobStart('push.weekly');
+  let messages = 0, sent = 0, fehler = null;
+  try { messages = sendWeekMessages(monday); } catch (e) { fehler = e; console.error('[weekpush] manuell', e?.message || e); }
+  try { sent = sendWeeklyReviews(monday); } catch (e) { fehler = fehler || e; console.error('[weekly] manuell', e?.message || e); }
+  jobDone('push.weekly', fehler);
+  if (fehler) return res.status(500).json({ error: 'Der Wochenlauf ist gescheitert (Server-Log prüfen).', sent, messages, week: monday });
+  res.json({ ok: true, sent, messages, week: monday });
 });
 // Manueller Auslöser für die tägliche Streak-Joker-Verarbeitung – nur Admin.
 app.post('/api/admin/process-freezes', auth, requireAdmin, (req, res) => {
@@ -4031,7 +5489,38 @@ app.post('/api/admin/process-freezes', auth, requireAdmin, (req, res) => {
    Jetzt traegt jeder Lauf Start, Ende und (redigierten) Fehler in `jobs` ein, und der Zustand ergibt
    sich aus der Karenz: `up` solange der letzte erfolgreiche Lauf innerhalb der Karenz liegt,
    `late` danach, `down` wenn der letzte Lauf gescheitert ist. */
-const JOB_GRACE_MIN = { 'cron.tick': 150, 'retention.prune': 60 * 36 };   // Stundentakt bzw. taeglich, mit Luft
+// 2.9.0 (BUILD-A5 Abschnitt 4 Punkt 6): bis 2.8.0 trugen sich nur der Stundentakt selbst und das
+// Aufraeumen ein. Ein einzelner Teilschritt konnte still ausfallen – die Wochen-Nachricht, die
+// Erinnerungen, der Mindset-Lauf –, und `cron.tick` stand trotzdem auf „laeuft", weil der aeussere
+// Lauf ja durchkam. Jetzt hat jeder wiederkehrende Lauf seine eigene Zeile mit eigener Karenz.
+// Die Karenz ist immer der ERWARTETE Abstand plus Luft, nie knapper:
+//   push.weekly     einmal die Woche  -> 8 Tage
+//   push.reminder   taeglich          -> 36 Stunden
+//   push.streakwarn taeglich abends   -> 36 Stunden
+//   mindset.cron    taeglich          -> 36 Stunden
+//   cleanup.tick    stuendlich        -> 150 Minuten (wie der Takt selbst)
+//   backup.manual   von Hand          -> 7 Tage; „late" heisst hier „die letzte Sicherung ist alt",
+//                                        nicht „ein Lauf fehlt". Genau so liest es der Status-Streifen.
+// 3.0.0 (B-g/B-d): drei neue Zeilen.
+//   backup.auto     naechtlich        -> 36 Stunden. Faellt eine Nacht aus, steht es am naechsten
+//                                        Morgen im Betriebsstreifen – genau dafuer ist die Zeile da.
+//   backup.verify   von Hand          -> 35 Tage. "late" heisst hier: seit ueber einem Monat hat
+//                                        niemand geprueft, ob sich eine Sicherung zurueckspielen
+//                                        laesst. Art. 32(1)(d) verlangt den regelmaessigen Test,
+//                                        und ein Test, an den niemand erinnert, findet nicht statt.
+//   targets.weekly  woechentlich      -> 8 Tage, dasselbe Fenster wie push.weekly (derselbe Lauf).
+const JOB_GRACE_MIN = { 'cron.tick': 150, 'retention.prune': 60 * 36,
+  'push.weekly': 60 * 24 * 8, 'push.reminder': 60 * 36, 'push.streakwarn': 60 * 36,
+  'mindset.cron': 60 * 36, 'cleanup.tick': 150, 'backup.manual': 60 * 24 * 7,
+  'backup.auto': 60 * 36, 'backup.verify': 60 * 24 * 35, 'targets.weekly': 60 * 24 * 8 };
+// Ein Teilschritt des Stundentakts: er darf scheitern, ohne den Takt zu stuerzen – aber er scheitert
+// sichtbar. Vorher stand hinter jedem dieser Bloecke ein `catch (e) {}` oder ein `console.error`, das
+// auf Render nach dem naechsten Neustart weg war. Rueckgabe: das Ergebnis von fn() oder undefined.
+function jobStep(name, fn) {
+  jobStart(name);
+  try { const r = fn(); jobDone(name, null); return r; }
+  catch (e) { jobDone(name, e); console.error('[' + name + ']', e?.message || e); return undefined; }
+}
 function jobStart(name) {
   if (!hasTable('jobs')) return;
   try {
@@ -4066,20 +5555,141 @@ function jobsState() {
 }
 // Betriebsansicht: Protokoll, Fehler, Jobs (A-II.3 baut die Oberflaeche darauf).
 // Alles hier ist bereits redigiert bzw. enthaelt nur IDs - die Routen fuegen nichts hinzu.
+// 2.9.0: Die drei Filter der Verwaltung (`days`, `action`, `actor`) sieben jetzt in SQL. Bis 2.8.0
+// kannte die Route nur `limit` – die Oberflaeche schickte die Parameter bereits mit und siebte die
+// geladenen 100 Zeilen im Browser nach. Bei einem vollen Puffer fand ein Filter auf eine SELTENE
+// Handlung deshalb nichts, obwohl es Treffer gab: die gesuchte Zeile lag hinter den 100 (DEFER-A2).
+// `actor` kommt als Kuerzel (z. B. „B-7F2"), nicht als Id – die Verwaltung kennt keine Ids. Der
+// Hash-Teil ist je Konto stabil, also wird er gegen die Konten aufgeloest. Loest er sich nicht auf,
+// bleibt die Liste leer UND sagt warum (`actorUnknown`) – „kein Treffer" und „Kuerzel gibt es nicht"
+// sind zwei verschiedene Antworten.
+function auditActorId(kuerzel) {
+  const h = String(kuerzel || '').trim().toUpperCase().split('-').pop();
+  if (!/^[0-9A-F]{3}$/.test(h)) return null;
+  try {
+    for (const u of db.all('SELECT id FROM users')) if (String(pseudonym(u.id) || '').endsWith('-' + h)) return u.id;
+  } catch (e) { return null; }
+  return null;
+}
 app.get('/api/admin/audit', auth, requireAdmin, (req, res) => {
   if (!hasTable('audit')) return res.json({ entries: [], available: false });
   const limit = clampNum(req.query.limit, 1, 500, true) || 100;
-  const rows = db.all('SELECT * FROM audit ORDER BY id DESC LIMIT ?', [limit]);
-  res.json({ available: true, entries: rows.map(r => ({ ...r,
+  const where = [], args = [];
+  const days = clampNum(req.query.days, 1, 3650, true);
+  if (days) { where.push("datetime(ts_utc) >= datetime('now', ?)"); args.push('-' + days + ' days'); }
+  const action = str(req.query.action, 60);
+  if (action) { where.push('action = ?'); args.push(action); }
+  let actorUnknown = false;
+  const actorRaw = str(req.query.actor, 20);
+  if (actorRaw) {
+    const aid = auditActorId(actorRaw);
+    if (aid == null) actorUnknown = true;
+    else { where.push('actor_id = ?'); args.push(aid); }
+  }
+  if (actorUnknown) return res.json({ available: true, entries: [], actorUnknown: true, filtered: true });
+  const sql = 'SELECT * FROM audit' + (where.length ? ' WHERE ' + where.join(' AND ') : '') + ' ORDER BY id DESC LIMIT ?';
+  const rows = db.all(sql, [...args, limit]);
+  res.json({ available: true, filtered: where.length > 0, entries: rows.map(r => ({ ...r,
     actor: r.actor_id ? pseudonym(r.actor_id, r.actor_role) : null,
     target: r.target_type === 'user' && r.target_id ? pseudonym(r.target_id) : null })) });
 });
 app.get('/api/admin/errors', auth, requireAdmin, (req, res) => {
   if (!hasTable('errors')) return res.json({ errors: [], available: false });
   const limit = clampNum(req.query.limit, 1, 500, true) || 100;
-  res.json({ available: true, errors: db.all('SELECT * FROM errors ORDER BY ts_utc DESC, id DESC LIMIT ?', [limit]) });
+  // `hours` schickt die Verwaltung seit 2.6.0 mit („Fehler der letzten 24 Stunden") – die Route hat
+  // es bis 2.8.0 ignoriert und immer den ganzen Ringpuffer geliefert. Die Ueberschrift log also.
+  const hours = clampNum(req.query.hours, 1, 24 * 90, true);
+  const where = hours ? " WHERE datetime(ts_utc) >= datetime('now', ?)" : '';
+  const args = hours ? ['-' + hours + ' hours'] : [];
+  res.json({ available: true, hours: hours || null,
+    errors: db.all('SELECT * FROM errors' + where + ' ORDER BY ts_utc DESC, id DESC LIMIT ?', [...args, limit]) });
 });
 app.get('/api/admin/jobs', auth, requireAdmin, (req, res) => res.json({ jobs: jobsState(), available: hasTable('jobs') }));
+
+/* ============ DIE FUENF SCHALTER: ZUSTAND UND UMLEGEN (BUILD-A5 Abschnitt 4) ============
+   Eine Route fuer den Zustand, eine zum Umlegen. Beide sind reine Betriebsangaben: Zustandswoerter,
+   Zahlen und Zeitpunkte. Kein Name, keine Adresse, kein Freitext ueber einen Menschen – wer zuletzt
+   gedreht hat, steht als Kuerzel da (`pseudonym`), wie ueberall sonst in der Verwaltung.
+   `mail` nennt bewusst NUR, OB etwas gesetzt ist: ein Host, ein Benutzername oder ein Absender in
+   einer Antwort waere die Zugangsdaten-Haelfte, die in keinen Screenshot gehoert. */
+const opsBy = id => (id == null ? null : pseudonym(Number(id)));
+function opsSnapshot() {
+  const reg = opsRegistration();
+  const jobs = jobsState();
+  const jobByName = n => jobs.find(j => j.name === n) || null;
+  const lastAudit = action => { try { return db.get('SELECT ts_utc FROM audit WHERE action=? ORDER BY id DESC LIMIT 1', [action])?.ts_utc || null; } catch (e) { return null; } };
+  return {
+    registration: { ...reg, ...opsMeta('ops.registration'), updatedBy: opsBy(opsMeta('ops.registration').updatedBy),
+      values: OPS_ENUM['ops.registration'] },
+    ai: { mode: opsGet('ops.ai'), enabled: opsGet('ops.ai') !== 'off', configured: !!process.env.ANTHROPIC_API_KEY,
+      ...opsMeta('ops.ai'), updatedBy: opsBy(opsMeta('ops.ai').updatedBy), lastRun: lastAudit('ai.summary'),
+      values: OPS_ENUM['ops.ai'] },
+    notice: { text: opsGet('ops.notice') || '', max: OPS_NOTICE_MAX,
+      ...opsMeta('ops.notice'), updatedBy: opsBy(opsMeta('ops.notice').updatedBy) },
+    mail: { configured: !!process.env.EMAIL_HOST, port: Number(process.env.EMAIL_PORT) || 587,
+      secure: Number(process.env.EMAIL_PORT) === 465, userSet: !!process.env.EMAIL_USER,
+      passSet: !!process.env.EMAIL_PASS, fromSet: !!process.env.EMAIL_FROM, appUrlSet: !!process.env.APP_URL,
+      lastTest: lastAudit('mail.test'), lastCheck: MAIL_CHECK_LAST },
+    weekly: { job: jobByName('push.weekly'), week: lastFullWeekMonday(),
+      lastManual: lastAudit('job.weekly.run') },
+    jobs,
+  };
+}
+app.get('/api/admin/ops', auth, requireAdmin, (req, res) => res.json(opsSnapshot()));
+// Umlegen. EIN Schalter je Aufruf – ein Sammel-PUT haette bei einem ungueltigen Wert die Haelfte
+// geschrieben und die andere nicht. Die Antwort ist der VOLLE neue Zustand, damit die Verwaltung nicht
+// raten muss, ob es gewirkt hat (dieselbe Regel wie bei PUT /api/athlete/:id/profile: `changed`).
+app.put('/api/admin/ops', auth, requireAdmin, (req, res) => {
+  const key = String(req.body?.key || '');
+  if (!(key in OPS_DEFAULTS)) return res.status(400).json({ error: 'Unbekannter Schalter' });
+  // „nur mit Code" ohne REGISTER_CODE waere eine Tuer ohne Schluessel: die Registrierung waere in
+  // Wahrheit zu, die Verwaltung zeigte aber „Code". Lieber hier Klartext als spaeter ein Raetsel.
+  if (key === 'ops.registration' && String(req.body?.value) === 'code' && !REGISTER_CODE)
+    return res.status(400).json({ error: 'Für „nur mit Code" muss die Umgebungsvariable REGISTER_CODE gesetzt sein. Ohne Code käme niemand mehr durch – das wäre „geschlossen".' });
+  const r = opsSet(key, req.body?.value, req.user);
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json({ ok: true, key, changed: !!r.changed, ...opsSnapshot() });
+});
+
+// SMTP-Selbsttest: baut die Verbindung genau mit den Zugangsdaten auf, die in den Umgebungsvariablen
+// stehen, und meldet gruen/rot – OHNE eine Mail zu verschicken. Der Unterschied zur Testmail ist der
+// Punkt: die Testmail beweist den ganzen Weg bis ins Postfach, braucht dafuer aber ein Postfach und
+// Geduld; der Selbsttest beantwortet in zwei Sekunden „stimmen Host, Port und Passwort ueberhaupt?".
+// Der Transport wird hier eigens gebaut (nicht aus src/email.js geholt): dort ist er ein Singleton,
+// das beim ersten Fehlschlag `null` bleibt – ein zweiter Versuch nach einer korrigierten Variablen
+// haette ohne Neustart nie wieder angeschlagen. Die Felder sind Zeile fuer Zeile dieselben.
+let MAIL_CHECK_LAST = null, mailCheckAt = 0;
+app.post('/api/admin/mailcheck', auth, requireAdmin, async (req, res) => {
+  if (!process.env.EMAIL_HOST) return res.json({ ok: false, configured: false,
+    error: 'EMAIL_HOST ist nicht gesetzt – es gibt keinen Server, mit dem sich der Test verbinden könnte.' });
+  const waitSec = Math.ceil((mailCheckAt + 30000 - Date.now()) / 1000);
+  if (waitSec > 0) return res.status(429).json({ error: 'Bitte ' + waitSec + ' Sekunden warten.', retryAfterSec: waitSec });
+  mailCheckAt = Date.now();
+  auditLog(req.user, 'mail.check', null, null, null);
+  const t0 = Date.now();
+  try {
+    const nodemailer = (await import('nodemailer')).default;
+    const tx = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST,
+      port: Number(process.env.EMAIL_PORT) || 587,
+      secure: Number(process.env.EMAIL_PORT) === 465,
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 10000,
+    });
+    await tx.verify();
+    try { tx.close(); } catch (e) {}
+    MAIL_CHECK_LAST = { at: new Date().toISOString(), ok: true, ms: Date.now() - t0 };
+    res.json({ ok: true, configured: true, ms: Date.now() - t0,
+      hint: 'Host, Port und Zugangsdaten stimmen. Ob eine Mail auch ankommt, sagt erst die Testmail.' });
+  } catch (e) {
+    // Die Fehlermeldung des Anbieters kann die Adresse enthalten – sie geht durch dieselbe Redaktion
+    // wie jeder Serverfehler, bevor sie jemand zu sehen bekommt.
+    const msg = redactMessage(e?.message || String(e));
+    MAIL_CHECK_LAST = { at: new Date().toISOString(), ok: false, ms: Date.now() - t0 };
+    res.json({ ok: false, configured: true, ms: Date.now() - t0, error: msg,
+      hint: 'Die Verbindung kam nicht zustande. Prüfe EMAIL_HOST, EMAIL_PORT (465 = SSL, 587 = STARTTLS), EMAIL_USER und EMAIL_PASS.' });
+  }
+});
 
 function cronTick(now = new Date()) {
   jobStart('cron.tick');                 // Start festhalten, auch wenn der Lauf gleich scheitert
@@ -4090,6 +5700,9 @@ function cronTick(now = new Date()) {
     // In-Memory-Rate-Limits: abgelaufene Einträge entfernen (sonst wachsen die Maps unbegrenzt)
     // WAL zurückschreiben: data.db ist damit auch zwischendurch für sich allein vollständig
     // (ein Backup, das nur data.db kopiert, verliert sonst alles seit dem letzten Checkpoint).
+    // 2.9.0: als eigener Lauf `cleanup.tick` gefuehrt – Checkpoint und Aufraeumen sind das, was still
+    // stehen bleiben kann, ohne dass es jemand merkt (bis die WAL-Datei wandert).
+    jobStart('cleanup.tick');
     db.checkpoint();
     const nowMs = Date.now();
     for (const [k, v] of regAttempts) if (nowMs - v.first > 60 * 60000) regAttempts.delete(k);
@@ -4118,6 +5731,17 @@ function cronTick(now = new Date()) {
       db.run("DELETE FROM share_links WHERE (expires_at IS NOT NULL AND expires_at < ?) OR (expires_at IS NULL AND created_at < datetime('now', ?))",
         [new Date(nowMs).toISOString(), '-' + SHARE_TTL_DAYS + ' day']);
     } catch (e) { console.error('[share] Aufraeumen', e?.message || e); }
+    jobDone('cleanup.tick', null);
+    // ---- Naechtliche Sicherung (3.0.0, B-g). Um BACKUP_HOUR Ortszeit, Nachholfenster bis +3 Stunden,
+    // Dedup ueber `settings.backup_auto_day` - genau dieselbe Bauart wie die Trainings-Erinnerung.
+    // Warum ein Nachholfenster: der Zeitgeber tickt an den Minuten, die am Prozessstart haengen. Mit
+    // "Stunde === 3" verliert ein Neustart um 03:10 die Sicherung dieser Nacht ersatzlos - und genau
+    // das ist der Fall, in dem man sie am naechsten Tag braucht.
+    // Warum nachts: ein VACUUM INTO liest die ganze Datenbank. Um 3 Uhr stoert das niemanden.
+    if (hour >= BACKUP_HOUR && hour <= BACKUP_HOUR + 3 && get('backup_auto_day') !== today) {
+      set('backup_auto_day', today);
+      jobStep('backup.auto', () => { const r = backupRun('auto'); if (!r.ok) throw new Error(r.error || 'Sicherung fehlgeschlagen'); return r; });
+    }
     // Gleicher Schutz wie bei der Wochen-Nachricht: die Mail rechnet seit 2.3.0 ebenfalls über weekView().
     // Ein Fehler darf weder den Rest des Ticks abbrechen (der äußere Fang ist leer) noch stumm bleiben.
     // Dasselbe Fenster wie die Wochen-Nachricht (Sonntag 18 Uhr bis Montag 22 Uhr, weekPushDue): vorher
@@ -4128,7 +5752,7 @@ function cronTick(now = new Date()) {
     const mailWeek = weekPushDue(now);
     if (mailWeek && get('weekly_last') !== mailWeek) {
       set('weekly_last', mailWeek);
-      try { sendWeeklyReviews(mailWeek); } catch (e) { console.error('[weekly]', e?.message || e); }
+      jobStep('push.weekly', () => sendWeeklyReviews(mailWeek));
     }
     // Wochen-Nachricht in der App (Postfach + Push). Getrennt von der Mail: sonst blockiert ein
     // Fehlschlag des einen Kanals den anderen bis zum nächsten Sonntag.
@@ -4137,8 +5761,18 @@ function cronTick(now = new Date()) {
     // Nutzer übersprungen – ein Neustart am Sonntagabend kostet damit keine Woche mehr.
     // Eigenes try/catch, weil der äußere Fang leer ist – ein Fehler hier würde sonst stumm alle
     // folgenden Cron-Aufgaben desselben Ticks abbrechen (Erinnerungen, Streak-Warnung, Mindset).
+    // Beide Kanaele der Woche teilen sich die Zeile `push.weekly`: fuer den Betreiber ist „der
+    // Sonntags-Lauf" EIN Vorgang. Scheitert einer von beiden, steht die Zeile auf „steht".
     const pushWeek = weekPushDue(now);
-    if (pushWeek) { try { sendWeekMessages(pushWeek); } catch (e) { console.error('[weekpush]', e?.message || e); } }
+    if (pushWeek) jobStep('push.weekly', () => sendWeekMessages(pushWeek));
+    // Adaptive Ziele (3.0.0, B-d): derselbe Sonntags-Rhythmus wie die Wochen-Nachricht, aber eine
+    // EIGENE Zeile in `jobs` und ein eigener Merker. Grund: die Nachricht darf ausfallen, ohne dass
+    // die Ziele stehen bleiben - und umgekehrt. Der Merker traegt den Wochenmontag, damit ein
+    // Neustart im Fenster nicht eine ganze Woche kostet (dieselbe Regel wie bei `weekly_last`).
+    if (pushWeek && get('targets_week') !== pushWeek) {
+      set('targets_week', pushWeek);
+      jobStep('targets.weekly', () => targetsWeekly());
+    }
     // Streak-Joker: einmal täglich (nach 5 Uhr) gutschreiben + verpasste Vortage automatisch schützen.
     if (hour >= 5 && get('freeze_last') !== today) { set('freeze_last', today); try { processStreakFreezes(today); } catch (e) {} }
     // Tägliche Trainings-Erinnerung zur vom Nutzer gewählten Stunde (push_hour, Standard 6 Uhr deutscher Zeit).
@@ -4147,38 +5781,128 @@ function cronTick(now = new Date()) {
     // Mit `hour !== ph` verpasste ein Neustart um 06:10 die 6-Uhr-Erinnerung des Tages ersatzlos. Jetzt
     // zaehlt „Stunde erreicht, heute noch nicht erinnert" – begrenzt, damit nach einem Neustart um 22 Uhr
     // keine Trainings-Erinnerung zur Unzeit mehr kommt.
-    const athletes = db.all("SELECT id, push_hour FROM users WHERE role='athlete'");
+    // B-k: `tz` kommt mit - die Erinnerung soll um 6 Uhr SEINER Zeit kommen, nicht um 6 Uhr
+    // Berliner Zeit. Die Spalte mitzulesen kostet nichts; eine Abfrage je Athlet und Tick schon.
+    const athletes = db.all("SELECT id, push_hour, tz FROM users WHERE role='athlete'");
+    // FIX-A5 (RATE-25-engagement H1, DEFER-A5 A5-1): Bis 2.8.0 kannte dieser Lauf nur zwei Fragen -
+    // „ist die Wunschstunde erreicht?" und „gibt es heute einen day_log?". Wer vor acht Wochen
+    // aufgehoert hat, bekam deshalb weiter an jedem Trainingstag „Heute ist Trainingstag!" -
+    // bis er Push abschaltet und damit auch die Nachrichten seines Coachs verliert.
+    // `reminderLadder` (logic.js) ist die EINE Entscheidung darueber, was ein stilles Konto hoert.
+    // Dafuer braucht sie den Abstand zum letzten EIGENEN Eintrag: Check-in ODER Satz ODER
+    // bestaetigter Tag. Drei gruppierte MAX-Abfragen fuer alle Athleten zusammen - eine Abfrage je
+    // Athlet waere bei jedem Stundentick dreimal so teuer.
+    const lastEntry = {};
+    const noteLast = rows => { for (const r of rows || []) { const d = String(r.d || ''); if (d && (!lastEntry[r.uid] || d > lastEntry[r.uid])) lastEntry[r.uid] = d; } };
+    try {
+      noteLast(db.all('SELECT user_id uid, MAX(date) d FROM checkins GROUP BY user_id'));
+      noteLast(db.all(`SELECT sl.user_id uid, MAX(sl.date) d FROM set_logs sl WHERE ${SQL_REAL_SL} GROUP BY sl.user_id`));
+      noteLast(db.all('SELECT user_id uid, MAX(date) d FROM day_log GROUP BY user_id'));
+    } catch (e) { console.error('[cron] letzter Eintrag nicht lesbar:', e?.message || e); }
+    // null = noch nie etwas eingetragen. Das ist Onboarding, nicht Wiederkehr - die Leiter laesst
+    // solche Konten ausdruecklich in Ruhe (siehe logic.js), die Trainings-Erinnerung greift weiter.
+    // B-k: der Bezugstag kommt von aussen (der Ortstag des Athleten), sonst zaehlt die Leiter fuer
+    // jeden gegen den Berliner Kalender - am Zonenrand ein ganzer Tag Unterschied.
+    const daysSinceEntry = (uid, ref) => {
+      const d = lastEntry[uid]; if (!d) return null;
+      const n = Math.round((Date.parse((ref || today) + 'T00:00:00Z') - Date.parse(String(d).slice(0, 10) + 'T00:00:00Z')) / 864e5);
+      return Number.isFinite(n) ? Math.max(0, n) : null;
+    };
+    // Eigene Zeile `push.reminder`: der Lauf faellt sonst lautlos aus. Er wird JEDEN Tick als
+    // erfolgreich gemeldet (er hat geprueft und entschieden) – „late" heisst also „seit 36 Stunden
+    // hat niemand mehr geprueft, ob eine Erinnerung faellig waere", nicht „es kam keine Erinnerung".
+    jobStart('push.reminder');
     for (const a of athletes) {
       const ph = a.push_hour;
-      if (ph == null || hour < ph || hour > ph + 3) continue; // NULL = im Profil auf „Aus“ gestellt
+      // B-k: Ortsstunde und Ortstag DIESES Athleten. `hour`/`today` daneben bleiben der Servertag -
+      // sie tragen die globalen Laeufe (Wochen-Nachricht, Aufbewahrung, Sicherung), die keinen
+      // einzelnen Menschen betreffen.
+      const aHour = userHour(a, now), aToday = userToday(a, now);
+      if (ph == null || aHour < ph || aHour > ph + 3) continue; // NULL = im Profil auf „Aus“ gestellt
       const rkey = 'remind_' + a.id;
-      if (get(rkey) === today) continue; // heute schon erinnert
-      set(rkey, today);
+      if (get(rkey) === aToday) continue; // heute schon erinnert
+      set(rkey, aToday);
       try {
         const u = getUserFull(a.id); if (!u) continue;
-        const existing = db.get('SELECT id FROM day_log WHERE user_id=? AND date=?', [a.id, today]);
+        const existing = db.get('SELECT id FROM day_log WHERE user_id=? AND date=?', [a.id, aToday]);
         if (existing) continue; // Tag schon bestätigt -> keine Erinnerung
+        // Die Leiter entscheidet VOR der Trainings-Erinnerung. `step > 0` heisst: heute geht genau
+        // diese eine Nachricht raus (Dedup ueber `ladder_<id>`, wie `remind_<id>` daneben).
+        // `silenceTraining` heisst: heute keine Trainings-Erinnerung - ab Tag 14 dauerhaft, bis
+        // wieder etwas eingetragen wird. Ab Tag 30 gibt die Leiter nur noch Stille zurueck.
+        const rung = reminderLadder({ daysSinceEntry: daysSinceEntry(a.id, aToday), enabled: true });
+        if (rung && rung.step > 0) {
+          const lkey = 'ladder_' + a.id;
+          if (get(lkey) !== aToday) { set(lkey, aToday); sendPush(a.id, { title: rung.title, body: rung.body, url: rung.url || '/' }); }
+          continue;
+        }
+        if (rung && rung.silenceTraining) continue;
         const pattern = u.pattern ? JSON.parse(u.pattern) : buildPattern(u.days_per_week || 4);
-        const sug = suggestForToday({ pattern, trainingDays: getTrainingDayNames(a.id), history: getHistory(a.id).filter(h => h.date < today) });
+        const sug = suggestForToday({ pattern, trainingDays: getTrainingDayNames(a.id), history: getHistory(a.id).filter(h => h.date < aToday) });
         if (sug.type === 'train') sendPush(a.id, { title: 'Heute ist Trainingstag! 💪', body: sug.dayName ? ('Auf dem Plan: ' + sug.dayName) : 'Dein Training wartet.' });
       } catch (e) {}
     }
-    // Abends (19 Uhr, nachholbar bis 21 Uhr – gleicher Grund wie bei der Trainings-Erinnerung):
-    // „Streak in Gefahr"-Push für aktive Streaks ohne heutigen Check-in.
-    if (hour >= 19 && hour <= 21) {
+    jobDone('push.reminder', null);
+    // Abends (19 Uhr, nachholbar bis 21 Uhr - gleicher Grund wie bei der Trainings-Erinnerung).
+    // FIX-A5 (CRITIC K10, BUILD-A5 5.5/5.6, DEFER-A5 A5-2): Hier stand bis 2.8.0
+    //   „Deine Streak ist in Gefahr! - N Tage in Folge, logge heute kurz etwas, damit die Serie
+    //   nicht reisst."
+    // Drei Dinge waren daran falsch. Erstens ist es eine ZWEITE Streak-Mechanik neben der
+    // Wochen-Konsistenz, die die App seit 2.9.0 anzeigt („Noch 3 Einheiten - ein Fehltag aendert
+    // daran nichts") - CRITIC K10 verlangt genau eine. Zweitens verspricht README.md woertlich
+    // „keine Drohung mit einer reissenden Serie". Drittens lief die Schleife ueber ALLE Athleten
+    // ohne `push_hour` zu pruefen: wer im Profil „Trainings-Erinnerung: Aus" gewaehlt hatte, bekam
+    // sie trotzdem, und der einzige Ausweg waere gewesen, Push ganz abzuschalten - und damit auch
+    // die Nachrichten des Coachs zu verlieren.
+    // Geblieben ist der ruhige Abend-Hinweis, den das Erinnerungs-Center im Profil ohnehin nennt:
+    // nur mit gesetzter Erinnerungs-Uhrzeit, nur wenn das Wochenpensum heute noch ERREICHBAR ist,
+    // und im Ton der einen Mechanik. Der Name der Job-Zeile bleibt `push.streakwarn`, damit die
+    // bereits geschriebenen Eintraege in `jobs` nicht verwaisen.
+    // B-k: das Abendfenster gilt je Athlet in SEINER Zeit - und deshalb gibt es hier KEINEN aeusseren
+    // Rahmen auf der Serverstunde mehr. Ein solcher Rahmen war der erste Versuch und beim Messen
+    // sofort falsch: „18 bis 23 Uhr Berliner Zeit" deckt Versaetze bis etwa +4 Stunden ab; 19 Uhr in
+    // Auckland sind 9 Uhr in Berlin, und dieser Athlet haette den Abend-Hinweis NIE bekommen.
+    // Die Schleife laeuft jetzt in jedem Tick, entscheidet aber je Athlet auf seiner Ortsstunde.
+    // Teuer ist das nicht: die Ortsstunde ist eine Formatierung ohne Datenbankzugriff, und alles
+    // dahinter liegt hinter dem Stundenfilter (dieselbe Bauart wie push.reminder daneben).
+    {
+      jobStart('push.streakwarn');
       for (const a of athletes) {
+        if (a.push_hour == null) continue;     // im Profil auf „Aus" gestellt - gilt auch abends
+        const aHour = userHour(a, now), aToday = userToday(a, now);
+        if (aHour < 19 || aHour > 21) continue;
         const skey = 'streakwarn_' + a.id;
-        if (get(skey) === today) continue;
-        set(skey, today); // einmal pro Tag prüfen
+        if (get(skey) === aToday) continue;
+        set(skey, aToday); // einmal pro Tag prüfen
         try {
-          if (db.get('SELECT id FROM checkins WHERE user_id=? AND date=?', [a.id, today])) continue; // heute schon eingecheckt
-          const streak = checkinStreak(a.id, today); // inkl. Joker-geschützter Tage (wie auf der Home)
-          if (streak >= 2) sendPush(a.id, { title: '🔥 Deine Streak ist in Gefahr!', body: `${streak} Tage in Folge – logge heute kurz etwas, damit die Serie nicht reißt.` });
+          if (get('ladder_' + a.id) === aToday) continue;  // die Wiederkehr-Leiter hat heute schon gesprochen
+          // Und sie schweigt nicht nur fuer sich: wer seit 14 Tagen nichts eingetragen hat, soll
+          // auch abends nichts hoeren. Ohne diese Zeile waere der Abend-Hinweis genau der
+          // Endlos-Nag, den die Leiter eine Schleife weiter oben gerade abgestellt hat
+          // (gemessen: Konten mit 20 und 40 Tagen Stille bekamen ihn trotzdem).
+          const rungAbend = reminderLadder({ daysSinceEntry: daysSinceEntry(a.id, aToday), enabled: true });
+          if (rungAbend && rungAbend.silenceTraining) continue;
+          if (db.get('SELECT id FROM checkins WHERE user_id=? AND date=?', [a.id, aToday])) continue; // heute schon eingecheckt
+          if (db.get('SELECT id FROM day_log WHERE user_id=? AND date=?', [a.id, aToday])) continue;  // Tag schon bestätigt
+          const u = getUserFull(a.id); if (!u) continue;
+          const mon = userWeekStart(a, now);
+          const dates = db.all(`SELECT DISTINCT sl.date d FROM set_logs sl WHERE sl.user_id=? AND ${SQL_REAL_SL} AND sl.date>=? AND sl.date<=?`, [a.id, mon, aToday]).map(r => r.d);
+          const wc = weekConsistencyOf(dates, u.days_per_week, aToday);
+          // Pensum schon geschafft -> nichts zu sagen. Nicht mehr erreichbar -> erst recht nichts:
+          // ein Hinweis auf ein Ziel, das diese Woche nicht mehr geht, ist genau der Schuldton,
+          // den STRATEGY Abschnitt 8 ausschliesst.
+          if (!wc || wc.hit || !wc.reachable || wc.left <= 0) continue;
+          sendPush(a.id, {
+            title: 'Deine Woche',
+            body: `Noch ${wc.left} von ${wc.planned} Einheiten – dafür hast du noch ${wc.daysLeft === 1 ? 'heute' : wc.daysLeft + ' Tage'}. Ein Fehltag ändert daran nichts.`,
+            url: '/',
+          });
         } catch (e) {}
       }
+      jobDone('push.streakwarn', null);
     }
     // Mindset-Erinnerungen (Priming zur Wunschstunde, Abend-Reflexion 20 Uhr, Rad des Lebens fällig) – eigener Dedup im Modul
-    try { mindsetCron(db, now, { sendPush }); } catch (e) { console.error('[mindset] cron', e?.message || e); }
+    jobStep('mindset.cron', () => mindsetCron(db, now, { sendPush }));
     // Aufbewahrung: audit nach 365 Tagen, errors nach 14 Tagen bzw. 2.000 Zeilen (schema.js).
     // Einmal am Tag genuegt - der Merker haelt fest, dass es heute schon lief.
     if (get('retention_day') !== today) {
@@ -4228,7 +5952,7 @@ app.post('/api/recipes/:id/log', auth, (req, res) => {
   if (req.body?.meal_slot != null && String(req.body.meal_slot).trim() !== '') {
     slot = normalizeSlot(req.body.meal_slot, { hour: tzHour(), trainedToday: trained });
     if (!slot) return res.status(400).json({ error: SLOT_ERROR });
-  } else slot = slotFromLabel(rec.meal_type, { trainedToday: trained }) || normalizeSlot('', { hour: tzHour() });
+  } else slot = slotFromLabel(rec.meal_type, { trainedToday: trained }) || slotForDate(uid, date, { hour: tzHour(), trainedToday: trained });
   // amount bleibt NULL (wie bei /foodlog/frommeal): eine Rezept-Portion ist keine Grammzahl.
   // Mit amount=1 hat die Oberfläche daraus „1 g" gemacht und beim Ändern der Menge auf 100 g
   // den Eintrag um Faktor 100 hochskaliert.
@@ -4239,7 +5963,7 @@ app.post('/api/recipes/:id/log', auth, (req, res) => {
 });
 const SLOT_ERROR = 'Ungültige Mahlzeit. Erlaubt: ' + MEAL_SLOTS.join(', ');
 // Wurde an diesem Tag schon ein echter Satz (reps>0) geloggt? (entscheidet Pre- vs. Post-Workout)
-function trainedOn(uid, date) { return !!db.get('SELECT 1 x FROM set_logs WHERE user_id=? AND date=? AND reps>0 LIMIT 1', [uid, date]); }
+function trainedOn(uid, date) { return !!db.get(`SELECT 1 x FROM set_logs WHERE user_id=? AND date=? AND ${SQL_REAL} LIMIT 1`, [uid, date]); }
 
 /* ---------------- SUPPLEMENTS ---------------- */
 // Katalog aller globalen Supplements (für Coach zum Zuweisen)
@@ -4309,7 +6033,7 @@ app.delete('/api/supplements/:userId/:suppId', auth, requireCoach, (req, res) =>
 app.get('/api/supplement-intake/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const date = req.query.date || tzToday();
+  const date = req.query.date || userToday(uid);   // B-k
   if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
   res.json(supplementIntakeView(uid, date));
 });
@@ -4336,8 +6060,12 @@ function supplementIntakeView(uid, date) {
 app.post('/api/supplement-intake/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const date = req.body.date || tzToday();
-  if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
+  const date = req.body.date || userToday(uid);   // B-k
+  // D32 (2.8.0): bis 2.7.0 pruefte dieser Weg als EINZIGER Schreibweg nur die Form des Datums, nicht
+  // seine Lage. `{"date":"2029-12-31"}` legte eine Einnahme in der Zukunft an, die in keiner Ansicht
+  // je wieder auftauchte. Jetzt gilt hier dieselbe Regel wie bei Saetzen, Essen, Cardio und Check-in.
+  const siDateErr = dateProblem(date);
+  if (siDateErr) return res.status(400).json({ error: siDateErr });
   const sid = req.body.supplement_id != null ? Number(req.body.supplement_id) : null;
   // Marke aus der Offline-Ablage: derselbe Eintrag darf nach einem Netzabbruch beliebig oft
   // ankommen und muss trotzdem genau eine Zeile ergeben. Betrifft nur den freien Eintrag ohne
@@ -4420,7 +6148,11 @@ function checkinStreak(uid, today, ciDates) {
   // 2000 statt 400: bei 400 fror eine lueckenlose Serie genau dort ein und zeigte dauerhaft
   // „400 Tage". 2000 Tage sind ueber fuenf Jahre - darunter friert nichts mehr ein, und die
   // Abfrage bleibt eine indizierte Bereichsabfrage.
-  const ci = ciDates || db.all('SELECT date FROM checkins WHERE user_id=? ORDER BY date DESC LIMIT 2000', [uid]).map(r => r.date);
+  // D19 (2.8.0): Zeilen, die ausschliesslich aus dem Apple-Health-Import stammen ('health'), halten
+  // keine Serie. Die Uhr laeuft weiter, wenn der Mensch nicht mehr hinschaut – eine Serie soll aber
+  // genau das messen: dass er hinschaut. NULL und 'manual'/'carried' zaehlen wie bisher.
+  const ci = ciDates || db.all(`SELECT date FROM checkins WHERE user_id=? AND COALESCE(source,'manual')<>'health'
+    ORDER BY date DESC LIMIT 2000`, [uid]).map(r => r.date);
   return streakDays([...new Set([...ci, ...frozenDatesOf(uid)])], today);
 }
 
@@ -4450,7 +6182,9 @@ function processStreakFreezes(today) {
       if (!has(yest) && has(dby) && bal > 0 && used30 < MAX_FREEZES) {
         bal -= 1;
         db.run('INSERT OR IGNORE INTO streak_freeze_log(user_id,date) VALUES(?,?)', [a.id, yest]);
-        sendPush(a.id, { title: '🛡️ Streak-Joker eingesetzt', body: 'Gestern war nichts eingetragen – ein Joker hat deine Streak gerettet!' });
+        // FIX-A5 A5-9/W2: Die Oberflaeche nennt das seit 2.9.0 durchgehend „Reparatur"
+        // (home.js, analysis.js). Wer die Push bekam und in der App nachsah, fand das Wort nicht.
+        sendPush(a.id, { title: '🛡️ Reparatur eingesetzt', body: 'Gestern war nichts eingetragen – eine Reparatur hat deine Woche zusammengehalten.' });
       }
       db.run('UPDATE users SET streak_freezes=? WHERE id=?', [bal, a.id]);
     } catch (e) {}
@@ -4461,14 +6195,17 @@ function processStreakFreezes(today) {
 // day_log-Eintrag (spätestens am Startdatum), damit ALLE geloggten Tage durch dieselbe
 // (schicht-bewusste) calendarRange-Schleife laufen. Sonst zählt z.B. ein Ruhetag an einem
 // Trainingstag im Widget anders als im Kalender -> beide liefen auseinander.
-function rhythmRange(uid, startDate, days) {
-  const u = getUserFull(uid);
+// 3.0.0 (B-k): `pre` = { u, trainingDays, allLog } vorab geholt. Die Simulation selbst ist
+// unveraendert - nur ihre drei Zutaten kommen dann aus einer gruppierten Abfrage statt aus vier
+// Einzelabfragen je Athlet.
+function rhythmRange(uid, startDate, days, pre = null) {
+  const u = pre?.u || getUserFull(uid);
   if (!u) return [];
   let pattern = null;
   try { pattern = u.pattern ? JSON.parse(u.pattern) : null; } catch (e) { pattern = null; } // defektes Muster -> Standard
   if (!Array.isArray(pattern) || !pattern.length) pattern = buildPattern(u.days_per_week || 4);
-  const trainingDays = getTrainingDayNames(uid);
-  const allLog = getHistory(uid); // bereits nach Datum sortiert
+  const trainingDays = pre?.trainingDays || getTrainingDayNames(uid);
+  const allLog = pre?.allLog || getHistory(uid); // bereits nach Datum sortiert
   const todayStr = tzToday();
   // Ohne jede Historie am Konto-Start verankern: sonst begänne die Simulation für JEDEN abgefragten Tag neu,
   // und Kalender („Ruhetag“) und kcal-Ziel („Trainingstag“) würden sich widersprechen.
@@ -4495,9 +6232,32 @@ function todayView(uid, date, u) {
   const existing = db.get('SELECT type,day_name as dayName FROM day_log WHERE user_id=? AND date=?', [uid, date]);
   // Vorschau aus der gemeinsamen Engine; preview[0] = heute (deckt sich exakt mit dem Kalender).
   const preview = rhythmRange(uid, date, 7).map(e => ({ date: e.date, type: e.type, dayName: e.dayName, planned: !!e.planned }));
-  const suggestion = preview[0] ? { type: preview[0].type, dayName: preview[0].dayName } : { type: 'rest', dayName: null };
-  return { date, suggestion, confirmed: existing || null, preview, phase: u.phase, goal: u.goal,
+  let suggestion = preview[0] ? { type: preview[0].type, dayName: preview[0].dayName } : { type: 'rest', dayName: null };
+  // 3.0.0 (B-e): Ein Pivot fuer HEUTE schlaegt den Rhythmus-Vorschlag - aber er ersetzt ihn nicht
+  // still. Der urspruengliche Vorschlag bleibt als `suggestionPlanned` daneben stehen, damit die
+  // Ansicht „statt: Push A" sagen kann. Die Vorlage selbst ist unberuehrt; wer den Override
+  // zuruecknimmt, sieht sofort wieder den Rhythmus (P12).
+  const override = overrideFor(uid, date);
+  const out = { date, suggestion, confirmed: existing || null, preview, phase: u.phase, goal: u.goal,
     kcal: { train: u.kcal_target_train, rest: u.kcal_target_rest } };
+  if (override) {
+    out.suggestionPlanned = suggestion;
+    out.override = override;
+    out.suggestion = override.rest ? { type: 'rest', dayName: null } : { type: 'train', dayName: override.dayName };
+    // GEMESSEN (Welle B-I): Hier wurde bis 3.0.0 NUR `suggestion` ueberschrieben - `preview[0]` blieb
+    // der alte Rhythmus. In derselben Antwort stand dann suggestion.type='rest' neben
+    // preview[0].type='train'. Die Startseite liest `preview[0]` ZUERST (homeEff() in home.js) und
+    // zeigte deshalb weiter den Trainingstag, waehrend der Trainingsreiter „Heute ist Ruhetag" sagte
+    // und das Kalorienziel still vom Trainings- aufs Ruhetagsziel sprang. Der Pivot muss an EINER
+    // Stelle wirken, sonst widersprechen sich zwei Ansichten desselben Tages.
+    // `planned` bleibt stehen: der Override ist eine bestaetigte Entscheidung fuer heute, kein
+    // Vorschlag - und die Kalenderdarstellung liest genau dieses Feld.
+    if (out.preview[0] && out.preview[0].date === date) {
+      out.preview[0] = { ...out.preview[0], type: out.suggestion.type, dayName: out.suggestion.dayName,
+        planned: true, override: true };
+    }
+  }
+  return out;
 }
 // Effektiver Tagtyp für die Ernährung: bestätigter Tag > Rhythmus-Vorschlag ('sick' zählt als Ruhetag)
 function dayTypeOf(uid, date, todayData) {
@@ -4508,7 +6268,9 @@ function dayTypeOf(uid, date, todayData) {
 app.get('/api/today/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const date = req.query.date || tzToday();
+  // B-k: der Tag des ATHLETEN. Ohne das sieht ein Athlet oestlich von Berlin zwischen Mitternacht
+  // und seinem Zonenversatz noch die Einheit von gestern - und bestaetigt sie auf den falschen Tag.
+  const date = req.query.date || userToday(uid);
   if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
   // Gleiche Grenze wie /api/week: `?date=9999-12-31` besteht isDate, erzeugt in der Rhythmus-Vorschau
   // aber Datumsstrings jenseits des ISO-Bereichs – die Route antwortete dann mit 200 und einer
@@ -4524,7 +6286,7 @@ app.post('/api/today/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
   const { date, type } = req.body || {};
-  const d = date || tzToday();
+  const d = date || userToday(uid);   // B-k: Tag des Athleten, nicht des Servers
   if (!isDate(d)) return res.status(400).json({ error: 'Ungültiges Datum' });
   if (!['train', 'rest', 'sick'].includes(type)) return res.status(400).json({ error: 'Ungültiger Tagestyp' });
   const dayName = type === 'train' ? strOrNull(req.body.day_name, 60) : null;
@@ -4533,6 +6295,100 @@ app.post('/api/today/:userId', auth, (req, res) => {
   else db.run('INSERT INTO day_log(user_id,date,type,day_name) VALUES(?,?,?,?)', [uid, d, type, dayName]);
   clearAutoDay(autoDayKey(uid, d));   // B16: von Hand bestaetigt – ab hier raeumt nichts mehr automatisch auf
   res.json({ ok: true });
+});
+
+
+/* ============================================================================
+   3.0.0 · PIVOT: DIE HEUTIGE EINHEIT AENDERN (Welle B-I, BUILD-B1 4.5 · B-e)
+   ============================================================================
+   Die meistgenannte Beschwerde in den 98 geprueften Coach-Rezensionen (STRATEGY 7.2 B-e): der Athlet
+   steht im Studio, die Beinpresse ist belegt / das Knie zwickt / er hat 40 statt 70 Minuten - und die
+   einzige Moeglichkeit, die Einheit zu aendern, war, die VORLAGE zu aendern. Danach war sie naechste
+   Woche auch geaendert, und niemand wusste mehr, warum.
+   Ein Override ist deshalb ausdruecklich KEINE Planaenderung: eine Zeile in `session_override` mit
+   Datum, Tag-Id und Begruendung. Die Vorlage wird nicht angefasst; ruecknehmen heisst die Zeile
+   loeschen. Genau EINE Zeile je Nutzer und Tag (UNIQUE im Schema) - eine zweite Aenderung am selben
+   Tag ersetzt die erste, statt eine Kette zu bauen, die niemand mehr liest.
+   Wer darf: der Athlet selbst und sein Coach. Das ist bewusst KEIN Fremdschreiben im Sinne von B24 -
+   der Trainingsplan ist die Arbeit des Coaches (dieselbe Regel wie bei `exercises`, `meals` und der
+   Uebungsnotiz). Was der Coach nicht darf, sind die SELBSTAUSKUENFTE des Athleten: Check-in,
+   Koerpermasse, Essen, Cardio, Mindset. Ein Override ist keine davon - er sagt nicht, was der Athlet
+   getan hat, sondern was heute auf dem Plan steht. `actor_id` haelt fest, wer es war. */
+const OVERRIDE_NOTE_MAX = 300;
+function overrideFor(uid, date) {
+  if (!hasTable('session_override')) return null;
+  try {
+    const r = db.get('SELECT * FROM session_override WHERE user_id=? AND date=?', [uid, date]);
+    if (!r) return null;
+    const day = r.day_id ? db.get('SELECT id,name FROM training_days WHERE id=?', [r.day_id]) : null;
+    return { id: r.id, date: r.date, day_id: r.day_id, dayName: day?.name || null,
+      rest: r.day_id == null, note: r.note || null, by: r.actor_id === uid ? 'athlet' : 'coach',
+      created_at: r.created_at,
+      // Der Satz, den der Athlet liest - EINMAL hier gebaut, damit Home, Training und Coach ihn nicht
+      // je dreimal verschieden formulieren.
+      text: 'Heute geändert: ' + (r.day_id ? (day?.name || 'anderer Trainingstag') : 'Ruhetag')
+        + (r.note ? ' – weil ' + r.note : '') };
+  } catch (e) { return null; }
+}
+app.post('/api/session-override', auth, (req, res) => {
+  if (!hasTable('session_override')) return res.status(503).json({ error: 'Nicht verfügbar' });
+  const uid = Number(req.body?.user_id || req.user.id);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  // Der lokale Tag des ATHLETEN, nicht der des Coaches und nicht der des Servers: ein Coach in Wien
+  // aendert um 00:30 die Einheit seines Athleten in Dubai - dort ist es 02:30 desselben Tages.
+  const today = userToday(uid);
+  const date = str(req.body?.date, 10) || today;
+  if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
+  // „Die HEUTIGE Einheit" - gestern ist Geschichte, uebermorgen ist Planung. Ein Tag Luft nach vorn,
+  // damit der Coach am Abend die Einheit von morgen vorbereiten kann; mehr waere eine zweite,
+  // heimliche Planung neben dem Rhythmus.
+  const d = daysBetween(today, date);
+  if (d < 0 || d > 1) return res.status(400).json({ error: 'Nur für heute oder morgen – die Vorlage änderst du im Plan.' });
+  let dayId = null;
+  if (req.body?.day_id != null && req.body.day_id !== '') {
+    dayId = Number(req.body.day_id);
+    const day = db.get('SELECT td.id, td.name, td.deleted, p.user_id FROM training_days td JOIN plans p ON p.id=td.plan_id WHERE td.id=?', [dayId]);
+    if (!day || day.user_id !== uid) return res.status(400).json({ error: 'Dieser Trainingstag gehört nicht zu diesem Plan' });
+    if (day.deleted) return res.status(400).json({ error: 'Dieser Trainingstag ist gelöscht' });
+  }
+  const note = strOrNull(req.body?.note, OVERRIDE_NOTE_MAX);
+  // Eine Begruendung ist Pflicht, wenn ein ANDERER sie eintraegt: „Heute geändert: Ruhetag" ohne
+  // Grund ist genau die Nachricht, die einen Athleten ratlos zuruecklaesst (STRATEGY 8).
+  if (!note && req.user.id !== uid) return res.status(400).json({ error: 'Bitte schreib dazu, warum – der Athlet liest diesen Satz.' });
+  db.run(`INSERT INTO session_override(user_id,date,day_id,note,actor_id) VALUES(?,?,?,?,?)
+    ON CONFLICT(user_id,date) DO UPDATE SET day_id=excluded.day_id, note=excluded.note,
+      actor_id=excluded.actor_id, created_at=datetime('now')`, [uid, date, dayId, note, req.user.id]);
+  auditLog(req.user, 'session.override', 'user', uid, { date, rest: dayId == null ? 1 : 0 });
+  // Der Athlet erfaehrt es, wenn es nicht seine eigene Entscheidung war. Kein Push-Gewitter: EINE
+  // Nachricht, dieselbe Zeile, die er in der App sieht.
+  if (req.user.id !== uid) {
+    const ov = overrideFor(uid, date);
+    try {
+      db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+        [uid, req.user.id, 'system', 'Deine Einheit wurde geändert', ov?.text || 'Deine heutige Einheit wurde geändert.']);
+      sendPush(uid, { title: 'Deine Einheit wurde geändert', body: ov?.text || '', url: '/' });
+    } catch (e) {}
+  }
+  res.json({ ok: true, override: overrideFor(uid, date) });
+});
+// Zuruecknehmen. Kein Papierkorb, kein Wiederherstellen: die Vorlage war nie angefasst, also ist nach
+// dem Loeschen genau der Zustand da, der ohne den Override gegolten haette (P12 ohne Sonderweg).
+app.delete('/api/session-override/:userId', auth, (req, res) => {
+  if (!hasTable('session_override')) return res.status(503).json({ error: 'Nicht verfügbar' });
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const date = str(req.query.date, 10) || userToday(uid);
+  if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
+  const had = db.get('SELECT id FROM session_override WHERE user_id=? AND date=?', [uid, date]);
+  if (had) { db.run('DELETE FROM session_override WHERE id=?', [had.id]); auditLog(req.user, 'session.override.undo', 'user', uid, { date }); }
+  res.json({ ok: true, removed: !!had, date });
+});
+app.get('/api/session-override/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const date = str(req.query.date, 10) || userToday(uid);
+  if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
+  res.json({ date, override: overrideFor(uid, date) });
 });
 
 // Interaktiver Kalender: Bereich ab `start` über `days` Tage. Nutzt EXAKT dieselbe Engine
@@ -4572,15 +6428,27 @@ app.delete('/api/today/:userId', auth, (req, res) => {
 // hat. Ab 28 Tagen ohne Satz gibt es deshalb einen eigenen Empfehlungstyp „return" mit reduziertem
 // Gewicht: −10 %, ab einem halben Jahr −20 %, auf 0,5 kg gerundet.
 const RETURN_AFTER_DAYS = 28;
+// Schrittweite einer Uebung: was der Coach eingetragen hat, sonst 2,5 kg wie bisher. Grenzen 0,25–25 kg –
+// darunter ist es keine Stufe mehr, darueber kein Sprung, den ein Mensch macht.
+const DEFAULT_STEP_KG = 2.5;
+const stepKgOf = ex => {
+  const n = Number(ex?.step_kg);
+  return Number.isFinite(n) && n >= 0.25 && n <= 25 ? n : DEFAULT_STEP_KG;
+};
 function returnRecommendation(base, gapDays) {
   const from = Number(base?.weight);
   const factor = gapDays > 180 ? 0.8 : 0.9;
   const pct = Math.round((1 - factor) * 100);
   if (!(from > 0)) {
-    return { type: 'return', gapDays, text: `Letztes Mal vor ${gapDays} Tagen. Taste dich mit leichtem Gewicht wieder heran.` };
+    return { type: 'return', gapDays, step: base?.step ?? DEFAULT_STEP_KG, text: `Letztes Mal vor ${gapDays} Tagen. Taste dich mit leichtem Gewicht wieder heran.` };
   }
-  const nw = Math.max(0, Math.round(from * factor * 2) / 2);
-  return { type: 'return', weight: nw, fromWeight: from, gapDays, reducedPct: pct,
+  // Das Rueckkehr-Gewicht ist ein Prozentsatz und landet deshalb selten auf einer echten Stufe. Bis
+  // 2.7.0 rundete es auf ein halbes Kilo: aus 72,5 kg minus 10 % wurden „65,5 kg" – eine Zahl, die es
+  // an einer Langhantel mit 2,5-kg-Stufen nicht gibt. Jetzt wird auf die Schrittweite der Uebung
+  // ABGERUNDET: lieber etwas leichter zurueckkommen als ein Gewicht nennen, das niemand auflegen kann.
+  const step = base?.step ?? DEFAULT_STEP_KG;
+  const nw = Math.max(0, Math.round(Math.floor((from * factor) / step + 1e-9) * step * 100) / 100);
+  return { type: 'return', weight: nw, fromWeight: from, gapDays, reducedPct: pct, step, basis: base?.basis ?? null,
     text: `Letztes Mal vor ${gapDays} Tagen. Starte bei ${String(nw).replace('.', ',')} kg (${pct} % weniger) und taste dich hoch.` };
 }
 // Die Uebungs-ID ist nicht die Bewegung. Derselbe Name steht im Plan mehrfach (D15), und beim Zuweisen
@@ -4608,12 +6476,36 @@ function movementSetLogs(uid, mvKeys) {
   if (!mvOf.size) return byMv;
   // Geloeschte Uebungen und deaktivierte Plaene bleiben absichtlich drin: geloggte Saetze sind Verlauf,
   // egal ob der Coach die Uebung spaeter aus dem Plan genommen hat.
-  const rows = db.all(`SELECT exercise_id,date,set_no,weight,reps FROM set_logs
-    WHERE user_id=? AND exercise_id IN (SELECT id FROM (${ownExSql})) ORDER BY date, id`, [uid, uid, ...keys]);
+  // 2.8.0: `rir` und `set_type` kommen mit – die Empfehlung braucht den RIR-Wert des letzten
+  // Arbeitssatzes, und Aufwaermsaetze duerfen gar nicht erst in den Verlauf einer Bewegung geraten
+  // (ein 60-kg-Aufwaermsatz mit 15 Wdh. hat bis 2.7.0 die Bestleistung und die Empfehlung verdorben).
+  const rows = db.all(`SELECT exercise_id,date,set_no,weight,reps,rir,set_type FROM set_logs
+    WHERE user_id=? AND exercise_id IN (SELECT id FROM (${ownExSql})) AND ${SQL_SET_WORK} ORDER BY date, id`, [uid, uid, ...keys]);
   for (const r of rows) { const mv = mvOf.get(r.exercise_id); if (mv != null) (byMv[mv] = byMv[mv] || []).push(r); }
   return byMv;
 }
-function progressionOf(ex, rows, today, ownId) {
+// A-4 (Nachbesserung 2.8.0): DERSELBE RIEGEL WIE IN DER SATZZEILE, NUR EINE Ebene tiefer.
+// Die Trainingsansicht blendet die RIR-Spalte fuer Stufe 1 aus (`twRirOn()`, training.js) – der Server
+// schrieb das Kuerzel aber trotzdem in jeden Empfehlungstext, und genau der stand dann als einzige
+// RIR-Zeile auf dem Bildschirm eines Anfaengers. Die Rangfolge ist woertlich dieselbe wie im Client
+// (CRITIC K1, STRATEGY 4.0): `features.rir` (Einzelschalter des Coachs) schlaegt die Stufe,
+// `experience_coach` (vom Coach gesetzt) schlaegt `experience` (Selbstauskunft). Ab Stufe 2 sichtbar.
+// Steht die Regel zweimal da? Ja – einmal je Seite. Ueber die Leitung geht ein fertiger TEXT, und ein
+// Text kann seine Stufe nicht mitfuehren. Beide Seiten lesen dieselben zwei Spalten, die seit der
+// Nachbesserung auch beide im Dashboard stehen (`experience_coach`, `features`).
+const EXPERIENCE_LEVEL = { beginner: 1, intermediate: 2, advanced: 3 };
+function rirTextFor(uid) {
+  try {
+    const u = db.get('SELECT experience, experience_coach, features FROM users WHERE id=?', [uid]);
+    if (!u) return true;                       // im Zweifel wie bisher – nichts verstecken, was da war
+    let f = u.features;
+    if (typeof f === 'string') { try { f = JSON.parse(f || '{}'); } catch (e) { f = null; } }
+    if (f && typeof f === 'object' && Object.prototype.hasOwnProperty.call(f, 'rir')) return !!f.rir;
+    const lvl = EXPERIENCE_LEVEL[String(u.experience_coach || u.experience || 'beginner').toLowerCase()] || 1;
+    return lvl >= 2;
+  } catch (e) { return true; }
+}
+function progressionOf(ex, rows, today, ownId, rirText = true) {
   const real = (rows || []).filter(r => (r.reps || 0) > 0);
   let lastDate = null;
   for (const r of real) if (r.date < today && (!lastDate || r.date > lastDate)) lastDate = r.date;
@@ -4629,13 +6521,31 @@ function progressionOf(ex, rows, today, ownId) {
       sameDay = (own && own.length) ? own : [...perEx.values()].sort((a, b) => b.length - a.length)[0];
     }
   }
-  const lastSets = sameDay.slice().sort((a, b) => a.set_no - b.set_no).map(r => ({ set_no: r.set_no, weight: r.weight, reps: r.reps }));
+  const lastSets = sameDay.slice().sort((a, b) => a.set_no - b.set_no).map(r => ({ set_no: r.set_no, weight: r.weight, reps: r.reps, rir: r.rir ?? null }));
   const gapDays = lastDate ? Math.max(0, daysBetween(lastDate, today)) : null;
-  let recommendation = recommend(lastSets, ex.target_reps, 2.5);
+  // 2.8.0: die Schrittweite kommt aus der Uebung (`exercises.step_kg`, Spalte seit 2.6.0) statt fest
+  // aus 2,5 kg. An einer Kurzhantelreihe mit 1-kg-Stufen war „+2,5 kg" eine Zahl, die es im Staender
+  // nicht gibt (DEFER-A1, D23-Rest). `stepKgOf()` haelt die Regel an EINER Stelle.
+  let recommendation = recommend(lastSets, ex.target_reps, stepKgOf(ex), { rirText });
   if (gapDays != null && gapDays >= RETURN_AFTER_DAYS && recommendation.type !== 'none') {
     recommendation = returnRecommendation(recommendation, gapDays);
   }
-  return { lastDate, gapDays, lastSets, recommendation, target_reps: ex.target_reps, prs: personalRecords(real) };
+  // `step` steht auch auf der obersten Ebene: die ± Stepper der Satzzeile (A-IV.2 Punkt 3) brauchen die
+  // Schrittweite auch dann, wenn es noch gar keine Empfehlung gibt.
+  // `rirVisible` ist die Beistellung fuer A-IV.2 (BUILD-A4 Abschnitt 2): dieselbe Entscheidung, die
+  // oben den Empfehlungstext steuert, steht hier als Feld. Die Trainingsansicht baut ihre
+  // Begruendungszeile SELBST aus `lastSets[].rir` (`twWhy()`, training.js) und haengt „bei RIR n"
+  // ungefiltert an – gemessen im Browser bei `twLevel()=1`: „zuletzt 27,5 kg x 12 bei RIR 2 -> heute
+  // gleich" stand als einzige RIR-Zeile auf dem Bildschirm eines Anfaengers. Der RIR-WERT bleibt
+  // bewusst in `lastSets` stehen: er ist echte Messung, und ein Server, der Daten je nach Stufe
+  // verschweigt, schafft eine zweite Wahrheit statt einer Anzeigeregel. Was fehlt, ist EINE Bedingung
+  // in `twWhy()` – und die Zahl, gegen die sie prueft, liegt ab jetzt in der Antwort.
+  return { lastDate, gapDays, lastSets, recommendation, step: stepKgOf(ex), rirVisible: !!rirText,
+    // B5: Die Rekordzeile der Plan-Karte („Best: 207,5 kg x 10") entsteht hier. Rekordfaehig sind nur
+    // Arbeitssaetze - ein Drop-Satz mit reduziertem Gewicht nach dem Versagen ist keine Bestleistung.
+    // `lastSets` und die Empfehlung bleiben unberuehrt: was zuletzt wirklich passiert ist, gehoert zur
+    // Vorbelegung dazu.
+    target_reps: ex.target_reps, prs: personalRecords(real.filter(isPrSet)) };
 }
 
 // Progression aller Übungen eines Trainingstags in EINER Antwort (statt einer Anfrage je Übung):
@@ -4647,7 +6557,7 @@ app.get('/api/progression/:userId', auth, (req, res) => {
   if (!Number.isInteger(dayId) || dayId <= 0) return res.status(400).json({ error: 'Parameter day (Trainingstag-ID) fehlt' });
   const day = db.get('SELECT td.id FROM training_days td JOIN plans p ON p.id=td.plan_id WHERE td.id=? AND p.user_id=?', [dayId, uid]);
   if (!day) return res.status(404).json({ error: 'Trainingstag nicht gefunden' });
-  const exercises = db.all('SELECT id,target_reps,LOWER(TRIM(name)) mv FROM exercises WHERE day_id=? AND deleted=0 ORDER BY position,id', [dayId]);
+  const exercises = db.all('SELECT id,target_reps,step_kg,LOWER(TRIM(name)) mv FROM exercises WHERE day_id=? AND deleted=0 ORDER BY position,id', [dayId]);
   const items = {};
   if (exercises.length) {
     // ORDER BY date, id pinnt in movementSetLogs die Reihenfolge, die bisher der Index
@@ -4657,7 +6567,8 @@ app.get('/api/progression/:userId', auth, (req, res) => {
     // und die Rekordzeile zeigte einen anderen (gleichwertigen) Satz.
     const byMv = movementSetLogs(uid, exercises.map(e => e.mv));
     const today = tzToday();
-    for (const ex of exercises) items[ex.id] = progressionOf(ex, byMv[ex.mv] || [], today, ex.id);
+    const rirText = rirTextFor(uid);   // EINMAL je Antwort, nicht je Uebung
+    for (const ex of exercises) items[ex.id] = progressionOf(ex, byMv[ex.mv] || [], today, ex.id, rirText);
   }
   res.json({ dayId, items });
 });
@@ -4670,7 +6581,7 @@ app.get('/api/progression/:userId/:exerciseId', auth, (req, res) => {
   const ex = db.get('SELECT *, LOWER(TRIM(name)) mv FROM exercises WHERE id=?', [exId]);
   if (!ex) return res.status(404).json({ error: 'Übung nicht gefunden' });
   const rows = movementSetLogs(uid, [ex.mv])[ex.mv] || []; // Verlauf der BEWEGUNG, nicht der Uebungs-ID
-  res.json(progressionOf(ex, rows, tzToday(), exId));
+  res.json(progressionOf(ex, rows, tzToday(), exId, rirTextFor(uid)));
 });
 
 // Detail-Verlauf einer Übung: bestes 1RM je Trainingstag (für Chart) + PRs
@@ -4685,16 +6596,74 @@ app.get('/api/exercise-history/:userId/:exerciseId', auth, (req, res) => {
   // (Eingabereihenfolge, nicht die Sortierung des deckenden Index)
   // Auch hier zaehlt die Bewegung, nicht die Uebungs-ID – sonst zeigt die Kurve nach jeder neuen
   // Vorlage bei null an, obwohl dieselbe Uebung seit Monaten geloggt wird.
-  const rows = (movementSetLogs(uid, [ex.mv])[ex.mv] || []).filter(r => (r.reps || 0) > 0);
+  // B5 (3.0.0): Der e1RM-Verlauf und die Bestleistungen entstehen NUR aus rekordfaehigen Saetzen.
+  // `src/logic.js` (e1rmSeries) macht es seit 3.0.0 genau so; hier stand die laxere Fassung, und ein
+  // Drop-Satz 230 x 10 sprang damit als „306,7 kg e1RM" in die Kurve.
+  const rows = (movementSetLogs(uid, [ex.mv])[ex.mv] || []).filter(r => (r.reps || 0) > 0 && isPrSet(r));
   const byDate = {};
   for (const r of rows) {
     const e = estimate1RM(r.weight, r.reps);
     if (!byDate[r.date] || e > byDate[r.date].e1rm) byDate[r.date] = { date: r.date, e1rm: e, weight: r.weight, reps: r.reps };
   }
   const history = Object.values(byDate);
-  res.json({ name: ex.name, history, prs: personalRecords(rows) });
+  // 3.0.0 (B-c): Wurde diese Uebung getauscht, steht der Vorgaenger daneben - mit seiner EIGENEN
+  // Kurve, nicht in dieselbe gemischt. Eine Beinpresse ist keine Kniebeuge; die alten Saetze unter
+  // dem neuen Namen zu zeigen waere eine Faelschung (und eine Bestleistung, die nie stattfand).
+  // Sichtbar bleiben sie trotzdem - genau das ist mit „der Verlauf bleibt" gemeint.
+  const previous = exerciseAncestry(exId).map(p => {
+    // Derselbe Schluessel wie ueberall im Verlauf: LOWER(TRIM(name)) - die Bewegung, nicht die Id.
+    const key = String(p.name || '').trim().toLowerCase();
+    const pr = (movementSetLogs(uid, [key])[key] || []).filter(r => (r.reps || 0) > 0 && isPrSet(r));
+    const pd = {};
+    for (const r of pr) { const e = estimate1RM(r.weight, r.reps); if (!pd[r.date] || e > pd[r.date].e1rm) pd[r.date] = { date: r.date, e1rm: e, weight: r.weight, reps: r.reps }; }
+    return { id: p.id, name: p.name, muscle: p.muscle, sets: pr.length, history: Object.values(pd) };
+  });
+  // ---- e1RM-VERLAUF UND DELOAD-HINWEIS (3.0.0, B-i) --------------------------------------------
+  // GEMESSEN (Welle B-I): `LOGIC.e1rmSeries` und `LOGIC.deloadHint` hatten im ganzen Server NULL
+  // Aufrufe - die Handrechnungen aus B-I.1 belegten Code, den niemand ausfuehrte, und `deloadHint`
+  // (BUILD-B1 3.4) war damit schlicht nicht ausgeliefert. Der Verlauf oben (`history`) bleibt
+  // unveraendert, damit keine vorhandene Ansicht kippt; `e1rm` ist dieselbe Frage, vom Rechenkern
+  // beantwortet - mit benannter Formel (Epley), dem Wiederholungs-Deckel und der Angabe, wie viele
+  // Saetze warum nicht mitzaehlen.
+  // Die Uebungs-Id wird auf die ANGEFRAGTE gesetzt: gerechnet wird ueber die BEWEGUNG (derselbe
+  // normalisierte Name, dieselbe Regel wie im ganzen Verlauf) - e1rmSeries wuerde zwei Plan-Zeilen
+  // derselben Uebung sonst als „zwei verschiedene Uebungen" ablehnen.
+  const e1rm = (typeof LOGIC.e1rmSeries === 'function')
+    ? (() => { try { return LOGIC.e1rmSeries({ sets: rows.map(r => ({ ...r, exercise_id: exId })), exerciseId: exId }); }
+               catch (e) { console.error('[verlauf] e1rmSeries', e?.message || e); return null; } })()
+    : null;
+  // RIR-Drift: fuehlen sich dieselben Gewichte naeher am Limit an? Mittel der letzten 14 Tage gegen
+  // das Mittel der 14 Tage davor. Unter drei Werten je Seite gibt es keine Zahl - `deloadHint`
+  // behandelt ein fehlendes Zeichen ausdruecklich als „fehlt", nicht als „unauffaellig".
+  const heuteIso = userToday(uid);
+  const rirMean = (von, bis) => {
+    const xs = rows.filter(r => r.date >= von && r.date <= bis && r.rir != null && isFinite(Number(r.rir))).map(r => Number(r.rir));
+    return xs.length >= 3 ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  };
+  const rirNeu = rirMean(isoAddDays(heuteIso, -13), heuteIso), rirAlt = rirMean(isoAddDays(heuteIso, -27), isoAddDays(heuteIso, -14));
+  const rirDrift = (rirNeu != null && rirAlt != null) ? Math.round((rirNeu - rirAlt) * 100) / 100 : null;
+  let deload = null;
+  if (typeof LOGIC.deloadHint === 'function') {
+    try {
+      let ready = null;
+      try { ready = readinessView(uid, heuteIso)?.score ?? null; } catch (e) { ready = null; }
+      deload = LOGIC.deloadHint({ e1rmTrend: e1rm, rirDrift, readiness: ready });
+    } catch (e) { console.error('[verlauf] deloadHint', e?.message || e); deload = null; }
+  }
+  res.json({ name: ex.name, history, prs: personalRecords(rows), previous,
+    e1rm, deload, rirDrift,
+    replacedNote: previous.length ? 'früher: ' + previous[0].name : null });
 });
 
+// Korridor für Sätze je Muskelgruppe und Woche (RESEARCH-25-einsichten M21, Q21/Q45/Q46): rund 10 Sätze
+// sind die Schwelle, jenseits von 20 überwiegt die Erholungsschuld. EINE Zahl für /api/analytics und
+// /api/muscle-sets, damit Analyse und Coach-Blatt nicht zwei Korridore kennen.
+const MUSCLE_CORRIDOR = { min: 10, max: 20 };
+const MUSCLE_MAX_WEEKS = 26;
+// Wie viele Wochen die Muskelzeilen in GET /api/analytics abdecken. Vier Wochen sind der Zeitraum, in
+// dem die Frage „bekommt jede Gruppe genug?" beantwortbar ist: kurz genug, dass eine Luecke auffaellt,
+// lang genug, dass ein Urlaub nicht als Trainingsfehler erscheint.
+const MUSCLE_ANALYTICS_WEEKS = 4;
 // Trainings-Analyse: aggregierte Statistiken über alle Sätze eines Nutzers.
 // Liefert trainierte Übungen (für Drilldown), Wochen-Volumen/-Häufigkeit,
 // Gesamtwerte und Muskelgruppen-Verteilung. Auch vom Coach für seinen Athleten abrufbar.
@@ -4714,34 +6683,45 @@ app.get('/api/analytics/:userId', auth, (req, res) => {
   //     DESC, id DESC je Uebung und Tag, nur fuer den ersten und den letzten Tag jeder Uebung.
   //   - Reihenfolge der Uebungen: lastDate absteigend, bei Gleichstand aufsteigende Uebungs-ID (so
   //     iterierte Object.values ueber die numerischen Schluessel des alten exMap).
-  const VOL = 'SUM(CAST(ROUND(COALESCE(sl.weight,0)*100) AS INTEGER)*sl.reps)';
+  const VOL = SQL_VOL100_SL;
   const exRows = db.all(`
     SELECT sl.exercise_id AS eid, e.name AS name, e.muscle AS muscle,
            COUNT(DISTINCT sl.date) AS sessions, ${VOL} AS vol100,
            MIN(sl.date) AS firstDate, MAX(sl.date) AS lastDate,
-           MAX(CASE WHEN sl.reps=1 AND sl.weight>0 THEN sl.weight END) AS w1,
+           -- B5: Der erste und letzte Tag mit einem REKORDFAEHIGEN Satz. firstDate/lastDate bleiben
+           -- der erste und letzte Trainingstag (ein Tag mit Drop-Saetzen ist ein Trainingstag) –
+           -- „an dem Tag lagen X kg an" gilt aber nur fuer Arbeitssaetze, sonst stuende in der
+           -- Analyse als „letztes Gewicht" eine 0, sobald der letzte Tag nur Drop-Saetze trug.
+           MIN(CASE WHEN ${SQL_SET_PR_SL} THEN sl.date END) AS firstPrDate,
+           MAX(CASE WHEN ${SQL_SET_PR_SL} THEN sl.date END) AS lastPrDate,
+           -- B5 (3.0.0): Beide 1RM-Spalten zaehlen nur REKORDFAEHIGE Saetze (SQL_SET_PR) – ein
+           -- Drop- oder Backoff-Satz ist echte Arbeit (und steht deshalb in sessions und vol100),
+           -- aber nie eine Bestleistung. Gemessen: ein Drop-Satz 230 x 10 stand als „230,0 kg
+           -- Bestleistung · e1RM 306,7 kg" in der Analyse.
+           MAX(CASE WHEN ${SQL_SET_PR_SL} AND sl.reps=1 AND sl.weight>0 THEN sl.weight END) AS w1,
            -- D14: Wiederholungs-Deckel. Die Epley-Formel ist oberhalb von zwoelf Wiederholungen wertlos
            -- (60 kg x 15 ergaben ein 1RM von 90,0 kg, waehrend der schwerere Arbeitssatz 67,5 x 8 nur
            -- 85,5 kg lieferte; bei 50 kg x 30 kaemen 100 kg heraus). SQL und JS benutzen jetzt dieselbe
            -- Regel: geschaetzt wird aus 2 bis 12 Wiederholungen, darueber liefert estimate1RM() nichts.
-           MAX(CASE WHEN sl.reps BETWEEN 2 AND 12 AND sl.weight>0 THEN sl.weight*(1+sl.reps/30.0) END) AS s1
+           MAX(CASE WHEN ${SQL_SET_PR_SL} AND sl.reps BETWEEN 2 AND 12 AND sl.weight>0 THEN sl.weight*(1+sl.reps/30.0) END) AS s1
     FROM set_logs sl LEFT JOIN exercises e ON e.id=sl.exercise_id
-    WHERE sl.user_id=? AND sl.reps>0 GROUP BY sl.exercise_id ORDER BY sl.exercise_id`, [uid]);
+    WHERE sl.user_id=? AND ${SQL_REAL_SL} GROUP BY sl.exercise_id ORDER BY sl.exercise_id`, [uid]);
   // Bestgewicht + Wiederholungen am ersten und letzten Tag jeder Uebung (eine Zeile je Uebung und Tag)
   const topRows = db.all(`
-    WITH ed AS (SELECT exercise_id, MIN(date) f, MAX(date) l FROM set_logs WHERE user_id=? AND reps>0 GROUP BY exercise_id),
+    WITH ed AS (SELECT exercise_id, MIN(date) f, MAX(date) l FROM set_logs WHERE user_id=? AND ${SQL_REAL_PR} GROUP BY exercise_id),
     cand AS (SELECT sl.exercise_id eid, sl.date date, COALESCE(sl.weight,0) weight, sl.reps reps,
                ROW_NUMBER() OVER (PARTITION BY sl.exercise_id, sl.date ORDER BY COALESCE(sl.weight,0) DESC, sl.id DESC) rn
              FROM set_logs sl JOIN ed ON ed.exercise_id=sl.exercise_id AND (sl.date=ed.f OR sl.date=ed.l)
-             WHERE sl.user_id=? AND sl.reps>0)
+             WHERE sl.user_id=? AND ${SQL_REAL_PR_SL})   -- B5: „Bestgewicht am Tag" ist eine Bestleistung
     SELECT eid, date, weight, reps FROM cand WHERE rn=1`, [uid, uid]);
   const top = {}; for (const r of topRows) top[r.eid + '|' + r.date] = r;
   const exercises = exRows.map(r => {
-    const f = top[r.eid + '|' + r.firstDate] || { weight: 0, reps: 0 }, l = top[r.eid + '|' + r.lastDate] || { weight: 0, reps: 0 };
+    const f = top[r.eid + '|' + (r.firstPrDate || r.firstDate)] || { weight: 0, reps: 0 };
+    const l = top[r.eid + '|' + (r.lastPrDate || r.lastDate)] || { weight: 0, reps: 0 };
     // dieselbe Formel wie estimate1RM(): reps=1 -> Gewicht; sonst round(w*(1+r/30)*10)/10
     const best1rm = Math.max(r.w1 || 0, r.s1 != null ? Math.round(r.s1 * 10) / 10 : 0);
     return {
-      id: r.eid, name: r.name || 'Übung', muscle: r.muscle || null,
+      id: r.eid, name: r.name || 'Übung', muscle: muscleCanon(r.muscle) || null,
       sessions: r.sessions, volume: Math.round(Number(r.vol100 || 0) / 100),
       firstDate: r.firstDate, lastDate: r.lastDate,
       firstWeight: f.weight, lastWeight: l.weight,
@@ -4757,7 +6737,7 @@ app.get('/api/analytics/:userId', auth, (req, res) => {
   // Wochen-Buckets über den gemeinsamen mondayOf() aus logic.js (reine UTC-Arithmetik) – aus einer
   // Zeile je Trainingstag (rund 200 im Jahr) statt einer je Satz.
   const dayRows = db.all(`SELECT sl.date AS date, ${VOL} AS vol100, COUNT(*) AS sets FROM set_logs sl
-    WHERE sl.user_id=? AND sl.reps>0 GROUP BY sl.date ORDER BY sl.date`, [uid]);
+    WHERE sl.user_id=? AND ${SQL_REAL_SL} GROUP BY sl.date ORDER BY sl.date`, [uid]);
   const weekMap = {};
   let totalSets = 0, totalVol100 = 0;
   for (const r of dayRows) {
@@ -4772,26 +6752,30 @@ app.get('/api/analytics/:userId', auth, (req, res) => {
   // Koerpergewichtssatz kein Hantelgewicht hat. Deshalb liefert die Antwort jetzt zusaetzlich die
   // ZAHL DER SAETZE je Muskel (die ehrliche Balkenlaenge) und kennzeichnet Muskeln, deren Volumen
   // vollstaendig aus Koerpergewichtsuebungen stammt, mit volume:null statt 0 („–" statt „0 kg").
-  // Die Spalte `exercises.bodyweight`, mit der sich Klimmzuege richtig verrechnen liessen, gibt es
-  // nicht – sie steht in DEFER-A1.md fuer Welle A-II.
-  // Fenster: 28 Tage. Ueber das ganze Kontoleben gemittelt sagt die Verteilung nichts darueber, ob
-  // diese Woche Bizeps fehlt – und genau das ist die Frage, die die Kachel beantworten soll.
-  const MUSCLE_WINDOW_DAYS = 28;
-  const muscleFrom = isoAddDays(tzToday(), -(MUSCLE_WINDOW_DAYS - 1));
-  const muscleRows = db.all(`SELECT e.muscle AS muscle, COUNT(*) AS sets, ${VOL} AS vol100,
-      SUM(CASE WHEN COALESCE(sl.weight,0)>0 THEN 1 ELSE 0 END) AS weighted,
-      COUNT(DISTINCT sl.date) AS trainDays
-    FROM set_logs sl JOIN exercises e ON e.id=sl.exercise_id
-    WHERE sl.user_id=? AND sl.reps>0 AND sl.date>=? AND e.muscle IS NOT NULL AND e.muscle<>''
-    GROUP BY e.muscle`, [uid, muscleFrom]);
-  const muscles = muscleRows
-    .map(r => ({ muscle: r.muscle, sets: r.sets, days: MUSCLE_WINDOW_DAYS, trainDays: r.trainDays,
-      perWeek: Math.round(r.sets / (MUSCLE_WINDOW_DAYS / 7) * 10) / 10,
-      // Kein einziger Satz mit Gewicht (Klimmzuege, Dips, Bauch) -> die Tonnage ist nicht 0, sie ist
-      // unbekannt. „Abs · 0 kg" war eine Falschaussage ueber 15.360 kg echte Arbeit.
-      volume: r.weighted > 0 ? Math.round(Number(r.vol100 || 0) / 100) : null,
-      bodyweightOnly: !r.weighted }))
-    .sort((a, b) => (b.sets - a.sets) || ((b.volume || 0) - (a.volume || 0)) || String(a.muscle).localeCompare(String(b.muscle), 'de'));
+  // Seit 2.8.0 traegt `set_logs.bodyweight` das beim Satz gueltige Koerpergewicht (SQL_LOAD): wo es
+  // steht, zaehlt es zur Tonnage und der Muskel gilt nicht mehr als „ohne Gewicht". Offen bleibt die
+  // ANDERE Spalte und die andere Frage – `exercises.bodyweight` („ist diese Uebung eine
+  // Koerpergewichtsuebung?"), mit der der Server das Gewicht von sich aus eintragen koennte statt es
+  // vom Satz geschickt zu bekommen. Sie steht in DEFER-A4.md fuer Welle A-V.
+  // Fenster: die letzten vier Wochen. Ueber das ganze Kontoleben gemittelt sagt die Verteilung nichts
+  // darueber, ob diese Woche Bizeps fehlt – und genau das ist die Frage, die die Kachel beantworten soll.
+  //
+  // NACHBESSERUNG 2.8.0 – EINE RECHNUNG, NICHT ZWEI:
+  // Hier stand bis eben eine zweite, eigene Rechnung fuer dieselbe Frage: ein rollendes 28-Tage-Fenster
+  // mit `Saetze / 4`, waehrend `muscleSetsView()` (GET /api/muscle-sets) ueber die ABGESCHLOSSENEN
+  // Wochen mittelt und die laufende Woche als `partial` ausklammert. Am selben Server, in derselben
+  // Sekunde, an derselben Datenbank gemessen: Quads 16,8 Saetze/Woche (67 Saetze / 28 Tage) gegen 18,0
+  // (Schnitt der fertigen Wochen 18/18/18, der Montag mit 4 Saetzen ausgeklammert); nach Testschreibungen
+  // Chest 4,5 gegen 4,0 und Triceps 2,3 gegen 2,0. Beide Zahlen waren fuer sich nachrechenbar richtig –
+  // und genau das ist der Fehler: eine App, die auf zwei Wegen zwei Antworten auf „Saetze je Muskel und
+  // Woche" gibt, hat keine. Der Kommentar „EINE Regel, zwei Ausgabewege" behauptete es, der Code tat es
+  // nicht. Jetzt tut er es: `muscleSetsView()` rechnet, diese Route ist einer ihrer zwei Ausgabewege.
+  // Die laufende Woche bleibt damit auch hier `partial` – „4 Saetze am Montag" ist kein Rueckstand,
+  // sondern Montag. Die Muskelzeilen tragen dieselben Felder wie bisher (`sets`, `days`, `trainDays`,
+  // `volume`, `bodyweightOnly`, `status`, die `muscle:null`-Zeile fuer Saetze ohne Muskelgruppe) und
+  // zusaetzlich `series`/`thisWeek` aus der Wochenrechnung.
+  const msv = muscleSetsView(uid, MUSCLE_ANALYTICS_WEEKS);
+  const muscles = msv.muscles;
 
   // "diese Woche" = aktuelle Kalenderwoche, Vorwoche zum Vergleich
   const thisMon = mondayOf(tzToday()), lastMon = isoAddDays(thisMon, -7);
@@ -4799,7 +6783,12 @@ app.get('/api/analytics/:userId', auth, (req, res) => {
   const thisWeek = pickWeek(thisMon);
 
   res.json({
-    exercises, weeks, muscles, muscleWindowDays: 28,
+    // `muscleWindowDays` ist jetzt die tatsaechliche Spanne der gezaehlten Wochen (Montag der ersten
+    // Woche bis heute, also 22–28 Tage), nicht mehr die fest verdrahtete 28. Die Anzeige schreibt sie
+    // woertlich unter die Balken („67 Saetze in 28 Tagen") – eine Zahl, die nicht zum gezaehlten
+    // Zeitraum passt, ist genau die Art Halbwahrheit, die diese Nachbesserung abstellt.
+    exercises, weeks, muscles, muscleWindowDays: msv.days, muscleWeeks: msv.weeks, muscleFrom: msv.from,
+    muscleCorridor: MUSCLE_CORRIDOR,
     week: { thisWeek, lastWeek: pickWeek(lastMon) },
     totals: {
       totalSessions: dayRows.length,
@@ -4810,6 +6799,121 @@ app.get('/api/analytics/:userId', auth, (req, res) => {
       thisWeekVolume: thisWeek.volume,
     },
   });
+});
+
+/* ---------------- SÄTZE JE MUSKELGRUPPE JE WOCHE ---------------- */
+// Die planbare Größe, die der Coach wirklich stellt (RESEARCH-25-einsichten M21, Belege Q21/Q45/Q46):
+// rund 10 Sätze je Muskel und Woche sind die Schwelle, ab der zuverlässig etwas passiert; darüber
+// nimmt der Ertrag ab, und jenseits von 20 überwiegt in der Regel die Erholungsschuld. Deshalb ein
+// KORRIDOR und keine Zielzahl — die App sagt „zu wenig / im Korridor / viel", nicht „falsch".
+// Warum als eigene Route und nicht nur als Feld in /api/analytics: A-IV.6 zeichnet die Verteilung über
+// mehrere Wochen — der Zeitraum-Chip des Analyse-Tabs (4 Wochen · 3 Monate · 1 Jahr) fragt genau hier
+// an, sobald er über die vier Wochen hinausgeht, die `/api/analytics` mitliefert. Bis 2.7.0 zählte der
+// Client die Sätze selbst aus GET /api/logs (letzte 500 Zeilen) und verband sie über exercises[].muscle
+// — das war eine zusätzliche Anfrage, eine zweite Rechnung, und bei mehr als 500 Sätzen schlicht falsch
+// (DEFER-A1 D17).
+// Aufwärmsätze und weich gelöschte Sätze zählen nicht (SQL_REAL_SL).
+//
+// DIESE FUNKTION IST DIE EINZIGE STELLE, an der „Sätze je Muskel und Woche" gerechnet wird. Beide
+// Ausgabewege (diese Route und das `muscles`-Feld von GET /api/analytics) lesen dasselbe Ergebnis;
+// zwei Fenster mit zwei Mittelungen waren der Befund, der diese Nachbesserung ausgelöst hat.
+function muscleSetsView(uid, weeks) {
+  // EINE Aufloesung des Parameters, dieselbe wie in der Routenpruefung: `clampNum` klemmt auf
+  // 1..MUSCLE_MAX_WEEKS und liefert null, wenn gar keine Zahl kam. Bis 2.8.0 stand hier ein zweites
+  // `Number(weeks) || 4` – und weil `Number(0)` falsy ist, antwortete `weeks=0` mit 200 und vier
+  // Wochen, waehrend die Pruefung davor die 0 laengst auf 1 geklemmt hatte. Zwei Regeln fuer eine Zahl.
+  const w = clampNum(weeks, 1, MUSCLE_MAX_WEEKS, true) || 4;
+  const today = tzToday();
+  const thisMon = mondayOf(today);
+  let from = isoAddDays(thisMon, -7 * (w - 1));     // Beginn der ersten vollständig betrachteten Woche
+  // Ein junges Konto hat kein Vier-Wochen-Fenster. Ueber Wochen zu mitteln, in denen es noch keinen
+  // einzigen Satz gab, macht aus sechs Saetzen in drei Tagen „1,5 Saetze pro Woche" – eine Zahl, die
+  // nur aussagt, dass das Konto neu ist. Gezaehlt wird deshalb ab der Woche des ERSTEN Satzes.
+  // (Bis 2.8.0 klemmte das der Browser selbst – eine Klemmung, die der zweite Ausgabeweg nicht kannte.)
+  const firstLog = db.get(`SELECT MIN(sl.date) AS d FROM set_logs sl WHERE sl.user_id=? AND ${SQL_REAL_SL}`, [uid]);
+  if (firstLog && firstLog.d) { const fm = mondayOf(firstLog.d); if (fm > from) from = fm; }
+  const days = daysBetween(from, today) + 1;        // tatsächlich gezählte Tage (Montag der ersten Woche bis heute)
+  // Tonnage und „hat überhaupt ein Satz Gewicht getragen?" kommen aus derselben Abfrage mit: die
+  // Analyse-Antwort zeigt beides je Muskel, und eine zweite Abfrage für dieselben Zeilen wäre wieder
+  // eine zweite Rechnung.
+  const rows = db.all(`SELECT sl.date AS date, e.muscle AS muscle, COUNT(*) AS sets,
+      ${SQL_VOL100_SL} AS vol100, SUM(CASE WHEN ${SQL_LOAD_SL}>0 THEN 1 ELSE 0 END) AS weighted
+    FROM set_logs sl JOIN exercises e ON e.id=sl.exercise_id
+    WHERE sl.user_id=? AND ${SQL_REAL_SL} AND sl.date>=? AND sl.date<=?
+    GROUP BY sl.date, e.muscle`, [uid, from, today]);
+  // Sätze auf Übungen ohne hinterlegte Muskelgruppe: sie werden NICHT stillschweigend verteilt,
+  // sondern getrennt ausgewiesen. Sonst sähe ein Plan ohne gepflegte Muskelangaben aus wie zu wenig
+  // Training, obwohl nur die Stammdaten fehlen.
+  // Die Wochenschlüssel laufen vom (ggf. auf den ersten Satz geklemmten) Beginn bis zur laufenden
+  // Woche – `weeks` in der Antwort ist deshalb die Zahl der TATSÄCHLICH betrachteten Wochen, nicht die
+  // gefragte. Eine Ansicht, die „Ø aus 4 Wochen" schreibt, wo es nur zwei gibt, wäre wieder eine
+  // Halbwahrheit; `weeksRequested` sagt daneben, wonach gefragt wurde.
+  const weekKeys = []; for (let k = from; k <= thisMon; k = isoAddDays(k, 7)) weekKeys.push(k);
+  const byMuscle = new Map();   // Kanon -> Topf; der leere Schlüssel '' sammelt die Sätze ohne Muskelgruppe
+  let total = 0;
+  for (const r of rows) {
+    total += r.sets;
+    // 2.8.0: Der Schluessel ist der KANON, nicht der rohe String. Sonst stuenden „Brust" und „Chest"
+    // als zwei Balken mit je der halben Wochenzahl in derselben Liste – und der Korridor 10–20, an dem
+    // diese Ansicht ihre einzige Aussage festmacht, waere fuer jeden halbiert, der beide Schreibweisen
+    // im Plan hat (STRATEGY 4: der Profi liest hier zweimal „zu wenig" statt einmal „passt").
+    const m = muscleCanon(r.muscle) || '';
+    const wk = mondayOf(r.date);
+    let b = byMuscle.get(m);
+    if (!b) byMuscle.set(m, b = { weeks: {}, sets: 0, vol100: 0, weighted: 0, dates: new Set() });
+    b.weeks[wk] = (b.weeks[wk] || 0) + r.sets;
+    b.sets += r.sets; b.vol100 += Number(r.vol100 || 0); b.weighted += Number(r.weighted || 0); b.dates.add(r.date);
+  }
+  // Die laufende Woche ist noch nicht vorbei. Sie zählt in `thisWeek` mit, wird aber als `partial`
+  // markiert und NICHT gemittelt — „6 von 10 Sätzen am Mittwoch" ist kein Rückstand, sondern Mittwoch.
+  // `trainDays` ist eine DISTINCT-Zahl über die Tage und lässt sich nicht addieren (ein Tag mit einer
+  // Brust- und einer Chest-Übung ist EIN Trainingstag) – deshalb die Menge der Datumswerte.
+  const rowOf = (muscle, b) => {
+    const series = weekKeys.map(k => ({ week: k, sets: b.weeks[k] || 0, partial: k === thisMon }));
+    const done = series.filter(s => !s.partial);
+    // Ist keine ABGESCHLOSSENE Woche im Fenster (`weeks=1` fragt nur die laufende ab), gibt es keinen
+    // Wochenschnitt – und dann darf auch keiner behauptet werden. Bis 2.8.0 fiel die Rechnung hier auf
+    // die laufende Woche zurueck und bewertete sie wie eine fertige: am Montagabend standen 4 Saetze
+    // Quadrizeps als „zu wenig" da, obwohl sechs Tage der Woche noch vor dem Athleten lagen.
+    // `perWeek: null` + `status: 'unknown'` sagen stattdessen genau das, was man weiss: noch nichts.
+    const avg = done.length ? done.reduce((s, x) => s + x.sets, 0) / done.length : null;
+    return { muscle, series, thisWeek: b.weeks[thisMon] || 0,
+      sets: b.sets, days, trainDays: b.dates.size,
+      // Kein einziger Satz mit Gewicht (Klimmzuege, Dips, Bauch) -> die Tonnage ist nicht 0, sie ist
+      // unbekannt. „Abs · 0 kg" war eine Falschaussage ueber 15.360 kg echte Arbeit.
+      volume: b.weighted > 0 ? Math.round(b.vol100 / 100) : null,
+      bodyweightOnly: !b.weighted,
+      perWeek: avg === null ? null : Math.round(avg * 10) / 10,
+      status: muscle === null ? null    // die Sammelzeile ohne Muskelgruppe bewertet der Korridor nicht
+        : avg === null ? 'unknown'
+          : avg < MUSCLE_CORRIDOR.min ? 'low' : avg > MUSCLE_CORRIDOR.max ? 'high' : 'ok' };
+  };
+  // Was ist NICHT zugeordnet? Es wird nicht stillschweigend verteilt und nicht verschwiegen, sondern als
+  // eigene Zeile mit `muscle:null` ans ENDE gehängt (`untracked:true`) – dieselbe Zeile, die die Anzeige
+  // als „Ohne Muskelgruppe" zeigt. `untrackedSets` bleibt zusätzlich als Zahl stehen.
+  const untrackedBucket = byMuscle.get('') || null;
+  byMuscle.delete('');
+  const muscles = [...byMuscle.entries()].map(([muscle, b]) => rowOf(muscle, b))
+    // Ohne Wochenschnitt sortiert die laufende Woche – sonst landeten alle Zeilen bei `weeks=1`
+    // in zufaelliger Reihenfolge, weil `null - null` NaN ergibt.
+    .sort((a, b) => ((b.perWeek ?? b.thisWeek) - (a.perWeek ?? a.thisWeek)) || String(a.muscle).localeCompare(String(b.muscle), 'de'));
+  if (untrackedBucket) muscles.push({ ...rowOf(null, untrackedBucket), untracked: true });
+  return { weeks: weekKeys.length, weeksRequested: w, from, to: today, days, thisWeek: thisMon, weekKeys,
+    corridor: MUSCLE_CORRIDOR, muscles, untrackedSets: untrackedBucket ? untrackedBucket.sets : 0, totalSets: total,
+    // Die Halbwertung indirekter Sätze (Bizeps beim Rudern) aus Q45/Q46 fehlt bewusst: `exercises.muscle`
+    // kennt nur EINE Gruppe je Übung, eine zweite Spalte gäbe es ohne Schemaänderung nicht.
+    indirectCounted: false };
+}
+app.get('/api/muscle-sets/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  // Der Parameter wird EINMAL aufgeloest und der geklemmte Wert weitergereicht – nicht der Rohwert,
+  // den die Ansicht dann ein zweites Mal (und anders) auslegt.
+  const wq = req.query.weeks === undefined ? null : clampNum(req.query.weeks, 1, MUSCLE_MAX_WEEKS, true);
+  if (req.query.weeks !== undefined && wq === null) {
+    return res.status(400).json({ error: 'Parameter weeks muss eine Zahl zwischen 1 und ' + MUSCLE_MAX_WEEKS + ' sein' });
+  }
+  res.json(muscleSetsView(uid, wq));
 });
 
 /* ---------------- INSIGHTS: WOCHENRÜCKBLICK, STREAKS & ERFOLGE ---------------- */
@@ -4823,7 +6927,17 @@ app.get('/api/insights/:userId', auth, (req, res) => {
 // Genutzt von GET /api/insights UND vom Home-Aggregat.
 function insightsView(uid) {
   const today = tzToday();
-  const ciDates = db.all('SELECT date FROM checkins WHERE user_id=? ORDER BY date DESC LIMIT 2000', [uid]).map(r => r.date);
+  // D19 (Nachbesserung 2.8.0): `checkins.source` wird auf beiden Wegen geschrieben, gelesen wurde sie
+  // hier bis jetzt nicht. Eine Zeile, die ausschliesslich aus dem Apple-Health-Import stammt und die
+  // seither kein Mensch angefasst hat ('health'), ist keine Leistung des Athleten: gemessen hoben zwei
+  // reine Uhr-Zeilen die Check-in-Serie von 0 auf 32, ohne dass jemand die App auch nur geoeffnet hat.
+  // Deshalb EINE Regel fuer alles, was ein Check-in als eigenes Tun zaehlt – Serie, XP und Erfolge:
+  // 'manual', 'carried' (der Mensch hat bestaetigt, wenn auch nichts Neues gemessen) und NULL
+  // (Bestandszeilen von vor der Spalte) zaehlen, 'health' zaehlt nicht.
+  // Die Spalte kommt in derselben Abfrage mit – keine zweite Runde zur Datenbank.
+  const ciRows = db.all("SELECT date, COALESCE(source,'manual') src FROM checkins WHERE user_id=? ORDER BY date DESC LIMIT 2000", [uid]);
+  const ciDates = ciRows.map(r => r.date);                              // alle Zeilen (Datenlage)
+  const ciHuman = ciRows.filter(r => r.src !== 'health').map(r => r.date); // davon die des Athleten
   // Wochen-Vergleich: diese Woche (ab Montag) vs. komplette Vorwoche
   const thisMon = mondayOf(today);
   const lastMon = isoAddDays(thisMon, -7);
@@ -4836,21 +6950,26 @@ function insightsView(uid) {
   // Die Rekord-Abfrage braucht zwingend die ganze Historie: ein PR ist ein Tag, der ALLE früheren Tage
   // übertrifft – mit einem Zeitfenster wäre die Zahl schlicht falsch. Sie liefert aber nur noch eine
   // Zeile je Übung und Trainingstag statt einer je Satz.
-  const tot = db.get('SELECT COUNT(*) sets, SUM(weight*reps) vol FROM set_logs WHERE user_id=? AND reps>0', [uid]);
-  const wkRows = db.all('SELECT date, weight, reps FROM set_logs WHERE user_id=? AND reps>0 AND date>=?', [uid, lastMon]);
-  const dayBest = db.all('SELECT exercise_id eid, date, MAX(weight) mw FROM set_logs WHERE user_id=? AND reps>0 GROUP BY exercise_id, date', [uid]);
-  const trDates = [...new Set(dayBest.map(r => r.date))];
+  const tot = db.get(`SELECT COUNT(*) sets, SUM(${SQL_LOAD}*reps) vol FROM set_logs WHERE user_id=? AND ${SQL_REAL}`, [uid]);
+  const wkRows = db.all(`SELECT date, weight, reps, bodyweight FROM set_logs WHERE user_id=? AND ${SQL_REAL} AND date>=?`, [uid, lastMon]);
+  // B5: Die Rekordzaehlung laeuft ueber rekordfaehige Saetze. `trDates` (Trainingstage) kommt gleich
+  // darunter aus derselben Zeile – ein Tag, an dem nur Drop-Saetze stehen, ist trotzdem ein Trainingstag,
+  // deshalb wird er getrennt geholt.
+  const dayBest = db.all(`SELECT exercise_id eid, date, MAX(weight) mw FROM set_logs WHERE user_id=? AND ${SQL_REAL_PR} GROUP BY exercise_id, date`, [uid]);
+  const trDatesAll = db.all(`SELECT DISTINCT date FROM set_logs WHERE user_id=? AND ${SQL_REAL}`, [uid]).map(r => r.date);
+  const trDates = [...new Set(trDatesAll)];
   const sum = (from, to) => { // [from, to) – Volumen + Trainingstage
     const rows = wkRows.filter(r => r.date >= from && r.date < to);
-    return { volume: Math.round(rows.reduce((s, r) => s + (r.weight || 0) * (r.reps || 0), 0)), sessions: new Set(rows.map(r => r.date)).size };
+    return { volume: Math.round(rows.reduce((s, r) => s + setLoad(r) * (r.reps || 0), 0)), sessions: new Set(rows.map(r => r.date)).size };
   };
   const week = {
-    thisWeek: { ...sum(thisMon, '9999'), checkins: ciDates.filter(d => d >= thisMon).length },
-    lastWeek: { ...sum(lastMon, thisMon), checkins: ciDates.filter(d => d >= lastMon && d < thisMon).length },
+    thisWeek: { ...sum(thisMon, '9999'), checkins: ciHuman.filter(d => d >= thisMon).length },
+    lastWeek: { ...sum(lastMon, thisMon), checkins: ciHuman.filter(d => d >= lastMon && d < thisMon).length },
   };
 
   // Streak zählt Check-in-Tage UND durch Joker geschützte Tage zusammen (gemeinsamer Helfer mit dem Cron).
-  const ciStreak = checkinStreak(uid, today, ciDates);
+  // Übergeben wird die MENSCHLICHE Liste – sonst hielte ein Uhr-Import die Serie am Leben (D19).
+  const ciStreak = checkinStreak(uid, today, ciHuman);
   const totalSets = tot?.sets || 0;
   const totalVolume = Math.round(tot?.vol || 0);
   const cnt = (q, p) => db.get(q, p).c;
@@ -4891,30 +7010,37 @@ function insightsView(uid) {
   try { ms = { ...ms, ...mindsetStats(db, uid) }; } catch (e) { console.error('[mindset] stats', e?.message || e); }
 
   // XP & Level: alles Sinnvolle zahlt ein – Konstanz und echte Rekorde am meisten
-  const xp = trDates.length * 10 + totalSets * 2 + ciDates.length * 5 + cardioCount * 10
+  const xp = trDates.length * 10 + totalSets * 2 + ciHuman.length * 5 + cardioCount * 10
     + photoCount * 15 + measCount * 10 + foodDays * 3 + prCount * 25 + monthlyBonusXp + (ms.xp || 0);
   const need = n => 50 * n * (n - 1); // kumulierte XP-Schwelle für Level n (progressiv)
-  let level = 1; while (level < 99 && xp >= need(level + 1)) level++;
   // D20: Der XP-Stand wird gerechnet, nicht gespeichert – wer ein Fortschrittsfoto löscht, verliert
   // rückwirkend 15 XP und im Grenzfall ein Level. Der höchste je erreichte Stand lässt sich später
   // nicht mehr rekonstruieren, deshalb wird er hier bei jeder Berechnung mitgeschrieben
   // (`users.xp_peak`, DEFER-A2: „muss einmal nachgezogen werden" – das erledigt der erste Lauf je
-  // Konto). Die Auswertung (Level nie unter dem Höchststand) baut Welle A-IV; hier wird nur die
-  // Datenlage gesichert. Die Berechnung selbst darf daran nie scheitern: alles in try/catch.
+  // Konto). Die Berechnung selbst darf daran nie scheitern: alles in try/catch.
   try {
     db.run('UPDATE users SET xp_peak=? WHERE id=? AND COALESCE(xp_peak,0)<?', [xp, uid, xp]);
   } catch (e) { console.error('[xp_peak]', e?.message || e); }
+  // 2.8.0 (Nachbesserung): und jetzt wird der Höchststand auch AUSGEWERTET. Gerechnet wird das Level
+  // aus `peak`, nicht aus `xp` – ein gelöschtes Foto, ein zurückgenommener Satz oder eine korrigierte
+  // Messung kostet damit Punkte, aber nie einen Rang. Gemessen: XP 1161 / Level 5 · xp_peak 1190;
+  // zehn weich gelöschte Sätze -> XP 1081, und bis hierher fiel das Level mit. Ein Level ist eine
+  // Auszeichnung für etwas, das der Athlet getan HAT – das nimmt ihm eine Korrektur nicht wieder weg.
+  // Der Fortschrittsbalken folgt derselben Zahl, sonst zeigte er im Grenzfall ein negatives Stück.
+  const peak = Math.max(xp, Number(u?.xp_peak) || 0);
+  let level = 1; while (level < 99 && peak >= need(level + 1)) level++;
   const LEVEL_TITLES = [[50, 'UNAUFHALTBAR'], [40, 'Legende'], [30, 'Elite'], [25, 'Maschine'], [20, 'Beast'],
     [16, 'Veteran'], [12, 'Fortgeschritten'], [8, 'Athlet'], [5, 'Aufsteiger'], [3, 'Einsteiger'], [1, 'Rookie']];
   const levelTitle = LEVEL_TITLES.find(t => level >= t[0])[1];
   const levelProgress = { base: need(level), next: need(level + 1),
-    pct: Math.max(0, Math.min(100, Math.round((xp - need(level)) / (need(level + 1) - need(level)) * 100))) };
+    pct: Math.max(0, Math.min(100, Math.round((peak - need(level)) / (need(level + 1) - need(level)) * 100))) };
 
   // Erfolge: aus echten Daten abgeleitet; gesperrte zeigen den Fortschritt
   const A = (id, icon, title, desc, done, progress, target) =>
     ({ id, icon, title, desc, done: !!done, ...(target ? { progress: Math.min(Math.round(progress), target), target } : {}) });
   const achievements = [
-    A('first_checkin', '✅', 'Erster Check-in', 'Den Anfang gemacht', ciDates.length >= 1),
+    // D19: ein Erfolg ist eine Auszeichnung fuer eigenes Tun – ein Uhr-Import loest ihn nicht aus.
+    A('first_checkin', '✅', 'Erster Check-in', 'Den Anfang gemacht', ciHuman.length >= 1),
     A('first_workout', '🏋️', 'Erstes Training', 'Ersten Satz geloggt', trDates.length >= 1),
     A('sessions_10', '🔟', '10 Trainingstage', 'Dranbleiben zahlt sich aus', trDates.length >= 10, trDates.length, 10),
     A('sessions_50', '🏆', '50 Trainingstage', 'Du meinst es ernst', trDates.length >= 50, trDates.length, 50),
@@ -4956,7 +7082,9 @@ function insightsView(uid) {
   return { streaks: { checkin: ciStreak, checkinFrozen: frozenDaysInStreak(uid, today, ciStreak), weekGoal: weekGoalStreak }, week,
     weekGoal: { target: weekTarget, done: week.thisWeek.sessions },
     freezes: { balance: (u?.streak_freezes == null ? 1 : u.streak_freezes), max: MAX_FREEZES, maxPer30Days: MAX_FREEZES },
-    xp, level, levelTitle, levelProgress, achievements,
+    // `xp` ist der aktuelle Stand, `xpPeak` der hoechste je erreichte – aus ihm kommt das Level (D20).
+    // Beide Zahlen stehen da, damit die Oberflaeche einen Rueckgang erklaeren kann, statt ihn zu verstecken.
+    xp, xpPeak: peak, level, levelTitle, levelProgress, achievements,
     totals: { sets: totalSets, volume: totalVolume, sessions: trDates.length, prs: prCount } };
 }
 
@@ -4981,9 +7109,9 @@ function monthActual(uid, month) {
   const from = month + '-01';
   const d = new Date(from + 'T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + 1);
   const to = d.toISOString().slice(0, 10);
-  const trainings = db.get("SELECT COUNT(DISTINCT date) c FROM set_logs WHERE user_id=? AND date>=? AND date<? AND reps>0", [uid, from, to]).c;
+  const trainings = db.get(`SELECT COUNT(DISTINCT date) c FROM set_logs WHERE user_id=? AND date>=? AND date<? AND ${SQL_REAL}`, [uid, from, to]).c;
   const checkins = db.get("SELECT COUNT(*) c FROM checkins WHERE user_id=? AND date>=? AND date<?", [uid, from, to]).c;
-  const volume = Math.round(db.get("SELECT COALESCE(SUM(weight*reps),0) v FROM set_logs WHERE user_id=? AND date>=? AND date<? AND reps>0", [uid, from, to]).v || 0);
+  const volume = Math.round(db.get(`SELECT COALESCE(SUM(${SQL_LOAD}*reps),0) v FROM set_logs WHERE user_id=? AND date>=? AND date<? AND ${SQL_REAL}`, [uid, from, to]).v || 0);
   return { trainings, checkins, volume };
 }
 // Holt das Monatsziel (legt es bei Bedarf automatisch an) und berechnet Fortschritt + Belohnung.
@@ -5303,7 +7431,10 @@ app.get('/api/ai/status', auth, requireCoachOrAdmin, (req, res) => {
     : db.all("SELECT value FROM settings WHERE key LIKE ?", ['ai_last_' + req.user.id + '_%']);
   const last = rows.reduce((m, r) => Math.max(m, Number(r.value) || 0), 0);
   const cooldownSec = Math.max(0, Math.ceil((60000 - (Date.now() - last)) / 1000));
-  res.json({ configured: !!process.env.ANTHROPIC_API_KEY, cooldownSec: last ? cooldownSec : 0 });
+  // `enabled` ist der Not-Aus des Betreibers (2.9.0). Getrennt von `configured`: „kein Schluessel"
+  // und „vom Betreiber abgeschaltet" sind zwei verschiedene Saetze fuer den Coach.
+  res.json({ configured: !!process.env.ANTHROPIC_API_KEY, enabled: opsGet('ops.ai') !== 'off',
+    cooldownSec: last ? cooldownSec : 0 });
 });
 
 /* ---------------- COACH: RUNDNACHRICHT ---------------- */
@@ -5368,10 +7499,22 @@ function noteBackupTaken(admin) {
   return sent;
 }
 let lastBackupAt = 0;
+// Die 10-Minuten-Sperre war bis 2.8.0 ein Zeitstempel im Arbeitsspeicher (DEFER-A1, M1-Rest/a): ein
+// Neustart setzte sie zurueck, und auf Render startet der Prozess oefter, als man denkt. Die Sperre
+// schuetzt vor dem, was eine Sicherung wirklich kostet – ein VACUUM INTO ueber die ganze Datenbank.
+// Deshalb liest sie jetzt zusaetzlich `settings.backup_last`, das die Sicherung ohnehin schreibt.
+function lastBackupMs() {
+  let persisted = 0;
+  try {
+    const v = db.get("SELECT value FROM settings WHERE key='backup_last'")?.value;
+    if (v) persisted = Date.parse(String(v).replace(' ', 'T') + 'Z') || 0;   // datetime('now') ist UTC
+  } catch (e) { persisted = 0; }
+  return Math.max(lastBackupAt, persisted);
+}
 app.post('/api/admin/backup', auth, requireAdmin, (req, res) => {
   const me = db.get('SELECT password_hash FROM users WHERE id=?', [req.user.id]);
   if (!me || !verifyPassword(String(req.body?.password || ''), me.password_hash)) return res.status(401).json({ error: 'Passwort falsch' });
-  const waitSec = Math.ceil((lastBackupAt + 10 * 60000 - Date.now()) / 1000);
+  const waitSec = Math.ceil((lastBackupMs() + 10 * 60000 - Date.now()) / 1000);
   if (waitSec > 0) return res.status(429).json({ error: 'Bitte ' + Math.ceil(waitSec / 60) + ' Minuten warten', retryAfterSec: waitSec });
   const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data.db');
   const file = path.join(path.dirname(dbPath), '.backup-' + crypto.randomBytes(8).toString('hex') + '.db');
@@ -5387,6 +7530,12 @@ app.post('/api/admin/backup', auth, requireAdmin, (req, res) => {
   lastBackupAt = Date.now();
   let size = 0; try { size = statSync(file).size; } catch (e) {}
   auditLog(req.user, 'backup.download', null, null, { mb: Math.round(size / 1048576) });
+  // 2.9.0: die Sicherung bekommt eine `jobs`-Zeile (`backup.manual`). Sie ist kein wiederkehrender
+  // Lauf – aber sie ist das, was am ehesten vergessen wird. Mit der Karenz von sieben Tagen sagt die
+  // Jobs-Liste „ueberfaellig", sobald die letzte Kopie aelter als eine Woche ist.
+  try { db.run(`INSERT INTO jobs(name,last_run_utc,last_ok_utc,last_error,state)
+    VALUES('backup.manual',datetime('now'),datetime('now'),NULL,'up')
+    ON CONFLICT(name) DO UPDATE SET last_run_utc=datetime('now'), last_ok_utc=datetime('now'), last_error=NULL, state='up'`); } catch (e) {}
   const told = noteBackupTaken(req.user);   // B1: Betroffene erfahren von jeder vollstaendigen Kopie
   console.log('[backup] erstellt durch Admin', req.user.id, '(' + Math.round(size / 1048576) + ' MB, ' + told + ' Konten benachrichtigt)'); // nur das Ereignis, keine Daten
   res.setHeader('Content-Disposition', `attachment; filename="be-inevitable-${new Date().toISOString().slice(0, 10)}.db"`);
@@ -5398,16 +7547,480 @@ app.post('/api/admin/backup', auth, requireAdmin, (req, res) => {
   stream.pipe(res);
 });
 
+
+/* ============================================================================
+   3.0.0 · DIE SICHERUNG, DIE NIEMAND ANSTOSSEN MUSS (Welle B-I, BUILD-B1 4.1 · B-g)
+   ============================================================================
+   Bis 2.9.0 gab es genau EINEN Weg zu einer Kopie: POST /api/admin/backup - ein Knopf, den ein Mensch
+   druecken muss. Beim Start mit echten Nutzerdaten ist das das groesste Betriebsrisiko der App: der
+   Knopf wird gedrueckt, solange man daran denkt, und danach nie wieder. Art. 32(1)(c) verlangt die
+   Faehigkeit zur Wiederherstellung, Art. 32(1)(d) ihren REGELMAESSIGEN Test. Beides ist hier gebaut:
+     · naechtlich `VACUUM INTO` auf die Platte (nicht ins Netz - das waere ein eigener Vertrag),
+     · Aufbewahrung ueber `settings.backup_keep_days` (Standard 14 Tage), die juengste bleibt IMMER,
+     · je Lauf eine Zeile in `backups` mit SHA-256 und Byte-Zahl,
+     · Zustand in `jobs` als `backup.auto` - der Betriebsstreifen sagt "steht", wenn eine Nacht ausfaellt,
+     · ein Knopf "Wiederherstellungsprobe", der die juengste Sicherung in eine WEGWERF-Datei spielt und
+       dort prueft: `PRAGMA integrity_check`, alle Tabellen da, Zeilen je Tabelle gegen das Original.
+   Die laufende Datenbank wird dabei nie angefasst: die Probe oeffnet eine ZWEITE, eigene Verbindung
+   auf die Kopie der Kopie und laesst sie danach wieder fallen.
+   Die naechtliche Sicherung schickt - anders als der Download-Knopf - KEINE Nachricht an die Konten.
+   `noteBackupTaken()` gibt es, weil der Betreiber dort eine vollstaendige Kopie auf SEINE Maschine
+   zieht; die naechtliche Datei bleibt auf demselben Server unter demselben Verantwortlichen. 14
+   Systemnachrichten je Nacht je Konto waeren kein Datenschutz, sondern Laerm. */
+const BACKUP_KEEP_DEFAULT = 14;           // Tage; ueber settings.backup_keep_days aenderbar
+const BACKUP_MIN_FREE_MB = 50;            // Rest, der nach der Sicherung frei bleiben MUSS
+const BACKUP_HOUR = 3;                    // Ortszeit; Nachholfenster bis BACKUP_HOUR+3 (wie die Erinnerungen)
+const BACKUP_MANUAL_LOCK_MS = 10 * 60000; // dieselbe Sperre wie beim Download-Knopf
+const backupDbPath = () => process.env.DB_PATH || path.join(__dirname, '..', 'data.db');
+// Eigenes Verzeichnis NEBEN der Datenbank: auf Render liegt die Platte unter DB_PATH, und genau dort
+// soll die Sicherung liegen (ein Ordner im Projektverzeichnis waere beim naechsten Deploy weg).
+const backupDir = () => process.env.BACKUP_DIR || path.join(path.dirname(backupDbPath()), 'backups');
+function backupKeepDays() {
+  let v = null;
+  try { v = db.get("SELECT value FROM settings WHERE key='backup_keep_days'")?.value; } catch (e) { v = null; }
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n >= 1 && n <= 365 ? n : BACKUP_KEEP_DEFAULT;
+}
+// Freier Plattenplatz in MB, oder null wenn die Plattform es nicht sagt. `null` heisst NICHT "genug":
+// es heisst "unbekannt" - dann laeuft die Sicherung, weil ein nicht messbarer Platz kein Grund ist,
+// gar keine Sicherung zu haben. Was nicht passieren darf, ist das Gegenteil: messen, zu wenig sehen
+// und trotzdem schreiben.
+// Das Verzeichnis gibt es vor der ersten Sicherung noch nicht - dann wird das Elternverzeichnis
+// gefragt (dieselbe Platte, dieselbe Zahl). Ohne diesen zweiten Versuch stand in der Betriebsansicht
+// vor der ersten Nacht "unbekannt", obwohl die Zahl abrufbar war.
+function backupFreeMb(dir) {
+  for (const d of [dir, path.dirname(dir)]) {
+    try { const s = statfsSync(d); return Math.floor(Number(s.bavail) * Number(s.bsize) / 1048576); } catch (e) { /* naechster */ }
+  }
+  return null;
+}
+// SHA-256 gestueckelt: eine 200-MB-Datei darf nicht am Stueck in den Speicher (der Prozess auf Render
+// hat 512 MB fuer alles). 1 MB je Runde reicht und ist messbar schnell.
+function backupSha256(file) {
+  const h = crypto.createHash('sha256');
+  const fd = openSync(file, 'r');
+  const buf = Buffer.allocUnsafe(1024 * 1024);
+  try { let n; while ((n = readSync(fd, buf, 0, buf.length, null)) > 0) h.update(buf.subarray(0, n)); }
+  finally { try { closeSync(fd); } catch (e) {} }
+  return h.digest('hex');
+}
+const backupMs = v => { const t = Date.parse(String(v || '').replace(' ', 'T') + 'Z'); return Number.isFinite(t) ? t : 0; };
+// Der Zeitstempel im DATEINAMEN - in der Ortszeit, in der auch der Job laeuft (BACKUP_HOUR).
+// 'sv-SE' liefert 'YYYY-MM-DD HH:mm:ss'; daraus wird 'YYYY-MM-DDTHH-mm-ss'. Faellt Intl aus
+// (unbekannte Zone), bleibt UTC - dann aber mit einem angehaengten 'Z', damit die Angabe eindeutig
+// ist und niemand eine Ortszeit hineinliest, die dort nicht steht.
+function backupStamp(at = new Date()) {
+  try {
+    const s = new Intl.DateTimeFormat('sv-SE', { timeZone: APP_TZ_NAME, year: 'numeric', month: '2-digit',
+      day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(at);
+    const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(s.replace(/ | /g, ' '));
+    if (m) return m[1] + 'T' + m[2] + '-' + m[3] + '-' + m[4];
+  } catch (e) { /* unten weiter */ }
+  return at.toISOString().slice(0, 19).replace(/:/g, '-') + 'Z';
+}
+// Liegt die Datei zu dieser Zeile wirklich im Verzeichnis? Die Frage klingt ueberfluessig und ist der
+// Kern zweier gemessener Schaeden (B1/B2 der Wellenpruefung): Tabelle und Verzeichnis koennen
+// auseinanderlaufen, und beide Seiten haben sich bis 3.0.0 blind auf die Tabelle verlassen.
+function backupHasFile(dir, file) {
+  if (!file) return false;
+  try { return existsSync(path.join(dir, path.basename(String(file)))); } catch (e) { return false; }
+}
+// Gibt es die Spalte `backups.verified_at`? Sie gehoert nach `src/schema.js` (Paket B-I.1) und ist
+// dort heute NICHT angelegt. Der Server fragt deshalb, statt sie vorauszusetzen: ist sie da, haelt die
+// Probe ihren Zeitpunkt fest; ist sie nicht da, laesst sie die geprueften Zeile in Ruhe (B6). Einmal
+// gefragt und gemerkt - ein PRAGMA je Probe waere Verschwendung.
+let BACKUP_VERIFIED_AT = null;
+function backupHasVerifiedAt() {
+  if (BACKUP_VERIFIED_AT !== null) return BACKUP_VERIFIED_AT;
+  let ok = false;
+  try { ok = db.all('PRAGMA table_info(backups)').some(c => String(c.name) === 'verified_at'); } catch (e) { ok = false; }
+  BACKUP_VERIFIED_AT = ok;
+  return ok;
+}
+// ---- ABGLEICH VERZEICHNIS <-> TABELLE ----------------------------------------------------------
+// GEMESSEN (Welle B-I, Befunde B1 und B2), und der Grund, warum es diese Funktion gibt:
+//   B2: `backupRun` schreibt die Zeile NACH dem `VACUUM INTO`. Die Zeile steht deshalb nie in der
+//       Datei, die sie beschreibt. Wer eine Sicherung zurueckspielt, hat danach die DATEI im
+//       Verzeichnis, aber keine Zeile mehr dazu: die Probe meldet rot („Die Datei zur juengsten
+//       Sicherung liegt nicht mehr im Verzeichnis"), und der Ordner waechst still weiter, weil die
+//       Aufbewahrung nur loescht, was sie in der Tabelle findet.
+//   B1: umgekehrt hat `backupPrune` die juengste Zeile geschont, OHNE zu pruefen, ob ihre Datei noch
+//       da ist. Gemessen: eine 20 Tage alte Zeile mit echter Datei wurde geloescht, weil eine
+//       juengere Zeile ohne Datei als „die juengste brauchbare" galt. Die Aufraeum-Regel hat damit
+//       genau das vernichtet, was sie schuetzen soll - die letzte vorhandene Sicherung.
+// Der Abgleich repariert beides an EINER Stelle und laeuft beim Start und bei jeder Betriebsansicht:
+//   * Datei ohne Zeile  -> Zeile nachtragen (`kind='gefunden'`, SHA-256 beim Nachtragen gerechnet).
+//   * Zeile ohne Datei  -> `ok=0` und ein Satz in die Notiz. Die Zeile bleibt als BELEG stehen (sie
+//     sagt, dass es diese Sicherung einmal gab), zaehlt aber nie wieder als schonenswert.
+// Was hier NICHT passiert: fremde Dateien loeschen. Ein Aufraeumer, der Dateien wegwirft, die er
+// nicht angelegt hat, ist ein Risiko, kein Dienst.
+// Der EINE Satz, an dem der Abgleich seine eigene Herabstufung wiedererkennt. Er steht hier und nicht
+// zweimal im Text, damit Setzen und Zuruecknehmen nie auseinanderlaufen koennen.
+const BACKUP_WEG = 'Datei nicht mehr im Verzeichnis (Abgleich).';
+function backupReconcile() {
+  if (!hasTable('backups')) return { added: 0, orphanRows: 0 };
+  const dir = backupDir();
+  let files = [];
+  try { files = readdirSync(dir).filter(f => /^backup-.*\.db$/.test(f)); } catch (e) { files = []; }
+  let rows = [];
+  try { rows = db.all('SELECT id,file,ok,note,kind,created_at FROM backups'); } catch (e) { return { added: 0, orphanRows: 0 }; }
+  const known = new Set(rows.map(r => r.file ? path.basename(String(r.file)) : null).filter(Boolean));
+  let added = 0, orphanRows = 0;
+  for (const f of files) {
+    if (known.has(f)) continue;
+    let bytes = 0, sha = null, at = null;
+    try { const st = statSync(path.join(dir, f)); bytes = st.size; at = new Date(st.mtimeMs).toISOString().slice(0, 19).replace('T', ' '); } catch (e) {}
+    try { sha = backupSha256(path.join(dir, f)); } catch (e) { sha = null; }
+    try {
+      db.run("INSERT INTO backups(created_at,bytes,sha256,kind,ok,note,file) VALUES(COALESCE(?,datetime('now')),?,?,'gefunden',1,?,?)",
+        [at, bytes || null, sha, 'Beim Abgleich im Verzeichnis gefunden – Prüfsumme dabei gerechnet.', f]);
+      added++;
+    } catch (e) {}
+  }
+  let geheilt = 0;
+  for (const r of rows) {
+    if (!r.file) continue;
+    const da = backupHasFile(dir, r.file);
+    if (Number(r.ok) === 1) {
+      if (da) continue;
+      orphanRows++;
+      try { db.run('UPDATE backups SET ok=0, note=? WHERE id=?',
+        [String(r.note ? r.note + ' · ' : '') + BACKUP_WEG, r.id]); } catch (e) {}
+      continue;
+    }
+    // Die Gegenrichtung, und sie ist nicht Kosmetik: Wer `BACKUP_DIR` umstellt oder das Verzeichnis
+    // kurz woandershin haengt, bekam beim ersten Start ok=0 auf alle Zeilen - und beim naechsten Start
+    // mit dem richtigen Ordner blieb es dabei, weil der Abgleich nur in eine Richtung lief. Die Datei
+    // war wieder da, die Betriebsansicht sagte weiter „noch keine Sicherung", und B1 waere gleich
+    // wieder scharf gewesen (eine Zeile mit ok=0 wird von der Aufbewahrung nicht geschont).
+    // Geheilt wird NUR, was dieser Abgleich selbst herabgestuft hat - erkennbar am eigenen Satz.
+    // Eine Zeile aus einem gescheiterten Lauf traegt ihre eigene Fehlermeldung und bleibt ok=0.
+    if (!da || !String(r.note || '').includes(BACKUP_WEG)) continue;
+    geheilt++;
+    const note = String(r.note || '').split(' · ').filter(s => s.trim() && s.trim() !== BACKUP_WEG).join(' · ');
+    try { db.run('UPDATE backups SET ok=1, note=? WHERE id=?',
+      [(note ? note + ' · ' : '') + 'Datei wieder im Verzeichnis (Abgleich).', r.id]); } catch (e) {}
+  }
+  if (added || orphanRows || geheilt)
+    console.log('[sicherung] Abgleich · ' + added + ' Datei(en) nachgetragen · ' + orphanRows + ' Zeile(n) ohne Datei · ' + geheilt + ' wieder gefunden');
+  return { added, orphanRows, healed: geheilt };
+}
+// Aufbewahrung. Zwei Regeln, und die zweite ist die wichtigere:
+//   1. aelter als `keep` Tage -> Zeile und Datei weg,
+//   2. die JUENGSTE brauchbare Sicherung bleibt IMMER stehen, auch wenn sie 300 Tage alt ist.
+// Ohne (2) loescht eine Aufbewahrung von 14 Tagen nach drei Wochen Stillstand des Jobs die letzte
+// Sicherung, die es noch gab - die Aufraeum-Regel haette dann genau das zerstoert, was sie schuetzt.
+// Dateien im Verzeichnis ohne Zeile in `backups` bleiben liegen: sie koennen von Hand dort abgelegt
+// worden sein, und ein Aufraeumer, der fremde Dateien loescht, ist ein Risiko, kein Dienst.
+// Probe-Zeilen laufen mit: sie wuerden sonst ewig wachsen. Aber auch von ihnen bleibt die JUENGSTE
+// stehen - „wann wurde zuletzt geprobt" ist die Zahl, die Art. 32(1)(d) belegt, und die darf eine
+// Aufraeum-Regel nicht wegnehmen.
+function backupPrune() {
+  const dir = backupDir(), keep = backupKeepDays();
+  // Erst abgleichen, dann aufraeumen: eine Aufbewahrung, die auf einer Tabelle rechnet, die das
+  // Verzeichnis nicht mehr beschreibt, trifft die falschen Zeilen (B1/B2).
+  backupReconcile();
+  let rows = [];
+  try { rows = db.all('SELECT id,file,created_at,ok,kind FROM backups ORDER BY created_at DESC, id DESC'); }
+  catch (e) { return { deleted: 0, keepDays: keep }; }
+  const isProbe = r => String(r.kind) === 'probe';
+  const keepIds = new Set();
+  // B1 (gemessen): „die juengste brauchbare Sicherung bleibt IMMER stehen" darf sich nicht auf die
+  // Tabellenzeile verlassen. Geschont wird die juengste Zeile, deren Datei WIRKLICH im Verzeichnis
+  // liegt - sonst schuetzt die Regel ein Phantom und loescht dafuer die letzte echte Kopie.
+  const newestOk = rows.find(r => !isProbe(r) && Number(r.ok) === 1 && backupHasFile(dir, r.file));
+  if (newestOk) keepIds.add(newestOk.id);
+  const newestProbe = rows.find(isProbe);
+  if (newestProbe) keepIds.add(newestProbe.id);
+  const cut = Date.now() - keep * 864e5;
+  let deleted = 0;
+  for (const r of rows) {
+    if (keepIds.has(r.id)) continue;
+    const ms = backupMs(r.created_at);
+    if (!ms || ms >= cut) continue;
+    if (r.file) { try { unlinkSync(path.join(dir, path.basename(String(r.file)))); } catch (e) { /* schon weg */ } }
+    try { db.run('DELETE FROM backups WHERE id=?', [r.id]); deleted++; } catch (e) {}
+  }
+  return { deleted, keepDays: keep };
+}
+// Ein Lauf. Rueckgabe IMMER ein Objekt - auch im Fehlerfall, damit der Aufrufer entscheidet, ob er
+// wirft (Job) oder antwortet (Route). Gescheiterte Laeufe bekommen ihre eigene Zeile mit ok=0: eine
+// Sicherung, die nicht zustande kam, ist die wichtigste Zeile der ganzen Liste.
+function backupRun(kind = 'auto') {
+  if (!hasTable('backups')) return { ok: false, error: 'Tabelle `backups` fehlt – Schema-Migration prüfen' };
+  const dir = backupDir(), src = backupDbPath();
+  const note = (ok, text, bytes, sha, file) => {
+    try { db.run("INSERT INTO backups(created_at,bytes,sha256,kind,ok,note,file) VALUES(datetime('now'),?,?,?,?,?,?)",
+      [bytes ?? null, sha ?? null, kind, ok ? 1 : 0, text || null, file || null]); } catch (e) {}
+  };
+  try { mkdirSync(dir, { recursive: true }); }
+  catch (e) { const t = 'Verzeichnis nicht anlegbar'; note(false, t); return { ok: false, error: t }; }
+  const pruned = backupPrune();                       // erst aufraeumen, dann Platz messen
+  let srcMb = 0;
+  try { srcMb = Math.ceil(statSync(src).size / 1048576); } catch (e) { srcMb = 0; }
+  // Gebraucht wird die Datenbank noch einmal (VACUUM INTO schreibt eine volle Kopie) plus Luft. Die
+  // Kopie ist durch das VACUUM meist kleiner als das Original - aber "meist" ist keine Zusage.
+  const needMb = srcMb + BACKUP_MIN_FREE_MB;
+  const free = backupFreeMb(dir);
+  if (free != null && free < needMb) {
+    const t = 'Zu wenig Platz: ' + free + ' MB frei, ' + needMb + ' MB gebraucht';
+    note(false, t);
+    return { ok: false, error: t, freeMb: free, needMb };
+  }
+  // Checkpoint zuerst: ohne ihn steht der halbe Schreibstand in der WAL-Datei und die Kopie waere
+  // aelter als die Datenbank. (VACUUM INTO liest den aktuellen Stand, aber der Checkpoint haelt auch
+  // das Original fuer sich allein vollstaendig - dieselbe Regel wie beim Download-Knopf.)
+  try { db.checkpoint(); } catch (e) {}
+  // GEMESSEN BEIM BAUEN, und der Grund fuer die Schleife: der Zeitstempel geht bis auf die SEKUNDE.
+  // Zwei Laeufe in derselben Sekunde (Nachholfenster, Knopf direkt nach dem Job) ergaben denselben
+  // Namen, `VACUUM INTO` verweigerte mit „output file already exists" – und der Aufraeumer im
+  // Fehlerzweig loeschte danach die Datei, die schon da war. Ein fehlgeschlagener Lauf haette also
+  // die VORHANDENE, gute Sicherung vernichtet. Jetzt ist der Name garantiert neu, und der Fehlerzweig
+  // loescht damit nur, was dieser Lauf selbst angelegt hat.
+  // B9 (gemessen): der Name trug bis 3.0.0 UTC - der Lauf um 03:30 Berliner Zeit hiess
+  // `backup-...T01-30-35-auto.db`. `BACKUP_HOUR` ist im Code ausdruecklich Ortszeit; wer im Ernstfall
+  // die Datei der letzten Nacht sucht, liest dann 01:30 und zweifelt an der richtigen Datei.
+  // Jetzt steht die ORTSZEIT im Namen (dieselbe Zone, in der der Job laeuft), damit Uhrzeit im
+  // Namen und Uhrzeit im Job dieselbe Zahl sind.
+  const stamp = backupStamp();
+  let file = 'backup-' + stamp + '-' + kind + '.db', full = path.join(dir, file), nth = 1;
+  while (existsSync(full)) { nth++; file = 'backup-' + stamp + '-' + kind + '-' + nth + '.db'; full = path.join(dir, file); }
+  const t0 = Date.now();
+  try { db.exec("VACUUM INTO '" + full.replace(/'/g, "''") + "'"); }
+  catch (e) {
+    try { unlinkSync(full); } catch (_) {}
+    const t = 'VACUUM INTO fehlgeschlagen: ' + redactMessage(e?.message || e);
+    note(false, t);
+    return { ok: false, error: t };
+  }
+  let bytes = 0; try { bytes = statSync(full).size; } catch (e) {}
+  let sha = null; try { sha = backupSha256(full); } catch (e) { sha = null; }
+  const ms = Date.now() - t0;
+  // B8: Ohne Pruefsumme kann die Probe die Datei spaeter nicht mehr wirklich pruefen (integrity_check
+  // allein erkennt eine gekippte, aber in sich stimmige Seite nicht). Das steht dann ausdruecklich in
+  // der Notiz, statt still zu fehlen.
+  note(true, 'geschrieben in ' + ms + ' ms' + (sha ? '' : ' · OHNE Prüfsumme – die Probe kann später nicht vergleichen'), bytes, sha, file);
+  // B7 (zweite Haelfte): Wegwerf-Kopien einer abgebrochenen Probe liegen sonst fuer immer da. Sie
+  // heissen `.probe-<hex>.db`, gehoeren keinem Lauf und zaehlen in keiner Ansicht mit.
+  try { for (const f of readdirSync(dir)) if (/^\.probe-[0-9a-f]+\.db$/.test(f)) { try { unlinkSync(path.join(dir, f)); } catch (e) {} } } catch (e) {}
+  // Nur das Ereignis ins Log, kein Pfad und keine Daten (SICHERHEIT.md 9).
+  console.log('[sicherung] ' + kind + ' · ' + Math.round(bytes / 1024) + ' KB · ' + ms + ' ms · ' + pruned.deleted + ' alte entfernt');
+  return { ok: true, bytes, sha256: sha, file, ms, pruned: pruned.deleted, keepDays: pruned.keepDays, freeMb: free };
+}
+// Eine ZWEITE, unabhaengige Verbindung - nur lesend, nur auf die Wegwerf-Datei. Bewusst NICHT ueber
+// `db` aus db.js: jede Anweisung dort liefe auf der LAUFENDEN Datenbank, und ein ATTACH waere ein
+// Eingriff in genau die Verbindung, die gerade Nutzer bedient. Der Treiber wird derselbe genommen,
+// den db.js gewaehlt hat (better-sqlite3, sonst das eingebaute node:sqlite) - keine neue Abhaengigkeit.
+// Gemessen beim ersten Lauf: `import('better-sqlite3')` GELINGT auch dort, wo das native Binding
+// fehlt - der Fehler faellt erst beim `new Database(...)`. Ein try nur um den Import herum liefert
+// deshalb einen Oeffner, der beim ersten Gebrauch platzt ("Could not locate the bindings file").
+// Also wird der Oeffner am ECHTEN Oeffnen gemessen, nicht am Import, und erst dann gemerkt.
+let BACKUP_RO_OPEN = null;
+const backupWrap = h => ({ all: (s, p = []) => h.prepare(s).all(...p), get: (s, p = []) => h.prepare(s).get(...p),
+  close: () => { try { h.close(); } catch (e) {} } });
+async function backupOpenReadonly(file) {
+  if (BACKUP_RO_OPEN) return BACKUP_RO_OPEN(file);
+  try {
+    const mod = await import('better-sqlite3'); const D = mod.default;
+    const h = new D(file, { readonly: true });          // hier faellt ein fehlendes Binding auf, nicht oben
+    BACKUP_RO_OPEN = f => backupWrap(new D(f, { readonly: true }));
+    return backupWrap(h);
+  } catch (e) { /* weiter zum eingebauten Treiber - dieselbe Reihenfolge wie in db.js */ }
+  const { DatabaseSync } = await import('node:sqlite');
+  BACKUP_RO_OPEN = f => backupWrap(new DatabaseSync(f, { readOnly: true }));
+  return BACKUP_RO_OPEN(file);
+}
+// WIEDERHERSTELLUNGSPROBE. Was hier NICHT passiert, ist der Punkt: die laufende Datenbank wird nicht
+// beschrieben, nicht ersetzt, nicht attached. Gepruefte Reihenfolge:
+//   1. juengste Sicherung mit ok=1 suchen (ohne Datei: nichts zu pruefen, ehrlich melden),
+//   2. Pruefsumme der Datei gegen die gespeicherte halten - stimmt sie nicht, ist die Datei verrottet,
+//   3. in eine Wegwerf-Datei kopieren (die Probe darf die Sicherung selbst nie beruehren),
+//   4. `PRAGMA integrity_check` auf der Kopie,
+//   5. Tabellenliste und Zeilen je Tabelle gegen das Original,
+//   6. Wegwerf-Datei loeschen, Ergebnis in `backups.note` der geprueften Zeile UND als eigene
+//      Zeile `kind='probe'` (damit "wann wurde zuletzt geprobt" eine Zahl hat, Art. 32(1)(d)).
+// Die Zeilenzahlen des Originals sind IMMER >= denen der Sicherung (die Sicherung ist aelter).
+// Gewertet wird deshalb nicht "gleich", sondern: keine Tabelle fehlt, und keine Tabelle, die im
+// Original Zeilen hat, ist in der Sicherung leer. Alles andere ist normaler Zeitversatz und steht
+// als Zahl daneben, statt einen falschen Alarm zu erzeugen.
+async function backupVerify() {
+  if (!hasTable('backups')) return { ok: false, error: 'Tabelle `backups` fehlt – Schema-Migration prüfen' };
+  const dir = backupDir();
+  // B2: Erst abgleichen. Nach einer echten Ruecksicherung liegt die Datei da, ihre Zeile aber nicht
+  // (sie wurde nach dem VACUUM geschrieben und ist deshalb nie in der Datei gelandet). Ohne den
+  // Abgleich meldet die Probe genau dann rot, wenn die Wiederherstellung gerade GEKLAPPT hat.
+  backupReconcile();
+  const row = db.get("SELECT * FROM backups WHERE ok=1 AND kind<>'probe' AND file IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1");
+  if (!row) return { ok: false, error: 'Es gibt noch keine Sicherung, die geprüft werden könnte.' };
+  const full = path.join(dir, path.basename(String(row.file)));
+  const tmp = path.join(dir, '.probe-' + crypto.randomBytes(8).toString('hex') + '.db');
+  const finish = (ok, note, extra) => {
+    // B6 (gemessen): Bis 3.0.0 schrieb die Probe ihr Ergebnis ZUSAETZLICH in die Notiz der geprueften
+    // Zeile - und ueberschrieb damit deren eigene Angabe („geschrieben in 412 ms"), bei einem
+    // gescheiterten Lauf sogar dessen Fehlermeldung, waehrend `ok` weiter 0 sagte. Reiner Verlust:
+    // das Ergebnis der Probe steht ohnehin in ihrer EIGENEN Zeile. Die geprueften Zeile bekommt
+    // hoechstens ein eigenes Feld (`verified_at`), und auch das nur, wenn es die Spalte gibt -
+    // `backups` gehoert Paket B-I.1, hier wird kein Schema geaendert.
+    if (backupHasVerifiedAt()) {
+      try { db.run("UPDATE backups SET verified_at=datetime('now') WHERE id=?", [row.id]); } catch (e) {}
+    }
+    try { db.run("INSERT INTO backups(created_at,bytes,sha256,kind,ok,note,file) VALUES(datetime('now'),?,?,'probe',?,?,NULL)",
+      [row.bytes ?? null, row.sha256 ?? null, ok ? 1 : 0, String(note).slice(0, 500)]); } catch (e) {}
+    jobStart('backup.verify'); jobDone('backup.verify', ok ? null : new Error(String(note).slice(0, 200)));
+    return { ok, backupId: row.id, created_at: row.created_at, note: String(note), ...(extra || {}) };
+  };
+  let bytes = 0;
+  try { bytes = statSync(full).size; }
+  catch (e) { return finish(false, 'Die Datei zur jüngsten Sicherung liegt nicht mehr im Verzeichnis.'); }
+  // B8 (gemessen): Die SHA-256 ist der EINZIGE echte Schutz gegen Bitfaeule - ein gekipptes Bit an
+  // Offset 5000 kam mit „integrity_check ok" durch, sobald die Pruefsumme fehlte oder nachgezogen war.
+  // Fehlte sie (weil ihre Bildung beim Sichern scheiterte), uebersprang die Probe den Vergleich
+  // STILLSCHWEIGEND und meldete gruen. Jetzt wird sie nachgetragen - und der fehlende Vergleich steht
+  // im Klartext in der Notiz, damit „gruen" nicht mehr heisst, als es heisst.
+  let ohneVergleich = '';
+  if (row.sha256) {
+    let sha = null; try { sha = backupSha256(full); } catch (e) { sha = null; }
+    if (sha !== row.sha256) return finish(false, 'Prüfsumme weicht ab – die Datei hat sich seit der Sicherung verändert.', { bytes });
+  } else {
+    let sha = null; try { sha = backupSha256(full); } catch (e) { sha = null; }
+    if (sha) { try { db.run('UPDATE backups SET sha256=? WHERE id=?', [sha, row.id]); } catch (e) {} }
+    ohneVergleich = sha
+      ? ' · ohne Vergleich – die Sicherung kam ohne Prüfsumme; sie ist jetzt nachgetragen und gilt ab der nächsten Probe'
+      : ' · ohne Vergleich – die Sicherung kam ohne Prüfsumme, und sie liess sich auch jetzt nicht bilden';
+  }
+  try { copyFileSync(full, tmp); }
+  catch (e) {
+    // B7: Dieses `return` stand VOR dem try…finally, das die Wegwerf-Datei loescht. Scheitert
+    // `copyFileSync` MITTEN im Schreiben - genau der Fall „Platte voll" -, blieb auf Linux eine halbe
+    // Kopie der Datenbank als `.probe-<hex>.db` liegen: von der Aufbewahrung nie angefasst, in der
+    // Betriebsansicht nie gezaehlt. Der Aufraeumer gehoert deshalb auch in diesen Zweig.
+    try { unlinkSync(tmp); } catch (_) {}
+    return finish(false, 'Wegwerf-Kopie nicht anlegbar: ' + redactMessage(e?.message || e), { bytes });
+  }
+  let h = null;
+  try {
+    h = await backupOpenReadonly(tmp);
+    const integ = h.all('PRAGMA integrity_check').map(r => String(Object.values(r)[0])).join('; ');
+    if (integ.toLowerCase() !== 'ok') return finish(false, 'integrity_check: ' + integ.slice(0, 200), { bytes });
+    // Tabellen und Zeilen. Die Liste kommt aus dem ORIGINAL - eine Sicherung, in der eine Tabelle
+    // fehlt, soll auffallen, nicht uebersehen werden, weil man ihre eigene Liste gefragt hat.
+    const tables = db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").map(r => r.name);
+    const missing = [], empty = [], counts = [];
+    let sumLive = 0, sumCopy = 0;
+    for (const t of tables) {
+      const q = '"' + String(t).replace(/"/g, '""') + '"';
+      let live = 0; try { live = db.get('SELECT COUNT(*) c FROM ' + q)?.c || 0; } catch (e) { live = 0; }
+      let copy = null;
+      try { copy = h.get('SELECT COUNT(*) c FROM ' + q)?.c ?? null; } catch (e) { copy = null; }
+      if (copy === null) { missing.push(t); continue; }
+      if (live > 0 && copy === 0) empty.push(t);
+      sumLive += live; sumCopy += copy;
+      counts.push({ table: t, live, backup: copy });
+    }
+    if (missing.length) return finish(false, 'Tabellen fehlen in der Sicherung: ' + missing.join(', '), { bytes, counts });
+    // „Leer in der Sicherung, gefuellt im Original" war zuerst ein ROTES Ergebnis. Gemessen beim
+    // Bauen: die erste Probe nach dieser Auslieferung schlug genau so fehl - `session_override` und
+    // `target_history` gab es zum Zeitpunkt der Sicherung schlicht noch nicht. Das wiederholt sich
+    // nach JEDER Auslieferung, die eine Tabelle hinzufuegt, und ein Alarm, der regelmaessig ohne
+    // Anlass kommt, ist schlimmer als keiner: man gewoehnt sich an ihn.
+    // Hart bleibt deshalb, was echten Schaden anzeigt: eine unlesbare Datei (`integrity_check`) und
+    // eine FEHLENDE Tabelle. Eine vorhandene, aber leere Tabelle steht als Hinweis daneben - mit
+    // Namen, damit man sie ansehen kann, wenn sie dort nicht hingehoert.
+    const hinweis = empty.length ? ' · Hinweis: leer in der Sicherung (jünger als sie?): ' + empty.join(', ') : '';
+    const txt = 'integrity_check ok · ' + tables.length + ' Tabellen · ' + sumCopy + ' von ' + sumLive
+      + ' Zeilen (Differenz = alles seit der Sicherung) · ' + Math.round(bytes / 1024) + ' KB' + ohneVergleich + hinweis;
+    return finish(true, txt, { bytes, counts, tables: tables.length, rowsBackup: sumCopy, rowsLive: sumLive, emptyInBackup: empty });
+  } catch (e) {
+    return finish(false, 'Probe abgebrochen: ' + redactMessage(e?.message || e), { bytes });
+  } finally {
+    try { if (h) h.close(); } catch (e) {}
+    try { unlinkSync(tmp); } catch (e) {}   // die Wegwerf-Datei geht IMMER, auch nach einem Fehler
+  }
+}
+// ---- Betriebsansicht der Sicherungen. Betreibersache, kein Personenbezug: Zeitpunkte, Byte-Zahlen,
+// Pruefsummen, Zustandswoerter. Kein Name, keine Adresse, kein Inhalt. ----
+app.get('/api/admin/backups', auth, requireAdmin, (req, res) => {
+  if (!hasTable('backups')) return res.json({ available: false, entries: [] });
+  const dir = backupDir();
+  backupReconcile();      // B2: Verzeichnis und Tabelle stimmen ueberein, BEVOR die Liste entsteht
+  let files = 0, onDisk = 0;
+  try { for (const f of readdirSync(dir)) if (/^backup-.*\.db$/.test(f)) { files++; try { onDisk += statSync(path.join(dir, f)).size; } catch (e) {} } } catch (e) {}
+  const jl = jobsState();
+  res.json({
+    available: true,
+    dir,                                    // Betriebsangabe fuer den Betreiber, kein Nutzerinhalt
+    keepDays: backupKeepDays(), keepDefault: BACKUP_KEEP_DEFAULT,
+    hour: BACKUP_HOUR, freeMb: backupFreeMb(dir), filesOnDisk: files, bytesOnDisk: onDisk,
+    job: jl.find(j => j.name === 'backup.auto') || null,
+    verify: jl.find(j => j.name === 'backup.verify') || null,
+    entries: db.all('SELECT id,created_at,bytes,sha256,kind,ok,note,file FROM backups ORDER BY created_at DESC, id DESC LIMIT 60'),
+  });
+});
+// Von Hand anstossen - derselbe Lauf wie nachts, damit es nur EINE Sicherungs-Rechnung gibt.
+// Dieselbe 10-Minuten-Sperre wie beim Download: ein VACUUM ueber die ganze Datenbank ist nichts,
+// was man im Sekundentakt ausloesen darf.
+// B10: Derselbe Fehler, der fuer den Download-Knopf schon einmal gemeldet und in 2.8.0 behoben wurde
+// (DEFER-A1, M1-Rest/a): ein Zeitstempel NUR im Arbeitsspeicher ueberlebt keinen Neustart, und auf
+// Render startet der Prozess oefter, als man denkt. Die Sperre liest deshalb zusaetzlich die Tabelle,
+// in der die Laufzeit ohnehin steht - die juengste Zeile, die kein Probe-Eintrag ist.
+let backupRunLast = 0;
+function backupRunLastMs() {
+  let persisted = 0;
+  try {
+    const v = db.get("SELECT MAX(created_at) t FROM backups WHERE kind<>'probe'")?.t;
+    persisted = backupMs(v);
+  } catch (e) { persisted = 0; }
+  return Math.max(backupRunLast, persisted);
+}
+app.post('/api/admin/backups/run', auth, requireAdmin, (req, res) => {
+  const waitSec = Math.ceil((backupRunLastMs() + BACKUP_MANUAL_LOCK_MS - Date.now()) / 1000);
+  if (waitSec > 0) return res.status(429).json({ error: 'Bitte ' + Math.ceil(waitSec / 60) + ' Minuten warten', retryAfterSec: waitSec });
+  backupRunLast = Date.now();
+  jobStart('backup.auto');
+  const r = backupRun('manuell');
+  jobDone('backup.auto', r.ok ? null : new Error(r.error || 'Sicherung fehlgeschlagen'));
+  auditLog(req.user, 'backup.run', null, null, { ok: r.ok ? 1 : 0, kb: Math.round((r.bytes || 0) / 1024) });
+  if (!r.ok) return res.status(500).json(r);
+  res.json(r);
+});
+// Wiederherstellungsprobe. Der Knopf, der die Frage "koennen wir das ueberhaupt zurueckspielen?"
+// beantwortet, bevor sie jemand im Ernstfall stellt.
+app.post('/api/admin/backups/verify', auth, requireAdmin, async (req, res) => {
+  try {
+    const r = await backupVerify();
+    auditLog(req.user, 'backup.verify', null, null, { ok: r.ok ? 1 : 0 });
+    res.json(r);
+  } catch (e) {
+    console.error('[sicherung] Probe', e?.message || e);
+    res.status(500).json({ ok: false, error: 'Probe fehlgeschlagen (Server-Log prüfen)' });
+  }
+});
+// Aufbewahrung umstellen. Untergrenze 1 Tag, Obergrenze 365 - und die juengste Sicherung bleibt in
+// jedem Fall stehen (backupPrune), auch bei "1 Tag".
+app.put('/api/admin/backups/keep', auth, requireAdmin, (req, res) => {
+  // Bewusst NICHT clampNum: das haette aus einem vertippten `9999` still `365` gemacht und mit
+  // `ok:true` geantwortet. Bei einer Aufbewahrungsfrist ist eine stille Korrektur die schlechtere
+  // Antwort als ein Fehler - der Betreiber soll wissen, welche Zahl gilt.
+  const days = Number(req.body?.days);
+  if (!Number.isInteger(days) || days < 1 || days > 365)
+    return res.status(400).json({ error: 'days muss eine ganze Zahl zwischen 1 und 365 sein' });
+  db.run("INSERT INTO settings(key,value,updated_at,updated_by) VALUES('backup_keep_days',?,datetime('now'),?)"
+    + ' ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by',
+    [String(days), req.user.id]);
+  auditLog(req.user, 'backup.keep', null, null, { days });
+  const pruned = backupPrune();
+  res.json({ ok: true, keepDays: backupKeepDays(), pruned: pruned.deleted });
+});
 /* ---------------- ADMIN: SYSTEM-STATISTIKEN ---------------- */
 app.get('/api/admin/stats', auth, requireAdmin, (req, res) => {
   const roles = Object.fromEntries(db.all('SELECT role, COUNT(*) c FROM users GROUP BY role').map(r => [r.role, r.c]));
   const cut = isoAddDays(tzToday(), -7);
   const act = new Set([
     ...db.all('SELECT DISTINCT user_id u FROM checkins WHERE date>=?', [cut]).map(r => r.u),
-    ...db.all('SELECT DISTINCT user_id u FROM set_logs WHERE date>=? AND reps>0', [cut]).map(r => r.u),
+    ...db.all(`SELECT DISTINCT user_id u FROM set_logs WHERE date>=? AND ${SQL_REAL}`, [cut]).map(r => r.u),
   ]);
   res.json({ roles, active7: act.size,
-    totalSets: db.get('SELECT COUNT(*) c FROM set_logs WHERE reps>0').c,
+    totalSets: db.get(`SELECT COUNT(*) c FROM set_logs WHERE ${SQL_REAL}`).c,
     totalCheckins: db.get('SELECT COUNT(*) c FROM checkins').c,
     totalCardio: db.get('SELECT COUNT(*) c FROM cardio_log').c,
     totalMessages: db.get('SELECT COUNT(*) c FROM messages').c,
@@ -5510,6 +8123,13 @@ app.post('/api/ai/summary/:userId', auth, requireCoach, async (req, res) => {
   const uid = Number(req.params.userId);
   const a = db.get('SELECT * FROM users WHERE id=?', [uid]);
   if (!a || !coachOwns(req.user, a.coach_id)) return res.status(403).json({ error: 'Kein Zugriff' });
+  // Not-Aus des Betreibers (BUILD-A5 Abschnitt 4 Punkt 3, DECISIONS F5). Er steht VOR der
+  // Einwilligung und ist von ihr unabhaengig: der Athleten-Schalter beantwortet „darf mein Coach?",
+  // dieser hier „laeuft die Anbindung ueberhaupt?". Wenn der Betreiber sie abdreht (Kosten, Stoerung
+  // beim Anbieter, offene Datenschutzfrage), gilt das fuer alle – auch fuer Athleten, die zugestimmt
+  // haben. Der Not-Aus wirkt ohne Redeploy, der Schluessel bleibt gesetzt.
+  if (opsGet('ops.ai') === 'off')
+    return res.status(503).json({ error: 'Die KI-Analyse ist vom Betreiber vorübergehend abgeschaltet.', aiDisabled: true });
   // DECISIONS F5: Die Analyse schickt 14 Tage Gesundheitswerte an einen Auftragsverarbeiter
   // (Anthropic). Das entscheidet der Athlet, nicht der Coach - Standard ist AUS. Ohne Zustimmung
   // faellt die Route hier aus, mit Klartext statt einer technischen Fehlermeldung.
@@ -5528,7 +8148,7 @@ app.post('/api/ai/summary/:userId', auth, requireCoach, async (req, res) => {
   db.run('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)', [aiKey, String(Date.now())]);
   const cis = db.all('SELECT date,weight,sleep,steps,water FROM checkins WHERE user_id=? ORDER BY date DESC LIMIT 14', [uid]);
   const sets = db.all(`SELECT sl.date d, e.name n, sl.weight w, sl.reps r FROM set_logs sl
-    LEFT JOIN exercises e ON e.id=sl.exercise_id WHERE sl.user_id=? AND sl.reps>0 ORDER BY sl.date DESC LIMIT 90`, [uid]);
+    LEFT JOIN exercises e ON e.id=sl.exercise_id WHERE sl.user_id=? AND ${SQL_REAL_SL} ORDER BY sl.date DESC LIMIT 90`, [uid]);
   // Datensparsamkeit (SEC-23): KEIN Klarname und KEINE Beschwerde-Freitexte an den Drittanbieter – nur die
   // Daten, mit denen die Analyse etwas anfangen kann (Anzahl/Daten offener Beschwerden, der Coach liest die
   // Texte ohnehin in der App). Die Analyse liest sich ohne Namen identisch.
@@ -5641,11 +8261,34 @@ app.post('/api/messages/tocoach', auth, (req, res) => {
   sendPush(me.coach_id, { title: '✉️ ' + title, body: body.slice(0, 120) }); // Coach erfährt es sofort, nicht erst beim nächsten Poll
   res.json({ ok: true });
 });
+// B13-Rest/a (DEFER-A1): Das Postfach hat seit 2.5.0 ZWEI Bereiche – „Fuer dich" und das Gespraech mit
+// dem Coach. Diese Route kannte nur „alles". Ein Blick auf „Fuer dich" haette also eine ungelesene
+// Coach-Nachricht stumm weggeklickt, und deshalb meldet `acReadSys()` (account.js) „Fuer dich" bis heute
+// nur dann als gelesen, wenn im Gespraech ohnehin nichts Ungelesenes mehr liegt – der Punkt blieb offen.
+// `?scope=system` markiert jetzt genau den Bereich „Fuer dich".
+// Die Trennlinie ist ZEICHENGLEICH zu der im Client (`acInThread`, account.js:196): alles vom eigenen
+// Coach gehoert ins Gespraech – auch seine „Plan angepasst"-Hinweise. Alles andere (Systemnachrichten
+// ohne Absender, Wochenrueckblick, Erfolge) ist „Fuer dich". Ohne zugeordneten Coach gibt es kein
+// Gespraech, also ist alles „Fuer dich" – dann markiert `scope=system` dasselbe wie „alles".
+// OHNE `scope` bleibt es beim ganzen Postfach wie in 2.7.0, damit kein bestehender Aufrufer sich
+// aendert. Einziger Unterschied: `AND read=0` grenzt die Abfrage auf die Zeilen ein, die sich wirklich
+// aendern – das Ergebnis ist dasselbe, aber `marked` zaehlt damit ehrlich, statt jede Zeile zu melden.
 app.post('/api/messages/:userId/read', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (uid !== req.user.id) return res.status(403).json({ error: 'Nur das eigene Postfach' }); // Coach darf Ungelesenes nicht wegklicken
-  db.run('UPDATE messages SET read=1 WHERE user_id=?', [uid]);
-  res.json({ ok: true });
+  const scope = str(req.query?.scope || req.body?.scope, 20);
+  if (scope && scope !== 'system' && scope !== 'all') {
+    return res.status(400).json({ error: 'Unbekannter Bereich (system oder all)' });
+  }
+  if (scope === 'system') {
+    const coachId = db.get('SELECT coach_id FROM users WHERE id=?', [uid])?.coach_id || null;
+    const r = coachId
+      ? db.run('UPDATE messages SET read=1 WHERE user_id=? AND read=0 AND (from_id IS NULL OR from_id<>?)', [uid, coachId])
+      : db.run('UPDATE messages SET read=1 WHERE user_id=? AND read=0', [uid]);
+    return res.json({ ok: true, scope: 'system', marked: Number(r.changes || 0) });
+  }
+  const r = db.run('UPDATE messages SET read=1 WHERE user_id=? AND read=0', [uid]);
+  res.json({ ok: true, scope: 'all', marked: Number(r.changes || 0) });
 });
 // Coach schickt Nachricht an Athlet
 app.post('/api/messages', auth, requireCoach, (req, res) => {
@@ -5773,6 +8416,21 @@ function planTargets(u, dayType) {
       train: { saved: u.kcal_target_train ?? null, suggested: nut.trainKcal },
       rest: { saved: u.kcal_target_rest ?? null, suggested: nut.restKcal } } : null };
 }
+// NACHTRAGEN (2.8.0): Der Slot einer Mahlzeit fiel bisher aus `tzHour()` – der Uhrzeit des Servers
+// IM MOMENT DES SPEICHERNS. Solange nur „heute" ging, war das richtig. Sobald die Ernährung eine
+// Datumsleiste bekommt (A-IV.4) ist es falsch: Wer am Sonntagmorgen das Abendessen vom Samstag
+// nachträgt, bekam es als „Frühstück" (gemessen: 9 Uhr -> slotByHour -> 'Frühstück').
+// Regel für einen vergangenen Tag ohne ausdrücklichen Slot: der Tag wird der Reihe nach gefüllt –
+// noch nichts eingetragen heißt „Frühstück", sonst der zuletzt benutzte Slot dieses Tages. Die
+// Uhrzeit von heute geht in einen vergangenen Tag gar nicht mehr ein.
+// Der Client kann jederzeit ausdrücklich etwas anderes schicken; diese Funktion greift nur ohne Angabe.
+function slotForDate(uid, date, { hour, trainedToday } = {}) {
+  if (date === tzToday()) return normalizeSlot('', { hour, trainedToday });
+  const last = db.get('SELECT meal_slot FROM food_log WHERE user_id=? AND date=? AND meal_slot IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1', [uid, date]);
+  const s = last?.meal_slot;
+  return (s && MEAL_SLOTS.includes(s)) ? s : 'Frühstück';
+}
+
 // Nächste Plan-Mahlzeit des Tagtyps, die heute noch nicht (per meal_id) eingetragen ist. Mahlzeiten ohne
 // Kalorien (z.B. die reine Supplement-Zeile) werden übersprungen.
 function nextPlanMeal(uid, dayType, rows) {
@@ -5823,7 +8481,7 @@ function foodlogView(uid, date, u, todayData) {
 app.get('/api/foodlog/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const date = req.query.date || tzToday();
+  const date = req.query.date || userToday(uid);   // B-k
   if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
   const view = foodlogView(uid, date);
   if (!view) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
@@ -5861,13 +8519,17 @@ app.post('/api/foodlog', auth, (req, res) => {
     const ex = db.get('SELECT id, meal_slot FROM food_log WHERE user_id=? AND client_id=?', [user_id, cid]);
     if (ex) return res.json({ id: ex.id, slot: ex.meal_slot, duplicate: true });
   }
-  const date = req.body.date || tzToday();
-  const flDateErr = dateProblem(date);   // D32
+  const date = req.body.date || userToday(user_id);   // B-k
+  const flDateErr = dateProblem(date, userToday(user_id));   // D32
   if (flDateErr) return res.status(400).json({ error: flDateErr });
   const food = str(req.body.food, 120);
   if (!food) return res.status(400).json({ error: 'Bezeichnung fehlt' });
   // Slot: nur Werte aus MEAL_SLOTS (Alt-Namen werden abgebildet); leer -> nach Uhrzeit
-  const meal_slot = normalizeSlot(req.body.meal_slot, { hour: tzHour(), trainedToday: trainedOn(Number(user_id), date) });
+  // Ohne ausdruecklichen Slot entscheidet beim Nachtragen der Tag selbst, nicht die Uhr von heute.
+  const trainedThatDay = trainedOn(Number(user_id), date);
+  const meal_slot = (req.body.meal_slot == null || String(req.body.meal_slot).trim() === '')
+    ? slotForDate(Number(user_id), date, { hour: tzHour(), trainedToday: trainedThatDay })
+    : normalizeSlot(req.body.meal_slot, { hour: tzHour(), trainedToday: trainedThatDay });
   if (!meal_slot) return res.status(400).json({ error: SLOT_ERROR });
   const amount = clampNum(req.body.amount, 0, 10000);
   const kcal = clampNum(req.body.kcal, 0, 20000);
@@ -5919,7 +8581,7 @@ app.post('/api/foodlog/frommeal/:mealId', auth, (req, res) => {
     slot = normalizeSlot(req.body.meal_slot, { hour: tzHour(), trainedToday: trained });
     if (!slot) return res.status(400).json({ error: SLOT_ERROR });
   }
-  slot = slot || slotFromLabel(label, { trainedToday: trained }) || normalizeSlot('', { hour: tzHour() });
+  slot = slot || slotFromLabel(label, { trainedToday: trained }) || slotForDate(meal.user_id, date, { hour: tzHour(), trainedToday: trained });
   // Doppeltes Eintragen derselben Plan-Mahlzeit am selben Tag abfangen (force:true erzwingt, z.B. zweite Portion)
   const dup = db.get('SELECT id FROM food_log WHERE user_id=? AND date=? AND meal_id=?', [meal.user_id, date, meal.id]);
   if (dup && !req.body?.force) return res.status(409).json({ error: 'Diese Mahlzeit ist heute schon eingetragen', duplicate: true, id: dup.id });
@@ -5962,8 +8624,8 @@ app.post('/api/cardio', auth, (req, res) => {
     const ex = db.get('SELECT id, kcal FROM cardio_log WHERE user_id=? AND client_id=?', [user_id, cid]);
     if (ex) return res.json({ id: ex.id, kcal: ex.kcal, duplicate: true });
   }
-  const d = req.body.date || tzToday();
-  const cdDateErr = dateProblem(d);   // D32
+  const d = req.body.date || userToday(user_id);   // B-k
+  const cdDateErr = dateProblem(d, userToday(user_id));   // D32
   if (cdDateErr) return res.status(400).json({ error: cdDateErr });
   const kind = str(req.body.kind, 40) || 'Cardio';
   const intensity = ['leicht', 'moderat', 'hart'].includes(req.body.intensity) ? req.body.intensity : 'moderat';
@@ -6004,6 +8666,85 @@ function planSummary(uid) {
     WHERE td.plan_id=? AND td.deleted=0 GROUP BY td.id ORDER BY td.position, td.id`, [plan.id]);
   return { days: days.map(d => ({ id: d.id, name: d.name, exerciseCount: d.exerciseCount, expectedSets: d.expectedSets })), activeTitle: plan.title };
 }
+
+/* ---------------- „ZULETZT": DAS LETZTE TRAINING (2.8.0, Nachbesserung zu A-IV.1 3.3) ----------------
+   Die Karte „Zuletzt" auf der Startseite rechnete sich bis hierher im Browser aus GET /api/logs/:uid
+   (die letzten 500 Saetze, fuer das Pruefkonto 25.022 Byte roh je Aufruf). Das hatte zwei Kosten:
+
+   1. Eine VIERTE Bestleistungs-Definition. `hmBuildLast()` gruppierte ueber `exercise_id`; der Server
+      vergleicht seit D15 ueber den normalisierten Uebungsnamen, also ueber die BEWEGUNG. Nachgestellt
+      in `rate-shell-home.db`: „Leg Press" steht als id 3 UND id 4 im Plan. Ein Satz mit 100 kg auf id 3
+      bekommt von POST /api/logs {"pr":false,"prevMax":102.5} – auf id 4 lagen laengst 102,5 kg. Die
+      Startseite schrieb trotzdem „1 Bestleistung", weil id 3 fuer sich genommen bei 92,5 kg stand.
+   2. Eine zweite Anfrage nach dem ersten Bild – die Karte stand rund zwei Sekunden lang als Platzhalter.
+
+   Beides faellt weg, wenn der Server die fuenf Zahlen liefert: EINE Rechnung, dieselbe Regel wie in
+   POST /api/logs, und die Karte ist Teil des ersten Bildes (und damit auch des Offline-Schnappschusses).
+   `date` ist der letzte Tag VOR heute mit echter Arbeit – das heutige Training steht in der Jetzt-Karte.
+   Aufwaermsaetze und weich geloeschte Saetze zaehlen nirgends mit (SQL_REAL). */
+function lastWorkoutView(uid, date) {
+  const d = db.get(`SELECT MAX(date) d FROM set_logs WHERE user_id=? AND ${SQL_REAL} AND date<?`, [uid, date])?.d || null;
+  if (!d) return { none: true };
+  // LEFT JOIN mit Absicht: ein geloggter Satz bleibt Verlauf, auch wenn die Uebungszeile weg ist.
+  // Ohne Uebungsnamen (`mv` null) laesst sich die Bewegung nicht bestimmen – so ein Satz zaehlt dann
+  // in Saetzen und Volumen mit, aber nie als Bestleistung. Lieber eine Zahl weniger.
+  const day = db.all(`SELECT sl.exercise_id eid, sl.weight w, sl.reps reps, ${SQL_LOAD_SL} ld, LOWER(TRIM(e.name)) mv,
+      CASE WHEN ${SQL_SET_PR_SL} THEN 1 ELSE 0 END pr
+    FROM set_logs sl LEFT JOIN exercises e ON e.id=sl.exercise_id
+    WHERE sl.user_id=? AND sl.date=? AND ${SQL_REAL_SL}`, [uid, d]);
+  if (!day.length) return { none: true };
+  // Bestleistungen je BEWEGUNG (D15): Tagesbestgewicht gegen das Beste aller frueheren Tage. Ein
+  // erster Eintrag ist kein Rekord – ohne Messlatte (prev > 0) wird nicht gefeiert, genau wie in
+  // POST /api/logs und in insightsView.
+  const mvKeys = [...new Set(day.map(r => r.mv).filter(k => k != null))];
+  const prevOf = {};
+  if (mvKeys.length) {
+    const ph = mvKeys.map(() => '?').join(',');
+    // Derselbe Umweg ueber die eigenen Uebungs-IDs wie in movementSetLogs(): so bleibt die
+    // Verlaufsabfrage auf dem deckenden Index (user_id, exercise_id, date) statt voll zu scannen.
+    const mvOf = new Map(db.all(`SELECT e.id id, LOWER(TRIM(e.name)) mv FROM exercises e
+      JOIN training_days td ON td.id=e.day_id JOIN plans p ON p.id=td.plan_id
+      WHERE p.user_id=? AND LOWER(TRIM(e.name)) IN (${ph})`, [uid, ...mvKeys]).map(r => [r.id, r.mv]));
+    const ids = [...mvOf.keys()];
+    if (ids.length) {
+      for (const r of db.all(`SELECT exercise_id eid, MAX(weight) m FROM set_logs
+        WHERE user_id=? AND date<? AND ${SQL_REAL_PR} AND exercise_id IN (${ids.map(() => '?').join(',')})
+        GROUP BY exercise_id`, [uid, d, ...ids])) {   // B5: Messlatte nur aus rekordfaehigen Saetzen
+        const mv = mvOf.get(r.eid);
+        if (mv != null) prevOf[mv] = Math.max(prevOf[mv] || 0, Number(r.m) || 0);
+      }
+    }
+  }
+  const dayMax = {};
+  // B5: nur rekordfaehige Saetze (`pr=1`) bilden das Tagesbestgewicht; Saetze und Volumen weiter unten
+  // zaehlen weiter alles.
+  for (const r of day) { if (r.mv == null || !r.pr) continue; dayMax[r.mv] = Math.max(dayMax[r.mv] || 0, Number(r.w) || 0); }
+  let prs = 0;
+  for (const mv of Object.keys(dayMax)) { const p = prevOf[mv] || 0; if (p > 0 && dayMax[mv] > p) prs++; }
+  // Welcher Plantag war das? Der Tag des AKTIVEN Plans mit den meisten getroffenen Uebungen – und nur,
+  // wenn mindestens die Haelfte passt, sonst bleibt der Name weg („Gestern · 12 Saetze"). Ein `day_id`
+  // am Satz waere richtiger; das ist eine Spalte und steht in DEFER-A4.
+  const exIds = [...new Set(day.map(r => r.eid).filter(Boolean))];
+  let name = null;
+  if (exIds.length) {
+    const best = db.get(`SELECT td.name name, COUNT(DISTINCT e.id) hit
+      FROM exercises e JOIN training_days td ON td.id=e.day_id JOIN plans p ON p.id=td.plan_id
+      WHERE p.user_id=? AND p.active=1 AND td.deleted=0 AND e.deleted=0 AND e.id IN (${exIds.map(() => '?').join(',')})
+      GROUP BY td.id ORDER BY hit DESC, td.position, td.id LIMIT 1`, [uid, ...exIds]);
+    if (best && best.hit >= Math.max(1, Math.ceil(exIds.length / 2))) name = best.name;
+  }
+  // B5: „bester Satz" heisst bester ARBEITSSATZ. Gibt es an dem Tag keinen (nur Drop-/Backoff-Saetze),
+  // faellt die Zeile auf den schwersten vorhandenen zurueck – lieber die ehrliche zweitbeste Auskunft
+  // als gar keine.
+  const prDay = day.filter(r => r.pr);
+  const top = (prDay.length ? prDay : day).slice().sort((a, b) => (Number(b.w) || 0) - (Number(a.w) || 0) || (Number(b.reps) || 0) - (Number(a.reps) || 0))[0];
+  return {
+    date: d, name, sets: day.length, prs,
+    // Tonnage nach der Regel aus D16 (SQL_LOAD): Koerpergewicht des Satzes zaehlt mit, wenn es dasteht.
+    volume: Math.round(day.reduce((s, r) => s + (Number(r.ld) || 0) * (Number(r.reps) || 0), 0)),
+    top: top && Number(top.w) > 0 ? { weight: Number(top.w), reps: Number(top.reps) || 0 } : null,
+  };
+}
 // Reihenfolge der Prüfungen ist Absicht: 400 (keine Zahl) -> 403 (nicht zuständig) -> 404 (gibt es nicht).
 // Damit verrät die Route einem Coach oder Athleten NICHT, ob eine fremde Nutzer-ID existiert – ein
 // unbekannter Nutzer sieht für sie aus wie ein fremder. Nur Admins (canAccess auf alle) bekommen 404.
@@ -6014,7 +8755,12 @@ app.get('/api/home/:userId', auth, (req, res) => {
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
   const u = getUserFull(uid);
   if (!u) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
-  const date = tzToday();
+  // GEMESSEN (Welle B-I): Hier stand `tzToday()` - die Serverzeit. `GET /api/today/:userId` rechnet
+  // laengst mit `userToday(uid)`. Derselbe Athlet, dieselbe Sekunde, Zone Pacific/Kiritimati (UTC+14),
+  // UTC 2026-09-15T11:31: /api/today sagte "2026-09-16", /api/home sagte "2026-09-15". An diesem
+  // einen `date` haengen in derselben Antwort todayView, foodlogView, supplements, logsToday,
+  // lastWorkout, monthly und readiness - Startseite und Trainingsansicht zeigten zwei Tage.
+  const date = userToday(uid);
   const today = todayView(uid, date, u);
   const safe = (label, fn) => { try { return fn(); } catch (e) { console.error('[home] ' + label, e?.message || e); return null; } };
   res.json({
@@ -6025,7 +8771,8 @@ app.get('/api/home/:userId', auth, (req, res) => {
     foodlog: foodlogView(uid, date, u, today),
     supplements: supplementIntakeView(uid, date),
     insights: safe('insights', () => insightsView(uid)),
-    logsToday: db.get('SELECT COUNT(*) c FROM set_logs WHERE user_id=? AND date=? AND reps>0', [uid, date]).c,
+    logsToday: db.get(`SELECT COUNT(*) c FROM set_logs WHERE user_id=? AND date=? AND ${SQL_REAL}`, [uid, date]).c,
+    lastWorkout: safe('lastWorkout', () => lastWorkoutView(uid, date)),
     monthly: safe('monthly', () => monthlyView(uid, date.slice(0, 7), false)),
     mindset: safe('mindset', () => mindsetTodayView(db, uid, uid === req.user.id)),
     readiness: safe('readiness', () => readinessView(uid, date)),
@@ -6076,7 +8823,7 @@ function readinessView(uid, date, withHistory) {
   if (!u) return null;
   const from = isoAddDays(date, -41);
   const ci = db.all('SELECT date, sleep, resting_hr, hrv FROM checkins WHERE user_id=? AND date>=? AND date<=? ORDER BY date', [uid, from, date]);
-  const setDays = db.all('SELECT date, COUNT(*) c FROM set_logs WHERE user_id=? AND reps>0 AND date>=? AND date<=? GROUP BY date', [uid, from, date]);
+  const setDays = db.all(`SELECT date, COUNT(*) c FROM set_logs WHERE user_id=? AND ${SQL_REAL} AND date>=? AND date<=? GROUP BY date`, [uid, from, date]);
   const byDate = {}; for (const r of ci) byDate[r.date] = r;
   const setsOn = {}; for (const r of setDays) setsOn[r.date] = r.c;
   // A5/B15: Die App sagt dem Nutzer, dass Cardio in die Bereitschaft einfließt – die Last zählte aber
@@ -6111,7 +8858,7 @@ function readinessView(uid, date, withHistory) {
   // Ab wann gibt es überhaupt eine „übliche" Satzzahl? Der allererste Satz des Kontos begrenzt den
   // Zeitraum, über den gemittelt werden darf – EINMAL geholt, nicht je History-Tag (sonst 14 Abfragen).
   // Cardio zählt jetzt mit (siehe oben), also markiert auch die erste Cardio-Einheit den Beginn.
-  const firstSet = [db.get('SELECT MIN(date) d FROM set_logs WHERE user_id=? AND reps>0', [uid])?.d || null,
+  const firstSet = [db.get(`SELECT MIN(date) d FROM set_logs WHERE user_id=? AND ${SQL_REAL}`, [uid])?.d || null,
     db.get('SELECT MIN(date) d FROM cardio_log WHERE user_id=?', [uid])?.d || null].filter(Boolean).sort()[0] || null;
   // Das „uebliche Wochenpensum" ist der MEDIAN der drei vorangegangenen 7-Tage-Fenster – und zwar
   // nur der Fenster, in denen ueberhaupt trainiert wurde. Ein Schnitt ueber 28 Kalendertage ging an
@@ -6157,6 +8904,43 @@ function readinessView(uid, date, withHistory) {
     // Das WIRKSAME Schlafziel (aus dem Profil oder abgeleitet) – sonst zeigen Profil und
     // Bereitschaft zwei verschiedene Zahlen, ohne dass irgendwo steht, welche gilt.
     sleepGoal: sleepGoalOf(u, median('sleep', date)) };
+  // ---- KALIBRIERUNG UND DIVERGENZ (3.0.0, B-h) ------------------------------------------------
+  // GEMESSEN (Welle B-I): `LOGIC.calibrationState` und `LOGIC.divergence` hatten im ganzen Server
+  // NULL Aufrufe. Was sie tun sollten, rechnete die Oberflaeche noch einmal selbst (public/js/home.js,
+  // `wk2Calib`/`wk2Diverge`) - mit ANDEREN Zahlen: Selbstbericht-Alarm ab 3 Tagen statt ab 2, Baender
+  // als 25.-75.-Perzentil der letzten 28 Tage statt der festen Baender des Rechenkerns. Zwei Orte fuer
+  // dieselbe Regel, und nur einer davon ist mit den 20.000 Zufallslaeufen aus B-I.1 belegt - genau die
+  // Bauart, die RECHEN-REVIEW fuer vier andere Faelle schon beschrieben hat.
+  // Die Clients lesen die Feldnamen des Rechenkerns bereits (`wk2Calib` liest nights/needed/remaining/
+  // ready/label/text, `wk2Diverge` liest state/alert/headline/why/text/causes) und ziehen den
+  // Server-Block dem eigenen Nachbau VOR. Ab hier gewinnt also die Fassung aus logic.js - ohne eine
+  // Zeile Client-Aenderung. Der Rueckbau in home.js/analysis.js ist Sache von B-I.5.
+  out.calibration = safeLogic('calibration', () => {
+    if (typeof LOGIC.calibrationState !== 'function') return null;
+    // Naechte = TAGE im 14-Tage-Fenster mit mindestens einem Erholungswert (Schlaf, HRV, Ruhepuls).
+    // Zwei Werte an einem Tag sind eine Nacht - deshalb ueber das Datum gezaehlt, nicht ueber Zeilen.
+    const win = isoAddDays(date, -13);
+    const naechte = new Set();
+    for (const c of ci) {
+      if (!c.date || c.date < win || c.date > date) continue;
+      if (c.sleep != null || c.hrv != null || c.resting_hr != null) naechte.add(c.date);
+    }
+    return LOGIC.calibrationState({ nights: naechte.size });
+  });
+  out.divergence = safeLogic('divergence', () => {
+    if (typeof LOGIC.divergence !== 'function') return null;
+    // Die Basis jeder Kennzahl ist DIESELBE, mit der auch die Bereitschaft rechnet: der Median der
+    // 14 Tage VOR dem Stichtag, erst ab fuenf Werten. Eine zweite Basis waere ein zweiter Bereich.
+    const heute = byDate[date] || {};
+    const metrics = [];
+    const add = (key, feld) => {
+      const v = heute[feld], b = median(feld, date);
+      if (v == null || b == null) return;
+      metrics.push({ key, value: Number(v), base: Number(b) });
+    };
+    add('hrv', 'hrv'); add('rhr', 'resting_hr'); add('sleep', 'sleep');
+    return LOGIC.divergence({ metrics, selfReport: selfReportFor(uid, date) });
+  });
   if (withHistory) {
     const history = [];
     for (let i = 13; i >= 0; i--) { const d = isoAddDays(date, -i); const s = scoreOf(d); if (s.score != null) history.push({ date: d, score: s.score }); }
@@ -6164,10 +8948,52 @@ function readinessView(uid, date, withHistory) {
   }
   return out;
 }
+// Ein Rechenkern-Block darf die Bereitschaft nie zum Absturz bringen: faellt er aus, fehlt das Feld,
+// und die Oberflaeche rechnet ihren eigenen Zweig - so, wie sie es bis 3.0.0 immer getan hat.
+function safeLogic(label, fn) {
+  try { return fn(); } catch (e) { console.error('[bereitschaft] ' + label, e?.message || e); return null; }
+}
+// Der SELBSTBERICHT fuer die Divergenz: die Energie des Tages aus den Mindset-Sitzungen, ersatzweise
+// die Stimmung (beides 1-10, beides traegt der Athlet selbst ein). Es ist der einzige echte
+// Selbstbericht, den die App fuehrt; ohne Mindset-Nutzung bleibt die Reihe leer und die Divergenz
+// sagt nichts - eine Divergenz ohne zweite Meinung gibt es nicht.
+// Rueckgabe in den Feldern, die `divergence()` erwartet: {value, base, trendDays, label}.
+//   base      = Median der Tage VOR den letzten sieben (der aktuelle Einbruch darf nicht seine eigene
+//               Vergleichsbasis sein), erst ab fuenf solchen Tagen.
+//   trendDays = wie viele AUFEINANDERFOLGENDE Kalendertage am Ende unter dem Band liegen. Ohne diese
+//               Zahl gilt in logic.js EIN Tag - und ein einzelner schlechter Tag loest bewusst nichts aus.
+const SELF_WINDOW_DAYS = 21, SELF_RECENT_DAYS = 7, SELF_MIN_DAYS = 10, SELF_MIN_BASE = 5;
+function selfReportFor(uid, date) {
+  if (!hasTable('mindset_sessions')) return null;
+  let rows = [];
+  try {
+    rows = db.all(`SELECT date, energy, mood FROM mindset_sessions
+      WHERE user_id=? AND date>=? AND date<=? AND (energy IS NOT NULL OR mood IS NOT NULL)
+      ORDER BY date, id`, [uid, isoAddDays(date, -(SELF_WINDOW_DAYS - 1)), date]);
+  } catch (e) { return null; }
+  const byDay = new Map();
+  for (const r of rows) { const v = r.energy != null ? Number(r.energy) : Number(r.mood); if (isFinite(v)) byDay.set(r.date, v); }
+  const tage = [...byDay.keys()].sort();
+  if (tage.length < SELF_MIN_DAYS) return null;
+  const grenze = isoAddDays(date, -(SELF_RECENT_DAYS - 1));
+  const alt = tage.filter(d => d < grenze).map(d => byDay.get(d)).sort((a, b) => a - b);
+  if (alt.length < SELF_MIN_BASE) return null;
+  const m = (alt.length - 1) / 2;
+  const base = (alt[Math.floor(m)] + alt[Math.ceil(m)]) / 2;
+  const band = Math.max(1, Math.abs(base) * 0.15);       // dieselbe Formel wie die Vorgabe in logic.js
+  let tref = 0, vorher = null;
+  for (let i = tage.length - 1; i >= 0; i--) {
+    const d = tage[i];
+    if (!(byDay.get(d) < base - band)) break;
+    if (vorher && daysBetween(d, vorher) !== 1) break;   // nur wirklich aufeinanderfolgende Tage
+    tref++; vorher = d;
+  }
+  return { value: byDay.get(tage[tage.length - 1]), base, band, trendDays: tref, label: 'dein Check-in' };
+}
 app.get('/api/readiness/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const date = req.query.date || tzToday();
+  const date = req.query.date || userToday(uid);   // B-k
   if (!isDate(date)) return res.status(400).json({ error: 'Ungültiges Datum' });
   // Dieselbe Grenze wie /api/week und /api/today: ein gültiges Datum ist noch kein sinnvolles.
   // `?date=9999-12-31` bekam sonst eine ernst gemeinte Antwort („Noch keine Daten") für einen Tag,
@@ -6221,7 +9047,7 @@ function challengeCompleteDaysIn(uid, u, start, end) {
     else if (!mindIsFull(r.kind, r.d, r.s, pMinsCh)) continue;
     else if (r.kind === 'priming') priming.add(r.date); else evening.add(r.date);
   }
-  const setD = new Set(db.all('SELECT DISTINCT date FROM set_logs WHERE user_id=? AND reps>0 AND date>=? AND date<=?', [uid, start, end]).map(r => r.date));
+  const setD = new Set(db.all(`SELECT DISTINCT date FROM set_logs WHERE user_id=? AND ${SQL_REAL} AND date>=? AND date<=?`, [uid, start, end]).map(r => r.date));
   const cardioD = new Set(db.all('SELECT DISTINCT date FROM cardio_log WHERE user_id=? AND date>=? AND date<=?', [uid, start, end]).map(r => r.date));
   const waterOn = {};
   for (const r of db.all('SELECT date, water FROM checkins WHERE user_id=? AND water IS NOT NULL AND date>=? AND date<=?', [uid, start, end])) waterOn[r.date] = Number(r.water) || 0;
@@ -6299,11 +9125,12 @@ function weekView(uid, startMonday) {
   const days7 = []; for (let i = 0; i < 7; i++) days7.push(isoAddDays(start, i));
 
   // ---- Training ----
-  const rows = db.all(`SELECT sl.date date, sl.weight weight, sl.reps reps, sl.exercise_id eid, e.name name
+  const rows = db.all(`SELECT sl.date date, sl.weight weight, sl.bodyweight bodyweight, sl.reps reps, sl.exercise_id eid, e.name name,
+      CASE WHEN ${SQL_SET_PR_SL} THEN 1 ELSE 0 END pr
     FROM set_logs sl LEFT JOIN exercises e ON e.id=sl.exercise_id
-    WHERE sl.user_id=? AND sl.reps>0 AND sl.date>=? AND sl.date<=?`, [uid, start, end]);
+    WHERE sl.user_id=? AND ${SQL_REAL_SL} AND sl.date>=? AND sl.date<=?`, [uid, start, end]);
   const trainDates = [...new Set(rows.map(r => r.date))];
-  const volumeKg = Math.round(rows.reduce((s, r) => s + (r.weight || 0) * (r.reps || 0), 0));
+  const volumeKg = Math.round(rows.reduce((s, r) => s + setLoad(r) * (r.reps || 0), 0));
   // D9: Das Wochenziel kam aus der GERUNDETEN Spalte days_per_week – ein Sechs-Tage-Zyklus mit vier
   // Trainings stand damit als „5 geplant" da, obwohl in dieser Woche vier Einheiten im Rhythmus liegen.
   // Gezählt wird jetzt der Rhythmus DIESER Woche (dieselbe Engine wie Kalender und Startseite).
@@ -6312,27 +9139,59 @@ function weekView(uid, startMonday) {
   // Je Übung nur der beste Satz. Ohne diese Verdichtung standen bei mehreren gleich schweren Sätzen
   // derselben Übung dreimal dieselbe Zeile in der Liste – „Bestleistung" wäre dann der erste beliebige
   // Treffer statt der stärksten Leistung der Woche.
+  // B10 (gemessen): Gruppiert wurde ueber die Uebungs-ID. Steht dieselbe Bewegung zweimal im Plan -
+  // genau der Befund, den die Bibliothek (B-c) beseitigen soll, und in Marcos echtem Plan viermal der
+  // Fall -, gehen zwei von drei Plaetzen an dieselbe Uebung: gemessen „Leg Press 210 x 10 · Leg Press
+  // 207,5 x 10 · Calves Press 127,5 x 10". Der Athlet verliert dadurch einen echten dritten Eintrag.
+  // Gruppiert wird deshalb ueber den NORMALISIERTEN NAMEN - dieselbe Bewegung, dieselbe Zeile, genau
+  // wie im Verlauf (movementSetLogs) und in der Rekorderkennung (D15).
+  // B5: Nur rekordfaehige Saetze - „bester Satz der Woche" ist eine Bestleistung, kein Drop-Satz.
   const bestPerEx = {};
   for (const r of rows) {
-    if (!((r.weight || 0) > 0)) continue;
-    const k = r.eid == null ? 'n:' + (r.name || '') : 'e:' + r.eid; // gelöschte Übung: über den Namen gruppieren
+    if (!((r.weight || 0) > 0) || !r.pr) continue;
+    const nm = String(r.name || '').trim().toLowerCase();
+    const k = nm ? 'm:' + nm : (r.eid == null ? 'n:' : 'e:' + r.eid);  // ohne Namen bleibt nur die Id
     const b = bestPerEx[k];
     if (!b || r.weight > b.weight || (r.weight === b.weight && (r.reps || 0) > (b.reps || 0))) bestPerEx[k] = r;
   }
   const topSets = Object.values(bestPerEx).sort((a, b) => (b.weight - a.weight) || (b.reps - a.reps)).slice(0, 3)
     .map(r => ({ exercise: r.name || 'Übung', weight: r.weight, reps: r.reps }));
-  // PRs der Woche: Tages-Bestgewicht je Übung gegen den Bestwert VOR dieser Woche. Der Vergleichswert
+  // PRs der Woche: Tages-Bestgewicht je BEWEGUNG gegen den Bestwert VOR dieser Woche. Der Vergleichswert
   // kommt als Aggregat aus der DB (MAX pro Übung) statt als Vollabfrage aller Sätze in den Speicher.
+  // B5: beide Seiten nur aus rekordfaehigen Saetzen.
+  // B10: `prs` war eine blosse ZAHL („8"). Die Rekordliste, die B-I.5 dafuer gebaut hat, konnte deshalb
+  // nie erscheinen (B5-2 in DEFER-B1.md, offen seit 2.4.0). Beim Zaehlen liegt ohnehin alles vor, was
+  // sie braucht: Uebung, Datum, alter Bestwert, Gewicht x Wdh. Die Zahl bleibt, die Liste kommt dazu -
+  // kein Client muss sich aendern, und wer die Liste zeigen will, hat sie.
+  const prNameOf = {};
+  for (const r of rows) { const nm = String(r.name || '').trim().toLowerCase(); if (nm && !prNameOf[nm]) prNameOf[nm] = r.name; }
   const runMax = {};
-  for (const r of db.all('SELECT exercise_id eid, MAX(weight) mw FROM set_logs WHERE user_id=? AND reps>0 AND date<? GROUP BY exercise_id', [uid, start])) runMax[r.eid] = r.mw || 0;
+  for (const r of db.all(`SELECT LOWER(TRIM(e.name)) mv, MAX(sl.weight) mw FROM set_logs sl
+    JOIN exercises e ON e.id=sl.exercise_id
+    WHERE sl.user_id=? AND ${SQL_REAL_PR_SL} AND sl.date<? GROUP BY LOWER(TRIM(e.name))`, [uid, start])) runMax[r.mv] = r.mw || 0;
   const dayMax = {};
-  for (const r of rows) { const k = r.eid + '|' + r.date; dayMax[k] = Math.max(dayMax[k] || 0, r.weight || 0); }
-  let prs = 0;
-  for (const k of Object.keys(dayMax).sort((a, b) => a.split('|')[1].localeCompare(b.split('|')[1]))) {
-    const eid = k.split('|')[0], v = dayMax[k], before = runMax[eid] || 0;
-    if (before > 0 && v > before) prs++; // erster Eintrag einer Übung ist kein Rekord (wie in insightsView)
-    if (v > before) runMax[eid] = v;
+  for (const r of rows) {
+    if (!r.pr) continue;
+    const nm = String(r.name || '').trim().toLowerCase();
+    if (!nm) continue;                                   // ohne Namen keine Bewegung, also kein Rekord
+    const k = nm + '|' + r.date;
+    const b = dayMax[k];
+    if (!b || (r.weight || 0) > b.weight || ((r.weight || 0) === b.weight && (r.reps || 0) > b.reps))
+      dayMax[k] = { mv: nm, date: r.date, weight: r.weight || 0, reps: r.reps || 0 };
   }
+  let prs = 0;
+  const prList = [];
+  // Nach DATUM aufsteigend – die Messlatte wandert mit. Sortiert wird ueber das Feld im Wert, nicht
+  // ueber den Schluessel: ein Uebungsname darf ein „|" enthalten, ohne die Reihenfolge zu zerlegen.
+  for (const k of Object.keys(dayMax).sort((a, b) => dayMax[a].date.localeCompare(dayMax[b].date))) {
+    const e = dayMax[k], before = runMax[e.mv] || 0;
+    if (before > 0 && e.weight > before) {               // erster Eintrag einer Übung ist kein Rekord
+      prs++;
+      prList.push({ exercise: prNameOf[e.mv] || 'Übung', date: e.date, before, weight: e.weight, reps: e.reps });
+    }
+    if (e.weight > before) runMax[e.mv] = e.weight;
+  }
+  prList.sort((a, b) => (b.weight - a.weight) || (a.date < b.date ? -1 : 1));
 
   // ---- Ernährung ----
   const fl = db.all('SELECT date, kcal, protein FROM food_log WHERE user_id=? AND date>=? AND date<=?', [uid, start, end]);
@@ -6456,7 +9315,8 @@ function weekView(uid, startMonday) {
   const nextStart = isoAddDays(start, 7);
   const week = {
     start, end, current: start === thisMon,
-    training: { sessions: trainDates.length, planned, sets: rows.length, volumeKg, prs, topSets },
+    // `prs` bleibt die Zahl (kein Client muss sich aendern), `prList` ist dieselbe Auskunft als Liste.
+    training: { sessions: trainDates.length, planned, sets: rows.length, volumeKg, prs, prList, topSets },
     nutrition: {
       daysLogged: foodDays.length,
       avgKcal: foodDays.length ? Math.round(foodDays.reduce((s, d) => s + perDay[d].kcal, 0) / foodDays.length) : null,
@@ -6485,6 +9345,16 @@ function weekView(uid, startMonday) {
     streak: checkinStreak(uid, end < today ? end : today),
     // D18: „ohne Unterbrechung" darf nur dastehen, wenn kein Joker im Spiel war – weekHighlights liest es.
     streakFrozen: frozenDaysInStreak(uid, end < today ? end : today, checkinStreak(uid, end < today ? end : today)),
+    // FIX-A5 (DEFER-A5 A5-3): `weekHighlights` hat mit 2.9.0 den Satz „31 Tage Serie ohne
+    // Unterbrechung" verloren und sagt stattdessen „N Wochen in Folge dein Pensum getroffen" -
+    // aber nur, wenn dieses Feld da ist. Es war nicht da: die Sonntags-Nachricht hatte damit gar
+    // keine Aussage mehr zur Konsistenz, der alte Satz war weg und der neue konnte nie erscheinen.
+    // Gerechnet wird mit ALLEN Trainingstagen des Kontos (weeklyGoalStreak laeuft rueckwaerts,
+    // solange das Pensum getroffen ist) und mit demselben `planned` wie die Woche darueber -
+    // eine zweite Rechnung waere genau die doppelte Buchfuehrung, die CRITIC K1 verbietet.
+    weeksInRow: weeklyGoalStreak(
+      db.all(`SELECT DISTINCT sl.date d FROM set_logs sl WHERE sl.user_id=? AND ${SQL_REAL_SL} AND sl.date<=?`, [uid, end < today ? end : today]).map(r => r.d),
+      planned, end < today ? end : today),
     xp,
     highlights: [], focus: null,
     prev: weekBrief(uid, isoAddDays(start, -7), firstSeen),
@@ -6505,7 +9375,7 @@ function weekView(uid, startMonday) {
 function weekBrief(uid, monday, firstSeen) {
   const start = mondayOf(monday), end = isoAddDays(start, 6);
   if (firstSeen && end < firstSeen) return { sessions: null, avgKcal: null, weightDelta: null, avgSleep: null };
-  const days = db.all('SELECT DISTINCT date FROM set_logs WHERE user_id=? AND reps>0 AND date>=? AND date<=?', [uid, start, end]);
+  const days = db.all(`SELECT DISTINCT date FROM set_logs WHERE user_id=? AND ${SQL_REAL} AND date>=? AND date<=?`, [uid, start, end]);
   const fl = db.all('SELECT date, SUM(kcal) k FROM food_log WHERE user_id=? AND date>=? AND date<=? GROUP BY date', [uid, start, end]);
   const cis = db.all('SELECT date, weight, sleep FROM checkins WHERE user_id=? AND date>=? AND date<=? ORDER BY date', [uid, start, end]);
   const w = cis.filter(c => c.weight != null), sl = cis.map(c => c.sleep).filter(v => v != null).map(Number);
@@ -6519,7 +9389,7 @@ function weekBrief(uid, monday, firstSeen) {
 app.get('/api/week/:userId', auth, (req, res) => {
   const uid = Number(req.params.userId);
   if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
-  const raw = req.query.start ? String(req.query.start) : mondayOf(tzToday());
+  const raw = req.query.start ? String(req.query.start) : userWeekStart(uid);   // B-k: seine Woche
   if (!isDate(raw)) return res.status(400).json({ error: 'Ungültiges Datum' });
   // Ein gültiges Datum ist noch kein sinnvolles: `?start=9999-12-31` besteht isDate und ließe die
   // Rhythmus-Simulation über Millionen Tage laufen – der Single-Thread bedient währenddessen niemanden.
@@ -6538,6 +9408,442 @@ app.get('/api/week/:userId', auth, (req, res) => {
   res.json(view);
 });
 
+
+/* ============================================================================
+   3.0.0 · WOCHENBERICHT: EINE RECHNUNG, ZWEI TONLAGEN (Welle B-I, BUILD-B1 4.4 · B-b)
+   ============================================================================
+   Der Athlet will einen Rueckblick, der Coach eine Review-Inbox - und beide reden ueber dieselbe
+   Woche. Bis 2.9.0 gab es dafuer zwei getrennte Wege: `weekView()` fuer den Athleten und die
+   Coach-Liste mit ihren eigenen Zahlen. Dass dabei fuer dieselbe Woche zwei verschiedene Zahlen
+   herauskamen, steht schon in `athleteWeekGoal()` als Kommentar ("der Coach las eine andere Zahl
+   als der Athlet"). Hier wird die Frage grundsaetzlich beantwortet: EINE Berechnung, und die Rolle
+   des Fragenden entscheidet nur ueber die WORTE.
+   Die Zahlen kommen aus `weekView()` - kein zweiter Rechenweg, keine doppelte Buchfuehrung (CRITIC
+   K1). Dazu kommen drei Dinge, die weekView nicht kennt, weil der Athlet sie nicht als Liste braucht:
+   offene Beschwerden, ungelesene Nachrichten und die Zahl der Check-ins.
+   `tone` sagt ausdruecklich, in welcher Stimme geantwortet wurde - eine Ansicht soll nicht raten
+   muessen, ob sie gerade den Athleten oder den Coach vor sich hat. */
+const WEEKREPORT_TONES = ['athlet', 'coach'];
+function weekReport(uid, monday, tone) {
+  const w = weekView(uid, monday);
+  if (!w) return null;
+  const u = getUserFull(uid);
+  const start = w.start, end = w.end;
+  const name = String(u?.name || '').trim() || 'Der Athlet';
+  // Beschwerden dieser Woche + der offene Bestand. Beides zaehlt: eine Notiz von heute ist neu,
+  // eine acht Wochen alte offene Notiz ist das eigentliche Versaeumnis (dieselbe Unterscheidung
+  // wie in `athleteAttention`, D37).
+  const flagsWeek = db.get('SELECT COUNT(*) c FROM exercise_notes WHERE user_id=? AND flagged=1 AND date>=? AND date<=?', [uid, start, end])?.c || 0;
+  const flagsOpen = db.get('SELECT COUNT(*) c FROM exercise_notes WHERE user_id=? AND flagged=1', [uid])?.c || 0;
+  const flagList = db.all(`SELECT en.date, e.name FROM exercise_notes en LEFT JOIN exercises e ON e.id=en.exercise_id
+    WHERE en.user_id=? AND en.flagged=1 ORDER BY en.date DESC LIMIT 5`, [uid])
+    .map(r => ({ date: r.date, exercise: r.name || null }));
+  // Ungelesene Nachrichten - getrennt nach Richtung, weil „der Athlet hat drei Fragen offen" und
+  // „der Coach hat drei Antworten ungelesen" fuer die Review zwei verschiedene Saetze sind.
+  const unreadForAthlete = db.get('SELECT COUNT(*) c FROM messages WHERE user_id=? AND read=0', [uid])?.c || 0;
+  const unreadFromAthlete = u?.coach_id
+    ? (db.get('SELECT COUNT(*) c FROM messages WHERE user_id=? AND from_id=? AND read=0', [u.coach_id, uid])?.c || 0) : 0;
+  const checkins = db.get('SELECT COUNT(*) c FROM checkins WHERE user_id=? AND date>=? AND date<=?', [uid, start, end])?.c || 0;
+  // Compliance: drei Quoten, jede mit ihrem Nenner daneben. Eine einzelne „87 %" waere genau die
+  // Zahl ohne Herkunft, die P3 verbietet - deshalb steht zu jeder Quote, woraus sie entstand.
+  const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
+  const compliance = {
+    training: { done: w.training.sessions, planned: w.training.planned, pct: pct(w.training.sessions, w.training.planned) },
+    nutrition: { daysLogged: w.nutrition.daysLogged, onTarget: w.nutrition.onTargetDays, pct: pct(w.nutrition.daysLogged, 7),
+      targetKcal: w.nutrition.targetKcal, avgKcal: w.nutrition.avgKcal },
+    checkins: { done: checkins, of: 7, pct: pct(checkins, 7) },
+  };
+  const du = tone === 'athlet';
+  // Die Ueberschrift. Beide Tonlagen sagen DASSELBE - die eine zu dir, die andere ueber ihn.
+  const headline = du
+    ? (w.training.sessions >= w.training.planned && w.training.planned > 0
+        ? 'Deine Woche steht: ' + w.training.sessions + ' von ' + w.training.planned + ' Einheiten.'
+        : w.training.sessions + ' von ' + (w.training.planned || '–') + ' Einheiten diese Woche.')
+    : name + ': ' + w.training.sessions + '/' + (w.training.planned || '–') + ' Einheiten, '
+      + w.nutrition.daysLogged + '/7 Tage geloggt' + (flagsOpen ? ', ' + flagsOpen + ' offene Beschwerde' + (flagsOpen === 1 ? '' : 'n') : '');
+  const lines = [];
+  const kg = v => String(Math.round(Number(v) * 10) / 10).replace('.', ',') + ' kg';
+  if (w.training.prs?.length) lines.push(du ? w.training.prs.length + ' neue Bestleistung' + (w.training.prs.length === 1 ? '' : 'en') + ' – gut gemacht.'
+    : w.training.prs.length + ' neue Bestleistung' + (w.training.prs.length === 1 ? '' : 'en') + '.');
+  if (w.body.delta != null) lines.push(du ? 'Gewicht: ' + (w.body.delta > 0 ? '+' : '') + kg(w.body.delta) + ' über die Woche.'
+    : 'Gewicht ' + (w.body.delta > 0 ? '+' : '') + kg(w.body.delta) + ' (aus ' + w.body.weightDays.start + '/' + w.body.weightDays.end + ' Wiegungen).');
+  // „Nur 0 Tage gelogged" war die erste Fassung und las sich wie ein Vorwurf ueber etwas, das gar
+  // nicht stattgefunden hat. Null ist ein eigener Fall und bekommt einen eigenen Satz.
+  if (w.nutrition.daysLogged === 0) lines.push(du ? 'Diese Woche noch nichts gelogged – die Ernährungszahlen bleiben deshalb leer.'
+    : 'Kein einziger Logtag – zur Ernährung lässt sich diese Woche nichts sagen.');
+  else if (w.nutrition.daysLogged < 4) lines.push(du ? 'Nur ' + w.nutrition.daysLogged + ' Tage gelogged – daraus lässt sich wenig ablesen.'
+    : 'Nur ' + w.nutrition.daysLogged + ' Logtage – die Ernährungszahlen sind nicht belastbar.');
+  if (flagsOpen) lines.push(du ? flagsOpen + ' Übungsnotiz' + (flagsOpen === 1 ? '' : 'en') + ' wartet auf deinen Coach.'
+    : flagsOpen + ' offene Beschwerde' + (flagsOpen === 1 ? '' : 'n') + ' – die älteste seit ' + (flagList[flagList.length - 1]?.date || '?') + '.');
+  if (du && unreadForAthlete) lines.push(unreadForAthlete + ' ungelesene Nachricht' + (unreadForAthlete === 1 ? '' : 'en') + ' im Postfach.');
+  if (!du && unreadFromAthlete) lines.push(unreadFromAthlete + ' ungelesene Nachricht' + (unreadFromAthlete === 1 ? '' : 'en') + ' von ' + name + '.');
+  return {
+    tone, start, end, current: w.current, userId: uid,
+    // Name NUR in der Coach-Tonlage: der Athlet weiss, wie er heisst, und eine Antwort, die ihn
+    // nicht braucht, traegt ihn auch nicht mit sich herum (Datenminimierung, RATE-coach 16).
+    name: du ? null : name,
+    headline, lines,
+    compliance,
+    training: w.training, nutrition: w.nutrition, body: w.body, health: w.health,
+    streak: w.streak, weeksInRow: w.weeksInRow,
+    complaints: { week: flagsWeek, open: flagsOpen, latest: flagList },
+    messages: { unreadForAthlete, unreadFromAthlete },
+    highlights: w.highlights, focus: w.focus,
+    prev: w.prev, prevStart: w.prevStart, nextStart: w.nextStart,
+    // Woher die Zahlen kommen - EIN Satz, wie P3 ihn verlangt, direkt in der Antwort.
+    basis: 'Einheiten = Tage mit mindestens einem Arbeitssatz. Logtage = Tage mit mindestens einem Eintrag im Essprotokoll. Gewicht aus den Check-ins der Woche.',
+  };
+}
+app.get('/api/weekreport/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  // Die Tonlage ergibt sich aus der ROLLE, nicht aus einem Parameter: sonst koennte sich ein Client
+  // die Coach-Fassung (mit Namen) auch als Athlet holen. `?tone=` darf nur NACH UNTEN schalten -
+  // ein Coach, der die Athleten-Fassung sehen will, um zu wissen, was sein Athlet liest.
+  const wish = str(req.query.tone, 10);
+  const mayCoach = req.user.id !== uid;
+  let tone = mayCoach ? 'coach' : 'athlet';
+  if (WEEKREPORT_TONES.includes(wish) && (wish === 'athlet' || mayCoach)) tone = wish;
+  const raw = req.query.start ? String(req.query.start) : userWeekStart(uid);
+  if (!isDate(raw)) return res.status(400).json({ error: 'Ungültiges Datum' });
+  if (Math.abs(daysBetween(userToday(uid), raw)) > MAX_RANGE_DAYS) return res.status(400).json({ error: 'Datum außerhalb des Zeitraums' });
+  const thisMon = userWeekStart(uid);
+  const startMon = mondayOf(raw) > thisMon ? thisMon : mondayOf(raw);
+  const view = weekReport(uid, startMon, tone);
+  if (!view) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
+  res.json(view);
+});
+
+/* ============================================================================
+   3.0.0 · ADAPTIVE ERNAEHRUNGSZIELE (Welle B-I, BUILD-B1 4.3 · B-d)
+   ============================================================================
+   Bis 2.9.0 war das Kalorienziel eine FORMEL: Groesse, Gewicht, Alter, Ziel, Trainingstage rein,
+   Zahl raus (`nutritionPlan`). Die Formel ist ein guter Startwert und eine schlechte Messung - sie
+   kennt weder den Stoffwechsel dieses Menschen noch das, was er tatsaechlich isst. Alles, was man
+   dafuer braucht, liegt seit Jahren in der Datenbank: Gewicht aus den Check-ins, Kalorien aus dem
+   Essprotokoll. `tdeeFromTrend()` rechnet daraus den gemessenen Verbrauch, `adaptTargets()` macht
+   daraus einen Vorschlag (hoechstens ±100 kcal je Woche, Protein an g/kg gebunden, Fett nie unter
+   der Untergrenze). Beides steht in logic.js (Paket B-I.1) - hier ist nur die Leitung.
+   DREI REGELN, und sie sind der ganze Unterschied zu „die App aendert dein Ziel":
+     1. `target_mode='formel'` (Standard) heisst: es wird GERECHNET, aber nichts geaendert. Der
+        Vorschlag steht als Zeile mit Status `vorschlag` da und wartet auf „Übernehmen".
+     2. `target_mode='adaptiv'` heisst: der Athlet hat zugestimmt, dass die Anpassung wirkt - ausser
+        er hat einen Coach. Dann wartet sie auf DESSEN Freigabe, und der Coach bekommt eine Nachricht.
+     3. `holding` aus tdeeFromTrend (weniger als vier Logtage) heisst: es wird NICHT angepasst, und
+        der Grund steht im Klartext daneben („Zu wenig gelogged diese Woche - ich lasse dein Ziel
+        stehen."). Eine Anpassung auf duenner Datenlage ist schlimmer als keine.
+   Widerrufbar ist alles: jede Zeile in `target_history` ist eine eigene Zeile, „Behalten" setzt sie
+   auf `abgelehnt`, und `POST /api/targets/:userId/revert` holt das vorige Ziel zurueck. */
+const TARGET_MODES = ['formel', 'adaptiv'];
+const TDEE_WINDOW = 14;      // Tage, die in die Schaetzung gehen (zwei Wochen glaetten den Wochenrhythmus)
+// Die Rohdaten fuer tdeeFromTrend - EINE Abfrage je Reihe, nicht eine je Tag.
+function tdeeInput(uid, end, days = TDEE_WINDOW) {
+  const from = isoAddDays(end, -(days - 1));
+  const weights = db.all('SELECT date, weight FROM checkins WHERE user_id=? AND weight IS NOT NULL AND date>=? AND date<=? ORDER BY date', [uid, from, end])
+    .map(r => ({ date: r.date, weight: r.weight }));
+  const kcals = db.all('SELECT date, SUM(kcal) kcal FROM food_log WHERE user_id=? AND date>=? AND date<=? GROUP BY date ORDER BY date', [uid, from, end])
+    .map(r => ({ date: r.date, kcal: Math.round(r.kcal || 0) }));
+  // GEMESSEN (Welle B-I): Hier stand `to: end`. `tdeeFromTrend` liest aber `today` - `to` ist ein
+  // RUECKGABE-Feld, kein Eingabefeld. Ohne `today` faellt das Fenster still auf den LETZTEN TAG MIT
+  // DATEN zurueck (`all[all.length-1]`), und damit kippt die wichtigste Schutzregel der ganzen
+  // Rechnung: `holding`. Gemessen an einem Konto mit Daten bis 06.09. und einer leeren Bewertungswoche
+  // 07.-13.09.: Fenster 24.08.-06.09., logDays7 = 7, holding = false, Ziel 2.400 -> 2.350 kcal. Mit
+  // `today` gerechnet: Fenster 31.08.-13.09., logDays7 = 0, holding = true, „Nur 0 von 7 Tagen
+  // protokolliert - ich lasse dein Ziel stehen." Wer eine Woche nichts eintraegt, bekommt sonst eine
+  // Anpassung auf Daten aus der Woche davor - genau der Fall, den `holding` verhindern soll.
+  // `from`/`to` bleiben zusaetzlich drin: sie stehen in Pruefskripten und Berichten.
+  return { weights, kcals, days, today: end, from, to: end };
+}
+// Das Ziel, das gerade GILT: die juengste aktive Zeile aus target_history, sonst die Formel.
+// Die Formel bleibt die Untergrenze der Auskunft - ein Konto ohne Historie hat trotzdem ein Ziel.
+function currentTarget(uid, u) {
+  u = u || getUserFull(uid);
+  if (!u) return null;
+  let row = null;
+  if (hasTable('target_history')) {
+    try { row = db.get("SELECT * FROM target_history WHERE user_id=? AND status='aktiv' ORDER BY week_start DESC, id DESC LIMIT 1", [uid]); } catch (e) { row = null; }
+  }
+  const formula = planTargets(u, 'training');
+  if (!row) return { kcal: formula.kcal, protein: formula.protein, carbs: formula.carbs, fat: formula.fat,
+    source: 'formel', reason: null, week_start: null, id: null, formula };
+  return { kcal: row.kcal, protein: row.protein, carbs: row.carbs, fat: row.fat,
+    source: row.source, reason: row.reason, week_start: row.week_start, id: row.id, formula };
+}
+// Ein Wochenlauf fuer EINEN Athleten. Rueckgabe sagt immer, was passiert ist und warum - auch
+// „nichts", denn genau das muss die Oberflaeche erklaeren koennen.
+function targetsWeeklyFor(uid, monday) {
+  if (!hasTable('target_history')) return { ok: false, reason: 'Tabelle target_history fehlt' };
+  if (typeof LOGIC.tdeeFromTrend !== 'function' || typeof LOGIC.adaptTargets !== 'function')
+    return { ok: false, reason: 'Rechenkern (logic.js) ohne tdeeFromTrend/adaptTargets' };
+  const u = getUserFull(uid);
+  if (!u) return { ok: false, reason: 'Nutzer nicht gefunden' };
+  const week = monday || userWeekStart(uid);
+  // Schon fuer diese Woche gerechnet? Dann nicht noch einmal - sonst haette ein Neustart am Montag
+  // drei Vorschlaege derselben Woche erzeugt, und der Athlet wuesste nicht, welcher gilt.
+  const had = db.get('SELECT id,status FROM target_history WHERE user_id=? AND week_start=? AND source=? ORDER BY id DESC LIMIT 1', [uid, week, 'adaptiv']);
+  if (had) return { ok: true, skipped: 'schon gerechnet', id: had.id, status: had.status, week_start: week };
+  const end = isoAddDays(week, -1);            // die ABGELAUFENE Woche ist die Datengrundlage
+  const inp = tdeeInput(uid, end);
+  const t = LOGIC.tdeeFromTrend(inp);
+  // Der gemessene Verbrauch wird immer festgehalten - auch wenn nicht angepasst wird. Er ist die
+  // Zahl, die die Oberflaeche erklaert ("dein Verbrauch liegt bei etwa 2.610 kcal").
+  if (t.tdee != null) { try { db.run('UPDATE users SET tdee_est=?, tdee_est_at=? WHERE id=?', [t.tdee, new Date().toISOString(), uid]); } catch (e) {} }
+  if (t.holding) return { ok: true, holding: true, week_start: week, tdee: t.tdee, reason: t.holdReason || t.reason, logDays: t.logDays };
+  const cur = currentTarget(uid, u);
+  const kg = currentWeight(u);
+  // GEMESSEN (Welle B-I, mehrfach gemeldet): Dieser Aufruf uebergab vier von acht Werten, die
+  // `adaptTargets` braucht. Jeder fehlende Wert schaltet stillschweigend eine Regel ab, die der
+  // Rechenkern hat und die README und Karte dem Nutzer versprechen:
+  //   * `tdeeFormula` fehlt  -> ADAPT_PLAUSIBLE_BAND (35 %) ist toter Code. Gemessen an Konto 2:
+  //     gemessene 1.890 gegen gerechnete 3.017 kcal (37,4 % auseinander, weil Mahlzeiten fehlen) -
+  //     das Ziel fiel Woche fuer Woche um 100 kcal, ohne dass irgendwo ein Fehler sichtbar wurde.
+  //   * `floorKcal` fehlt    -> es gilt nur die harte Kante 1.200 kcal statt der Untergrenze aus
+  //     nutritionPlan (Grundumsatz/Praxisgrenze, D26). Gemessen: zwoelf Wochenlaeufe fuehrten auf
+  //     1.270/1.070 kcal - unterhalb der eigenen Untergrenze von 1.818, und `floored` blieb false,
+  //     der Satz „Weiter runter geht dein Ziel nicht" erschien also nie.
+  //   * `daysPerWeek` fehlt  -> der Ziel-Faktor rechnet fuer JEDEN Athleten mit vier Trainingstagen.
+  //     Sechs Einheiten landen dauerhaft 60 kcal zu tief, zwei Einheiten 60 kcal zu hoch.
+  //   * `trendKgPerWeek` fehlt -> der Begruendungssatz faellt immer auf den Verbrauchs-Zweig
+  //     („Dein gemessener Verbrauch liegt bei …"). Der Satz aus BUILD-B1 4.3 („Dein Gewicht ist
+  //     3 Wochen gleich geblieben – 120 kcal mehr.") konnte gar nicht entstehen.
+  // Die Formelrechnung ist DIESELBE, aus der `currentTarget().formula` seinen Block holt
+  // (planTargets -> nutritionPlan), nur hier mit `tdee` und `kcalFloor`, die planTargets nicht
+  // durchreicht. Zwei Rechnungen gibt es damit nicht - es ist ein zweiter Aufruf derselben.
+  const nut = nutritionPlan({ gender: u.gender, weightKg: kg, heightCm: u.height_cm,
+    age: ageFromDob(u.dob), goal: u.goal, daysPerWeek: weeklyRateOf(u) });
+  const a = LOGIC.adaptTargets({ current: { kcal: cur.kcal, protein: cur.protein, carbs: cur.carbs, fat: cur.fat },
+    tdee: t.tdee, goal: u.goal, weeksInPhase: weeksInPhase(uid), weightKg: kg, heightCm: u.height_cm,
+    daysPerWeek: weeklyRateOf(u), trendKgPerWeek: t.trendKgPerWeek,
+    floorKcal: nut.kcalFloor, tdeeFormula: nut.tdee });
+  if (!a || a.changed === false) return { ok: true, holding: false, noChange: true, week_start: week,
+    tdee: t.tdee, tdeeFormula: nut.tdee, implausible: !!a?.implausible, reason: a?.reason || t.reason };
+  // `conflict` sagt: Eiweiss und Fett belegen zusammen mehr Energie, als das Ziel hat - die Makros
+  // ueberschreiten also die eigenen Kalorien. Gemessen in 60.000 Laeufen 2.637-mal, und ohne
+  // Zufallszahlen etwa bei Frau, 120 kg, 165 cm, fatloss: 1.300 kcal Ziel, 172 g Eiweiss, 84 g Fett,
+  // 0 g Kohlenhydrate - Summe 1.444 kcal. Der Rechenkern setzt das Feld seit 3.0.0; gelesen wurde es
+  // nicht, die Zeile ging trotzdem als Vorschlag in `target_history`. Behandelt wird es jetzt wie
+  // `implausible`: kein Vorschlag, dafuer ein ehrlicher Satz.
+  if (a.conflict) return { ok: true, holding: false, noChange: true, conflict: true, week_start: week,
+    tdee: t.tdee, tdeeFormula: nut.tdee,
+    reason: 'Bei ' + a.kcal + ' kcal passen Eiweiß und Fett rechnerisch nicht mehr unter dein Ziel – '
+      + 'das wäre eine Zahl, die sich selbst widerspricht. Dein Ziel bleibt, wie es ist; sprich mit deinem Coach über die Makros.' };
+  // Wirkt die Anpassung sofort, oder wartet sie? Drei Zustaende, EINE Entscheidung an dieser Stelle.
+  const mode = TARGET_MODES.includes(u.target_mode) ? u.target_mode : 'formel';
+  const needsCoach = mode === 'adaptiv' && !!u.coach_id;
+  const status = (mode === 'adaptiv' && !needsCoach) ? 'aktiv' : 'vorschlag';
+  const r = db.run(`INSERT INTO target_history(user_id,week_start,kcal,protein,carbs,fat,source,reason,status)
+    VALUES(?,?,?,?,?,?,'adaptiv',?,?)`, [uid, week, a.kcal, a.protein, a.carbs, a.fat, a.reason, status]);
+  if (status === 'aktiv') applyTargetRow(uid, { kcal: a.kcal });
+  // Nachricht: an den Coach, wenn er freigeben muss; sonst an den Athleten, damit die Karte nicht
+  // erst beim naechsten Oeffnen der App auffaellt. Kein Push-Gewitter - je eine Nachricht.
+  try {
+    if (needsCoach) {
+      db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+        [u.coach_id, uid, 'system', 'Zielanpassung wartet auf dich',
+         'Für ' + (u.name || 'deinen Athleten') + ' schlägt die Rechnung ' + a.kcal + ' kcal vor. ' + a.reason]);
+    } else if (status === 'vorschlag') {
+      db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)',
+        [uid, uid, 'system', 'Vorschlag für dein Kalorienziel', a.reason + ' Du entscheidest: übernehmen oder behalten.']);
+    }
+  } catch (e) {}
+  return { ok: true, id: r.lastInsertRowid, week_start: week, status, needsCoach, mode,
+    tdee: t.tdee, confidence: t.confidence, target: { kcal: a.kcal, protein: a.protein, carbs: a.carbs, fat: a.fat },
+    reason: a.reason, capped: !!a.capped };
+}
+// Wie lange laeuft die aktuelle Phase schon? adaptTargets braucht es, um bei einer langen Diaet
+// vorsichtiger zu werden. Naeherung ueber die aelteste Zielzeile derselben Phase; ohne Historie 1.
+function weeksInPhase(uid) {
+  try {
+    const first = db.get("SELECT MIN(week_start) w FROM target_history WHERE user_id=? AND status<>'abgelehnt'", [uid])?.w;
+    if (!first) return 1;
+    const n = Math.floor(daysBetween(first, userToday(uid)) / 7) + 1;
+    return Number.isFinite(n) && n > 0 ? Math.min(52, n) : 1;
+  } catch (e) { return 1; }
+}
+// Die KURZE Fassung des geltenden Ziels: nur die Zahlen und ihre Herkunft, ohne den `formula`-Block.
+// Warum getrennt: `currentTarget()` traegt die volle Formel-Auskunft mit (`note`, `missing`,
+// `kcalAsk`) - richtig in der Auskunftsroute, falsch in der Antwort auf eine HANDLUNG. Gemeldet aus
+// Paket B-I.4 (DEFER-B1): `POST /api/targets/:userId/revert` lieferte dadurch ein Feld `note`, und
+// `roles.mjs` zaehlte es als neue Personendatenausgabe - bei 2.9.0 waren es null. Der Hinweistext
+// selbst ist harmlos („Startwert - trag deine Groesse ein …", DEFER-A1 Geist 2), aber eine
+// Bestaetigung muss keine ganze Ansicht mitschicken. Wer die Formel-Auskunft braucht, holt
+// GET /api/targets/:userId - dort steht sie, und dort ist sie in der Erwartungstabelle als `pd`
+// eingetragen.
+function slimTarget(uid) {
+  const t = currentTarget(uid);
+  if (!t) return null;
+  const { formula, ...rest } = t;
+  return rest;
+}
+// Ein aktives Ziel in die Spalten schreiben, die der Rest der App liest. BEIDE Tagtypen, im selben
+// Verhaeltnis wie bisher: ein Ruhetagsziel ueber dem Trainingstagsziel waere ein Widerspruch, den
+// niemand erklaeren koennte (derselbe Grund steht in planTargets, D10).
+function applyTargetRow(uid, t) {
+  const u = getUserFull(uid);
+  if (!u || !t?.kcal) return false;
+  const train = Math.round(t.kcal);
+  // GEMESSEN (Welle B-I): Bis hierher wurde der ABSOLUTE Abstand zwischen Trainings- und Ruhetag
+  // gehalten (`tr - rs`). Damit laeuft das Verhaeltnis mit jeder Anpassung weiter von der eigenen
+  // Tabelle weg. Echte Uebernahme an Konto 2: vorher 3.017/2.600, danach 2.920/2.503 - Verhaeltnis
+  // 0,8572 gegen GOAL_KCAL.muscle 1,05/1,12 = 0,9375; nach der eigenen Tabelle waeren es 2.737 kcal,
+  // also 234 kcal Unterschied. In Woche 12 einer Abstiegsbahn war das Verhaeltnis bei 0,8425.
+  // Aufgeteilt wird deshalb ueber dieselbe Tabelle, aus der auch nutritionPlan und adaptTargets ihre
+  // Faktoren nehmen (GOAL_KCAL in logic.js, B-I.1 hat diese Aufteilung ausdruecklich hierher gegeben).
+  const gk = (typeof LOGIC.goalKcal === 'function' ? LOGIC.goalKcal(u.goal) : null) || { train: 1, rest: 0.95 };
+  const ratio = Number(gk.train) > 0 && Number(gk.rest) > 0 ? Number(gk.rest) / Number(gk.train) : 0.95;
+  // Untergrenze: dieselbe wie ueberall (Grundumsatz bzw. Praxisgrenze aus nutritionPlan), nicht die
+  // fruehere feste 1000. Ein Ruhetagsziel unter der Untergrenze der App waere derselbe Fehler wie der,
+  // den `floorKcal` in adaptTargets gerade behebt - nur eine Zeile spaeter.
+  let floor = 0;
+  try {
+    floor = Math.round(nutritionPlan({ gender: u.gender, weightKg: currentWeight(u), heightCm: u.height_cm,
+      age: ageFromDob(u.dob), goal: u.goal, daysPerWeek: weeklyRateOf(u) }).kcalFloor) || 0;
+  } catch (e) { floor = 0; }
+  const rest = Math.min(train, Math.max(floor || 1000, Math.round(train * ratio)));
+  db.run('UPDATE users SET kcal_target_train=?, kcal_target_rest=? WHERE id=?', [train, rest, uid]);
+  return true;
+}
+// ---- Auskunft: was gilt, was wartet, was war. ----
+app.get('/api/targets/:userId', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const u = getUserFull(uid);
+  if (!u) return res.status(404).json({ error: 'Nutzer nicht gefunden' });
+  const mode = TARGET_MODES.includes(u.target_mode) ? u.target_mode : 'formel';
+  const available = hasTable('target_history') && typeof LOGIC.tdeeFromTrend === 'function';
+  let pending = null, history = [];
+  if (hasTable('target_history')) {
+    try {
+      pending = db.get("SELECT * FROM target_history WHERE user_id=? AND status='vorschlag' ORDER BY id DESC LIMIT 1", [uid]) || null;
+      history = db.all('SELECT id,week_start,kcal,protein,carbs,fat,source,reason,status,approved_by,created_at,decided_at FROM target_history WHERE user_id=? ORDER BY id DESC LIMIT 20', [uid]);
+    } catch (e) {}
+  }
+  res.json({
+    available, mode, modes: TARGET_MODES, hasCoach: !!u.coach_id,
+    current: currentTarget(uid, u),
+    tdee: u.tdee_est ?? null, tdeeAt: u.tdee_est_at || null,
+    pending: pending ? { ...pending, needsCoach: mode === 'adaptiv' && !!u.coach_id } : null,
+    history,
+    // Der Satz unter dem Schalter. Er steht hier und nicht im Client, damit Ernaehrungsansicht und
+    // Coach-Ansicht nicht zwei verschiedene Versprechen geben.
+    modeText: mode === 'adaptiv'
+      ? (u.coach_id ? 'Die Anpassung wird berechnet und wartet auf die Freigabe deines Coachs.' : 'Die Anpassung wirkt automatisch – höchstens 100 kcal pro Woche, jederzeit widerrufbar.')
+      : 'Dein Ziel bleibt stehen. Die Rechnung läuft trotzdem und legt dir einen Vorschlag hin.',
+  });
+});
+// ---- Der Schalter. NUR der Athlet selbst: ob eine Automatik an seinem Essen dreht, entscheidet
+// nicht sein Coach (B24, und STRATEGY P10). ----
+app.post('/api/targets/:userId/mode', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  if (!ownRecordOnly(req, res, uid)) return;
+  const mode = str(req.body?.mode, 10);
+  if (!TARGET_MODES.includes(mode)) return res.status(400).json({ error: 'mode muss „formel" oder „adaptiv" sein' });
+  db.run('UPDATE users SET target_mode=? WHERE id=?', [mode, uid]);
+  auditLog(req.user, 'targets.mode', 'user', uid, { mode });
+  res.json({ ok: true, mode });
+});
+// ---- Uebernehmen / Behalten. Der Athlet entscheidet ueber seinen eigenen Vorschlag; hat er einen
+// Coach und steht der Modus auf „adaptiv", ist es die Freigabe des Coaches (`approved_by`). ----
+app.post('/api/targets/:userId/decide', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  if (!hasTable('target_history')) return res.status(503).json({ error: 'Nicht verfügbar' });
+  const id = Number(req.body?.id);
+  const accept = req.body?.accept === true;
+  const row = id ? db.get('SELECT * FROM target_history WHERE id=? AND user_id=?', [id, uid])
+    : db.get("SELECT * FROM target_history WHERE user_id=? AND status='vorschlag' ORDER BY id DESC LIMIT 1", [uid]);
+  if (!row) return res.status(404).json({ error: 'Kein offener Vorschlag' });
+  if (row.status !== 'vorschlag') return res.status(409).json({ error: 'Dieser Vorschlag ist schon entschieden', status: row.status });
+  const isCoach = req.user.id !== uid;
+  // GEMESSEN (Welle B-I): Die Karte sagt dem Coach „der Vorschlag wartet auf ihn, nicht auf dich",
+  // wenn `needsCoach` false ist - der Server hielt sich nicht daran und nahm die Entscheidung
+  // trotzdem an. Gemessen bei mode='formel': Coach schickt decide{accept:true}, Ziel faellt von
+  // 3.173 auf 3.080 und der Athlet liest „Dein Coach hat die Anpassung freigegeben." Das ist genau
+  // der Fall, den B24/P10 ausschliessen: eine Automatik am eigenen Essen entscheidet der Athlet.
+  // `needsCoach` wird hier neu gerechnet, nicht vom Client uebernommen - dieselbe Bedingung wie in
+  // targetsWeeklyFor und GET /api/targets/:userId.
+  if (isCoach) {
+    const uRow = getUserFull(uid);
+    const mode = TARGET_MODES.includes(uRow?.target_mode) ? uRow.target_mode : 'formel';
+    const needsCoach = mode === 'adaptiv' && !!uRow?.coach_id;
+    if (!needsCoach) return res.status(409).json({ error: 'Diese Entscheidung gehört dem Athleten',
+      message: 'Solange die Anpassung nicht auf deine Freigabe wartet, entscheidet der Athlet selbst, ob sein Ziel sich ändert.',
+      needsCoach: false, mode });
+  }
+  db.tx(() => {
+    if (accept) {
+      // GEMESSEN BEIM BAUEN: die allererste Uebernahme schrieb 2.920 kcal in die Profilspalten, und
+      // „Widerrufen" fand danach keine Vorgaengerzeile - der Widerruf setzte den Vorschlag auf
+      // „abgelehnt" und liess die 2.920 stehen. Der Ausgangswert war naemlich nie eine Zeile: er kam
+      // aus dem Profil bzw. der Formel. Also bekommt er eine, BEVOR die erste Anpassung wirkt.
+      // Damit ist auch „jede Zielaenderung ist nachvollziehbar" erst wirklich wahr - die Historie
+      // faengt beim Ausgangswert an und nicht beim ersten Eingriff.
+      const hasBase = db.get("SELECT id FROM target_history WHERE user_id=? AND status IN ('aktiv','abgeloest') LIMIT 1", [uid]);
+      if (!hasBase) {
+        const base = currentTarget(uid);
+        db.run(`INSERT INTO target_history(user_id,week_start,kcal,protein,carbs,fat,source,reason,status,decided_at)
+          VALUES(?,?,?,?,?,?,'formel',?, 'abgeloest', datetime('now'))`,
+          [uid, row.week_start, base.kcal, base.protein, base.carbs, base.fat,
+           'Ausgangswert vor der ersten Anpassung – aus deinem Profil bzw. der Formel.']);
+      }
+      // Es gilt immer genau EINE Zeile: die vorige aktive wird abgeloest, nicht geloescht.
+      db.run("UPDATE target_history SET status='abgeloest', decided_at=datetime('now') WHERE user_id=? AND status='aktiv'", [uid]);
+      db.run("UPDATE target_history SET status='aktiv', approved_by=?, decided_at=datetime('now') WHERE id=?", [isCoach ? req.user.id : null, row.id]);
+    } else {
+      db.run("UPDATE target_history SET status='abgelehnt', approved_by=?, decided_at=datetime('now') WHERE id=?", [isCoach ? req.user.id : null, row.id]);
+    }
+  });
+  if (accept) applyTargetRow(uid, row);
+  auditLog(req.user, accept ? 'targets.accept' : 'targets.keep', 'user', uid, { id: row.id });
+  // Der Athlet erfaehrt die Entscheidung seines Coaches - sonst aendert sich sein Ziel, ohne dass
+  // er weiss, warum (P3: jede Zahl braucht einen Satz, woher sie kommt).
+  if (isCoach) {
+    try {
+      db.run('INSERT INTO messages(user_id,from_id,kind,title,body) VALUES(?,?,?,?,?)', [uid, req.user.id, 'system',
+        accept ? 'Dein Kalorienziel wurde angepasst' : 'Dein Kalorienziel bleibt',
+        accept ? (row.reason || '') + ' Dein Coach hat die Anpassung freigegeben.' : 'Dein Coach lässt dein Ziel vorerst stehen.']);
+    } catch (e) {}
+  }
+  res.json({ ok: true, accepted: accept, id: row.id, current: slimTarget(uid) });
+});
+// ---- Widerrufen: die vorige Zielzeile wieder gelten lassen. Kein Sonderweg - dieselbe Mechanik
+// wie „Uebernehmen", nur rueckwaerts, und ausschliesslich fuer den Athleten selbst. ----
+app.post('/api/targets/:userId/revert', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  if (!ownRecordOnly(req, res, uid)) return;
+  if (!hasTable('target_history')) return res.status(503).json({ error: 'Nicht verfügbar' });
+  const active = db.get("SELECT * FROM target_history WHERE user_id=? AND status='aktiv' ORDER BY id DESC LIMIT 1", [uid]);
+  if (!active) return res.status(404).json({ error: 'Es gilt gerade kein gespeichertes Ziel – es rechnet die Formel.' });
+  // Der Vorgaenger ist die ZULETZT abgeloeste Zeile, nicht die mit der naechstkleineren Id: der
+  // Ausgangswert wird erst beim ersten Uebernehmen nachgetragen und hat deshalb eine HOEHERE Id als
+  // der Vorschlag, den er abloest. Sortiert wird darum nach dem Zeitpunkt der Abloesung.
+  const prev = db.get("SELECT * FROM target_history WHERE user_id=? AND id<>? AND status='abgeloest' ORDER BY decided_at DESC, id DESC LIMIT 1", [uid, active.id]);
+  db.tx(() => {
+    db.run("UPDATE target_history SET status='abgelehnt', decided_at=datetime('now') WHERE id=?", [active.id]);
+    if (prev) db.run("UPDATE target_history SET status='aktiv', decided_at=datetime('now') WHERE id=?", [prev.id]);
+  });
+  if (prev) applyTargetRow(uid, prev);
+  auditLog(req.user, 'targets.revert', 'user', uid, { id: active.id, back_to: prev?.id ?? null });
+  res.json({ ok: true, reverted: active.id, back_to: prev?.id ?? null, current: slimTarget(uid) });
+});
+// ---- Von Hand anstossen (Coach oder Athlet). Derselbe Lauf wie sonntags - EINE Rechnung. ----
+app.post('/api/targets/:userId/run', auth, (req, res) => {
+  const uid = Number(req.params.userId);
+  if (!canAccessPersonal(req.user, uid)) return res.status(403).json({ error: 'Kein Zugriff' });
+  const r = targetsWeeklyFor(uid, str(req.body?.week, 10) || userWeekStart(uid));
+  res.json(r);
+});
+// Der Wochenlauf ueber alle Athleten - haengt am selben Sonntagsfenster wie die Wochen-Nachricht.
+function targetsWeekly() {
+  let n = 0, changed = 0;
+  for (const a of db.all("SELECT id FROM users WHERE role='athlete'")) {
+    try { const r = targetsWeeklyFor(a.id, null); n++; if (r?.id) changed++; } catch (e) { /* ein Konto stuerzt den Lauf nicht */ }
+  }
+  if (changed) console.log('[ziele] ' + changed + ' Vorschlaege aus ' + n + ' Konten');
+  return { n, changed };
+}
 /* ---------------- MINDSET (2.0.0) ---------------- */
 // Priming, Kurz-Tools, Rad des Lebens, Vital-Challenge, Arbeitsblaetter, Erinnerungs-Einstellungen.
 // Muss VOR dem /api/*-404 stehen; sendPush/getUserFull/canAccess sind Funktionsdeklarationen (gehoistet).
@@ -6832,8 +10138,34 @@ try {
 // Technik-Definitionen (statisch, aus deiner Tabelle)
 const DEFINITIONS_RAW = [{"term": "Sets", "def": "Anzahl der Sätze in der jeweiligen Übung"}, {"term": "Reps", "def": "Anzahl der Wdh in den jeweiligen Sätzen"}, {"term": "RIR", "def": "RIR = Reps in reserve. So viele Wiederholungen sollst du in den jeweiligen Sätzen noch im Tank lassen. Bsp. RIR 1 = Noch eine Wiederholung am Ende vom Satz im Tank lassen"}, {"term": "Notes", "def": "Hier stehen weitere Informationen zur jeweiligen Übung. Notizen vor dem Ausführen der Übung (grau hinterlegt) und Notizen nach dem Ausführen der Übung (weiß hinterlegt)."}, {"term": "Technique", "def": "Hier können Links zu Technikvideos, Hinweise zur Trainingsintensität oder andere Informationen zur Ausführung der Übung stehen."}, {"term": "Weight", "def": "Hier steht das jeweilige Gewicht welches du verwendet hast"}, {"term": "Reps S.1,2,3,4,5,6,...", "def": "Hier stehen die Wiederholungen die im jeweiligen Satz absolviert hast."}, {"term": "TEMPO \nW,X,Y,Z (Bsp.0,1,2,0)", "def": "TEMPO = die Kadenz des jeweiligen Satzes. Diese wird im Schema (W,X,Y,Z) beschrieben. W=Zeit der Exzentrik der Wdh, X=Zeit im statischen Halten am Punkt der maximalen Exzentrik, Y=Zeit der Konzentrik der Wdh, Z=Zeit im statischen Halten im Punkt der maximalen Konzentrik."}, {"term": "Average RIR", "def": "Gesamt Wiederholungen der jeweiligen Übung"}, {"term": "Session RIR", "def": "Subjektive Wahrnehmung der Intensität der jeweiligen Trainingsheit. Von 0=Mittagsschlaf bis 10=Fast gestorben"}, {"term": "MRP*2", "def": "Ein Satz mit zwei kurzen Pausen (ca. 5 Atemzüge), in jedem Satz wird dabei aufs Versagen trainiert. "}, {"term": "Meso", "def": "Mesozyklus XY (Komplex aus Mikrozyklen/Trainingswochen)"}, {"term": "Soreness", "def": "Ermüdung der Muskelgruppe vor Training (dt. Muskelkater/Ermüdung)"}, {"term": "DB", "def": "Dumbbell (dt. Kurzhantel)"}, {"term": "BB", "def": "Barbell (dt. Langhantel)"}, {"term": "SZ", "def": "SZ-Stange"}, {"term": "SA", "def": "Single Arm (einarmig)"}, {"term": "Widowmaker", "def": "Für einen Widowmaker nimmst du dir ein Gewicht, welches du kontinuierlich (siehe unten) 8-12x bewegen kannst. Nun versuchst du mit diesem Gewicht 15-20 Reps zu erreichen, indem du deinen kontinuierlichen Satz mit Intra-Set Pausen ausweitest. Aus 8-12 wird nun also 8-12 + 2 + 2 + 2 + 1 + 1 + Fail (beispielsweise, das \"+\" steht für Atemzüge)"}, {"term": "Continuous Reps", "def": "Kontinuierliche Wiederholungen sind Reps, die ohne eine sogenannte \"Intra-Set\" Pause ausgeführt werden. Damit sind die Atempausen zwischen den Reps gemeint. Wird ein Satz also \"continuous\" ausgeführt, wird dieser ohne Pause im oberen und unteren Punkt ausgeführt. Viel Stimulus in wenig Zeit (und mit wenig Ermüdung)."}, {"term": "Rest Pause", "def": "Ein Rest-Pause Set besteht aus Aktivierungssatz, der in einer Rep Range (bspw. 10-15) ans Versagen durchgeführt wird, gefolgt von Minisätzen, wo wiederholt ans Versagen trainiert wird. Sieht z.B. so aus, dass mit einem Gewicht 12 Reps erzielt und dann 5 tiefe Atemzüge Pause gemacht werden (Gewicht abgelegt) - dann erneut Versagen, etc."}, {"term": "Paired Set", "def": "Ein gepaarter Satz ist kein Supersatz. Du wählst Übungen, die mit einer dazwischenliegenden Pause absolviert werden. Anstatt Übung A - Pause - Übung A - Pause, etc. zu machen, führst du Übung A - Pause - Übung B - Pause - Übung A - Pause - etc. durch. Dies hat zur Folge, dass sich die einzelnen Muskelgruppen etwas erholen können."}, {"term": "Drop-Set", "def": "Nach deinem letzten Arbeitssatz reduzierst du das Gewicht um 30% und machst nach rund 10-20s einen weiteren Satz direkt im Anschluss. Dieser muss nicht in der gegebenen Rep Range landen, sondern einfach nur ans Versagen durchgeführt werden. Diese Technik erlaubt für metabolische Reize und ein höheres Volumen."}, {"term": "Double Drop-Set", "def": "Siehe Drop Set - du reduzierst das Gewicht allerdings 2x."}, {"term": "Tripple Drop-Set", "def": "Siehe Drop Set - du reduzierst das Gewicht allerdings 3x."}, {"term": "Partials", "def": "Partials sind inkomplette Wiederholungen. Wenn du ein Gewicht nicht mehr über die volle ROM bewegen kannst, dann bewegst du es also nur mehr so weit, wie du es mit voller Kontrolle (und ohne Schwung) bewegen kannst. Diese Wiederholungen zählst du allerdings nicht und beziehst sie nicht in die \"Progression\" mit ein."}, {"term": "UP", "def": "Umkehrpunkt – die Wende der Wiederholungsrichtung."}];
 // kind: 'technique' = im Übungsformular als Technik wählbar; 'term' = reiner Lexikon-Begriff (Spaltenname o.ä.)
+// 'form'  = Technik-Karte einer Grunduebung (FORM_GUIDES in logic.js, seit 2.8.0). Sie steht bewusst
+//           NICHT im Technik-Auswahlfeld des Uebungsformulars: „Kniebeuge" ist keine Intensitaetstechnik,
+//           die ein Coach an eine beliebige Uebung haengt. Die Oberflaeche filtert ueber `kind`.
 const TECHNIQUE_TERMS = new Set(['Widowmaker', 'Continuous Reps', 'Rest Pause', 'Paired Set', 'Drop-Set', 'Double Drop-Set', 'Tripple Drop-Set', 'Partials', 'UP', 'MRP*2']);
-const DEFINITIONS = DEFINITIONS_RAW.map(d => ({ ...d, kind: TECHNIQUE_TERMS.has(d.term) || /^TEMPO/.test(d.term) ? 'technique' : 'term' }));
+const DEFINITIONS = DEFINITIONS_RAW.map(d => ({ ...d, kind: TECHNIQUE_TERMS.has(d.term) || /^TEMPO/.test(d.term) ? 'technique' : 'term' }))
+  .concat(FORM_GUIDES.map(g => ({ term: g.term, def: formGuideDef(g), kind: 'form',
+    cues: g.cues || [], errs: g.errs || [], note: g.note || '' })));
+
+// B3 (gemessen): Ohne `DB_PATH` und `BACKUP_DIR` - also genau so, wie START.bat den Server startet -
+// liegt `backups/` IM PROJEKTORDNER. Marcos dokumentierter Weg ist Projektordner -> GitHub -> Render:
+// in diesem Ordner liegen dann vollstaendige Kopien der Datenbank (Passwort-Hashes, Gesundheitsdaten,
+// Fotos, Freitexte) genau dort, wo als naechstes hochgeladen wird. `.gitignore` traegt `backups/`
+// seit 3.0.0; damit das aber auch derjenige merkt, der den Ordner per Hand kopiert oder zippt, sagt
+// es der Server beim Start. Einmal, laut, ohne Pfadinhalt ausser dem Ordnernamen selbst.
+function backupWarnInProject() {
+  try {
+    const proj = path.resolve(path.join(__dirname, '..'));
+    const dir = path.resolve(backupDir());
+    const rel = path.relative(proj, dir);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+      console.warn('[sicherung] WARNUNG: Die Sicherungen landen IM Projektordner (' + rel.replace(/\\/g, '/') + ').');
+      console.warn('[sicherung] Dieser Ordner gehoert nie in das, was du hochlaedst oder verschickst – er enthaelt die ganze Datenbank.');
+      console.warn('[sicherung] Setz BACKUP_DIR auf einen Ordner ausserhalb des Projekts, oder loesch ihn vor jedem Upload.');
+    }
+  } catch (e) { /* eine Warnung darf keinen Start verhindern */ }
+}
+backupWarnInProject();
+backupReconcile();   // B2: beim Start Verzeichnis und Tabelle in Uebereinstimmung bringen
 
 app.listen(PORT, () => {
   console.log(`\n  BE INEVITABLE läuft auf http://localhost:${PORT}\n`);

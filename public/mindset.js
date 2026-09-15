@@ -9,15 +9,26 @@
    ===================================================================== */
 
 // ===== §2 Rad des Lebens (identisch mit Backend) =====
+// `icon` ist seit 2.8.0 ein NAME aus ICONS (core.js), kein Zeichen. Gezeichnet wird ueberall mit
+// mIco() – ein monochromer Strichglyph statt eines Farb-Emoji. Grund (B6 / BUILD-A4 6.5): auf EINEM
+// Bildschirm standen bis 2.7.0 beide Sprachen nebeneinander – „Abend-Reflexion" als icon('moon')
+// und 900 px hoeher dieselbe Bedeutung als Farb-Emoji. Emoji bleiben nur in Feier-Momenten
+// (celebrate()). Die Schluessel und die Reihenfolge sind unveraendert (Vertrag mit src/mindset.js).
 const WHEEL_AREAS = [
-  { key:'body',          n:1, label:'Physischer Körper',        short:'Körper',     icon:'💪', color:'#e10600' },
-  { key:'emotions',      n:2, label:'Gefühle & Bedeutung',      short:'Gefühle',    icon:'🧠', color:'#bf5af2' },
-  { key:'relationships', n:3, label:'Beziehungen',              short:'Beziehungen',icon:'❤️', color:'#ff375f' },
-  { key:'time',          n:4, label:'Zeit',                     short:'Zeit',       icon:'⏳', color:'#ff9f0a' },
-  { key:'career',        n:5, label:'Arbeit / Karriere / Mission', short:'Karriere', icon:'🎯', color:'#ffd60a' },
-  { key:'finances',      n:6, label:'Finanzen',                 short:'Finanzen',   icon:'💰', color:'#30d158' },
-  { key:'contribution',  n:7, label:'Zelebrieren & Beitragen',  short:'Beitrag',    icon:'🌍', color:'#0a84ff' },
+  { key:'body',          n:1, label:'Physischer Körper',        short:'Körper',     icon:'dumbbell',  color:'#e10600' },
+  { key:'emotions',      n:2, label:'Gefühle & Bedeutung',      short:'Gefühle',    icon:'brain',     color:'#bf5af2' },
+  { key:'relationships', n:3, label:'Beziehungen',              short:'Beziehungen',icon:'heart',     color:'#ff375f' },
+  { key:'time',          n:4, label:'Zeit',                     short:'Zeit',       icon:'hourglass', color:'#ff9f0a' },
+  { key:'career',        n:5, label:'Arbeit / Karriere / Mission', short:'Karriere', icon:'target',   color:'#ffd60a' },
+  { key:'finances',      n:6, label:'Finanzen',                 short:'Finanzen',   icon:'wallet',    color:'#30d158' },
+  { key:'contribution',  n:7, label:'Zelebrieren & Beitragen',  short:'Beitrag',    icon:'globe',     color:'#0a84ff' },
 ];
+// Ein Glyph aus ICONS, mit Notnagel: mindset.js wird als Modul NACH core.js geladen, aber falls
+// icon() wider Erwarten fehlt, darf hier kein leerer String stehenbleiben und erst recht kein Absturz.
+function mIco(name,size,cls){
+  try{ if(typeof icon==='function'){ const s=icon(name,size||20,cls); if(s) return s; } }catch(e){}
+  return '';
+}
 // Kurze Erklärung je Bereich (eigene Worte) – für die Slider im Rad-Formular
 const WHEEL_DESC = {
   body:'Energie, Fitness, Schlaf – wie wohl du dich in deinem Körper fühlst.',
@@ -32,25 +43,25 @@ const WHEEL_DESC = {
 // ===== §3 Vital-Challenge (identisch mit Backend) =====
 const CHALLENGE_RULES = [
   // Geschenke (give yourself)
-  { id:'breath',    group:'gift',  icon:'🌬️', label:'3× Power-Atmung (1-4-2)',        hint:'Dreimal am Tag 10 Atemzüge: 1 einatmen · 4 halten · 2 ausatmen (z.B. 5 s / 20 s / 10 s).', auto:'breath3' },
-  { id:'move',      group:'gift',  icon:'🤸', label:'20–30 Min. Bewegung / Rebounding', hint:'Lymphe aktivieren: Trampolin, Seilspringen, zügiges Gehen.', auto:null },
+  { id:'breath',    group:'gift',  icon:'wind', label:'3× Power-Atmung (1-4-2)',        hint:'Dreimal am Tag 10 Atemzüge: 1 einatmen · 4 halten · 2 ausatmen (z.B. 5 s / 20 s / 10 s).', auto:'breath3' },
+  { id:'move',      group:'gift',  icon:'footprints', label:'20–30 Min. Bewegung / Rebounding', hint:'Lymphe aktivieren: Trampolin, Seilspringen, zügiges Gehen.', auto:null },
   // D42: „Hälfte des Körpergewichts" ist die Unzen-Faustregel und ergibt in Kilogramm gelesen das
   // Fünfzehnfache (80 kg → 40 L statt 2,6 L). Muss mit src/mindset.js übereinstimmen.
-  { id:'water',     group:'gift',  icon:'💧', label:'Wasser: rund 0,03 L je kg Körpergewicht', hint:'Etwa 0,033 L pro Kilogramm Körpergewicht – bei 80 kg sind das rund 2,6 L am Tag. Zitrone rein.', auto:'water' },
-  { id:'living',    group:'gift',  icon:'🥗', label:'70 % lebendige, wasserreiche Nahrung', hint:'Gemüse, Salat, Obst, Sprossen – der Großteil des Tellers.', auto:null },
-  { id:'fats',      group:'gift',  icon:'🥑', label:'Gute Fette & Omega-3',            hint:'Avocado, Oliven, Nüsse, Samen, natives Olivenöl, Fischöl.', auto:null },
-  { id:'alkaline',  group:'gift',  icon:'🌿', label:'Basische, mineralstoffreiche Kost', hint:'Grünes Blattgemüse, Gemüse, Obst, Nüsse statt säurebildender Lebensmittel.', auto:null },
-  { id:'strength',  group:'gift',  icon:'🏋️', label:'Krafttraining (3×/Woche)',        hint:'Ganzkörper-Krafteinheiten – wird aus deinem Trainingslog erkannt.', auto:'strength' },
-  { id:'cardio',    group:'gift',  icon:'🏃', label:'30 Min. Ausdauer (3×/Woche)',      hint:'Wird aus deinem Cardio-Log erkannt.', auto:'cardio' },
-  { id:'stretch',   group:'gift',  icon:'🧘', label:'Dehnen & Ausrichtung',             hint:'Nicht den ganzen Tag sitzen: öfter aufstehen, Treppe statt Aufzug, täglich dehnen – beide Seiten und die Gegenspieler-Muskeln.', auto:null },
-  { id:'mind',      group:'gift',  icon:'🛡️', label:'Wache am Tor deines Geistes',      hint:'Stärkende Emotionen bewusst wählen (Dankbarkeit, Mut, Entschlossenheit), Stress-Muster unterbrechen.', auto:null },
-  { id:'heart',     group:'gift',  icon:'💓', label:'3× Herzfokus',                     hint:'Dreimal am Tag kurz innehalten und Aufmerksamkeit auf das Herz richten (zusammen mit der Power-Atmung).', auto:'breath3' },
-  { id:'gratitude', group:'gift',  icon:'🙏', label:'Tag mit Dankbarkeit starten & beenden', hint:'Morgen-Priming + Abend-Reflexion in der App.', auto:'gratitude' },
+  { id:'water',     group:'gift',  icon:'droplet', label:'Wasser: rund 0,03 L je kg Körpergewicht', hint:'Etwa 0,033 L pro Kilogramm Körpergewicht – bei 80 kg sind das rund 2,6 L am Tag. Zitrone rein.', auto:'water' },
+  { id:'living',    group:'gift',  icon:'bowl', label:'70 % lebendige, wasserreiche Nahrung', hint:'Gemüse, Salat, Obst, Sprossen – der Großteil des Tellers.', auto:null },
+  { id:'fats',      group:'gift',  icon:'apple', label:'Gute Fette & Omega-3',            hint:'Avocado, Oliven, Nüsse, Samen, natives Olivenöl, Fischöl.', auto:null },
+  { id:'alkaline',  group:'gift',  icon:'leaf', label:'Basische, mineralstoffreiche Kost', hint:'Grünes Blattgemüse, Gemüse, Obst, Nüsse statt säurebildender Lebensmittel.', auto:null },
+  { id:'strength',  group:'gift',  icon:'dumbbell', label:'Krafttraining (3×/Woche)',        hint:'Ganzkörper-Krafteinheiten – wird aus deinem Trainingslog erkannt.', auto:'strength' },
+  { id:'cardio',    group:'gift',  icon:'run', label:'30 Min. Ausdauer (3×/Woche)',      hint:'Wird aus deinem Cardio-Log erkannt.', auto:'cardio' },
+  { id:'stretch',   group:'gift',  icon:'meditate', label:'Dehnen & Ausrichtung',             hint:'Nicht den ganzen Tag sitzen: öfter aufstehen, Treppe statt Aufzug, täglich dehnen – beide Seiten und die Gegenspieler-Muskeln.', auto:null },
+  { id:'mind',      group:'gift',  icon:'shield', label:'Wache am Tor deines Geistes',      hint:'Stärkende Emotionen bewusst wählen (Dankbarkeit, Mut, Entschlossenheit), Stress-Muster unterbrechen.', auto:null },
+  { id:'heart',     group:'gift',  icon:'heart', label:'3× Herzfokus',                     hint:'Dreimal am Tag kurz innehalten und Aufmerksamkeit auf das Herz richten (zusammen mit der Power-Atmung).', auto:'breath3' },
+  { id:'gratitude', group:'gift',  icon:'sparkles', label:'Tag mit Dankbarkeit starten & beenden', hint:'Morgen-Priming + Abend-Reflexion in der App.', auto:'gratitude' },
   // Gifte (avoid)
-  { id:'no_procfat', group:'poison', icon:'🚫', label:'Keine verarbeiteten Fette',      hint:'Frittiertes, gehärtete Fette, Fertigprodukte streichen.', auto:null },
-  { id:'no_meat',    group:'poison', icon:'🥩', label:'Kein Fleisch (10 Tage)',          hint:'Optional – passt nicht zu jedem Ernährungsziel. Danach: 3–5×/Woche, saubere Quelle, mit Gemüse.', auto:null, default:false },
-  { id:'no_dairy',   group:'poison', icon:'🥛', label:'Milchprodukte reduzieren',        hint:'Alternativen wie Hafer-, Reis- oder Mandelmilch testen.', auto:null, default:false },
-  { id:'no_acid',    group:'poison', icon:'☕', label:'Keine säurebildenden Abhängigkeiten', hint:'Übermäßiges Koffein, Zucker, Weißmehl/Verarbeitetes, Essig, Alkohol, Nikotin, Drogen.', auto:null },
+  { id:'no_procfat', group:'poison', icon:'ban', label:'Keine verarbeiteten Fette',      hint:'Frittiertes, gehärtete Fette, Fertigprodukte streichen.', auto:null },
+  { id:'no_meat',    group:'poison', icon:'meat', label:'Kein Fleisch (10 Tage)',          hint:'Optional – passt nicht zu jedem Ernährungsziel. Danach: 3–5×/Woche, saubere Quelle, mit Gemüse.', auto:null, default:false },
+  { id:'no_dairy',   group:'poison', icon:'glass', label:'Milchprodukte reduzieren',        hint:'Alternativen wie Hafer-, Reis- oder Mandelmilch testen.', auto:null, default:false },
+  { id:'no_acid',    group:'poison', icon:'coffee', label:'Keine säurebildenden Abhängigkeiten', hint:'Übermäßiges Koffein, Zucker, Weißmehl/Verarbeitetes, Essig, Alkohol, Nikotin, Drogen.', auto:null },
 ];
 
 // ===== Offizielle Links (exakt wie im Spec) =====
@@ -64,12 +75,12 @@ const MIND_LINKS = [
 
 // ===== Die 6 Grundbedürfnisse (eigene Kurzbeschreibungen) =====
 const MIND_NEEDS = [
-  { key:'certainty',    icon:'🛡️', label:'Gewissheit / Sicherheit', group:'p', desc:'Kontrolle, Stabilität, Schmerz vermeiden, Komfort.' },
-  { key:'variety',      icon:'🎲', label:'Abwechslung',            group:'p', desc:'Überraschung, Reiz, Neues, Herausforderung.' },
-  { key:'significance', icon:'🏆', label:'Bedeutsamkeit',          group:'p', desc:'Wichtig sein, gebraucht werden, herausragen.' },
-  { key:'connection',   icon:'❤️', label:'Verbindung / Liebe',     group:'p', desc:'Nähe, Zugehörigkeit, geliebt werden.' },
-  { key:'growth',       icon:'🌱', label:'Wachstum',               group:'s', desc:'Lernen, besser werden, sich entwickeln.' },
-  { key:'contribution', icon:'🤝', label:'Beitrag',                group:'s', desc:'Über sich hinaus geben, für andere da sein.' },
+  { key:'certainty',    icon:'shield',    label:'Gewissheit / Sicherheit', group:'p', desc:'Kontrolle, Stabilität, Schmerz vermeiden, Komfort.' },
+  { key:'variety',      icon:'dice',      label:'Abwechslung',            group:'p', desc:'Überraschung, Reiz, Neues, Herausforderung.' },
+  { key:'significance', icon:'trophy',    label:'Bedeutsamkeit',          group:'p', desc:'Wichtig sein, gebraucht werden, herausragen.' },
+  { key:'connection',   icon:'heart',     label:'Verbindung / Liebe',     group:'p', desc:'Nähe, Zugehörigkeit, geliebt werden.' },
+  { key:'growth',       icon:'sprout',    label:'Wachstum',               group:'s', desc:'Lernen, besser werden, sich entwickeln.' },
+  { key:'contribution', icon:'handshake', label:'Beitrag',                group:'s', desc:'Über sich hinaus geben, für andere da sein.' },
 ];
 
 // ===== Frage des Tages – eigener Fragen-Pool (deterministisch nach Tag im Jahr) =====
@@ -216,7 +227,7 @@ function mStepsTxt(res){ const d=+(res&&res.steps_done)||0, t=+(res&&res.steps_t
 function mindVibrate(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||200); }catch(e){} }
 function mReducedMotion(){ try{ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } }
 function mParse(v,fallback){ if(v==null) return fallback; if(typeof v==='object') return v; try{ return JSON.parse(v); }catch(e){ return fallback; } }
-function mindLink(l){ return `<a class="mind-link" href="${l.url}" target="_blank" rel="noopener">↗ ${esc2(l.label)}</a>`; }
+function mindLink(l){ return `<a class="mind-link" href="${l.url}" target="_blank" rel="noopener">${mIco('link',14)} ${esc2(l.label)}</a>`; }
 function mindLinks(keys){ return `<div class="mind-links">${MIND_LINKS.filter(l=>!keys||keys.includes(l.key)).map(mindLink).join('')}</div>`; }
 // Leer-/Fehlerzustand über den gemeinsamen Helfer (name = Icon-Name aus icon(), kein Emoji)
 function mindEmpty(name,title,sub,action,label){
@@ -402,10 +413,16 @@ async function drawMindHeute(){
   // Uhrzeit geprueft wurde. Jetzt gilt: ab 17 Uhr ohne Reflexion gewinnt der Abend, 12–17 Uhr ist das
   // Priming nur noch ein Nachholen (sekundaerer Knopf), vor 12 Uhr ist es der Morgen. Gleiche Reihenfolge
   // wie im Home-Widget (mindsetHomeWidget), damit Home und Mindset-Reiter nie Verschiedenes sagen.
-  let hEye='\u{1F9E0} Priming', hTitle, hMeta, hCta='', hMinChip=false;
+  // Die Augenbraue des Hero war die LETZTE Emoji-Stelle der Datei – und die einzige, die der
+  // Quelltext-Zaehler von accent.mjs nie gesehen hat: sie stand als \u-Fluchtsequenz da, also als
+  // ASCII, waehrend im DOM ein Farb-Emoji ankam (gemessen: Ansicht „mindset", 1 Emoji, div.eyebrow).
+  // Genau deshalb zaehlt das Werkzeug zweimal – im Quelltext UND im gerenderten DOM.
+  // `.today .eyebrow` ist seit A-IV.5 ein Flex-Container mit gap:7px (app.css:660), der Glyph steht
+  // also ohne Zusatzregel sauber vor dem Wort.
+  let hEye=mIco('brain',16)+'Priming', hTitle, hMeta, hCta='', hMinChip=false;
   const skipNote=primSkipped?' · heute übersprungen':'';
   if(!eve&&hour>=17){
-    hEye='\u{1F319} Abend';
+    hEye=mIco('moon',16)+'Abend';
     hTitle='Abend-Reflexion';
     hMeta=eveSkipped?'2 Minuten · der letzte Durchlauf war zu kurz':'2 Minuten · ohne Tippen';
     if(own) hCta=`<button class="btn block" onclick="openEvening()">Abend-Reflexion starten</button>`;
@@ -420,7 +437,7 @@ async function drawMindHeute(){
     hMinChip=true;
     if(own) hCta=`<button class="btn block sec" onclick="openPriming()">Priming nachholen</button>`;
   } else if(prim&&eve){
-    hEye='\u2728 Geschafft';
+    hEye=mIco('sparkles',16)+'Geschafft';
     hTitle='Tag abgerundet ✓';
     hMeta=`${mMin(prim.duration_sec)} Priming${streakTxt?' · '+streakTxt:''}`;
     if(own) hCta=`<button class="btn ghost inline" onclick="openPriming()">Priming wiederholen</button>`;
@@ -432,7 +449,7 @@ async function drawMindHeute(){
       : `<button class="btn ghost inline" onclick="openPriming()">Priming wiederholen</button>`;
   } else {
     // Abend erledigt, Priming fehlt (oder war zu kurz) – nach 17 Uhr ist der Morgen vorbei
-    hEye='\u{1F319} Abend';
+    hEye=mIco('moon',16)+'Abend';
     hTitle='Abend-Reflexion erledigt ✓';
     hMeta='Morgen früh: Priming für deinen Start';
     if(own) hCta=`<button class="btn ghost inline" onclick="openPriming()">Priming nachholen</button>`;
@@ -572,7 +589,7 @@ async function mindQuestionDone(id){
 }
 function openPrimingVideo(){
   openSheet('Priming mit Tony',`
-    <div class="mind-sheet-ic" aria-hidden="true">🧠</div>
+    <div class="mind-sheet-ic" aria-hidden="true">${mIco('brain',40)}</div>
     <div class="note">Priming ist die 10-Minuten-Morgenroutine von Tony Robbins: Atmung, Dankbarkeit, Visualisierung. Hier findest du die offiziellen Quellen und Videos – zum Mitmachen oder als Einstieg.</div>
     ${mindLinks(['priming','guide','video1','video2'])}
     ${mindOwn()?`<button class="btn block mt-4" onclick="closeAllSheets();openPriming()">Lieber mit der App-Anleitung</button>`:''}`);
@@ -697,10 +714,14 @@ function mindPlayerOpen(cfg){
   const ov=document.createElement('div');
   ov.id='primingOverlay'; ov.className='mind-player'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-label',cfg.title||'Mindset'); ov.setAttribute('data-noswipe','');
   const R=88, C=(2*Math.PI*R).toFixed(1);
+  // `cfg.extraTool` (A-IV.0): fertiges HTML fuer EINEN zusaetzlichen 44-px-Knopf in der Werkzeugzeile,
+  // links von Signalton und Schliessen. Die Atmung haengt dort ihr Tempo hinein (mdBreathTempo) –
+  // damit braucht kein Ritual mehr ein Vorschau-Sheet, nur um eine Einstellung anzubieten.
   ov.innerHTML=`
     <div class="mp-top">
       <div class="mp-head"><div class="mp-step" id="mpStep"></div><div class="mp-left" id="mpLeft"></div></div>
       <div class="mp-tools">
+        ${cfg.extraTool||''}
         <button type="button" class="mp-ib" id="mpChime" aria-label="Signalton ${chime?'aus':'an'}" onclick="mindChimeToggle()">${icon(chime?'bell':'volumeX',20)}</button>
         <button type="button" class="mp-ib" aria-label="Schließen" onclick="mindPlayerClose()">${icon('x',20)}</button>
       </div>
@@ -934,7 +955,7 @@ function mindPlayerComplete(res){
   MP.res=res; mindWakeRelease();
   ov.classList.add('mp-done');
   ov.innerHTML=`<div class="mp-center">
-      <div class="mp-done-ic" aria-hidden="true">🧠</div>
+      <div class="mp-done-ic" aria-hidden="true">${mIco('brain',56)}</div>
       <div class="mp-title">${mMin(res.duration_sec)}${mStepsTxt(res)}</div>
       <div class="mp-text" id="mpDoneNote">Wird gespeichert …</div>
     </div>
@@ -1012,7 +1033,10 @@ async function primingSaveNow(res){
     else toast('+'+mindXp(r,8)+' XP · Priming erledigt ✓');
     // Konfetti nur beim allerersten Priming und an den Meilensteinen 7 / 30 Tage
     if(full&&first) setTimeout(()=>celebrate('🧠','Erstes Priming!','Dein Tag hat jetzt eine Richtung.'),300);
-    else if(full&&!already&&(streakNow===7||streakNow===30)) setTimeout(()=>celebrate('🔥',streakNow+' Tage in Folge!','Priming ist jetzt deine Gewohnheit.'),300);
+    // Kein Ausrufezeichen mehr (2.9.0): die Priming-Serie zählt Tage EINES Rituals und ist bewusst
+    // nicht die Konsistenz-Mechanik der App (das ist die Wochen-Konsistenz, CRITIC K10). Sie darf
+    // deshalb auch nicht klingen wie eine – gefeiert wird ein Stand, gedroht wird nirgends.
+    else if(full&&!already&&(streakNow===7||streakNow===30)) setTimeout(()=>celebrate('🔥',pl(streakNow,'Tag','Tage')+' in Folge','Priming ist jetzt deine Gewohnheit.'),300);
     if(typeof refreshAchievements==='function') refreshAchievements();
     mindRefresh();
   } else toast(r.data?.error||'Konnte nicht speichern – gleich nochmal versuchen');
@@ -1024,7 +1048,7 @@ async function primingFinishSheet(res){
   const saved=!!(PRIM_RES&&PRIM_RES.saved), full=!(PRIM_RES&&PRIM_RES.full===false);
   MIND_PICK_ON=id=>{ if(id==='prim_energy') primSaveLabel(); };
   openSheet(full?'Priming erledigt':'Priming übersprungen',`
-    <div class="mind-done"><div class="mind-done-ic" aria-hidden="true">🧠</div><div class="mind-done-t">${mMin(res.duration_sec)}${mStepsTxt(res)}</div><div class="mind-done-s">${saved?(full?'Gespeichert. Dein Tag hat jetzt eine Richtung.':'Gespeichert – gezählt wird es heute nicht, dafür war es zu kurz.'):'Noch nicht gespeichert – „Speichern“ versucht es erneut.'}</div></div>
+    <div class="mind-done"><div class="mind-done-ic" aria-hidden="true">${mIco('brain',52)}</div><div class="mind-done-t">${mMin(res.duration_sec)}${mStepsTxt(res)}</div><div class="mind-done-s">${saved?(full?'Gespeichert. Dein Tag hat jetzt eine Richtung.':'Gespeichert – gezählt wird es heute nicht, dafür war es zu kurz.'):'Noch nicht gespeichert – „Speichern“ versucht es erneut.'}</div></div>
     <div class="section-label">Deine 3 Ergebnisse festhalten (optional)</div>
     <div class="field"><input id="pf_1" maxlength="120" placeholder="Ergebnis 1" aria-label="Ergebnis 1" oninput="primSaveLabel()"></div>
     <div class="field"><input id="pf_2" maxlength="120" placeholder="Ergebnis 2" aria-label="Ergebnis 2" oninput="primSaveLabel()"></div>
@@ -1072,32 +1096,53 @@ async function savePriming(){
   } else { if(btn) btn.disabled=false; toast(r.data?.error||'Konnte nicht speichern – bitte nochmal versuchen'); }
 }
 // ===== §5.3 Power-Atmung 1-4-2 =====
+// A-IV.0 (Dateizuschnitt): Bis 2.7.0 lag vor der Atmung ein Vorschau-Sheet mit einem Knopf
+// „Los geht’s“ – gemessen ZWEI Taps ab der Startseite, obwohl Priming und State-Change seit jeher
+// in EINEM starten (openPriming/openStateChange rufen mindPlayerOpen direkt auf). Das Sheet war das
+// einzige Ritual-Sheet dieser Datei und trug nichts, was der Player nicht selbst zeigt:
+//   · „10 Atemzüge 1 : 4 : 2“ -> die Phasenzeile sagt es live: „Einatmen · Zyklus 1 / 10“, „Halten“, „Ausatmen“
+//   · „Heute: n/3“            -> steht jetzt in der Kopfzeile des Players (mdBreathLabel)
+//   · Tempo Sanft/Standard    -> ein 44-px-Knopf oben im Player (mdBreathTempo), der auch MITTEN im
+//                                Ritual noch wirkt – genau dann, wenn das Halten zu lang wird.
+// Damit startet der Chip auf der Startseite direkt: ein Tap, wie bei den drei anderen Ritualen.
+function mdBreathSoft(){ try{ return localStorage.getItem('be_breath_mode')==='soft'; }catch(e){ return false; } }
+function mdBreathLabel(){
+  const n=Math.min(99,+(MIND_TODAY?.breathCount)||0), tgt=+(MIND_TODAY?.breathTarget)||3;
+  return `Power-Atmung · ${n}/${tgt} · ${mdBreathSoft()?'Sanft':'Standard'}`;
+}
+function mdBreathTempoLabel(){ return mdBreathSoft()?'Tempo: sanft, 4 / 16 / 8 Sekunden – auf Standard wechseln':'Tempo: Standard, 5 / 20 / 10 Sekunden – auf sanft wechseln'; }
 function openBreath(){
   if(!mindOwn()){ toast('Nur im eigenen Konto möglich'); return; }
-  let mode='standard'; try{ mode=localStorage.getItem('be_breath_mode')||'standard'; }catch(e){}
-  const n=MIND_TODAY?.breathCount||0, tgt=MIND_TODAY?.breathTarget||3;
-  openSheet('Power-Atmung 1-4-2',`
-    <div class="mind-sheet-ic" aria-hidden="true">🌬️</div>
-    <div class="note">10 Atemzüge im Verhältnis 1 : 4 : 2 – einatmen, halten, ausatmen. Aufmerksamkeit dabei aufs Herz. Dreimal am Tag, jeweils rund 5–6 Minuten. Heute: <b>${n}/${tgt}</b>.</div>
-    <div class="section-label">Tempo</div>
-    <div class="chip-row wrap" data-noswipe>
-      <button type="button" class="chip${mode==='soft'?' on':''}" aria-pressed="${mode==='soft'}" onclick="breathMode('soft',this)">Sanft · 4 / 16 / 8 s</button>
-      <button type="button" class="chip${mode!=='soft'?' on':''}" aria-pressed="${mode!=='soft'}" onclick="breathMode('standard',this)">Standard · 5 / 20 / 10 s</button>
-    </div>
-    <div class="caption mt-3">Halten fällt schwer? Starte mit „Sanft“ – der Rhythmus zählt, nicht die Sekunden.</div>
-    <button class="btn block mt-4" onclick="startBreath()">Los geht’s</button>`);
-}
-function breathMode(m,btn){
-  try{ localStorage.setItem('be_breath_mode',m); }catch(e){}
-  const wrap=btn?.parentElement; if(wrap) wrap.querySelectorAll('.chip,.mchip').forEach(b=>{ const on=b===btn; b.classList.toggle('on',on); b.setAttribute('aria-pressed',on?'true':'false'); });
+  startBreath();
 }
 function startBreath(){
-  let mode='standard'; try{ mode=localStorage.getItem('be_breath_mode')||'standard'; }catch(e){}
-  const soft=mode==='soft';
+  const soft=mdBreathSoft();
   try{ if(typeof closeAllSheets==='function') closeAllSheets(); else closeModal(); }catch(e){}
-  mindPlayerOpen({ kind:'breath', title:'Power-Atmung', stepLabel:'Power-Atmung 1-4-2',
-    steps:[{ type:'b142', title:'Power-Atmung', cycles:10, inh:soft?4:5, hold:soft?16:20, exh:soft?8:10, text:'Aufmerksamkeit aufs Herz. Ruhig durch die Nase ein, sanft halten, langsam durch den Mund aus.' }],
+  mindPlayerOpen({ kind:'breath', title:'Power-Atmung', stepLabel:mdBreathLabel(),
+    extraTool:`<button type="button" class="mp-ib" id="mpTempo" aria-label="${mdBreathTempoLabel()}" onclick="mdBreathTempo()">${icon('timer',20)}</button>`,
+    steps:[{ type:'b142', title:'Power-Atmung', cycles:10, inh:soft?4:5, hold:soft?16:20, exh:soft?8:10, text:'Aufmerksamkeit aufs Herz. Ruhig durch die Nase ein, sanft halten, langsam durch den Mund aus. Zu lang? Stell das Tempo oben auf „Sanft“.' }],
     abortText:'Atmung abbrechen?', onFinish:saveBreath });
+}
+// Tempo umstellen, ohne das Ritual zu verlassen: der LAUFENDE Atemzug bleibt, wie er ist (ein Sprung
+// mitten im Halten wäre das Gegenteil von ruhig), ab dem nächsten Zyklus gilt das neue Verhältnis.
+// Kein toast() – #toastHost liegt auf z-index 200, der Player auf 500. Die Rückmeldung steht deshalb
+// dort, wo sie sichtbar ist: in der Kopfzeile des Players.
+function mdBreathTempo(){
+  if(!MP||MP.cfg.kind!=='breath') return;
+  const soft=!mdBreathSoft();
+  try{ localStorage.setItem('be_breath_mode',soft?'soft':'standard'); }catch(e){}
+  const st=MP.steps[MP.idx];
+  if(st&&st.type==='b142'){
+    const inh=soft?4:5, hold=soft?16:20, exh=soft?8:10;
+    st.inh=inh; st.hold=hold; st.exh=exh;
+    for(let i=(Math.floor(MP.pi/3)+1)*3;i<st.phases.length;i++){
+      const p=st.phases[i]; p.dur=(p.pacer==='in'?inh:p.pacer==='hold'?hold:exh)*1000;
+    }
+    st.total=st.phases.reduce((a,p)=>a+p.dur,0);
+  }
+  const bt=document.getElementById('mpTempo'); if(bt) bt.setAttribute('aria-label',mdBreathTempoLabel());
+  const sl=document.getElementById('mpStep'); if(sl){ MP.cfg.stepLabel=mdBreathLabel(); sl.textContent=MP.cfg.stepLabel; }
+  mindDraw(true);
 }
 async function saveBreath(res){
   const r=await API.post('/mindset/session',{kind:'breath',date:today(),duration_sec:res.duration_sec,steps_done:1,steps_total:1});
@@ -1122,16 +1167,16 @@ function openStateChange(){
 }
 async function saveState(res){
   const r=await API.post('/mindset/session',{kind:'state',date:today(),duration_sec:res.duration_sec,steps_done:res.steps_done,steps_total:3});
-  if(r.status===200||r.status===201){ toast('+'+mindXp(r,2)+' XP · Zustand gewechselt ⚡'); if(typeof refreshAchievements==='function') refreshAchievements(); mindRefresh(); }
+  if(r.status===200||r.status===201){ toast('+'+mindXp(r,2)+' XP · Zustand gewechselt'); if(typeof refreshAchievements==='function') refreshAchievements(); mindRefresh(); }
   else toast(r.data?.error||'Konnte nicht speichern');
 }
 
 // ===== §5.3 Abend-Reflexion =====
 const EVE_PROMPTS=[
-  { n:1, icon:'🙏', q:'Wofür bist du heute dankbar?', s:'Drei Dinge – groß oder klein. Spür jedes kurz nach.' },
-  { n:2, icon:'📈', q:'Was hast du heute gelernt oder besser gemacht als gestern?', s:'Eine Sache reicht. Fortschritt zählt, nicht Perfektion.' },
-  { n:3, icon:'🤝', q:'Wo hast du heute jemandem etwas gegeben?', s:'Zeit, Aufmerksamkeit, ein ehrliches Wort.' },
-  { n:4, icon:'🎯', q:'Welche drei Ergebnisse zählen morgen?', s:'Sieh sie kurz vor dir – und lass den Tag los.' },
+  { n:1, icon:'sparkles', q:'Wofür bist du heute dankbar?', s:'Drei Dinge – groß oder klein. Spür jedes kurz nach.' },
+  { n:2, icon:'trendUp', q:'Was hast du heute gelernt oder besser gemacht als gestern?', s:'Eine Sache reicht. Fortschritt zählt, nicht Perfektion.' },
+  { n:3, icon:'handshake', q:'Wo hast du heute jemandem etwas gegeben?', s:'Zeit, Aufmerksamkeit, ein ehrliches Wort.' },
+  { n:4, icon:'target', q:'Welche drei Ergebnisse zählen morgen?', s:'Sieh sie kurz vor dir – und lass den Tag los.' },
 ];
 // Wird das Sheet geschlossen (X, Zurück-Geste, Wischen), räumt der Beobachter die Abend-Session auf:
 // sonst überlebt EVE samt 30-Sekunden-Timer und vibriert später ohne sichtbaren Anlass.
@@ -1171,7 +1216,7 @@ async function eveAutoSave(){
     // Eine zweite Reflexion am selben Tag bringt keine XP mehr – dann sagt der Hinweis das auch so.
     // Ein zu kurzer Durchlauf wird gespeichert, zählt aber nicht (B16) und darf nichts anderes behaupten.
     const xp=mindXp(r,5);
-    toast(!E.full?'Zu kurz – gespeichert, aber heute nicht gezählt':(xp>0?'+'+xp+' XP · Tag abgerundet 🌙':'Abend-Reflexion schon erledigt ✓'));
+    toast(!E.full?'Zu kurz – gespeichert, aber heute nicht gezählt':(xp>0?'+'+xp+' XP · Tag abgerundet':'Abend-Reflexion schon erledigt ✓'));
     if(typeof refreshAchievements==='function') refreshAchievements();
     const note=document.getElementById('eveSaveNote'); if(note) note.textContent=E.full?'Deine Reflexion ist schon gezählt – die Angaben hier sind freiwillig.':'Gezählt wird sie heute nicht – dafür war sie zu kurz.';
     const b=document.getElementById('eveSaveBtn'); if(b) b.textContent='Fertig';
@@ -1202,7 +1247,7 @@ function eveDraw(){
     const ok=mindSheetBody(`
       <div class="mind-dots" aria-label="Schritt ${p.n} von ${EVE_PROMPTS.length}">${EVE_PROMPTS.map((x,i)=>`<span class="${i<EVE.i?'done':i===EVE.i?'on':''}"></span>`).join('')}</div>
       <div class="eve-card">
-        <div class="eve-ic" aria-hidden="true">${p.icon}</div>
+        <div class="eve-ic" aria-hidden="true">${mIco(p.icon,44)}</div>
         <div class="eve-q">${esc2(p.q)}</div>
         <div class="eve-s">${esc2(p.s)}</div>
         <div class="soft-bar" aria-hidden="true"><div id="eveBar"></div></div>
@@ -1260,7 +1305,7 @@ async function saveEvening(){
   const dur=Math.max(1,Math.min(7200,Math.round((Date.now()-EVE.start)/1000)));
   const body={kind:'evening',date:today(),duration_sec:dur,steps_done:4,steps_total:4,...patch};
   const r=await API.post('/mindset/session',body);
-  if(r.status===200||r.status===201){ const full=r.data?.full!==false; MIND_PICK_ON=null; closeModal(); EVE=null; const xp=mindXp(r,5); toast(!full?'Zu kurz – gespeichert, aber heute nicht gezählt':(xp>0?'+'+xp+' XP · Tag abgerundet 🌙':'Abend-Reflexion schon erledigt ✓')); if(typeof refreshAchievements==='function') refreshAchievements(); mindRefresh(); }
+  if(r.status===200||r.status===201){ const full=r.data?.full!==false; MIND_PICK_ON=null; closeModal(); EVE=null; const xp=mindXp(r,5); toast(!full?'Zu kurz – gespeichert, aber heute nicht gezählt':(xp>0?'+'+xp+' XP · Tag abgerundet':'Abend-Reflexion schon erledigt ✓')); if(typeof refreshAchievements==='function') refreshAchievements(); mindRefresh(); }
   else { if(btn) btn.disabled=false; toast(r.data?.error||'Konnte nicht speichern'); }
 }
 
@@ -1352,7 +1397,9 @@ function wheelRadarSVG(scores,targets,opts){
   const dots=WHEEL_AREAS.map((a,i)=>{ const p=pt(i,+scores?.[a.key]||0); return `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="${a.color}" stroke="var(--surface)" stroke-width="1.5"/>`; }).join('');
   const labels=WHEEL_AREAS.map((a,i)=>{ const c=Math.cos(ang(i)),s=Math.sin(ang(i)); const x=cx+c*(R+28), y=cy+s*(R+28);
     const anchor=c>0.3?'start':c<-0.3?'end':'middle'; const v=+scores?.[a.key]||0;
-    return `<text x="${x.toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="${anchor}" font-size="11" fill="var(--ink2)">${a.icon} ${esc2(a.short)}</text>
+    // Kein Symbol im SVG-Text: ein <svg> laesst sich nicht in <text> setzen, und ein Farb-Emoji bei
+    // 11 px war ohnehin nur ein Fleck. Der farbige Punkt und die farbige Zahl tragen die Zuordnung.
+    return `<text x="${x.toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="${anchor}" font-size="11" fill="var(--ink2)">${esc2(a.short)}</text>
       <text x="${x.toFixed(1)}" y="${(y+11).toFixed(1)}" text-anchor="${anchor}" font-size="12" font-weight="700" fill="${a.color}">${v}${targets&&targets[a.key]!=null?`<tspan font-weight="400" fill="var(--ink3)"> → ${+targets[a.key]||0}</tspan>`:''}</text>`; }).join('');
   return `<svg class="wheel-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${mAttr(opts.aria||'Rad des Lebens')}" style="${mAttr(opts.style||'')}">${rings}${spokes}${tgt}${main}${dots}${labels}</svg>`;
 }
@@ -1385,13 +1432,13 @@ async function drawMindWheel(){
   const series=data.series||{}, avgSeries=data.avgSeries||[];
   if(!list.length){
     b.innerHTML=`<div class="card center mind-intro">
-      <div class="mind-intro-ic" aria-hidden="true">🎡</div>
+      <div class="mind-intro-ic" aria-hidden="true">${mIco('wheel',52)}</div>
       <div class="h2 mt-2">Rad des Lebens</div>
       <div class="body muted mt-2 mb-4">Sieben Lebensbereiche, ehrlich bewertet von 0 bis 100. Ein rundes Rad rollt – ein eckiges holpert. In zwei Minuten siehst du, wo du stehst und wo die größte Lücke ist.</div>
       ${own?'<button class="btn block" onclick="openWheelNew()">Jetzt bewerten</button>':'<div class="caption">Noch keine Bewertung vorhanden.</div>'}
     </div>
     ${mindRoNote('mb-3')}
-    <div class="section-label">Die 7 Bereiche</div><div class="rows">${WHEEL_AREAS.map(a=>`<div class="row"><div class="r-ic mind-area-ic" aria-hidden="true">${a.icon}</div><div class="rl">${esc2(a.label)}<small>${esc2(WHEEL_DESC[a.key])}</small></div></div>`).join('')}</div>`;
+    <div class="section-label">Die 7 Bereiche</div><div class="rows">${WHEEL_AREAS.map(a=>`<div class="row"><div class="r-ic mind-area-ic" aria-hidden="true">${mIco(a.icon,20)}</div><div class="rl">${esc2(a.label)}<small>${esc2(WHEEL_DESC[a.key])}</small></div></div>`).join('')}</div>`;
     mindCacheView();
     return;
   }
@@ -1406,7 +1453,7 @@ async function drawMindWheel(){
   <div class="tiles grid-3">
     <div class="tile"><div class="v">${st.avg}</div><div class="l">Ø</div></div>
     <div class="tile"><div class="v">${st.balance}</div><div class="l">Balance</div></div>
-    <div class="tile"><div class="v mind-tile-em">${wk?wk.icon+' '+esc2(wk.short):'–'}</div><div class="l">Schwächster</div></div>
+    <div class="tile"><div class="v mind-tile-em">${wk?mIco(wk.icon,16)+' '+esc2(wk.short):'–'}</div><div class="l">Schwächster</div></div>
   </div>
   ${own?'<button class="btn block" onclick="openWheelNew()">Neu bewerten</button>':''}`;
 
@@ -1416,16 +1463,16 @@ async function drawMindWheel(){
     ${metricChart(avgSeries,'Ø',null,null,{step:5,tickFmt:v=>fmtNum(v,0)})}
   </div>
   <div class="rows mb-4">${WHEEL_AREAS.map(a=>{ const v=+last.scores[a.key]||0; const d=prev?v-(+prev.scores[a.key]||0):null; const ser=(series[a.key]||[]).map(x=>x.value);
-    return `<div class="row"><div class="r-ic mind-area-ic" aria-hidden="true">${a.icon}</div><div class="rl">${esc2(a.label)}<small>${deltaPill(d)||'<span class="muted-2">erste Bewertung</span>'}</small></div>
+    return `<div class="row"><div class="r-ic mind-area-ic" aria-hidden="true">${mIco(a.icon,20)}</div><div class="rl">${esc2(a.label)}<small>${deltaPill(d)||'<span class="muted-2">erste Bewertung</span>'}</small></div>
       <div class="rr">${miniSpark(ser,a.color)}<b class="mind-area-v" style="color:${a.color}">${v}</b></div></div>`; }).join('')}</div>`;
 
   // Lücke schließen
   const fa=wheelArea(last.focus_area), sa=wheelArea(last.second_area);
   if(fa||last.actions.length||last.feeling_now||last.feeling_target){
     html+=`<div class="section-label">Lücke schließen</div><div class="card mb-4">
-      ${fa?`<div class="cluster mb-3"><span class="mind-focus-ic" aria-hidden="true">${fa.icon}</span><div><div class="h3">${esc2(fa.label)}</div><div class="meta">Fokusbereich · ${+last.scores[fa.key]||0}${last.targets?' → '+(+last.targets[fa.key]||0):''}</div></div></div>`:''}
+      ${fa?`<div class="cluster mb-3"><span class="mind-focus-ic" aria-hidden="true">${mIco(fa.icon,24)}</span><div><div class="h3">${esc2(fa.label)}</div><div class="meta">Fokusbereich · ${+last.scores[fa.key]||0}${last.targets?' → '+(+last.targets[fa.key]||0):''}</div></div></div>`:''}
       ${wheelActionsHTML(last,own)}
-      ${sa?`<div class="meta mt-2">Danach: ${sa.icon} ${esc2(sa.label)}</div>`:''}
+      ${sa?`<div class="meta mt-2">Danach: ${mIco(sa.icon,16)} ${esc2(sa.label)}</div>`:''}
       ${own&&last.feeling_now?`<div class="mind-quote"><b>Jetzt:</b> ${esc2(last.feeling_now)}</div>`:''}
       ${own&&last.feeling_target?`<div class="mind-quote"><b>Außergewöhnlich:</b> ${esc2(last.feeling_target)}</div>`:''}
       ${own?`<button class="btn sm sec mt-3" onclick="openWheelNew(${+last.id||0})">Bearbeiten</button>`:''}
@@ -1472,8 +1519,8 @@ function openWheelDetail(id){
   let title=''; try{ const d=new Date(String(a.date)+'T00:00'); title=isNaN(d)?String(a.date||''):d.toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'}); }catch(e){ title=String(a.date||''); }
   openSheet(title,`
     ${wheelRadarSVG(scores,targets,{aria:'Rad vom '+a.date})}
-    <div class="tiles grid-3 mt-2"><div class="tile"><div class="v">${a.avg??w.avg}</div><div class="l">Ø</div></div><div class="tile"><div class="v">${a.balance??w.balance}</div><div class="l">Balance</div></div><div class="tile"><div class="v mind-tile-em">${(()=>{const x=wheelArea(a.weakest||w.weakest);return x?x.icon+' '+esc2(x.short):'–';})()}</div><div class="l">Schwächster</div></div></div>
-    ${fa?`<div class="note"><b>Fokus:</b> ${fa.icon} ${esc2(fa.label)}</div>`:''}
+    <div class="tiles grid-3 mt-2"><div class="tile"><div class="v">${a.avg??w.avg}</div><div class="l">Ø</div></div><div class="tile"><div class="v">${a.balance??w.balance}</div><div class="l">Balance</div></div><div class="tile"><div class="v mind-tile-em">${(()=>{const x=wheelArea(a.weakest||w.weakest);return x?mIco(x.icon,16)+' '+esc2(x.short):'–';})()}</div><div class="l">Schwächster</div></div></div>
+    ${fa?`<div class="note"><b>Fokus:</b> ${mIco(fa.icon,16)} ${esc2(fa.label)}</div>`:''}
     ${actions.length?`<div class="section-label">Maßnahmen</div>${wheelActionsHTML(a,own)}`:''}
     ${own&&a.feeling_now?`<div class="mind-quote"><b>Jetzt:</b> ${esc2(a.feeling_now)}</div>`:''}
     ${own&&a.feeling_target?`<div class="mind-quote"><b>Außergewöhnlich:</b> ${esc2(a.feeling_target)}</div>`:''}
@@ -1516,7 +1563,7 @@ function openWheelNew(editId){
 }
 function wheelSliderRow(a,val,which){
   return `<div class="wheel-row">
-    <div class="wheel-row-h"><label for="ws_${which}_${a.key}"><span class="wheel-row-ic" aria-hidden="true">${a.icon}</span>${esc2(a.label)}</label><b id="wv_${which}_${a.key}" style="color:${a.color}">${val}</b></div>
+    <div class="wheel-row-h"><label for="ws_${which}_${a.key}"><span class="wheel-row-ic" aria-hidden="true">${mIco(a.icon,18)}</span>${esc2(a.label)}</label><b id="wv_${which}_${a.key}" style="color:${a.color}">${val}</b></div>
     <input type="range" class="wheel-slider" id="ws_${which}_${a.key}" min="0" max="100" step="5" value="${val}" style="--c:${a.color};--pct:${val}%" aria-label="${mAttr(a.label)}" aria-valuetext="${val} von 100" oninput="wheelSet('${which}','${a.key}',this.value,this)">
     <div class="wheel-row-d">${esc2(WHEEL_DESC[a.key])}</div>
   </div>`;
@@ -1546,10 +1593,10 @@ function wheelFormDraw(){
       <div class="cluster mt-3"><button class="btn sec inline" onclick="wheelStep(1)">Zurück</button><button class="btn inline fill" onclick="WHEEL_FORM.useTargets=true;wheelStep(3)">Weiter</button></div>
       <button class="btn ghost mt-2" onclick="WHEEL_FORM.useTargets=false;wheelStep(3)">Überspringen</button>`,'Rad des Lebens');
   } else {
-    const chips=(sel,fn)=>`<div class="mind-chips" data-noswipe>${WHEEL_AREAS.map(a=>`<button type="button" class="mchip${sel===a.key?' on':''}" aria-pressed="${sel===a.key}" onclick="${fn}('${a.key}')">${a.icon} ${esc2(a.short)} <span class="muted-2">${F.scores[a.key]}</span></button>`).join('')}</div>`;
+    const chips=(sel,fn)=>`<div class="mind-chips" data-noswipe>${WHEEL_AREAS.map(a=>`<button type="button" class="mchip${sel===a.key?' on':''}" aria-pressed="${sel===a.key}" onclick="${fn}('${a.key}')">${mIco(a.icon,16)} ${esc2(a.short)} <span class="muted-2">${F.scores[a.key]}</span></button>`).join('')}</div>`;
     const wk=wheelArea(st.weakest);
     mindSheetBody(head+`
-      <div class="note">Welcher Bereich bringt am meisten, wenn du ihn <b>zuerst</b> anpackst? ${wk?`Dein schwächster ist gerade ${wk.icon} ${esc2(wk.short)} (${F.scores[wk.key]}).`:''}</div>
+      <div class="note">Welcher Bereich bringt am meisten, wenn du ihn <b>zuerst</b> anpackst? ${wk?`Dein schwächster ist gerade ${mIco(wk.icon,16)} ${esc2(wk.short)} (${F.scores[wk.key]}).`:''}</div>
       <div class="section-label">Fokusbereich</div>${chips(F.focus_area,'wheelFocus')}
       <div class="section-label">3 Maßnahmen, die die Lücke schließen</div>
       ${[0,1,2].map(i=>`<div class="field"><input id="wa_${i}" maxlength="160" value="${mAttr(F.actions[i]||'')}" placeholder="Maßnahme ${i+1}" aria-label="Maßnahme ${i+1}"></div>`).join('')}
@@ -1644,7 +1691,7 @@ async function drawMindChallenge(){
   if(!a){
     if(CHAL_SEL===null){ CHAL_SEL=new Set(rules.filter(x=>x.default!==false).map(x=>x.id)); CHAL_DAYS=10; }
     html+=`<div class="today mb-4">
-      <div class="eyebrow">🏆 Vital-Challenge</div>
+      <div class="eyebrow">Vital-Challenge</div>
       <div class="daytype" id="chalHeroTitle">${CHAL_DAYS===30?'30':'10'} Tage Vitalität</div>
       <div class="meta" id="chalHeroMeta">${chalHeroMetaTxt()}</div>
     </div>`;
@@ -1652,7 +1699,7 @@ async function drawMindChallenge(){
       html+=`<div class="section-label">Dauer</div>
         <div class="chip-row wrap mb-2" id="chalDayChips" data-noswipe>${[10,30].map(n=>`<button type="button" class="chip${CHAL_DAYS===n?' on':''}" data-d="${n}" aria-pressed="${CHAL_DAYS===n}" onclick="chalDays(${n})">${n} Tage</button>`).join('')}</div>`;
       const grp=(g,title,hint)=>`<div class="section-label">${title}<span class="sl-r">${hint}</span></div><div class="rows mb-2">${rules.filter(x=>x.group===g).map(x=>{ const on=CHAL_SEL.has(x.id);
-        return `<button type="button" class="rule-row" aria-pressed="${on}" onclick="chalToggleRule('${x.id}',this)"><span class="ric" aria-hidden="true">${x.icon}</span><span class="rbody"><span class="rlab">${esc2(x.label)}${x.auto?' <span class="pill neutral">auto</span>':''}</span><span class="rhint">${esc2(x.hint)}</span></span><span class="tgl${on?' on':''}" aria-hidden="true"></span></button>`; }).join('')}</div>`;
+        return `<button type="button" class="rule-row" aria-pressed="${on}" onclick="chalToggleRule('${x.id}',this)"><span class="ric" aria-hidden="true">${mIco(x.icon,22)}</span><span class="rbody"><span class="rlab">${esc2(x.label)}${x.auto?' <span class="pill neutral">auto</span>':''}</span><span class="rhint">${esc2(x.hint)}</span></span><span class="tgl${on?' on':''}" aria-hidden="true"></span></button>`; }).join('')}</div>`;
       html+=grp('gift','Geschenke','jeden Tag')+grp('poison','Gifte','weglassen');
       stickyBar=`<div class="mind-stickybar"><span class="mind-stick-t" id="chalSelCount">${pl(CHAL_SEL.size,'Regel','Regeln')} gewählt</span><button class="btn inline" id="chalStartBtn" onclick="chalStart()">Starten</button></div>`;
     } else html+='<div class="note">Aktuell läuft keine Challenge.</div>'+mindRoNote('mt-2');
@@ -1689,7 +1736,7 @@ async function drawMindChallenge(){
       if((x.id==='strength'||x.id==='cardio')&&det[x.id]&&n0(det[x.id].weekCount)!=null){ const wc=n0(det[x.id].weekCount), wtg=n0(det[x.id].weekTarget)||3; dyn+=`<span class="rdyn${wc>=wtg?' tone-green':''}">Diese Challenge-Woche: ${wc}/${wtg}×${wc>=wtg?' ✓':''}</span>`; }
       const status=autoOn?'<span class="rauto">automatisch erkannt ✓</span>':half?'<span class="rauto tone-amber">½ · eins von beiden fehlt noch</span>':'';
       const dis=(!own)||(isAuto&&autoOn);
-      return `<label class="rule-row${on?' on':''}${dis?' dis':''}" id="cr_${x.id}"><span class="ric" aria-hidden="true">${x.icon}</span><span class="rbody"><span class="rlab">${esc2(x.label)}</span>${dyn}<span class="rhint${collapsed?' hidden':''}" id="rh_${x.id}">${esc2(x.hint)}</span>${status}</span>${collapsed?`<button type="button" class="rinfo" aria-label="Hinweis zu ${mAttr(x.label)}" onclick="chalHintToggle(event,'${x.id}')">${icon('info',18)}</button>`:''}<input type="checkbox" class="rcheck" ${on?'checked':''} ${dis?'disabled':''} aria-label="${mAttr(x.label)}" onchange="chalToggleDay(${+a.id||0},'${x.id}',this.checked,this)"></label>`; };
+      return `<label class="rule-row${on?' on':''}${dis?' dis':''}" id="cr_${x.id}"><span class="ric" aria-hidden="true">${mIco(x.icon,22)}</span><span class="rbody"><span class="rlab">${esc2(x.label)}</span>${dyn}<span class="rhint${collapsed?' hidden':''}" id="rh_${x.id}">${esc2(x.hint)}</span>${status}</span>${collapsed?`<button type="button" class="rinfo" aria-label="Hinweis zu ${mAttr(x.label)}" onclick="chalHintToggle(event,'${x.id}')">${icon('info',18)}</button>`:''}<input type="checkbox" class="rcheck" ${on?'checked':''} ${dis?'disabled':''} aria-label="${mAttr(x.label)}" onchange="chalToggleDay(${+a.id||0},'${x.id}',this.checked,this)"></label>`; };
     const active=rules.filter(x=>ruleIds.includes(x.id));
     const gifts=active.filter(x=>x.group==='gift'), poisons=active.filter(x=>x.group==='poison');
     if(gifts.length) html+=`<div class="section-label">Geschenke · heute</div><div class="rows" id="chalGifts">${gifts.map(row).join('')}</div>`;
@@ -1698,7 +1745,7 @@ async function drawMindChallenge(){
   }
   const past=data.past||[];
   if(past.length){
-    html+=`<div class="section-label">Bisherige Challenges</div><div class="rows">${past.map(p=>`<div class="row"><div class="rl">${mDateDE(p.start_date,{day:'numeric',month:'short',year:'numeric'})} · ${pl(+p.days||0,'Tag','Tage')}<small>${p.status==='done'?'Geschafft':'Beendet'} · ${pl(+p.completeDays||0,'Tag','Tage')} komplett · ${+p.adherencePct||0}%</small></div><div class="rr">${p.status==='done'?'🏆':'–'}</div></div>`).join('')}</div>`;
+    html+=`<div class="section-label">Bisherige Challenges</div><div class="rows">${past.map(p=>`<div class="row"><div class="rl">${mDateDE(p.start_date,{day:'numeric',month:'short',year:'numeric'})} · ${pl(+p.days||0,'Tag','Tage')}<small>${p.status==='done'?'Geschafft':'Beendet'} · ${pl(+p.completeDays||0,'Tag','Tage')} komplett · ${+p.adherencePct||0}%</small></div><div class="rr">${p.status==='done'?mIco('trophy',20):'–'}</div></div>`).join('')}</div>`;
   }
   // Die Startleiste klebt (position:sticky) und steht deshalb als LETZTES im Fluss – so verdeckt
   // sie „Bisherige Challenges" nicht mehr und braucht keinen Platzhalter.
@@ -1796,6 +1843,13 @@ async function loadMindEntries(){
 }
 // Karten mit persönlichen Arbeitsblättern – nur im eigenen Konto sichtbar
 const MIND_WORKSHEETS=['beliefs','incantation','thrive','passion'];
+// Ein Glyph je Wissens-Thema – EINE Quelle fuer die Karte (drawMindWissen) und fuer die
+// Illustration im Sheet (openKnow). Namen aus ICONS in core.js.
+const MIND_KNOW_ICONS={
+  priming:'brain', needs:'compass', triad:'zap', formula:'puzzle',
+  beliefs:'lockOpen', incantation:'flame', rapport:'handshake', principles:'leaf',
+  wheel:'wheel', thrive:'rocket', passion:'telescope', home:'home',
+};
 function incantStreak(dates){
   const set=new Set(dates||[]); if(!set.size) return 0; const tdy=today(); let d=set.has(tdy)?tdy:mAddDays(tdy,-1); let n=0; while(set.has(d)){ n++; d=mAddDays(d,-1); } return n;
 }
@@ -1807,7 +1861,10 @@ async function drawMindWissen(){
   const en=E||MIND_ENTRIES||{}; const needs=mParse(t?.prefs?.needs_top,[])||[];
   const own=mindOwn();
   // desc/extra: desc ist reiner Text (wird hier maskiert), extra ist bereits fertiges, maskiertes HTML
-  const card=(key,icon,title,desc,extra)=>`<button type="button" class="know-card" onclick="openKnow('${key}')"><span class="ki" aria-hidden="true">${icon}</span><span class="kb"><span class="kt">${esc2(title)}</span><span class="kd">${esc2(desc)}</span>${extra||''}</span><span class="kx" aria-hidden="true">${typeof window.icon==='function'?window.icon('chevronRight',18):'›'}</span></button>`;
+  // 2.8.0: kein Emoji-Parameter mehr – der Glyph kommt aus MIND_KNOW_ICONS, damit Karte und Sheet
+  // nicht auseinanderlaufen koennen. Der alte Parametername `icon` hatte ausserdem die globale
+  // icon()-Funktion in dieser Funktion verdeckt (deshalb stand hier ueberall window.icon(...)).
+  const card=(key,title,desc,extra)=>`<button type="button" class="know-card" onclick="openKnow('${key}')"><span class="ki ic-tile" aria-hidden="true">${mIco(MIND_KNOW_ICONS[key],20)}</span><span class="kb"><span class="kt">${esc2(title)}</span><span class="kd">${esc2(desc)}</span>${extra||''}</span><span class="kx" aria-hidden="true">${mIco('chevronRight',18)}</span></button>`;
   const bel=en.beliefs||{}; const newB=(bel.new||[]).filter(Boolean); const hb=(bel.health_empowering||[]).filter(Boolean);
   const inc=en.incantation||{}; const lines=(inc.lines||[]).filter(Boolean); const sp=inc.spoken_dates||[]; const spokenToday=sp.includes(today()); const iSt=incantStreak(sp);
   const th=en.thrive||{}; const thActs=(th.actions||[]).filter(Boolean);
@@ -1815,23 +1872,25 @@ async function drawMindWissen(){
   let html='';
   if(own){
     html+='<div class="section-label">Deine Arbeitsblätter</div>';
-    html+=`<div class="caption mind-lock mb-3">${typeof window.icon==='function'?window.icon('lock',14):''} Was du hier einträgst, bleibt in deinem Konto – auch dein Coach sieht es nicht.</div>`;
-    html+=card('beliefs','🔓','Glaubenssätze',newB.length||hb.length?`${pl(newB.length+hb.length,'Satz','Sätze')} festgehalten`:'Der Dickens-Prozess: alte Sätze entlarven, neue verankern.',newB.length||hb.length?`<span class="klist">${[...newB,...hb].slice(0,3).map(x=>`<span>„${esc2(x)}“</span>`).join('')}</span>`:'');
-    html+=card('incantation','🔥','Deine Incantation',lines.length?`${pl(lines.length,'Zeile','Zeilen')} · ${spokenToday?'heute gesprochen ✓':'heute noch nicht gesprochen'}${iSt?` · ${pl(iSt,'Tag','Tage')} in Folge`:''}`:'Deine eigenen Kraftsätze – laut, mit Körper und Energie.');
-    html+=card('thrive','🚀','3-to-5 to Thrive',thActs.length?`${pl(thActs.length,'Maßnahme','Maßnahmen')} festgelegt`:'Zwei Entscheidungen, eine Sofortmaßnahme, 3–5 Schritte.',thActs.length?`<span class="klist">${thActs.slice(0,3).map(x=>`<span>${esc2(x)}</span>`).join('')}</span>`:'');
-    html+=card('passion','🔭','Leidenschaft & Vision',(pv.passion||vi.extraordinary)?'Deine Antworten sind gespeichert – zum Nachlesen und Schärfen.':'Was liebst du? Was willst du wirklich? Wie sieht dein außergewöhnliches Leben aus?');
-    html+=card('needs','🧭','Die 6 Grundbedürfnisse',needs.length?'Deine Top 2 sind gewählt.':'Was dich wirklich antreibt. Wähle deine Top 2.',needs.length?`<span class="kpills">${needs.map(k=>{ const n=MIND_NEEDS.find(x=>x.key===k); return n?`<span class="pill red">${n.icon} ${esc2(n.label)}</span>`:''; }).join('')}</span>`:'');
+    html+=`<div class="caption mind-lock mb-3">${mIco('lock',14)} Was du hier einträgst, bleibt in deinem Konto – auch dein Coach sieht es nicht.</div>`;
+    html+=card('beliefs','Glaubenssätze',newB.length||hb.length?`${pl(newB.length+hb.length,'Satz','Sätze')} festgehalten`:'Der Dickens-Prozess: alte Sätze entlarven, neue verankern.',newB.length||hb.length?`<span class="klist">${[...newB,...hb].slice(0,3).map(x=>`<span>„${esc2(x)}“</span>`).join('')}</span>`:'');
+    html+=card('incantation','Deine Incantation',lines.length?`${pl(lines.length,'Zeile','Zeilen')} · ${spokenToday?'heute gesprochen ✓':'heute noch nicht gesprochen'}${iSt?` · ${pl(iSt,'Tag','Tage')} in Folge`:''}`:'Deine eigenen Kraftsätze – laut, mit Körper und Energie.');
+    html+=card('thrive','3-to-5 to Thrive',thActs.length?`${pl(thActs.length,'Maßnahme','Maßnahmen')} festgelegt`:'Zwei Entscheidungen, eine Sofortmaßnahme, 3–5 Schritte.',thActs.length?`<span class="klist">${thActs.slice(0,3).map(x=>`<span>${esc2(x)}</span>`).join('')}</span>`:'');
+    html+=card('passion','Leidenschaft & Vision',(pv.passion||vi.extraordinary)?'Deine Antworten sind gespeichert – zum Nachlesen und Schärfen.':'Was liebst du? Was willst du wirklich? Wie sieht dein außergewöhnliches Leben aus?');
+    // Die eigenen Top-2-Bedürfnisse sind weder Fehler noch CTA – `pill red` war ein Verstoss gegen
+    // das Akzent-Budget (BUILD-A4 6.1). `pill neutral` ist der Ton fuer „gewaehlt, nicht dringend".
+    html+=card('needs','Die 6 Grundbedürfnisse',needs.length?'Deine Top 2 sind gewählt.':'Was dich wirklich antreibt. Wähle deine Top 2.',needs.length?`<span class="kpills">${needs.map(k=>{ const n=MIND_NEEDS.find(x=>x.key===k); return n?`<span class="pill neutral">${mIco(n.icon,12)} ${esc2(n.label)}</span>`:''; }).join('')}</span>`:'');
   }
   html+='<div class="section-label">Frameworks</div>';
-  html+=card('priming','🧠','Priming','Warum die ersten 10 Minuten den Tag entscheiden – und die 6 Schritte.');
-  if(!own) html+=card('needs','🧭','Die 6 Grundbedürfnisse','Was dich wirklich antreibt.');
-  html+=card('triad','⚡','Die Triade des Zustands','Körper · Fokus · Sprache – und die 90-Sekunden-Regel.');
-  html+=card('formula','🧩','Die Erfolgsformel','Fünf Schritte, die jedes Ziel erreichbar machen.');
-  html+=card('rapport','🤝','Rapport 7 · 38 · 55','Wie Verbindung entsteht: Worte, Stimme, Körper.');
-  html+=card('principles','🌿','10 Meisterprinzipien','6 Geschenke, 4 Gifte – die Basis der Vital-Challenge.');
-  html+=card('wheel','🎡','Rad des Lebens','7 Bereiche, ein Bild. Warum Balance mehr bringt als Höchstwerte.');
-  html+=card('home','🏠','Emotionales Zuhause','Deine Gewohnheitsgefühle – und wie du bewusst umziehst.');
-  if(!own) html+=`<div class="caption mind-lock mb-3">${typeof window.icon==='function'?window.icon('lock',14):''} Persönliche Arbeitsblätter und Notizen sind privat – nur der Athlet sieht sie.</div>`;
+  html+=card('priming','Priming','Warum die ersten 10 Minuten den Tag entscheiden – und die 6 Schritte.');
+  if(!own) html+=card('needs','Die 6 Grundbedürfnisse','Was dich wirklich antreibt.');
+  html+=card('triad','Die Triade des Zustands','Körper · Fokus · Sprache – und die 90-Sekunden-Regel.');
+  html+=card('formula','Die Erfolgsformel','Fünf Schritte, die jedes Ziel erreichbar machen.');
+  html+=card('rapport','Rapport 7 · 38 · 55','Wie Verbindung entsteht: Worte, Stimme, Körper.');
+  html+=card('principles','10 Meisterprinzipien','6 Geschenke, 4 Gifte – die Basis der Vital-Challenge.');
+  html+=card('wheel','Rad des Lebens','7 Bereiche, ein Bild. Warum Balance mehr bringt als Höchstwerte.');
+  html+=card('home','Emotionales Zuhause','Deine Gewohnheitsgefühle – und wie du bewusst umziehst.');
+  if(!own) html+=`<div class="caption mind-lock mb-3">${mIco('lock',14)} Persönliche Arbeitsblätter und Notizen sind privat – nur der Athlet sieht sie.</div>`;
   html+='<div class="section-label">Offizielle Quellen</div><div class="card">'+mindLinks()+'</div>';
   b.innerHTML=html;
   mindCacheView();
@@ -1847,7 +1906,7 @@ function openKnow(key){
   let title='',html='';
   switch(key){
     case 'priming':
-      title='🧠 Priming';
+      title='Priming';
       html=kP('Die ersten Minuten nach dem Aufwachen entscheiden, in welchem Zustand du den Tag angehst. Priming heißt: Du setzt diesen Zustand bewusst – mit Körper, Atmung und Fokus – statt ihn dem Zufall, dem Handy oder dem Wecker zu überlassen.')
         +kH('Die 6 Schritte in der App')
         +kSteps(['<b>Ankommen</b> – aufrecht, Augen zu, Hand aufs Herz.','<b>Power-Atmung</b> – 3 Sätze schnelle Atemzüge, Arme mitnehmen. Der Körper wacht auf.','<b>Dankbarkeit</b> – drei Momente, in die du wirklich eintauchst. Fühlen, nicht denken.','<b>Energie & Heilung</b> – Licht durch den Körper, dann Energie an drei Menschen schicken.','<b>3 to Thrive</b> – drei Ergebnisse, als wären sie schon erreicht. Feiern.','<b>Abschluss</b> – ein Satz, der dich trägt.'])
@@ -1857,18 +1916,18 @@ function openKnow(key){
       break;
     case 'needs': {
       const sel=new Set(mParse(MIND_TODAY?.prefs?.needs_top,[])||[]);
-      title='🧭 Die 6 Grundbedürfnisse';
+      title='Die 6 Grundbedürfnisse';
       html=kP('Jeder Mensch handelt, um sechs Grundbedürfnisse zu erfüllen – bewusst oder nicht. Welche zwei bei dir ganz oben stehen, erklärt fast alles: deine Gewohnheiten, deine Konflikte, deine Erfolge.')
-        +kH('Vier Bedürfnisse der Persönlichkeit')+kList(MIND_NEEDS.filter(n=>n.group==='p').map(n=>`${n.icon} <b>${esc2(n.label)}</b> – ${esc2(n.desc)}`))
-        +kH('Zwei Bedürfnisse der Seele')+kList(MIND_NEEDS.filter(n=>n.group==='s').map(n=>`${n.icon} <b>${esc2(n.label)}</b> – ${esc2(n.desc)}`))
+        +kH('Vier Bedürfnisse der Persönlichkeit')+kList(MIND_NEEDS.filter(n=>n.group==='p').map(n=>`${mIco(n.icon,16)} <b>${esc2(n.label)}</b> – ${esc2(n.desc)}`))
+        +kH('Zwei Bedürfnisse der Seele')+kList(MIND_NEEDS.filter(n=>n.group==='s').map(n=>`${mIco(n.icon,16)} <b>${esc2(n.label)}</b> – ${esc2(n.desc)}`))
         +kP('Zwei Paare stehen in Spannung: <b>Gewissheit ↔ Abwechslung</b> und <b>Bedeutsamkeit ↔ Verbindung</b>. Wer innerhalb eines Paares nur eine Seite bedient, bleibt unruhig. Erfüllt fühlst du dich erst, wenn Wachstum und Beitrag dazukommen.')
         +kH('Deine Top 2')+kP('Welche zwei haben dich bisher gesteuert – und welche zwei sollen es ab jetzt sein?')
-        +`<div class="mind-chips" data-noswipe id="needsChips">${MIND_NEEDS.map(n=>`<button type="button" class="mchip${sel.has(n.key)?' on':''}" aria-pressed="${sel.has(n.key)}" ${own?`onclick="needsPick('${n.key}',this)"`:'disabled'}>${n.icon} ${esc2(n.label)}</button>`).join('')}</div>`
+        +`<div class="mind-chips" data-noswipe id="needsChips">${MIND_NEEDS.map(n=>`<button type="button" class="mchip${sel.has(n.key)?' on':''}" aria-pressed="${sel.has(n.key)}" ${own?`onclick="needsPick('${n.key}',this)"`:'disabled'}>${mIco(n.icon,16)} ${esc2(n.label)}</button>`).join('')}</div>`
         +(own?btn('Top 2 speichern','saveNeeds()'):'')
         +kH('Offizielle Quelle')+mindLinks(['needs']);
       break; }
     case 'triad':
-      title='⚡ Die Triade des Zustands';
+      title='Die Triade des Zustands';
       html=kP('Jede Emotion entsteht aus drei Zutaten. Änderst du eine davon, kippt der Zustand – in Sekunden.')
         +kList(['<b>Physiologie</b> – Haltung, Atmung, Bewegung, Gesichtsausdruck. Der schnellste Hebel.','<b>Fokus</b> – worauf du achtest und welche Fragen du dir stellst.','<b>Sprache & Bedeutung</b> – deine Worte, deine Incantations, die Bedeutung, die du einer Situation gibst.'])
         +kH('Die 90-Sekunden-Regel')+kP('Leiden erkennen – und dir 90 Sekunden geben, um zurück in einen guten Zustand zu kommen. Drei Auswege stehen immer offen:')
@@ -1876,7 +1935,7 @@ function openKnow(key){
         +(own?btn('State-Change 60 s','closeAllSheets();openStateChange()'):'');
       break;
     case 'formula':
-      title='🧩 Die Erfolgsformel';
+      title='Die Erfolgsformel';
       html=kP('Egal welches Ziel – der Weg dorthin folgt immer denselben fünf Schritten.')
         +kSteps(['<b>Ergebnis kennen</b> – Klarheit ist Kraft. Was genau willst du?','<b>Warum kennen</b> – dein Grund macht aus „sollte" ein „muss".','<b>Entschlossen handeln</b> – sofort, nicht irgendwann.','<b>Ergebnis wahrnehmen</b> – ehrlich messen, was passiert.','<b>Vorgehen anpassen</b> – so lange, bis es funktioniert.'])
         +kH('Die drei Sätze der Veränderung')+kList(['Es muss sich jetzt ändern.','Ich muss mich jetzt ändern.','Ich kann es jetzt ändern.'])
@@ -1884,7 +1943,7 @@ function openKnow(key){
       break;
     case 'beliefs': {
       const bl=en.beliefs||{}; const old=bl.old||[], nw=bl.new||[], hl=bl.health_limiting||[], he=bl.health_empowering||[];
-      title='🔓 Glaubenssätze';
+      title='Glaubenssätze';
       html=kP('Ein Glaubenssatz ist nichts anderes als die feste Überzeugung, dass etwas eine bestimmte Bedeutung hat – und diese Überzeugung steuert dein Handeln, ob sie stimmt oder nicht. Der Dickens-Prozess macht sichtbar, was dich ein alter Satz bisher gekostet hat und was er dich weiter kosten wird. Erst dann trägt der neue Satz.')
         +kH('3 einschränkende Sätze')
         +[0,1,2].map(i=>`<div class="field"><input id="bl_old_${i}" maxlength="200" value="${mAttr(old[i]||'')}" placeholder="Alter Glaubenssatz ${i+1}" aria-label="Alter Glaubenssatz ${i+1}" ${own?'':'disabled'}></div>`).join('')
@@ -1898,36 +1957,36 @@ function openKnow(key){
       break; }
     case 'incantation': {
       const inc=en.incantation||{}; const lines=(inc.lines||[]); const sp=inc.spoken_dates||[]; const spokenToday=sp.includes(today());
-      title='🔥 Deine Incantation';
+      title='Deine Incantation';
       html=kP('Du kennst deine Incantation vom Event – trag sie hier ein und sprich sie laut, mit Körper und Energie. Eine Incantation ist keine Affirmation: Sie wird nicht gedacht, sondern mit dem ganzen Körper gesprochen, bis du sie glaubst.')
         +`<div class="field"><label for="inc_lines">Deine Zeilen (eine pro Zeile, max. 8)</label><textarea id="inc_lines" rows="6" maxlength="1600" placeholder="Zeile 1&#10;Zeile 2&#10;…" ${own?'':'disabled'}>${esc2(lines.join('\n'))}</textarea></div>`
-        +`<div class="tiles mb-3"><div class="tile"><div class="v">${typeof window.icon==='function'?window.icon('flame',18,'mind-flame'):''}${incantStreak(sp)}</div><div class="l">Tage in Folge</div></div><div class="tile"><div class="v">${sp.length}</div><div class="l">Gesprochen gesamt</div></div></div>`
+        +`<div class="tiles mb-3"><div class="tile"><div class="v">${mIco('flame',18,'mind-flame')}${incantStreak(sp)}</div><div class="l">Tage in Folge</div></div><div class="tile"><div class="v">${sp.length}</div><div class="l">Gesprochen gesamt</div></div></div>`
         +(own?`<div class="cluster"><button class="btn sec inline" onclick="saveIncantation(false)">Speichern</button><button class="btn inline fill" id="incSpokeBtn" ${spokenToday?'disabled':''} onclick="saveIncantation(true)">${spokenToday?'Heute gesprochen ✓':'Heute gesprochen · +2 XP'}</button></div>`:'');
       break; }
     case 'rapport':
-      title='🤝 Rapport 7 · 38 · 55';
+      title='Rapport 7 · 38 · 55';
       html=kP('Ob wir uns mit jemandem verbunden fühlen, hängt nur zu einem kleinen Teil vom Inhalt ab. Der Rest ist Stimme und Körper.')
         +`<div class="tiles grid-3"><div class="tile"><div class="v">7<em>%</em></div><div class="l">Worte</div></div><div class="tile"><div class="v">38<em>%</em></div><div class="l">Stimme</div></div><div class="tile"><div class="v">55<em>%</em></div><div class="l">Physiologie</div></div></div>`
         +kH('Anpassen & Spiegeln')+kList(['<b>Worte</b> – Schlüsselbegriffe und Satzbau des Gegenübers aufgreifen.','<b>Stimme</b> – Tempo, Lautstärke, Tonfall, Betonung angleichen.','<b>Physiologie</b> – Haltung, Gesten, Atmung, Blickkontakt, Nähe.'])
         +kP('Rapport ist kein Trick, sondern Aufmerksamkeit: Du gehst in die Welt des anderen, bevor du ihn in deine einlädst.');
       break;
     case 'principles':
-      title='🌿 10 Meisterprinzipien';
+      title='10 Meisterprinzipien';
       html=kP('Vitalität ist kein Zufall. Sechs Dinge gibst du dir – vier lässt du weg.')
         +kH('6 Geschenke')+kList(['Vitales Atmen – Power-Atmung und Bewegung für die Lymphe.','Lebendiges Wasser und wasserreiche Nahrung.','Optimale Ernährung – gute Fette, basisch, mineralstoffreich.','Aerobe Energie – Kraft und Ausdauer, regelmäßig.','Strukturelle Ausrichtung – Haltung, Dehnen, Symmetrie.','Ein ausgerichteter Geist – Dankbarkeit, Herzfokus, Wache am Tor.'])
         +kH('4 Gifte')+kList(['Verarbeitete Fette.','Fleisch (in der Challenge optional).','Milchprodukte (optional reduzieren).','Säurebildende Abhängigkeiten: Koffein im Übermaß, Zucker, Alkohol, Nikotin.'])
         +btn('Zur Vital-Challenge',"closeAllSheets();mindsetTab('challenge')");
       break;
     case 'wheel':
-      title='🎡 Rad des Lebens';
+      title='Rad des Lebens';
       html=kP('Sieben Bereiche, jeder von 0 bis 100 bewertet. Zusammen ergeben sie ein Rad – und ein Rad mit einer Delle rollt nicht rund, egal wie hoch die anderen Werte sind.')
-        +kList(WHEEL_AREAS.map(a=>`${a.icon} <b>${esc2(a.label)}</b> – ${esc2(WHEEL_DESC[a.key])}`))
+        +kList(WHEEL_AREAS.map(a=>`${mIco(a.icon,16)} <b>${esc2(a.label)}</b> – ${esc2(WHEEL_DESC[a.key])}`))
         +kH('Lücke schließen – drei Säulen')+kList(['<b>Klarheit</b> – eine überzeugende Vision, starke Gründe, ehrlicher Ist-Stand.','<b>Beste Werkzeuge</b> – ein bewährter Plan, Mentor, Rituale, ein Team.','<b>Ausrichten & handeln</b> – innere Konflikte lösen, täglich tun, ständig messen.'])
         +btn('Zum Rad',"closeAllSheets();mindsetTab('wheel')");
       break;
     case 'thrive': {
       const th=en.thrive||{}; const dec=th.decisions||[]; const acts=th.actions||[];
-      title='🚀 3-to-5 to Thrive';
+      title='3-to-5 to Thrive';
       html=kP('Zwei neue Entscheidungen für mehr Gesundheit und Energie – und was sie in deinem Leben verändern. Dann eine Maßnahme, die du sofort umsetzt, und drei bis fünf Schritte, die zur Gewohnheit werden.')
         +kH('Entscheidung 1')+`<div class="field"><input id="th_d0" maxlength="200" value="${mAttr(dec[0]?.text||'')}" placeholder="Ich entscheide mich, …" aria-label="Entscheidung 1" ${own?'':'disabled'}></div><div class="field"><input id="th_i0" maxlength="200" value="${mAttr(dec[0]?.impact||'')}" placeholder="Wirkung auf mein Leben" aria-label="Wirkung Entscheidung 1" ${own?'':'disabled'}></div>`
         +kH('Entscheidung 2')+`<div class="field"><input id="th_d1" maxlength="200" value="${mAttr(dec[1]?.text||'')}" placeholder="Ich entscheide mich, …" aria-label="Entscheidung 2" ${own?'':'disabled'}></div><div class="field"><input id="th_i1" maxlength="200" value="${mAttr(dec[1]?.impact||'')}" placeholder="Wirkung auf mein Leben" aria-label="Wirkung Entscheidung 2" ${own?'':'disabled'}></div>`
@@ -1938,24 +1997,26 @@ function openKnow(key){
     case 'passion': {
       const pv=en.passion||{}, vi=en.vision||{};
       const ta=(id,label,v)=>`<div class="field"><label for="${id}">${label}</label><textarea id="${id}" rows="2" maxlength="200" ${own?'':'disabled'}>${esc2(v||'')}</textarea></div>`;
-      title='🔭 Leidenschaft & Vision';
+      title='Leidenschaft & Vision';
       html=kP('Was dir wirklich wichtig ist, treibt dich an. Wer weiß, wofür er brennt, braucht keine Disziplin – nur Richtung.')
         +kH('Leidenschaft')+ta('pv_love','Was liebst du?',pv.love)+ta('pv_hate','Was hasst du?',pv.hate)+ta('pv_passion','Wofür brennst du?',pv.passion)+ta('pv_want','Was willst du wirklich?',pv.want)
         +kH('Vision')+ta('vi_ex','Wie sieht dein außergewöhnliches Leben aus?',vi.extraordinary)+ta('vi_ob','Was stand bisher im Weg?',vi.obstacles)+ta('vi_ch','Was muss sich jetzt ändern?',vi.change)
         +(own?btn('Speichern','savePassionVision()'):'');
       break; }
     case 'home':
-      title='🏠 Emotionales Zuhause';
+      title='Emotionales Zuhause';
       html=kP('Jeder Mensch hat ein paar Gefühle, zu denen er immer wieder zurückkehrt – wie nach Hause. Für die einen ist das Sorge oder Frust, für andere Dankbarkeit oder Neugier. Dieses Zuhause ist nicht Schicksal, sondern Gewohnheit.')
         +kP('Der erste Schritt: hinschauen. Welche Emotionen fühlst du in einer normalen Woche wirklich? Der zweite: bewusst umziehen – zwei Emotionen wählen und sie jeden Tag gezielt leben.')
         +(own?btn('Wochencheck starten','closeAllSheets();openWeeklyCheck()'):'');
       break;
     default: return;
   }
-  // Ein Emoji am Titelanfang wandert als Illustration in das Sheet (Titel bleiben schlicht)
-  const parts=String(title).split(' ');
-  const ic=(parts.length>1&&!/[0-9A-Za-zÄÖÜäöüß]/.test(parts[0]))?parts.shift():'';
-  openSheet(parts.join(' '),(ic?`<div class="mind-sheet-ic" aria-hidden="true">${ic}</div>`:'')+html);
+  // Bis 2.7.0 stand am Titelanfang ein Emoji, das hier abgeschnitten und als Illustration ins Sheet
+  // gesetzt wurde. Seit 2.8.0 traegt der Titel nur Text (er wird mit esc2() gezeichnet, ein SVG haette
+  // dort ohnehin keine Chance) und die Illustration kommt als Glyph aus MIND_KNOW_ICONS – dieselbe
+  // Marke wie auf der Karte, die das Sheet geoeffnet hat.
+  const ic=mIco(MIND_KNOW_ICONS[key],40);
+  openSheet(title,(ic?`<div class="mind-sheet-ic" aria-hidden="true">${ic}</div>`:'')+html);
 }
 async function mindPutEntry(key,data){
   if(mindRoGuard()) return false;
@@ -2054,7 +2115,7 @@ function mindsetHomeWidget(d){
 function mindsetHomeStrip(w){
   if(!w) return '';
   const btn=w.action?`<button type="button" class="btn sm ghost" onclick="event.stopPropagation();${w.fn}">${esc2(w.action)}</button>`
-    :`<div class="sx" aria-hidden="true">${typeof window.icon==='function'?window.icon('chevronRight',18):'›'}</div>`;
+    :`<div class="sx" aria-hidden="true">${mIco('chevronRight',18)}</div>`;
   const line=w.status?`<div class="ss mind-line" role="button" tabindex="0" onclick="event.stopPropagation();${w.status.fn}">${esc2(w.status.text)}</div>`:'';
-  return `<div class="stat-strip mind-strip" role="button" tabindex="0" aria-label="Mindset öffnen" onclick="go('mindset')"><div class="si">${typeof window.icon==='function'?window.icon('brain',24):'🧠'}</div><div class="sc"><div class="st">${esc2(w.title)}</div><div class="ss">${esc2(w.sub)}</div>${line}</div>${btn}</div>`;
+  return `<div class="stat-strip mind-strip" role="button" tabindex="0" aria-label="Mindset öffnen" onclick="go('mindset')"><div class="si">${mIco('brain',24)}</div><div class="sc"><div class="st">${esc2(w.title)}</div><div class="ss">${esc2(w.sub)}</div>${line}</div>${btn}</div>`;
 }

@@ -1,5 +1,843 @@
 # Changelog
 
+## 3.0.2
+
+Die drei Kanten, die 3.0.1 beim Nachladen stehen gelassen hat.
+
+3.0.1 hat den Trainings- und den Ernährungs-Reiter aus dem Startbündel geholt – 58 KB weniger beim
+ersten Öffnen. Die Nachprüfung hat danach drei Stellen gefunden, an denen das im **ersten Moment
+nach dem Start** anders aussieht als danach. Alle drei sind weg.
+
+**Der Rhythmus-Chip öffnet wieder deinen Tag.** Tippst du auf „Do · Lower 1" oder auf die Karte mit
+deinem letzten Training, kommt das Tages-Sheet – auch in der ersten Sekunde nach dem Start. Bis
+3.0.1 sprang es in diesem Fenster auf den ganzen Monatskalender um, weil der Tages-Teil noch
+unterwegs war. Gemessen: Sheet-Text 153 Zeichen wie immer, statt 463.
+
+**„Ziel & Training" sagt jetzt Bescheid, statt still zu sterben.** Wenn die Verbindung beim
+Nachladen abreißt, öffnete dieser Knopf im Profil gar nichts – kein Sheet, keine Meldung, zwei
+Fehler im Hintergrund. Jetzt kommt derselbe Hinweis wie überall sonst: „Dieser Bereich braucht kurz
+Verbindung". **Das Profil selbst öffnet dabei weiter** – Name, Abmelden und Einwilligung brauchen
+den Trainings-Teil nicht und warten auch nicht mehr auf ihn.
+
+**Das teure Fenster ist kürzer.** Die App holt Training und Ernährung 200 ms früher im Leerlauf
+nach. Der Zeitraum, in dem ein sehr früher Tipp noch aufs Netz wartet, schrumpft von 1.470 auf
+1.302 ms. Am Kaltstart selbst ändert das nichts: weiter 10 Anfragen und 134 KB.
+
+| | 3.0.1 | 3.0.2 |
+|---|---|---|
+| Kaltstart, angemeldet, langsames Netz | 10 Anfragen · 134,1 KB · 1.301 ms | 10 Anfragen · 134,2 KB · 1.292 ms |
+| Fenster, in dem ein Tipp aufs Netz wartet | 1.470 ms | **1.302 ms** |
+| Rhythmus-Chip in der ersten Sekunde | Monatskalender | **dein Tag** |
+| „Ziel & Training" ohne Verbindung | stumm, 2 Fehler | **Hinweis, 0 Fehler** |
+
+## 3.0.1
+
+Ein Kaltstart weniger auf dem Rücken.
+
+Die Welle B-I hat viel gebracht – und den Start teurer gemacht: 3.0.0 lud beim ersten Öffnen
+**191,9 KB** statt der 178 KB von 2.9.0. Die Verträge waren eingehalten, die eigene Grundlinie nicht.
+Ursache war kein Leichtsinn, sondern Arithmetik: der Trainings- und der Ernährungs-Reiter lagen im
+Startbündel, obwohl beim Öffnen der App **immer die Startseite kommt** – und die braucht von beiden
+keine einzige Zeile.
+
+Ab 3.0.1 werden sie nachgeladen, wie Analyse, Mindset, Coach und Suche seit 2.7.0. Was du merkst:
+
+| | 3.0.0 | 3.0.1 |
+|---|---|---|
+| Erstes Öffnen, angemeldet, langsames Netz | 191,9 KB · 1.617 ms | **134,1 KB · 1.301 ms** |
+| Erstes Öffnen, Anmeldeseite | 196,8 KB · 1.292 ms | **139,0 KB · 970 ms** |
+| Anfragen | 10 | 10 |
+
+Rund **eine Drittelsekunde** früher tippbar, bei jedem ersten Start auf jedem Gerät – und 58 KB
+Mobilfunk, die niemand mehr bezahlt.
+
+**Und warten musst du dafür nicht.** Eine Sekunde nachdem deine Startseite steht, holt die App beide
+Reiter im Leerlauf nach – lange bevor ein Finger auf dem Bildschirm ist. Wer trotzdem schneller ist:
+„Upper 1 starten", „Essen loggen", „Kalender" und das Profil funktionieren auch dann sofort und mit
+**derselben Zahl Tipper** wie vorher. Sie holen sich ihren Teil dann eben im Moment des Tippens
+(gemessene Obergrenze auf langsamem Netz: 0,3 Sekunden – einmalig, danach liegt alles im Cache).
+
+Tiefe Links (`#workout`, `#diet`, `#tracker/woche/…`), der Offline-Start und die Umstellung eines
+Browsers, der 3.0.0 im Speicher hatte, sind mitgeprüft: gleiche Zahl Tipper in allen zehn gemessenen
+Wegen, keine Fehlermeldung in keiner Ansicht, keine Rolle, keine Bildschirmbreite.
+
+## 3.0.0
+
+Das ist die Version, mit der du startest – und deshalb fängt sie mit dem an, was beim Start mit
+echten Nutzerdaten am meisten wehtut, wenn es fehlt.
+
+### Die Sicherung, die niemand anstoßen muss
+
+Bis 2.9.0 gab es genau **einen** Weg zu einer Kopie deiner Datenbank: den Knopf in der Verwaltung.
+Ein Knopf, den ein Mensch drücken muss. Der wird gedrückt, solange man daran denkt – und dann nie
+wieder. Mit echten Athletendaten ist das das größte Betriebsrisiko der ganzen App.
+
+Ab jetzt läuft die Sicherung **nachts um 3 Uhr von selbst**: `VACUUM INTO` auf die Platte neben der
+Datenbank, eine Zeile in `backups` mit **SHA-256 und Byte-Zahl**, und eine eigene Zeile im
+Betriebsstreifen (`backup.auto`, Karenz 36 Stunden). Fällt eine Nacht aus, steht es am nächsten
+Morgen dort. Und weil der Zeitgeber an den Minuten hängt, an denen der Prozess gestartet ist, gibt es
+ein **Nachholfenster bis 6 Uhr**: ein Neustart um 03:10 kostet nicht die Sicherung dieser Nacht.
+
+| Was | Wie | Gemessen |
+|---|---|---|
+| **Nächtlicher Lauf** | 3 Uhr Ortszeit, Nachholfenster bis 6, Merker je Tag | Mit gestellter Uhr: 22 Uhr → keine Datei · 3 Uhr → Datei, 596 KB, 33 ms · 4 Uhr desselben Tages → unverändert |
+| **Platz prüfen, bevor geschrieben wird** | Datenbankgröße + 50 MB Rest müssen frei sein | Reicht es nicht, entsteht **keine** halbe Datei, sondern eine Zeile mit `ok=0` und dem Grund. Render-Disks sind klein. |
+| **Aufbewahrung** | `settings.backup_keep_days`, Standard **14 Tage** | Mit `keep=1` und drei zurückdatierten Läufen: alte Dateien und Zeilen weg – **die jüngste brauchbare Sicherung bleibt immer stehen**, auch wenn sie 300 Tage alt ist. |
+| **Wiederherstellungsprobe** | Knopf: jüngste Sicherung → Wegwerf-Datei → `PRAGMA integrity_check` → Zeilen je Tabelle gegen das Original | `integrity_check ok · 43 Tabellen · 1.669 von 1.671 Zeilen · 596 KB`. Die **laufende Datenbank wird dabei nicht angefasst** – die Probe öffnet eine eigene, nur lesende Verbindung auf die Kopie der Kopie. |
+
+Art. 32 DSGVO verlangt zwei Dinge: die Fähigkeit zur Wiederherstellung **und** ihren regelmäßigen
+Test. Die Probe hat deshalb eine eigene Zeile im Betriebsstreifen (`backup.verify`, Karenz 35 Tage).
+„Überfällig" heißt hier: seit über einem Monat hat niemand geprüft, ob sich eine Sicherung überhaupt
+zurückspielen lässt.
+
+**Ein Fehler, der beim Bauen gefunden wurde und der es wert ist, hier zu stehen:** der Dateiname trug
+den Zeitstempel bis auf die Sekunde. Zwei Läufe in derselben Sekunde ergaben denselben Namen,
+`VACUUM INTO` verweigerte mit „output file already exists" – und der Aufräumer im Fehlerzweig löschte
+danach die Datei, die schon da war. Ein **fehlgeschlagener Lauf hätte also die vorhandene, gute
+Sicherung vernichtet**. Der Name ist jetzt garantiert neu, und der Fehlerzweig löscht nur, was der
+Lauf selbst angelegt hat.
+
+Was die nächtliche Sicherung **nicht** tut: sie schickt keine Nachricht an die Konten. Der
+Download-Knopf tut das weiterhin, denn dort zieht der Betreiber eine vollständige Kopie auf seine
+Maschine. Die nächtliche Datei bleibt auf demselben Server unter demselben Verantwortlichen – 14
+Systemnachrichten pro Nacht wären kein Datenschutz, sondern Lärm.
+
+### Die Übungsbibliothek – gegen vier Beinpressen mit vier Bestwerten
+
+In deinem echten Plan liegen **vier Übungen doppelt**: „Leg Press" und „Beinpresse" sind für die App
+zwei verschiedene Bewegungen, weil der Verlauf über den Namen gruppiert. Jede hat ihre eigene
+Bestleistung, ihre eigene Empfehlung, ihre eigene Kurve. Das repariert man nicht hinterher, sondern
+beim Tippen.
+
+Neu ist ein **Nachschlagewerk mit 70 Grundübungen**, deutsch als Anzeigename, englisch und die
+gängigen Kurzformen als Schreibweisen daneben. Die Suche ist **umlautfest** – dasselbe Verfahren wie
+bei der Lebensmittelsuche seit 2.5.0, plus Satzzeichen, weil Übungen „Beinpresse 45°" heißen.
+
+| Getippt | Gefunden |
+|---|---|
+| `beinpresse` · `leg press` · `legpress` | **Beinpresse** [Quadrizeps] |
+| `bankdrucken` (ohne Umlaut) · `BANKDRÜCKEN` | Bankdrücken, Schrägbankdrücken, Negativbankdrücken, … (7 Treffer) |
+| `schraegbank` | Schrägbankdrücken, Schrägbankdrücken (Smith), Kurzhantel-Schrägbankdrücken |
+| `hueftstoss` | **Hüftstoß** [Gesäß] |
+
+Beim Anlegen sagt die App, was schon da ist – **bevor** die Dublette entsteht: *„Meinst du
+‚Beinpresse'? Die hast du schon – Probe-Tag, 27 geloggte Sätze."* Sie verbietet nichts. Du
+entscheidest (P10). Und der Katalog zieht beim Start die Übungen nach, die in dieser Datenbank schon
+in Plänen stehen – von 17 verschiedenen Namen fielen 14 unter einen vorhandenen Eintrag, drei kamen
+dazu.
+
+Dazu zwei Spalten, die seit 2.6.0 in der Datenbank stehen und **null Treffer im Code** hatten:
+
+- **`replaces_id` – Übung tauschen.** Der Slot bleibt (gleicher Tag, gleiche Position), der
+  Vorgänger bleibt verknüpft. Der Plan zeigt „früher: Leg Press", der Übungsverlauf zeigt die alte
+  Kurve **daneben** und nicht darin: eine Beinpresse ist keine Kniebeuge, und die alten Sätze unter
+  dem neuen Namen wären eine Bestleistung, die nie stattgefunden hat. Die Muskelgruppe füllt der
+  Katalog automatisch. Gemessen: getauscht, Position 2 blieb Position 2, 54 alte Sätze blieben
+  sichtbar.
+- **`group_id` – Supersätze.** Eine Marke auf mehreren Übungen desselben Tages: sie gehören zusammen,
+  dazwischen wird nicht pausiert. Eine Übung ist in höchstens einer Gruppe, `dissolve` löst sie auf.
+
+### Dein Kalorienziel ist ab jetzt eine Messung, keine Formel
+
+Bis 2.9.0 kam dein Ziel aus einer Formel: Größe, Gewicht, Alter, Ziel, Trainingstage rein, Zahl raus.
+Eine gute Startzahl – aber sie kennt weder deinen Stoffwechsel noch das, was du wirklich isst. Beides
+liegt seit Jahren in der Datenbank: Gewicht aus den Check-ins, Kalorien aus dem Essprotokoll.
+
+Der Sonntags-Lauf rechnet daraus deinen **gemessenen Verbrauch** und macht daraus einen Vorschlag mit
+**einem Satz Begründung**:
+
+> „Dein gemessener Verbrauch liegt bei 2.510 kcal – 100 kcal weniger, also 2.820 kcal am Tag. Mehr
+> als 100 kcal ändere ich in einer Woche nicht."
+
+Drei Regeln, und sie sind der ganze Unterschied zu „die App dreht an deinem Essen":
+
+1. **Standard ist `formel`:** es wird gerechnet, aber **nichts geändert**. Der Vorschlag liegt da und
+   wartet auf „Übernehmen" oder „Behalten". Gemessen: nach dem Lauf standen im Profil unverändert
+   3.017/2.600 kcal.
+2. **`adaptiv` schaltest nur du selbst** – nicht dein Coach. Hast du einen Coach, **wartet die
+   Anpassung auf seine Freigabe**; er bekommt eine Nachricht, und erst nach seinem Tipp stehen die
+   neuen Zahlen im Profil (gemessen: 2.920 → wirkt nicht → Freigabe → 2.820).
+3. **Zu wenig gelogged heißt: gar nichts.** Unter vier Logtagen sagt die App es im Klartext („Nur 0
+   von 7 Tagen protokolliert – ich lasse dein Ziel stehen.") und rührt das Ziel nicht an. Eine
+   Anpassung auf dünner Datenlage ist schlimmer als keine.
+
+**Alles ist widerrufbar.** Jede Zieländerung steht als eigene Zeile in `target_history` – auch die
+von Hand und die des Coachs. Und weil „Widerrufen" ein Ziel braucht, auf das es zurückgeht, bekommt
+der **Ausgangswert** beim ersten Übernehmen eine eigene Zeile: gemessen 3.017 → 2.920 → Widerruf →
+**wieder 3.017**. Ohne diese Zeile lief der Widerruf ins Leere – gefunden beim Bauen, behoben.
+
+Die Auskunft steht in `GET /api/targets/:userId`; „Übernehmen", „Behalten" und „Widerrufen"
+bestätigen nur die Zahlen (`kcal, protein, carbs, fat, source, reason, week_start, id`). Eine
+Bestätigung schickt keine ganze Ansicht mit – sonst reist der Hinweistext „Startwert – trag deine
+Größe ein …" durch jede Antwort, und genau das war er auch, bis es jemandem auffiel.
+
+### Der Wochenbericht: eine Rechnung, zwei Tonlagen
+
+`GET /api/weekreport/:userId` – für dich der Rückblick, für deinen Coach die Review-Inbox, aus
+**denselben** Zahlen. Bis 2.9.0 lasen beide Seiten für dieselbe Woche verschiedene Zahlen; das stand
+sogar als Kommentar im Code. Jetzt entscheidet die Rolle nur noch über die **Worte**:
+
+| | Athlet | Coach |
+|---|---|---|
+| Überschrift | „Deine Woche steht: 4 von 4 Einheiten." | „Marco Munsch: 4/4 Einheiten, 5/7 Tage geloggt" |
+| Ernährung ohne Eintrag | „Diese Woche noch nichts gelogged – die Ernährungszahlen bleiben deshalb leer." | „Kein einziger Logtag – zur Ernährung lässt sich diese Woche nichts sagen." |
+| Name im Payload | **nein** (du weißt, wie du heißt) | ja |
+
+Gemessen: `compliance`, `training`, `nutrition`, `body` sind in beiden Antworten Zeichen für Zeichen
+gleich. Und jede Antwort trägt einen Satz, **woher die Zahlen kommen** (P3): „Einheiten = Tage mit
+mindestens einem Arbeitssatz. Logtage = Tage mit mindestens einem Eintrag im Essprotokoll."
+
+### Pivot: die heutige Einheit ändern, ohne die Vorlage zu zerschießen
+
+Die meistgenannte Beschwerde in 98 geprüften Coach-Rezensionen. Du stehst im Studio, die Beinpresse
+ist belegt, das Knie zwickt, du hast 40 statt 70 Minuten – und der einzige Weg, die Einheit zu
+ändern, war bisher, **die Vorlage** zu ändern. Nächste Woche war sie dann auch geändert, und niemand
+wusste mehr, warum.
+
+`POST /api/session-override` schreibt **eine Zeile für diesen einen Tag**. Die Vorlage wird nicht
+angefasst; zurücknehmen heißt, die Zeile zu löschen – danach gilt wieder der Rhythmus, ohne
+Wiederherstellen, ohne Papierkorb. Du liest die Zeile:
+
+> **Heute geändert: Ruhetag – weil dein Knie – heute nur Mobility**
+
+Trägt es jemand **anderes** ein, ist die Begründung **Pflicht** (400 ohne) und du bekommst eine
+Nachricht. Für dich selbst darf sie fehlen. Nur für heute oder morgen – alles weitere ist Planung und
+gehört in den Plan.
+
+### Der Tag, der für dich gilt
+
+`users.tz` steht seit 2.6.0 in der Datenbank und wurde **nie gelesen**. Der Server kannte genau einen
+Tag: den Berliner. Für dich in Wien stimmt das. Für einen Athleten weiter östlich fällt ein Eintrag
+um 00:30 Ortszeit auf den Vortag – die Serie zählt ihn für gestern, die Wochenkonsistenz verschiebt
+sich um einen Tag.
+
+Ab jetzt gibt es genau eine Stelle für „welcher Tag ist das für **diesen** Menschen": `userToday`,
+`userWeekStart`, `userHour`. Sie tragen den Standardtag von `/api/today`, `/api/foodlog`,
+`/api/readiness`, `/api/supplement-intake`, den Wochenbeginn von `/api/week`, die Zukunftsprüfung von
+Check-in, Essprotokoll und Cardio – und im Stundentakt die Erinnerungsstunde und den Merker je Tag.
+
+Gemessen mit gestellter Uhr, **ein** Tick am 15.09. um 13:00 UTC (Berlin 15:00 am 15., Auckland 01:00
+am **16.**):
+
+| | Merker nach dem Tick |
+|---|---|
+| Athlet in Auckland, Wunschstunde 1 Uhr | `remind_2 = 2026-09-16` |
+| Athlet in Berlin, Wunschstunde 15 Uhr | `remind_7 = 2026-09-15` |
+
+Der Abend-Hinweis hatte dabei zuerst noch einen Rahmen auf der Serverstunde („18 bis 23 Uhr"). Beim
+Messen fiel auf: 19 Uhr in Auckland sind 9 Uhr in Berlin – dieser Athlet hätte den Hinweis **nie**
+bekommen. Der Rahmen ist weg; entschieden wird je Athlet auf seiner Ortsstunde.
+
+Eine unbekannte Zone fällt still auf Europe/Berlin zurück, und **nichts wird rückwirkend
+verschoben**: gespeicherte Daten bleiben, wie sie eingetragen wurden. Die Vergangenheit umzuschreiben
+wäre eine Fälschung – und in der Serie sichtbar.
+
+### Die Coach-Liste macht nicht mehr 170 Abfragen
+
+`GET /api/athletes` fragte pro Athlet rund zwölfmal die Datenbank: letzte Aktivität, letztes Gewicht,
+Ampel, Wochenziel, Rhythmus. Bei 14 Athleten waren das **170 Abfragen**. Bei 50 wären es über 600 –
+im selben Thread, der gerade die Satzzeile eines anderen speichert.
+
+| | vorher | nachher |
+|---|---|---|
+| Abfragen (14 Athleten) | 170 | **11** |
+| Antwortzeit (Median aus 25 Läufen) | 10,75 ms | **4,76 ms** |
+| Antwort | | **Zeichen für Zeichen identisch** |
+
+Die Rechnung ist Zeile für Zeile dieselbe geblieben: `athleteAttention` und `athleteWeekGoal` sind
+weiter die **eine** Quelle für die Ampel, sie bekommen ihre Werte jetzt nur vorab gereicht statt sie
+einzeln zu holen. Wer sie ohne diese Werte aufruft, bekommt exakt dasselbe Ergebnis – nur teurer.
+
+### Nachgebessert vor der Auslieferung (Server)
+
+Fünf unabhängige Prüfer sind über diese Version gegangen, bevor sie ausgeliefert wurde. Was sie
+gefunden haben, steht hier – nicht weil es schön aussieht, sondern weil eine Version, die verschweigt,
+was an ihr zuletzt noch falsch war, beim nächsten Mal genau denselben Fehler macht.
+
+**Die Sicherung, die ihre letzte Sicherung löschte.** Die Regel „die jüngste brauchbare Sicherung
+bleibt immer stehen" schaute nur in die Tabelle, nicht ins Verzeichnis. Gemessen: eine 20 Tage alte
+Zeile **mit** Datei wurde gelöscht, weil eine jüngere Zeile **ohne** Datei als „die jüngste" galt –
+danach lag keine einzige Sicherung mehr auf der Platte. Geschont wird jetzt die jüngste Zeile, deren
+Datei wirklich da ist. Dazu kommt ein **Abgleich zwischen Verzeichnis und Tabelle** beim Start, bei
+jeder Betriebsansicht und vor jeder Probe: eine Datei ohne Zeile wird nachgetragen (mit frisch
+gerechneter Prüfsumme), eine Zeile ohne Datei auf `ok=0` gesetzt. Das repariert zugleich den Fall,
+der nach einer **echten Wiederherstellung** auftrat – die Zeile wird nach dem `VACUUM INTO`
+geschrieben und steht deshalb nie in der Datei, die sie beschreibt; die Probe meldete rot, genau
+wenn das Zurückspielen geklappt hatte.
+
+| Befund | Vorher | Jetzt |
+|---|---|---|
+| Aufbewahrung löscht die letzte vorhandene Datei | `pruned: 1`, Verzeichnis leer, Probe rot | `pruned: 0`, Datei da, Probe grün |
+| Nach der Wiederherstellung ist die Datei eine Waise | `filesOnDisk: 1`, keine Zeile, Probe rot | Zeile nachgetragen (`kind='gefunden'`), Probe grün |
+| Die Probe überschrieb die Notiz des Laufs, den sie prüft | „geschrieben in 412 ms" war weg | die Probe schreibt nur in ihre **eigene** Zeile |
+| Ohne Prüfsumme prüfte die Probe nichts und meldete grün | stilles Überspringen | Prüfsumme wird nachgetragen, und die Notiz sagt „ohne Vergleich – die Sicherung kam ohne Prüfsumme" |
+| Die Wegwerf-Kopie blieb liegen, wenn das Kopieren scheiterte | halbe Datenbankkopie im Verzeichnis | aufgeräumt, auch im Fehlerzweig – und `.probe-*`-Reste fliegen beim nächsten Lauf mit raus |
+| Der Dateiname trug UTC, der Job läuft in Ortszeit | Lauf um 03:30 → `…T01-30-35-auto.db` | `…T03-30-35-auto.db` (ohne Zeitzone gibt es ein `Z` dazu) |
+| Die 10-Minuten-Sperre überlebte keinen Neustart | nach jedem Start wieder frei | liest die Laufzeit aus der Tabelle, wie der Download-Knopf seit 2.8.0 |
+| `backups/` stand nicht in `.gitignore` | Vollabzüge auf dem Weg nach GitHub | steht drin – **und** der Server warnt beim Start, wenn der Ordner im Projektverzeichnis liegt |
+
+**Das Kalorienziel hatte vier abgeschaltete Schutzregeln.** Der Wochenlauf übergab dem Rechenkern
+vier von acht Werten. Jeder fehlende Wert schaltete stillschweigend eine Regel ab, die die App
+verspricht:
+
+* Ohne den **Formelwert** war die 35-%-Plausibilitätsschranke toter Code. Gemessen: gemessene
+  1.890 gegen gerechnete 3.017 kcal (37 % auseinander, weil an fünf von sieben Tagen nur ein Teil des
+  Essens protokolliert war) – das Ziel fiel Woche für Woche um 100 kcal. Jetzt: „Gemessen komme ich
+  auf 1.890 kcal Verbrauch, gerechnet auf 3.017 – das liegt zu weit auseinander. Wahrscheinlich
+  fehlen protokollierte Mahlzeiten. Dein Ziel bleibt, wie es ist."
+* Ohne die **Untergrenze** aus `nutritionPlan` galt nur die harte Kante von 1.200 kcal. Gemessen über
+  zwölf Wochenläufe: 2.200 → 2.100 → 2.000 → 1.900 → **1.500** bei einer eigenen Untergrenze von
+  1.818, und ohne den Satz „Weiter runter geht dein Ziel nicht". Jetzt endet dieselbe Bahn bei 1.818.
+* Ohne die **Trainingstage** rechnete der Zielfaktor für jeden Athleten mit vier Einheiten. Gemessen
+  bei 3.000 kcal Verbrauch: 2 Einheiten 3.210 · 4 Einheiten 3.270 · 6 Einheiten 3.330 – wer sechsmal
+  trainiert, lag dauerhaft 60 kcal zu tief.
+* Ohne den **Gewichtstrend** fiel der Begründungssatz immer auf den Verbrauchszweig. „Dein Gewicht
+  ist 3 Wochen gleich geblieben – 40 kcal weniger" konnte gar nicht entstehen. Jetzt schon.
+
+Dazu drei weitere Stellen an derselben Rechnung: `holding` griff nicht, weil das Fenster still auf
+den letzten Tag **mit Daten** rutschte – wer eine Woche nichts einträgt, bekam eine Anpassung auf
+Daten der Vorwoche statt „Nur 0 von 7 Tagen protokolliert – ich lasse dein Ziel stehen". Ein
+Vorschlag, dessen **Makros das eigene Kalorienziel übersteigen** (gemessen: 1.300 kcal Ziel,
+172 g Eiweiß + 84 g Fett = 1.444 kcal), wird nicht mehr als Vorschlag hingelegt. Und das
+**Ruhetagsziel** folgt wieder dem Verhältnis der eigenen Tabelle statt einem eingefrorenen absoluten
+Abstand: 2.920 kcal Trainingstag ergeben 2.738 statt 2.503.
+
+**Wer über dein Essen entscheidet.** Die Karte sagt dem Coach „der Vorschlag wartet auf ihn, nicht
+auf dich" – der Server nahm seine Entscheidung trotzdem an. Gemessen: Ziel fiel von 3.173 auf 3.080,
+der Athlet las „Dein Coach hat die Anpassung freigegeben." Jetzt antwortet die Route mit „Diese
+Entscheidung gehört dem Athleten", solange sie nicht wirklich auf eine Freigabe wartet.
+
+**Drop-Sätze sind keine Bestleistung.** Ein Drop-Satz ist per Definition ein Satz **nach** dem
+Versagen mit reduziertem Gewicht. Er zählte als „bester Arbeitssatz": gemessen stand ein Drop-Satz
+230 kg × 10 als „230,0 kg Bestleistung · e1RM 306,7 kg" in der Analyse, in der PR-Feier nach dem Satz
+und in der Best-Zeile der Plan-Karte. Ab jetzt gibt es zwei Regeln statt einer – **zählbare Arbeit**
+(Sätze, Tonnage, Volumen: Drop- und Backoff-Sätze zählen mit, gehobene Kilos sind gehobene Kilos) und
+**rekordfähig** (Bestleistung, e1RM, „Neuer Rekord": nur Arbeitssätze).
+
+**Was sonst noch auseinanderlief:**
+
+| Befund | Jetzt |
+|---|---|
+| Startseite und Trainingsansicht zeigten zwei verschiedene Tage | `/api/home` rechnet „heute" in der Zeitzone des Athleten, wie `/api/today` es längst tat. Gemessen mit `Pacific/Kiritimati`: beide sagen 2026-09-16. |
+| Der Pivot war für den Athleten unsichtbar, das Kalorienziel sprang trotzdem | Der Override zieht jetzt auch die Tagesvorschau (`preview[0]`) mit – die Quelle, aus der die Startseite ihren Tag liest. |
+| Übungsnamen aus fremden Plänen standen im Katalog aller | Der Import schreibt die Besitzer-Id mit, vorhandene Zeilen wurden einmal nachgezogen. Gemessen mit „Reha rechte Schulter Dr. Weber": sichtbar **nur** für den Besitzer – nicht für andere Athleten, nicht für fremde Coaches, nicht für den Admin. |
+| Wer deutsch tippte, bekam keinen Dublettenhinweis | Die Schlüsselmenge kommt jetzt aus **allen** Katalogeinträgen, die sich mit dem getippten Namen überschneiden. „Schrägbankdrücken" findet dieselben zwei Plan-Zeilen wie „Incline Smith Machine Press". |
+| Im Wochenbericht gingen zwei von drei Spitzenplätzen an dieselbe Übung | Verdichtet über den normalisierten Namen – und die Rekorde kommen zusätzlich als **Liste** (Übung, Datum, alter Bestwert, Gewicht × Wdh.), nicht nur als Zahl. |
+| „Übung tauschen" umging die Coach-Sperre, die Ändern und Löschen erzwingen | 409 mit demselben Satz wie beim Löschen; mit `confirm:true` geht es weiter. |
+| Ein Supersatz ließ verwaiste Ein-Mann-Gruppen zurück | Dieselbe Transaktion zählt die verlassene Gruppe nach und löst sie auf, wenn weniger als zwei übrig sind. |
+| Vier Rechenkern-Funktionen hatten null Aufrufe | `calibrationState` und `divergence` hängen an der Bereitschaft, `e1rmSeries` und `deloadHint` am Übungsverlauf, `localHour` an der Ortsstunde. Damit gilt überall die Fassung, die mit 20.000 Zufallsläufen belegt ist – und nicht mehr zwei Zahlen für dieselbe Regel (Selbstbericht-Alarm ab 2 Tagen, nicht ab 3). |
+
+### Zum Nachprüfen
+
+| Prüfung | Ergebnis |
+|---|---|
+| `tools/roles.mjs` (208 Routen × 6 Rollen) | **grün** – 0 Abweichungen, 0 Lecks, 0 Zellen mit Personendaten für die falsche Rolle, 0 Routen außerhalb der Erwartungstabelle. Alle **19 neuen Routen** stehen mit Begründung in `tools/ROUTEN-PERSONENBEZUG.md` (Nr 193–211). |
+| Keine der 19 neuen Routen ohne Anmeldung | die sieben öffentlichen Wege bleiben unverändert sieben |
+| Start gegen eine Kopie der **echten** Datenbank | 9 neue Tabellen, 13 neue Spalten in `users`, **keine Tabelle mit weniger Zeilen** als vorher; zweiter Start: Zeilen und Spalten identisch |
+| `dup_check.py`, `static_check.py` | sauber |
+
+## 2.9.0
+
+Diese Version beantwortet eine Frage, die in jeder App irgendwann kommt und auf die BE INEVITABLE
+bisher nur eine peinliche Antwort hatte: **„Kannst du das eben abstellen?"**
+
+Bis 2.8.0 lautete die Antwort: nein, nicht eben. Jede Einstellung – ob sich jemand anmelden darf, ob
+die KI-Auswertung läuft, ob ein Hinweis oben steht – war eine Umgebungsvariable. Sie zu ändern hiess:
+neu ausliefern. Auf Render sind das ein paar Minuten, in denen die App nicht da ist. Für eine
+Entscheidung, die eine Sekunde dauert.
+
+Ab 2.9.0 gibt es dafür **drei Schalter und zwei Handgriffe in der Verwaltung**. Die drei Schalter
+tragen einen Zustand (`settings`: `ops.registration`, `ops.ai`, `ops.notice`) und wirken in derselben
+Sekunde, in der du sie umlegst – kein Neustart, kein Deploy, keine Wartezeit. Die zwei Handgriffe
+(Mailversand prüfen, Wochen-Job nachholen) legt man nicht um: sie lösen etwas aus (`POST
+/api/admin/mailcheck`, `POST /api/admin/weekly`) und merken sich keinen Zustand. Sie stehen in
+derselben Liste, weil man sie an derselben Stelle braucht.
+
+### Die drei Schalter und die zwei Handgriffe (Verwaltung → Betrieb)
+
+| Schalter / Handgriff | Was er kann | Gemessen |
+|---|---|---|
+| **Registrierung** | offen · nur mit Code · geschlossen | Auf „geschlossen" antwortet `POST /api/register` mit **403** und dem Klartext „Die Registrierung ist derzeit geschlossen" – auch mit gültigem Code. Zurück auf „offen": die nächste Anmeldung kommt durch. |
+| **KI-Analyse** | Not-Aus für den ganzen Betrieb | Mit Not-Aus antwortet `POST /api/ai/summary/:userId` **503** „vom Betreiber vorübergehend abgeschaltet" – auch bei Athleten, die zugestimmt haben. Der Schlüssel bleibt gesetzt, es geht nichts verloren. |
+| **Wartungshinweis** | eine Zeile für alle | Kein Wartungsmodus: **niemand wird ausgesperrt**. Der Server gibt den Text über `/api/notice` und die Auskunft der Anmeldeseite heraus. |
+| **Mailversand** *(Handgriff)* | Zustand · SMTP-Selbsttest · Testmail | Der **Selbsttest** baut die Verbindung auf und meldet grün/rot, **ohne eine Mail zu verschicken** – zwei Sekunden statt „schau mal ins Postfach". Die Testmail prüft danach den ganzen Weg. |
+| **Wochen-Job** *(Handgriff)* | Zustand · letzter Lauf · jetzt nachholen | Das Nachholen von Hand trägt sich jetzt in **dieselbe Zeile** ein wie der Sonntagslauf. Vorher stand der Job nach erfolgreichem Nachholen weiter auf „überfällig". |
+
+Jedes Umlegen eines der drei Schalter schreibt eine Zeile ins Protokoll (`ops.set`, mit Vorher und
+Nachher); die beiden Handgriffe schreiben `mail.check`/`mail.test` bzw. `job.weekly.run`. Beim
+Wartungstext steht der Text **nicht** im Protokoll, nur seine Länge – `audit` nimmt keinen Freitext
+auf, und diese Regel gilt auch für den Betreiber selbst.
+
+Zwei Dinge, die der Schalter absichtlich **nicht** tut:
+- **„Nur mit Code" lässt sich nicht wählen, solange `REGISTER_CODE` fehlt.** Das wäre eine Tür ohne
+  Schlüssel – in Wahrheit „geschlossen", in der Anzeige „Code". Die Route lehnt es mit Klartext ab.
+- **Solange niemand am Schalter gedreht hat, entscheidet weiter die Umgebungsvariable.** Eine
+  bestehende Installation mit `REGISTER_CODE` ändert durch dieses Update ihr Verhalten nicht.
+
+### Die Läufe zeigen jetzt, was sie tun
+
+Bis 2.8.0 trugen sich genau **zwei** wiederkehrende Läufe in die Betriebsansicht ein: der
+Stundentakt und das tägliche Aufräumen. Das Problem daran sieht man erst, wenn etwas schiefgeht:
+fällt ein einzelner Teilschritt aus – die Sonntags-Nachricht, die Erinnerungen, der Mindset-Lauf –,
+stand der Zeitgeber trotzdem auf „läuft". Der äußere Lauf kam ja durch.
+
+Jetzt hat jeder Teil seine eigene Zeile mit eigener Karenz: **acht statt zwei**.
+
+| Lauf | Takt | Karenz |
+|---|---|---|
+| Zeitgeber | stündlich | 2,5 Std. |
+| Wochen-Rückblick (Nachricht **und** Mail) | wöchentlich | 8 Tage |
+| Trainings-Erinnerung | stündlich geprüft | 36 Std. |
+| Abend-Hinweis (Wochenpensum) | abends 19–21 Uhr | 36 Std. |
+| Mindset-Erinnerungen | täglich | 36 Std. |
+| Aufräumen (WAL, Tokens, Teilen-Links) | stündlich | 2,5 Std. |
+| Aufbewahrung (Protokoll/Fehler) | täglich | 36 Std. |
+| Letzte Sicherung | von Hand | 7 Tage |
+
+Die letzte Zeile ist kein Lauf, sondern dein Handgriff – sie steht trotzdem dabei, weil sie das ist,
+was am ehesten vergessen wird. „Überfällig" heisst dort: die letzte Kopie ist älter als eine Woche.
+
+### Was sonst noch aufgeräumt wurde
+
+- **Die Filter im Protokoll sieben jetzt auf dem Server.** Die Verwaltung schickte Zeitraum, Handlung
+  und Akteur seit 2.6.0 mit – die Route hat sie ignoriert und immer die letzten 100 Zeilen geliefert,
+  die der Browser danach durchsuchte. Bei vollem Puffer fand ein Filter auf eine **seltene** Handlung
+  deshalb nichts, obwohl es Treffer gab: sie lagen hinter den 100. Gemessen an 109 Zeilen: Filter auf
+  `ops.set` liefert jetzt **6 von 6** statt der zufälligen Treffer im gelesenen Fenster. Der Akteur
+  wird über sein Kürzel aufgelöst; ein Kürzel, das es nicht gibt, sagt das ausdrücklich –
+  „kein Treffer" und „gibt es nicht" sind zwei verschiedene Antworten.
+- **Dasselbe für die Fehlerliste.** `?hours=24` schickte die Überschrift „Fehler der letzten
+  24 Stunden" mit; geliefert wurde der ganze Ringpuffer. Die Überschrift log.
+- **Die 10-Minuten-Sperre der Sicherung überlebt einen Neustart.** Sie war ein Zeitstempel im
+  Arbeitsspeicher; nach jedem Neustart war sie weg, und ein `VACUUM INTO` über die ganze Datenbank
+  liess sich beliebig oft auslösen. Gemessen: Sicherung gezogen → zweiter Versuch 429 („noch 600 s"),
+  Server neu gestartet → immer noch 429 („noch 579 s").
+- **„Erledigt" erreicht jetzt auch den Athleten.** Wer „Knie zwickt beim Beugen" meldet, erfuhr bisher
+  nie, dass sein Coach es gesehen hat: die Route setzte nur das Häkchen. Jetzt bekommt er eine
+  Systemnachricht *„Dein Coach hat deine Rückmeldung zu ‚Kniebeuge' gesehen und als erledigt
+  markiert. Wenn sich nichts geändert hat, meld dich einfach noch einmal."* Nur beim echten
+  Schließen – ein zweites Abhaken derselben Notiz schickt nichts (gemessen: `athleteNotified:false`).
+  Wer keine Antwort bekommt, meldet beim nächsten Mal nichts mehr; das war der eigentliche Schaden.
+
+### Eine Streak-Mechanik statt drei – und keine Drohung mehr
+
+Bis 2.8.0 liefen drei Zählungen nebeneinander: die **Tages-Serie** („31 Check-ins in Folge"), die
+**Wochenziel-Serie** und die **Joker-Buchhaltung**. Drei Zahlen über dieselbe Frage – und die
+lauteste davon bestrafte genau das, was ein Trainingsplan ausdrücklich vorsieht: Ruhetage.
+
+Ab 2.9.0 gibt es **eine** Aussage, die **Wochen-Konsistenz**:
+
+* offen: „**1 von 4 geplanten Einheiten** · Noch 3 Einheiten – ein Fehltag ändert daran nichts."
+* erfüllt: „**Woche geschafft · 4 von 4 Einheiten** · 3 Wochen in Folge"
+
+Umgestellt, nicht danebengestellt: Die Startseite, der Sonntags-Rückblick (`weekHighlights` sagt jetzt
+„N Wochen in Folge dein Pensum getroffen" statt „31 Tage Serie ohne Unterbrechung") und die
+Abend-Mitteilung rechnen aus **derselben** Funktion. **„Streak-Joker" heißt ab jetzt überall
+„Reparatur"** – Pille, Sheet, Ring, `aria-label`, die Verwaltung und die Push, die der Server
+verschickt.
+
+Und die Drohung ist weg. Bis 2.8.0 schickte der Server abends *„🔥 Deine Streak ist in Gefahr! – N
+Tage in Folge, logge heute kurz etwas, damit die Serie nicht reißt."* – an **alle** Athleten, auch an
+die, die im Profil „Trainings-Erinnerung: Aus" gewählt hatten. An derselben Stelle steht jetzt ein
+ruhiger **Abend-Hinweis**: nur mit gesetzter Erinnerungs-Uhrzeit, nur wenn das Wochenpensum heute
+**noch erreichbar** ist, und im Ton der einen Mechanik – „Noch 2 von 4 Einheiten – dafür hast du noch
+3 Tage. Ein Fehltag ändert daran nichts."
+
+### Die Trainings-Erinnerung nagt nicht mehr endlos
+
+Wer aufgehört hat, bekam bis 2.8.0 an **jedem** Trainingstag „Heute ist Trainingstag! 💪" – für
+immer. Der Lauf kannte nur zwei Fragen: „ist die Wunschstunde erreicht?" und „gibt es heute einen
+Eintrag?". Die Frage „wann war der letzte Eintrag überhaupt?" stellte er nie. Der einzige Ausweg war,
+Push ganz abzuschalten – und damit auch die Nachrichten des Coachs zu verlieren.
+
+Jetzt entscheidet eine **Wiederkehr-Leiter** (`logic.js/reminderLadder`), was ein stilles Konto hört:
+
+| Tage ohne Eintrag | Was kommt |
+|---|---|
+| 1–4 | die gewohnte Trainings-Erinnerung zur Wunschstunde |
+| **5** | „Fünf Tage Pause – ein Check-in dauert 20 Sekunden." |
+| **10** | „Alles in Ordnung? – schreib deinem Coach kurz, was los ist." |
+| **14** | „Plan pausieren?" – **ab hier schweigt die tägliche Erinnerung** |
+| 15–29 | noch **einmal pro Woche** (Tag 21, 28) |
+| **ab 30** | Stille |
+
+Dazwischen: nichts. Keine Schuld-Töne, keine Streak-Drohung. Jede Sprosse geht höchstens einmal am
+Tag raus (Dedup über `ladder_<id>`), und wer keine Erinnerungs-Uhrzeit gesetzt hat, bekommt gar
+nichts.
+
+### Der Trichter vor der Schleife: erst installieren, dann fragen
+
+In beiden Datenbanken standen **null** Push-Abos. Auf dem iPhone gibt es Web-Push überhaupt nur für
+die **installierte** App – ohne Installation läuft die ganze Gewohnheits-Schleife nie an. Die
+Reihenfolge ist deshalb bindend: **installieren → fragen → erinnern.**
+
+- **Installations-Trichter.** Eine ruhige Karte kommt erst, wenn vier Dinge zutreffen: eigenes
+  Athleten-Konto, die App läuft **nicht** als installierte PWA, das **erste Training ist
+  abgeschlossen**, und in den letzten 30 Tagen wurde sie nicht weggetippt. **Kein Banner beim ersten
+  Start** – das ist strukturell ausgeschlossen, nicht nur zeitlich verzögert. Das Sheet zeigt drei
+  Bilder als Inline-SVG (im Flugmodus da) und den Weg für das jeweils andere System.
+- **Gefragt wird in der App, nicht im Systemdialog.** Nach dem ersten gespeicherten Check-in fragt die
+  App „Soll ich dich an Trainingstagen um 18 Uhr erinnern?" mit **Ja · Andere Zeit · Nein**. Erst ein
+  „Ja" öffnet den Systemdialog – ein abgelehnter Systemdialog ist auf iOS endgültig. „Andere Zeit"
+  zeigt elf Stunden-Chips **vor** dem Dialog. „Nein danke": 30 Tage Ruhe.
+- **Erinnerungs-Center** im Profil (Profil → Erinnerungen): jede Push-Art mit ihrem Zeitfenster,
+  Test-Mitteilung mit Zeitstempel, Trainings-Erinnerung jetzt **6–20 Uhr** statt 5–12 (wer abends
+  trainiert, war vorher nicht erreichbar). Fünf Push-Arten waren bis 2.8.0 unsichtbar; sie stehen
+  jetzt da – mit dem ehrlichen Satz, dass sie am Hauptschalter hängen und keinen eigenen haben.
+
+### Arbeitsbreite: der Rechner ist kein großes Handy
+
+Coach und Betreiber arbeiten am Rechner. Bis 2.8.0 bekamen sie dort eine **540 px breite
+Handyspalte** mitten auf einem 1280-px-Schirm – rund 70 % der Fläche schwarz – und im ganzen Projekt
+gab es **keine einzige** `:hover`-Regel.
+
+Ab 1024 px gilt für **Coach und Verwaltung** ein echtes Arbeitslayout: linke Navigationsleiste statt
+Leiste unten, Inhalt 720 px, und Sheets werden rechts zum **Inspektor-Panel** statt über allem zu
+liegen. Gemessen ging `.app` in der Coach-Ansicht von `540 px` auf `1280 px` Breite.
+**Die Athleten-Ansichten auf dem Handy sind unverändert** – alle fünf in der Probe byte-gleich.
+
+Die Athletenliste wird dort zur **Tabelle**: `.ath-row` geht von `396 × 62 px` (drei Zeilen) auf
+`568 × 22 px` – statt drei Athleten stehen dreizehn auf dem Schirm. Neu in dieser Fassung sind die
+**Spaltenköpfe zum Sortieren** (Athlet · Status · Grund · Zuletzt aktiv; ein dritter Druck stellt
+„Alarm zuerst" wieder her) und die **Tastatur**: `j`/`k` durch die Liste, `Enter` öffnet, `/`
+fokussiert die Suche, `Esc` schließt. Hover- und Aktivzustände gibt es jetzt überall dort, wo ein
+Zeigegerät sie zeigen kann – unter `(hover:hover)`, eine Flächenstufe heller, keine neue Farbe.
+
+### Kleinkram in den Athleten-Ansichten, der trotzdem gelogen hat
+
+- **„bei RIR 2"** stand in der Trainingsbegründung, auch wenn die RIR-Spalte gar nicht sichtbar war.
+- **Drei Ladefehler-Karten der Analyse** behaupteten „keine Daten", wo in Wahrheit die Anfrage
+  gescheitert war.
+- **„Wer deine Fotos sehen kann"** beschrieb einen Stand, den es so nicht mehr gab.
+- **Die Planzeile der Ernährung** rechnete das Kochgewicht aus einer Kopie statt aus der Zahl des
+  Servers.
+- **`aria-current="page"`** fehlte am aktiven Reiter, und acht rohe Farbwerte sind jetzt Token.
+
+### Die Dokumente sagen, was der Code tut
+
+Alle elf Dokumente im Wurzelverzeichnis sind gegen den laufenden Server nachgemessen, nicht
+abgeschrieben. Neu ist **`IPHONE-TEST.md`**: 13 Prüfpunkte zum Abhaken, je „Was du tust · Was
+passieren muss · Wenn nicht" – von der Installation über Test-Push, Pausen-Timer mit gesperrtem
+Bildschirm und Apple-Kurzbefehl bis zum Offline-Start im Flugmodus. `DEPLOYMENT.md` hat jetzt die
+vollständige Variablenliste und eine **Render-Checkliste für nach dem Deploy**, `SICHERHEIT.md` einen
+eigenen Abschnitt zu den Laufzeit-Schaltern, `APP-INSTALLIEREN.md` den Trichter aus dieser Version.
+
+**`package.json` nennt jetzt die Node-Version** (`"engines": { "node": ">=22" }`). Ohne diese Angabe
+entschied die Voreinstellung der Plattform darüber, welcher Datenbanktreiber läuft: `src/db.js`
+versucht `better-sqlite3` und fällt sonst auf das eingebaute `node:sqlite` zurück – das es erst ab
+Node 22 gibt.
+
+### Was in dieser Version NICHT fertig geworden ist
+
+Damit es niemand erst beim Suchen merkt:
+
+- **Der Wartungshinweis wird Athleten noch nicht angezeigt.** Der Server gibt ihn heraus, die
+  Verwaltung zeigt ihn – die Hülle der Athleten-App holt ihn noch nicht ab. Die Verwaltung sagt das
+  im Klartext, statt eine Wirkung zu behaupten, die es nicht gibt.
+- **Die App hat keinen Hellmodus.** `public/app.css` kennt weder `prefers-color-scheme` noch
+  `data-theme`; sie ist dunkel, auf jedem Gerät. Für das Handy ist das eine Entscheidung, für einen
+  hellen Büroschirm eine offene Frage – sie ist notiert.
+- **Der Startpfad braucht weiter 14 Anfragen** statt der angepeilten 10. Vier davon ließen sich ohne
+  Verlust sparen; welche und warum, steht in `DEFER-A5.md`.
+- **Eine Reparatur pro Monat** war das Ziel; der Server vergibt weiter höchstens zwei in 30 Tagen. Die
+  App nennt die **echte** Zahl des Servers, nicht die gewünschte.
+- **Zwei Stellen in der Analyse zählen noch Tage** statt Wochen (Wochenrückblick und die
+  Meilenstein-Feier). Startseite und Sonntags-Nachricht sind umgestellt.
+
+## 2.8.0
+Diese Version beantwortet die Frage, die ein Trainingstagebuch eigentlich beantworten muss: **Was war
+davon echte Arbeit?** Bis 2.7.0 war die Antwort „alles, was du eingetippt hast" — und deshalb machte ein
+Aufwärmsatz mit 60 kg × 15 rechnerisch ein geschätztes 1RM von 90 kg, während der schwere Arbeitssatz
+mit 67,5 kg × 8 nur auf 85,5 kg kam. Die App feierte den Aufwärmsatz als Rekord.
+
+Die Spalten für Satzart und RIR liegen seit 2.6.0 in der Datenbank. Geschrieben hat sie bis jetzt niemand.
+Ab 2.8.0 werden sie geschrieben — und, wichtiger, **gelesen**: im Volumen, in der Bestleistung, in der
+1RM-Schätzung, in den Sätzen je Muskelgruppe, in der Empfehlung und sogar in der Frage, ob ein Tag
+überhaupt ein Trainingstag war.
+
+Gemessen an einem Testkonto mit 166 Sätzen — dieselbe Zeile einmal als Aufwärmsatz und einmal als
+Arbeitssatz eingetragen:
+
+| | als Aufwärmsatz | dieselbe Zeile als Arbeitssatz |
+|---|---:|---:|
+| geschätztes 1RM der Übung | **96,7 kg** | 583,3 kg |
+| Volumen der Übung | **19.538 kg** | 22.038 kg |
+| Empfehlung fürs nächste Mal | **95 kg** | 200 kg |
+
+Links steht, was die App ab jetzt zeigt. Rechts steht, was sie bis 2.7.0 gezeigt hätte.
+
+**Und das ist nur die eine Hälfte.** Die andere ist die Oberfläche — sie wurde in dieser Version
+Bildschirm für Bildschirm neu geschnitten. Was sich dabei geändert hat, steht gleich als Erstes.
+
+### Für dich als Athlet: die Oberfläche
+Die Rechnung darunter ist neu. Der Weg darüber auch. Alle Zahlen hier sind am laufenden Server
+gemessen, nicht geschätzt — jeweils 2.7.0 gegen 2.8.0 am selben Konto.
+
+- **Der Check-in kostet zwei Tipps statt sieben — und die Felder sind schon ausgefüllt.** Bis 2.7.0
+  öffnete sich ein leeres Blatt: vier Felder, vier Eingaben, Speichern ohne Eingabe schickte nichts.
+  Jetzt stehen in allen vier Feldern Vorschläge (letzter Wert oder der Wert deiner Uhr), und unter
+  jedem steht, **woher** er kommt. Ein Tipp öffnet, ein Tipp speichert. **0 von 4 vorbelegt → 4 von 4.**
+- **Einen Satz bestätigst du mit einem Tipp.** Die heutige Übung ist aufgeklappt, die Satzzeile trifft
+  sicher, der Haken sitzt am Ende der Zeile: **2 Tipps → 1** ab der Trainingsansicht. Das Gewicht eines
+  Satzes zu ändern kostete bisher **9 Tipps**, jetzt **2** — ± Stepper neben Gewicht und Wiederholungen,
+  Tastatur nur noch, wenn du sie willst.
+- **Die Startseite sagt eine Sache auf einmal.** Bisher stand dasselbe Thema dreifach da (Supplements
+  als Chip *und* Ring *und* Liste). Jetzt sind die Ringe das Tages-Dashboard, ein Tipp auf einen Ring
+  öffnet sein Blatt, und darüber steht **eine** Jetzt-Karte mit genau einer Hauptsache. Dazu neu: eine
+  Karte „Zuletzt" — dein letztes Training sahst du bisher nirgends, dein Coach schon.
+  **Höhe 1.874 px → 987 px**, **19 rote Elemente über dem Falz → 2**, Weg zur Supplement-Einnahme
+  **915 px Scrollen → 143 px**. Kein Einstieg ist dabei teurer geworden: „Essen loggen" bleibt bei
+  3 Tipps, „Supplement" bei 1.
+- **Wenn dir die alte Startseite lieber ist, hol sie zurück.** In der Mehr-Zeile der Startseite steht
+  „Startseite: neu / klassisch". Die Wahl bleibt nach dem Neuladen bestehen, und die klassische Fassung
+  ist vollständig. (Sie gehört noch auf die Profilseite — das holen wir nach.)
+- **Die Ernährung kennt jetzt andere Tage als heute.** Eine Datumsleiste über dem Tag („‹ Sa 12.9. ·
+  Heute ›"), Wischen blättert, 365 Tage zurück. Genau das tun Menschen abends: nachtragen. Dazu
+  „Gestern wiederholen" und „Mahlzeit als Vorlage" in zwei Tipps, Favoriten oben in der Auswahl, und
+  in der Planzeile steht endlich, ob 105 g roh oder gekocht gemeint sind.
+- **Ein normaler Tag sieht nicht mehr aus wie ein Fehler.** Die Makros sind Ringe statt Warnbalken;
+  „26 g drüber" steht in normaler Schrift, nicht in Alarmfarbe.
+- **Die Analyse beantwortet erst die Frage, dann zeigt sie die Zahl.** Über jedem Diagramm steht ein
+  Satz im Klartext, neben jedem Wert sein Bereich („HRV 62 ms · dein Bereich 55–70"), und du wählst
+  den Zeitraum selbst: **4 Wochen / 3 Monate / 1 Jahr** (bis 2.7.0 fest 30 bzw. 90 Einträge, ohne Wahl).
+  Statt Tonnage zählt sie **Sätze je Muskelgruppe gegen den Korridor 10–20** — die Größe, die du
+  wirklich planst. Der Fotovergleich zeigt zwei Bilder nebeneinander im gleichen Ausschnitt.
+- **Rot ist wieder ein Akzent.** Die Farbe markiert nur noch den einen Hauptknopf, den aktiven Tab,
+  den Fokus und einen echten Fehler. Alles andere ist neutral. Dazu: **keine einzige Textfarbe unter
+  dem Lesbarkeits-Mindestwert** (vorher 7 Regeln, die schlimmste mit 2,02:1), **kleinste Schrift
+  10 px → 12 px** (13 Stellen betroffen → 0), **Tippziele unter 44 px: 186 → 44**.
+
+### Für dich als Athlet
+- **Aufwärmsätze zählen nirgends mehr mit.** Nicht im Volumen, nicht in der Bestleistung, nicht im
+  geschätzten 1RM, nicht in den Sätzen je Muskelgruppe — und auch nicht bei der Frage, ob der Tag als
+  Training gilt. Drei Aufwärmsätze aus zwei Übungen sind kein Trainingstag und verschieben deinen
+  Rhythmus nicht mehr.
+- **Vier Satzarten statt einer:** Arbeitssatz, Aufwärmsatz, Drop-Satz, Backoff-Satz. Drop und Backoff
+  sind echte Arbeit und zählen wie ein Arbeitssatz — nur der Aufwärmsatz fällt heraus. Mehr Arten gibt
+  es bewusst nicht; für alles andere hast du die Satz-Notiz.
+- **RIR wird gespeichert und benutzt.** Trägst du ein, wie viele Wiederholungen noch gegangen wären,
+  rechnet die Empfehlung damit. An derselben Zeile — 90 kg × 15 im Zielbereich 10–15 — kommt heraus:
+
+  | dein RIR | Empfehlung | warum |
+  |---:|---|---|
+  | nichts eingetragen | 90 kg halten | wie bisher; ohne Angabe ändert sich nichts |
+  | 0 oder 1 | 90 kg halten | „sauber am Limit" — das Gewicht steigt nicht, nur weil die Zahl stimmt |
+  | 2 | 90 kg halten | im Zielbereich, Reserve normal |
+  | 3 | **92,5 kg** | drei in Reserve heißt: der Reiz war zu klein |
+  | 4 oder 5 | **95 kg** | zwei Schritte statt einem |
+
+  Ohne RIR-Wert rechnet die App Zeile für Zeile wie in 2.7.0. Wer das Feld nicht benutzt, merkt nichts.
+- **Unter jeder vorgeschlagenen Zahl steht jetzt, woher sie kommt** — „zuletzt 72,5 kg × 10 bei RIR 2".
+  Bisher stand dort nur das Ergebnis, und du konntest ihm weder folgen noch widersprechen.
+- **Die Schrittweite gehört zur Übung, nicht zur App.** Bis 2.7.0 hieß „hoch" immer 2,5 kg — auch an
+  einer Kurzhantelreihe mit 1-kg-Stufen, wo es dieses Gewicht schlicht nicht gibt. Trägt dein Coach die
+  Stufe ein, rechnet die Empfehlung damit: dieselbe Lage ergibt bei 1 kg Stufe 92 kg, bei 0,25 kg
+  (Magnete) 90,5 kg, bei 5 kg 100 kg. Ohne Eintrag bleibt es bei 2,5 kg.
+- **Auch die Rückkehr nach einer Pause landet auf einem Gewicht, das es gibt.** 72,5 kg minus 10 %
+  ergaben bisher „65,5 kg" — an einer Langhantel mit 2,5-kg-Stufen eine Empfehlung ins Leere. Jetzt
+  werden es 65 kg: auf die Stufe deiner Übung abgerundet, lieber etwas leichter als unmöglich.
+- **Einen Satz zu löschen ist keine endgültige Entscheidung mehr.** Die Zeile wird markiert, nicht
+  vernichtet: sie verschwindet sofort aus allen Listen und aus jeder Rechnung, bleibt aber Wort für
+  Wort erhalten. **24 Stunden lang** steht sie unter „Zuletzt gelöscht", und ein Tipp holt sie zurück —
+  mit Gewicht, Wiederholungen, RIR, Satzart und Notiz. Nach 24 Stunden verschwindet nur der
+  Rückhol-Knopf; die Daten selbst bleiben. (Warum uns das wichtig ist: ein hartes Löschen hat in dieser
+  Tabelle schon einmal 4.185 Zeilen mitgerissen.)
+- **Fällt ein Tag durchs Löschen unter „echtes Training", nimmt die App auch das zurück.** Löschst du
+  die Sätze eines automatisch erkannten Trainingstags wieder weg, steht im Kalender wieder das, was
+  vorher dort stand — und nicht ein Trainingstag ohne Training.
+- **Nachtragen trägt jetzt auf den richtigen Tag nach.** Die Mahlzeit bekam ihre Tageszeit bisher aus
+  der Uhr **im Moment des Speicherns**. Wer sonntagfrüh das Abendessen von Samstag nachtrug, bekam es
+  als Frühstück. Jetzt entscheidet der Tag selbst: ist auf ihm noch nichts eingetragen, heißt es
+  Frühstück; sonst folgt der Eintrag dem zuletzt benutzten Slot dieses Tages. Für heute gilt weiter
+  die Uhr. Gemessen um 23 Uhr: leerer vergangener Tag → Frühstück, Tag mit „Abend" als letztem
+  Eintrag → Abend, heute → Abend.
+- **Ein Datum in der Zukunft wird auf allen Wegen abgewiesen.** Supplement-Einnahmen waren der letzte
+  Schreibweg, der nur die Form des Datums prüfte, nicht seine Lage: `2029-12-31` legte eine Einnahme an,
+  die in keiner Ansicht je wieder auftauchte. Jetzt gilt dort dieselbe Regel wie bei Sätzen, Essen,
+  Cardio und Check-in.
+- **Unter einem vorbelegten Check-in-Wert steht jetzt die gelesene Herkunft, nicht die geratene.**
+  Jedes der vier Felder sagt, woher sein Vorschlag kommt — „zuletzt Di", „von deiner Uhr",
+  „schon eingetragen". „Von deiner Uhr" war bisher aus Umständen geschlossen (Health-Sync an, Tag ist
+  heute, Feld, das eine Uhr liefern kann), und damit bekam auch ein von Hand getippter Schlafwert diese
+  Zeile untergeschrieben. Jetzt zählt, was beim Anlegen der Zeile mitgeschrieben wurde: „von deiner Uhr"
+  steht nur noch über einem Tag, den wirklich der Import angelegt hat und den seither keine Handeingabe
+  berührt hat. In jedem anderen Fall steht dort das in beiden Fällen wahre „schon eingetragen".
+- **„Zuletzt" auf der Startseite zählt Bestleistungen nach derselben Regel wie alles andere.** Die neue
+  Karte („Gestern · Upper 1 · 27 Sätze · 2 Bestleistungen") rechnete sich ihre Zahlen im Browser selbst
+  aus — und zählte dabei je Übungszeile statt je Bewegung. Steht dieselbe Übung zweimal im Plan (was
+  nach jeder zugewiesenen Vorlage passiert), feierte sie einen Rekord, den es nicht gab: 100 kg auf der
+  einen „Leg Press"-Zeile galten als Bestleistung, obwohl auf der zweiten längst 102,5 kg standen — und
+  der Satz-Dialog sagte im selben Moment völlig richtig „kein Rekord". Jetzt rechnet der Server, mit
+  genau der Regel, die auch über „Neuer Rekord" entscheidet. Nebenbei steht die Karte sofort da statt
+  nach zwei Sekunden, und deine Startseite lädt **25 KB weniger**.
+
+### Für dich als Coach
+- **Du setzt die Trainingsstufe, nicht der Athlet.** Neue Zeile „Stufe & Funktionen" im Athleten-Blatt:
+  Anfänger / Fortgeschritten / Profi, und darunter **ein** Satz, was sich dadurch für den Athleten
+  wirklich ändert. Die Selbstangabe aus dem Onboarding wird dabei nicht überschrieben — sie bleibt
+  daneben sichtbar, und ein Tipp nimmt deine Übersteuerung zurück. Dazu vier Einzelschalter (RIR,
+  Satztypen, Tempo, Muskel-Korridor), mit denen du eine Funktion abweichend von der Stufe freigibst
+  oder abschaltest. Der Athlet bekommt eine Nachricht — aber nur, wenn sich tatsächlich etwas geändert
+  hat (siehe „Nachgebessert für Coaches").
+- **In der Planzeile steht die Leistung, nicht nur die Vorgabe** („zuletzt 72,5 × 10/9/8 · Best 75"),
+  und der KI-Schalter-Zustand des Athleten ist sichtbar, statt geraten zu werden.
+- **Sätze je Muskelgruppe je Woche — die Größe, die du wirklich planst.** Neu als eigene Auswertung,
+  mit **Korridor 10–20 Sätzen** je Muskel und Woche: darunter passiert zu wenig, darüber nimmt der
+  Ertrag ab und die Erholungsschuld überwiegt. Jede Muskelgruppe bekommt „zu wenig / im Korridor /
+  viel" statt einer nackten Tonnage. Am Testkonto: Quads 18,8 Sätze pro Woche (im Korridor), Brust 6
+  (zu wenig) — eine Aussage, die aus „61.865 kg Tonnage" niemand herausgelesen hätte.
+- **Die laufende Woche wird als laufend ausgewiesen.** „6 von 10 Sätzen" am Mittwoch ist kein Rückstand,
+  sondern Mittwoch. Nur abgeschlossene Wochen gehen in den Durchschnitt ein.
+- **Sätze auf Übungen ohne hinterlegte Muskelgruppe werden getrennt gezeigt, nicht stillschweigend
+  verteilt.** Ein Plan mit ungepflegten Stammdaten sähe sonst aus wie zu wenig Training.
+- **Die Muskelgruppen heißen jetzt überall gleich – und deutsch.** Das Feld war frei, und deshalb
+  standen zwei Sprachen nebeneinander: „Brust" neben „Chest", „Trizeps" neben „Triceps", „Waden" neben
+  „Calves", dazu „Lats", „Quads", „Hamstrings", „Glutes", „Rear Delts", „Abs" — 17 Schreibweisen für
+  11 Gruppen. Für dich als Anfänger waren das unerklärte Fachbegriffe in einer sonst deutschen App.
+  Für dich als Fortgeschrittenen war es schlimmer: Der Korridor zählte jede Schreibweise einzeln.
+  Gemessen an einem Konto mit 14 Brust-Sätzen pro Woche, sieben davon unter „Chest" eingetragen:
+
+  | | bis 2.7.0 | ab 2.8.0 |
+  |---|---|---|
+  | Analyse, Sätze je Muskel | „Chest 7 · zu wenig" **und** „Brust 7 · zu wenig" | „Brust 14 · im Korridor" |
+  | Trainingstage der Gruppe | 4 und 4 | 8 |
+
+  Zweimal „zu wenig" für eine Woche, die im Korridor lag. Ab jetzt gibt es je Gruppe **einen** Namen:
+  Brust, Rücken, Schultern, Bizeps, Trizeps, Quadrizeps, Beinbeuger, Gesäß, Waden, Bauch und so weiter.
+  Getippt werden darf weiter, was du willst – „Chest" wird beim Speichern zu „Brust". Ein Wort, das die
+  App nicht kennt, bleibt stehen, wie du es geschrieben hast; sie erfindet dafür keine Gruppe. Deine
+  alten Einträge bleiben in der Datenbank unangetastet und werden beim Anzeigen übersetzt.
+- **Das gemeinsame Wochenziel zählt jetzt auch dasselbe.** Dass Athletenliste und Athletenblatt
+  `weekGoal` derselben Kalenderwoche liefern, kam schon mit 2.7.0. Neu ist, was dahinter gezählt wird:
+  ein Tag, an dem nur aufgewärmt wurde, ist keine Einheit mehr, und gelöschte Sätze zählen nicht mit.
+  Gemessen: `target` und `done` sind an allen drei Stellen identisch — bei dir, in der Liste, im Blatt.
+- **Die Schrittweite je Übung kannst du eintragen** (0,25 bis 25 kg). Ohne Eintrag bleibt es bei 2,5 kg.
+- **Das Kochgewicht steht jetzt an der Planzeile selbst.** „Haferflocken (roh) 105 g" heißt 315 g
+  fertig — diese Zahl kannte die App seit 2.5.0, hat sie aber an zwei Stellen getrennt gepflegt: einmal
+  im Rechenkern, einmal als Kopie von fünf Faktoren in der Ernährungs-Ansicht. Jetzt rechnet sie der
+  Server und schickt sie mit; die Kopie fällt weg. Wo das Kochen nichts ändert (Quark, Öl, Gemüse),
+  steht bewusst nichts. Gemessen an einem erzeugten Plan: 8 von 31 Zutaten mit Kochgewicht, und alle
+  acht auf denselben Faktor wie vorher — an den angezeigten Zahlen ändert sich nichts.
+
+### Für Technikinteressierte
+- **Mehr Oberfläche, trotzdem weniger Ladezeit — und hier stehen beide Zahlen.** Die neue Oberfläche ist
+  Code, und der Code ist gewachsen: das Bündel `/app.js` geht roh von **435 auf 495 KB**, mit gzip von
+  **132,1 auf 150,1 KB**. Was dein Browser wirklich herunterlädt, ist trotzdem **kleiner** geworden,
+  weil der Server seit dieser Version **Brotli** ausliefert (Stufe 11, einmal beim Start berechnet):
+  `/app.js` **120,9 KB**, `/app.css` **20,4 KB**. A/B auf derselben Maschine, zwei gleichzeitig laufende
+  Server, gedrosselt auf Slow-4G:
+
+  | Erster Aufruf, leerer Cache | 2.7.0 | 2.8.0 |
+  |---|---:|---:|
+  | Anmeldeseite | 9 Anfragen · 188,0 KB · 1.271 ms | 9 · **176,2 KB** · **1.181 ms** |
+  | Startseite (angemeldet) | 15 Anfragen · 188,8 KB · 1.595 ms | **14** · **180,6 KB** · **1.530 ms** |
+
+  Ehrlich auch die Gegenrichtung: der **zweite** Aufruf mit gefülltem Cache holt 22,6 → **26,2 KB** —
+  3,6 KB mehr, dafür eine Anfrage weniger und (ungedrosselt gemessen) 104 → 79 ms. Das Bündel weiter
+  aufzuteilen bleibt trotzdem die nächste Aufgabe: wer nur das Anmeldeformular sieht, lädt heute auch
+  Ringe, Satzzeile und Datumsleiste mit. Der Mechanismus dafür steht seit 2.7.0 (nachladbare Module,
+  vier laufen bereits).
+- **Eine Regel statt siebenunddreißig.** „Was ist ein echter Satz?" stand als `reps>0` an 37 Stellen im
+  Server verteilt — und in der 1RM-Schätzung liefen SQL und JavaScript schon einmal auseinander (SQL
+  rechnete mit jedem Satz, JavaScript deckelte bei 12 Wiederholungen). Jetzt gibt es drei benannte
+  SQL-Bausteine an **einer** Stelle (`SQL_SET_LIVE`, `SQL_SET_WORK`, `SQL_REAL`), und alle 37 Abfragen
+  benutzen sie. Eine neue Satzart zu ergänzen heißt ab jetzt: eine Zeile ändern.
+- **Weiches Löschen ohne Schemaänderung.** Der gelöschte Satz bekommt `set_type='deleted'` und fällt
+  damit durch genau dieselben Bausteine aus jeder Rechnung. Was er vorher war, liegt 24 Stunden als
+  Merker in `settings` — derselben Tabelle, die schon die automatisch erkannten Trainingstage trägt.
+  Keine neue Tabelle, kein `ALTER TABLE`, und vor allem kein `DELETE` auf `set_logs`. Abgelaufene Merker
+  räumt der nächste Schreib- oder Lesezugriff desselben Nutzers weg — kein zusätzlicher Hintergrundjob.
+- **Wiederholtes Löschen ist folgenlos.** Eine zweite Zustellung aus der Offline-Warteschlange
+  überschreibt den Merker nicht; sonst begänne die 24-Stunden-Frist von vorn und der alte Zustand
+  wäre weg.
+- **Was der Client nicht schickt, bleibt stehen.** Speichert ein alter Client (oder ein Nachtrag aus der
+  Offline-Ablage) eine Satzzeile ohne `rir`/`set_type`, behält die Zeile ihre Werte, statt sie stumm zu
+  verlieren. `'deleted'` kommt über `POST /api/logs` bewusst nicht herein: in den Papierkorb führt nur
+  ein Weg, sonst könnte ein verirrter Client Verlauf verstecken.
+- **Vier neue Routen**, alle mit derselben Zugriffsprüfung wie der Rest: `DELETE /api/logs/:id`,
+  `POST /api/logs/:id/restore`, `GET /api/logs/:userId/trash`, `GET /api/muscle-sets/:userId`.
+  Die Rollentrennung aus 2.6.0 hält unverändert: 185 Routen × 6 Rollen = 1.110 geprüfte Zellen,
+  **0 neue Personendaten für die falsche Rolle, 0 Fremdschreiben.**
+- **Die Datenauskunft nach DSGVO zeigt auch die gelöschten Zeilen** — mit ihrer Markierung. Ein
+  Datenexport, der verschweigt, was noch da ist, wäre keiner.
+- **„Für dich" lässt sich endlich allein als gelesen melden.** Das Postfach hat seit 2.5.0 zwei
+  Bereiche, aber der Server kannte nur „alles gelesen". Ein Blick auf „Für dich" hätte damit eine
+  ungelesene Coach-Nachricht stumm weggeklickt — deshalb meldete die App den Bereich bisher nur dann,
+  wenn im Gespräch ohnehin nichts Ungelesenes mehr lag. `POST /api/messages/:userId/read?scope=system`
+  markiert jetzt genau den einen Bereich; die Trennlinie ist dieselbe wie in der App (alles vom eigenen
+  Coach gehört ins Gespräch, auch seine „Plan angepasst"-Hinweise). Ohne `scope` bleibt alles beim
+  Alten. Gemessen: 2 Systemnachrichten gelesen, **37 Gesprächsnachrichten unberührt.**
+- **Eine vierte Bestleistungs-Definition wieder eingesammelt.** `lastWorkout` (Datum, Plantag, Sätze,
+  Tonnage, Bestleistungen, schwerster Satz) gehört jetzt zum Home-Aggregat `GET /api/home/:userId` und
+  wird dort mit denselben Bausteinen gerechnet wie überall sonst: `SQL_REAL` für „echter Satz", die
+  D15-Gruppierung über `LOWER(TRIM(exercises.name))` für „dieselbe Bewegung", `SQL_LOAD` (D16) für die
+  Tonnage. Der Client zählt nichts mehr selbst nach, und `GET /api/logs/:userId` (25.022 Byte für das
+  Prüfkonto) fällt aus dem Startpfad der Startseite heraus — eine Anfrage weniger, `public/js/home.js`
+  rund 1 KB gzip kleiner. Die Verlaufsabfrage bleibt dabei auf dem deckenden Index
+  `(user_id, exercise_id, date)`, denselben Umweg über die eigenen Übungs-IDs nehmend wie
+  `movementSetLogs()`.
+- **Zwei Rundungsfehler nebenbei:** Empfehlungen lagen fest auf einem Halb-Kilo-Raster (aus „+0,25 kg"
+  wurde dort „+0,5 kg"), und Gewichtstexte zeigten eine Nachkommastelle, während im Feld zwei standen
+  („100,3 kg" über einem Feld mit 100,25). Beides rechnet jetzt auf der Stufe der Übung.
+
+### Nachgebessert vor der Auslieferung (Server & Rechenkern)
+
+Fünf unabhängige Prüfer sind 2.8.0 vor der Freigabe noch einmal durchgegangen. Was sie gefunden haben,
+steht hier — nicht weil es schön ist, sondern weil es zur Version gehört.
+
+- **Als Anfänger hast du „RIR 4" gelesen, obwohl dir die App das Feld ausdrücklich vorenthält.** Auf
+  Stufe 1 gibt es keine RIR-Spalte in der Satzzeile — der Empfehlungstext schrieb das Kürzel trotzdem
+  hin: „12 Reps bei RIR 4 — da ist Luft." Das war auf dem ganzen Bildschirm die einzige Stelle, an der
+  das Wort vorkam, und erklärt wurde es nirgends. Jetzt kennt der Text die Stufe: derselbe Fall liest
+  sich auf Stufe 1 als **„12 Reps — da ist Luft. Empfehlung: 30 kg (+2,5)."** und ab Stufe 2 unverändert
+  mit RIR. **Die Empfehlung selbst ist in beiden Fällen dieselbe** (gemessen über alle fünf Textfälle:
+  gleicher Typ, gleiches Gewicht) — dein RIR-Wert wirkt weiter, er wird nur nicht mehr in einer Sprache
+  begründet, die du nicht angeboten bekommen hast. Schaltet dein Coach RIR einzeln frei, erscheint es
+  sofort; schaltet er es ab, verschwindet es auch auf Stufe 3.
+- **Deine RIR-Angabe am letzten Satz ging verloren.** Drei gleiche Arbeitssätze — 27,5 kg × 12, × 12,
+  × 12 — und du trägst am **letzten** ein, dass noch vier Wiederholungen drin waren. Genau dort trägt
+  man den Wert ja ein. Die App suchte sich den „besten" Satz, fand dreimal dieselbe Leistung und nahm
+  bei Gleichstand den zuerst eingetragenen: den ohne RIR. Gemessen an denselben Daten: RIR am letzten
+  Satz ergab **„27,5 kg halten"**, RIR am ersten Satz **„hoch auf 30 kg — da ist Luft"**. Zwei
+  gegenteilige Ratschläge aus einer Einheit. Jetzt gewinnt bei Gleichstand der Satz **mit** Angabe und
+  danach der spätere; beide Fälle sagen dasselbe.
+- **„Rückgängig" holt jetzt auch den Trainingstag zurück.** Löschtest du die Sätze eines automatisch
+  erkannten Trainingstags und machtest es gleich wieder rückgängig, kamen die Sätze zurück — der Tag
+  nicht. Die Startseite schrieb dann **„Ruhetag" über sieben eingetragenen Sätzen**, dein Kalorienziel
+  fiel von 3.017 auf 2.600 kcal, das Wochenziel von 1/5 auf 1/4, und der Kalender verschob die Rotation
+  um einen Tag. Dieselbe Rechnung, die beim Speichern und beim Löschen läuft, läuft jetzt auch beim
+  Zurückholen — auch für einen Tag, den du vorher ausdrücklich als Ruhetag bestätigt hattest.
+- **Dein Level fällt nicht mehr, wenn du etwas löschst.** XP werden gerechnet, nicht gespeichert: ein
+  gelöschtes Foto kostete 15 Punkte, ein zurückgenommener Satz zwei — und im Grenzfall einen Rang.
+  Gemessen: 120 weich gelöschte Sätze ließen das Level von **5 „Aufsteiger" auf 3 „Einsteiger"** fallen.
+  Der höchste je erreichte Stand wurde seit 2.6.0 mitgeschrieben, nur nie benutzt. Jetzt kommt das Level
+  von dort: die Punktzahl darf sinken, der Rang bleibt. Beide Zahlen stehen in der Antwort.
+- **Ein Import von der Uhr hält keine Serie mehr am Leben.** Zwei Tage, die ausschließlich aus dem
+  Apple-Health-Import stammen und die kein Mensch angefasst hat, hoben die Check-in-Serie von **0 auf 32
+  Tage** — ohne dass jemand die App geöffnet hätte. Eine Serie misst, dass du hinschaust, nicht dass
+  deine Uhr läuft. Zeilen, die du selbst bestätigt hast, zählen unverändert: der erste echte Check-in
+  holt die Serie sofort zurück.
+- **Körpergewichtsübungen können endlich mitzählen.** Wird beim Satz das damals gültige Körpergewicht
+  mitgeschickt, geht es in die Tonnage ein — gemessen an drei Sätzen à 8 Wiederholungen mit 85 kg
+  Körpergewicht: **+2.040 kg**, die vorher als „0 kg" dastanden. Ohne Angabe ändert sich nichts.
+
+### Nachgebessert für Coaches
+
+- **Die Stufe deines Athleten lässt sich jetzt wirklich setzen.** Das Blatt „Stufe & Funktionen" war
+  gebaut, ehrlich beschriftet — und tot: der Server nahm `experience_coach` und die Profi-Schalter
+  stillschweigend entgegen, antwortete „OK" und schrieb nichts. Jetzt schreibt er beide, mit einer
+  geschlossenen Liste erlaubter Schalter (RIR, Satztypen, Tempo, Muskel-Korridor); ein unbekannter Wert
+  wird abgelehnt statt still verschluckt. Die **Selbstangabe des Athleten bleibt unangetastet** — deine
+  Einstellung steht daneben, sichtbar, und ein Tipp nimmt sie zurück.
+- **Keine Änderungsmeldung mehr für Änderungen, die es nicht gab.** Jedes Speichern im Profilblatt
+  schickte dem Athleten „Coach hat dein Profil angepasst" — auch wenn du nur geöffnet und wieder
+  gespeichert hattest. Jetzt wird vorher und nachher verglichen; die Nachricht geht nur raus, wenn
+  sich wirklich etwas geändert hat, und sie sagt, **was**.
+- **Die laufende Woche wird auch dann als laufend behandelt, wenn du nur sie abfragst.** Fragtest du
+  die Sätze je Muskelgruppe für genau eine Woche ab, bewertete die App den Montagabend wie eine fertige
+  Woche: „Quadrizeps 4 Sätze — zu wenig" an Tag 1 von 7. Ohne abgeschlossene Woche gibt es jetzt keine
+  Bewertung, sondern „noch nicht beurteilbar".
+
 ## 2.7.0
 Diese Version beantwortet zwei Fragen: **Wie lange dauert es, bis die App da ist?** und **was steht da,
 wenn kein Netz da ist?** Die ehrlichen Antworten waren bisher: zu lange — und zu oft eine Null, die

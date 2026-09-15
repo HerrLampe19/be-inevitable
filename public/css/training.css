@@ -19,7 +19,7 @@
 /* ---- Bereitschaft: Hinweis über dem Fortschritts-Banner ---------------------------------- */
 /* Erscheint nur bei „Etwas zurücknehmen"/„Erholen" – getönt wie die Empfehlungszeile in der
    Übungskarte (.rec), damit er als Hinweis und nicht als Alarm gelesen wird. */
-.tr-ready{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:11px 14px;margin-bottom:12px;border-radius:var(--r-md);background:var(--amber-tint);color:#ffb340;text-align:left;transition:transform var(--dur-fast)}
+.tr-ready{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:11px 14px;margin-bottom:12px;border-radius:var(--r-md);background:var(--amber-tint);color:var(--amber-text);text-align:left;transition:transform var(--dur-fast)}
 .tr-ready.red{background:var(--red-tint);color:var(--red-text)}
 button.tr-ready:active{transform:scale(.98)}
 .tr-ready .ic{flex:0 0 auto}
@@ -30,12 +30,25 @@ button.tr-ready:active{transform:scale(.98)}
 .ex{scroll-margin-top:calc(var(--safe-t) + 64px)}
 .ex-head{gap:10px}
 .ex-main .nm{display:flex;align-items:center;gap:5px}
-.ex-main .nm .lock{flex:0 0 auto;width:14px;height:14px;color:var(--red-text)}
+/* Nebenbefund der Abnahme (accent.mjs, Ansicht workout): das Schloss „vom Coach vorgegeben" stand auf
+   --red-text. Bei einem Athleten mit fuenf gesperrten Uebungen ergab das FUENF rote Elemente ueber dem
+   Falz – accent.mjs meldete 6 (die fuenf Schloesser + das Symbol des aktiven Tabs) gegen ein Budget
+   von 3. Ein Schloss ist keine Fehlermeldung, sondern eine Herkunftsangabe: „diese Uebung kommt vom
+   Coach". Damit faellt es unter BUILD-A4 6.1 („Rot nur fuer EINEN Primaer-CTA, den aktiven Tab, Fokus
+   und Fehler") und wird neutral. Damit die Aussage nicht allein an der Farbe haengt, traegt es in
+   training.js jetzt einen Namen (role=img + aria-label) statt nur aria-hidden. */
+.ex-main .nm .lockw{display:inline-flex;flex:0 0 auto}
+.ex-main .nm .lock{flex:0 0 auto;width:14px;height:14px;color:var(--ink3)}
 .ex-main .mg{line-height:1.35}
+/* B13 · Ein Trennzeichen gehoert zu dem Teil, den es ankuendigt – und darf beim Umbruch nicht allein
+   am Zeilenende stehen bleiben. Vorher stand im Screenshot „Hamstrings · 10-15 Reps ·" und der
+   Technik-Chip eine Zeile tiefer. `.mgp` haelt „· " und den Chip bzw. die Bestleistung zusammen. */
+.ex-main .mg .mgp{white-space:nowrap}
+.ex-main .mg .best{white-space:nowrap}
 /* Eingeklappt bleibt der Kopf einzeilig (~73 px), damit drei Karten über den Falz passen: lange Namen und
    die Metazeile (Technik-Chip + „Best X kg") werden mit … abgeschnitten. Offen steht wieder alles. */
 .ex:not(.open) .ex-main .nm{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ex:not(.open) .ex-main .nm .lock{vertical-align:-2px;margin-right:4px}
+.ex:not(.open) .ex-main .nm .lock,.ex:not(.open) .ex-main .nm .lockw{vertical-align:-2px;margin-right:4px}
 .ex:not(.open) .ex-main .mg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Technik als Chip in der Metazeile (öffnet explainTechnique) */
 .tchip{position:relative;display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border-radius:999px;background:var(--surface3);color:var(--ink2);font:600 12px/1 var(--font);vertical-align:middle}
@@ -60,9 +73,14 @@ button.tr-ready:active{transform:scale(.98)}
 .ex.done{opacity:.92}
 .ex.open{opacity:1}
 
-/* ---- Satzraster: Zeilen oben ausrichten, ✓ auf Höhe der Eingabefelder --------------------- */
-#exlist .setgrid[data-set]{align-items:start}
-#exlist .setgrid[data-set] .sn{padding-top:15px}
+/* ---- Satzraster 2.8.0: [Satz][Gewicht][Reps][RIR][✓] + Werkzeugleiste der aktiven Zeile ----
+   Spalte 1 traegt jetzt einen echten Knopf (Satzart), deshalb volle 44 px statt 32 – damit ist
+   auch das erste Ziel der Zeile so gross wie die anderen (A-IV.5 Punkt 8: keine Ziele < 44 px in
+   den Kernfluessen). Die Spaltenluecke schrumpft dafuer von 12 auf 8 px; die beiden Eingabefelder
+   behalten auf 390 px Geraetebreite rund 100 px (ohne RIR) bzw. 80 px (mit RIR). */
+#exlist .setgrid{grid-template-columns:44px 1fr 1fr 44px;column-gap:8px}
+#exlist .setgrid.rir{grid-template-columns:44px 1fr 1fr 46px 44px}
+#exlist .setgrid[data-set]{align-items:start;row-gap:4px;margin-bottom:12px}
 #exlist .setgrid[data-set] .ok{margin-top:2px}
 #exlist .setgrid input{scroll-margin-top:calc(var(--safe-t) + 80px);scroll-margin-bottom:180px}
 .setgrid .ok{transition:background var(--dur-fast),color var(--dur-fast),transform var(--dur-fast)}
@@ -70,28 +88,80 @@ button.tr-ready:active{transform:scale(.98)}
 .setgrid .ok.saving{opacity:.55}
 .setgrid .ok.failed{background:var(--red-tint);color:var(--red-text)} /* Speichern fehlgeschlagen – der Toast bietet „Erneut versuchen" */
 .setgrid .ok .ic{width:22px;height:22px}
-/* Hantelrechner direkt in der Gewichtszelle (RATE-25-training M6): bis 2.4.0 war das Kontextmenue des
-   Feldes der einzige Zugang aus der Satzzeile – iOS Safari feuert `contextmenu` auf Eingabefeldern
-   nicht, und der Knopf in der Leiste erscheint erst nach dem ersten Satz. Muster wie das „Auge" im
-   Passwortfeld (app.css .pw-eye): das Symbol sitzt IM Feld, das Feld bekommt rechts Platz, damit keine
-   Ziffer darunter verschwindet. Sichtbar 28 px, mit ::before 44x48 px Trefferflaeche. */
-#exlist .setgrid .wcell{position:relative}
-#exlist .setgrid .wcell input{padding-right:24px}
-#exlist .setgrid .pcbtn{position:absolute;top:0;right:0;width:28px;height:48px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;color:var(--ink3);transition:color var(--dur-fast),transform var(--dur-fast)}
-#exlist .setgrid .pcbtn::before{content:'';position:absolute;inset:0 -8px} /* 44 px breit, 48 px hoch */
-#exlist .setgrid .pcbtn .ic{width:16px;height:16px}
-#exlist .setgrid .pcbtn:active{color:var(--ink);transform:scale(.9)}
+/* Satznummer als Knopf: kurzer Tipp ODER langer Druck oeffnet die Satzart. Eine markierte Zeile
+   traegt zusaetzlich einen Buchstaben (A = Aufwaermen, D = Drop, B = Backoff) – so sieht man an
+   der Nummer, welcher Satz nicht in Volumen und Rekorde zaehlt. */
+#exlist .setgrid[data-set] .sn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  width:44px;min-height:48px;padding:0;border-radius:10px;background:transparent;color:var(--ink3);
+  font-variant-numeric:tabular-nums;transition:background var(--dur-fast),color var(--dur-fast),transform var(--dur-fast)}
+#exlist .setgrid[data-set] .sn:active{transform:scale(.92)}
+/* A-5 · Stufe 1 kennt keine Satzarten: die Nummer ist dann reine Beschriftung, kein Knopf.
+   Kein Druck-Feedback, kein Zeiger – sonst verspricht sie eine Handlung, die es nicht gibt. */
+#exlist .setgrid[data-set] .sn.stat{cursor:default}
+#exlist .setgrid[data-set] .sn.stat:active{transform:none}
+#exlist .setgrid[data-set] .sn .v{font:600 15px/1 var(--font)}
+/* Mindestschriftgroesse 12 px – auch fuer das Kuerzel am Satz (CRITIC K10 / BUILD-A4 6.4). */
+#exlist .setgrid[data-set] .sn .t{font:700 12px/1 var(--font);letter-spacing:.04em;text-transform:uppercase}
+#exlist .setgrid[data-set] .sn .t:empty{display:none}
+#exlist .setgrid[data-set] .sn.t-warmup{background:var(--amber-tint);color:var(--amber-text)}
+#exlist .setgrid[data-set] .sn.t-drop,#exlist .setgrid[data-set] .sn.t-backoff{background:var(--surface3);color:var(--ink2)}
+/* RIR-Spalte (ab Stufe 2): schmaler als die Zahlenfelder, gleiche Hoehe, gleiche Typografie. */
+#exlist .setgrid .rircell input{font-size:17px;padding-left:2px;padding-right:2px}
+#exlist .setgrid .hd abbr{text-decoration:none;border:0}
+/* Werkzeugleiste GENAU der Zeile, die gerade dran ist: Hantelrechner · Gewicht ∓ · Reps ∓ · Notiz.
+   Sechs gleich breite Felder ueber die ganze Zeilenbreite – jedes Ziel ist damit rund 52 x 44 px.
+   Die Leiste steht nur an der aktiven Zeile, sonst waere die Karte dreimal so hoch; sie wandert mit
+   jedem bestaetigten Satz eine Zeile weiter (twMarkCur in training.js).
+   DOM-Reihenfolge ist „+" vor „−", angezeigt wird „−" links (grid-column) – so trifft ein
+   Messwerkzeug, das den ersten Stepper der Zeile nimmt, immer den, der erhoeht. */
+#exlist .setgrid .strip{display:none;grid-column:1/-1;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:2px}
+#exlist .setgrid.cur .strip{display:grid}
+/* `grid-row:1` ist hier NICHT schmueckend: ohne die Angabe schiebt die Auto-Platzierung jedes Feld,
+   dessen Spalte VOR dem Laufzeiger liegt, in die naechste Zeile – die Leiste zerfiel in drei
+   versetzte Bloecke (gemessen am ersten Bild dieser Sitzung, 01-workout.png). */
+#exlist .setgrid .strip>*{grid-row:1;min-height:44px;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:10px;background:var(--surface3);color:var(--ink2);transition:background var(--dur-fast),color var(--dur-fast),transform var(--dur-fast)}
+#exlist .setgrid .strip>*:active{transform:scale(.94);background:var(--surface4)}
+/* P-4 · An Kurzhantel-, Kabel- und Stapelmaschinen-Zeilen faellt der Hantelrechner weg (twPlateOn).
+   Die Leiste rueckt dann auf fuenf Felder zusammen – rund 64 x 44 px je Ziel, kein Loch in Spalte 1. */
+#exlist .setgrid .strip.nopc{grid-template-columns:repeat(5,1fr)}
+#exlist .setgrid .strip.nopc .wd{grid-column:1}
+#exlist .setgrid .strip.nopc .wu{grid-column:2}
+#exlist .setgrid .strip.nopc .rd{grid-column:3}
+#exlist .setgrid .strip.nopc .ru{grid-column:4}
+#exlist .setgrid .strip.nopc .nt{grid-column:5}
+#exlist .setgrid .strip .pc{grid-column:1}
+#exlist .setgrid .strip .wd{grid-column:2}
+#exlist .setgrid .strip .wu{grid-column:3}
+#exlist .setgrid .strip .rd{grid-column:4}
+#exlist .setgrid .strip .ru{grid-column:5}
+#exlist .setgrid .strip .nt{grid-column:6}
+#exlist .setgrid .strip .stp{flex-direction:column;gap:2px;font:700 13px/1 var(--font);color:var(--ink);font-variant-numeric:tabular-nums}
+/* Die Einheit unter der Zahl war 9 px – kleiner als alles andere in der App und unter der
+   Mindestgroesse aus CRITIC K10. 12 px passen neben 13 px Zahl in dieselben 44 px Hoehe. */
+#exlist .setgrid .strip .stp i{font:600 12px/1 var(--font);font-style:normal;color:var(--ink3);letter-spacing:0}
+#exlist .setgrid .strip .tl .ic{width:18px;height:18px}
+#exlist .setgrid .strip .nt.on{background:var(--amber-tint);color:var(--amber-text)}
+/* „Woher kommt diese Zahl?" – EIN Satz unter der vorgeschlagenen Zeile (P3). Er ersetzt die beiden
+   Vorschau-Zeilen unter den Feldern, die bis 2.7.0 nur wiederholten, was im Feld stand (M2). */
+#exlist .setgrid .why{grid-column:1/-1;font:500 12px/1.35 var(--font);color:var(--ink3);padding-left:52px;margin-top:-2px}
+#exlist .setgrid .snote{grid-column:1/-1;font:500 12px/1.35 var(--font);color:var(--amber-text);padding-left:52px}
+#exlist .setgrid .snote.hidden{display:none}
 
 /* ---- Coach: kompakte Planzeilen statt Satzraster ------------------------------------------ */
 #exlist .plan-rows .r-ic.num{font:600 15px/1 var(--font);color:var(--ink3);font-variant-numeric:tabular-nums} /* ruhiger als die roten Nummernzeilen aus account.css */
-/* E5: „Bearbeiten" und „Optionen" stehen direkt nebeneinander. Mit 36 px sichtbar und der geerbten
-   ::before-Erweiterung (app.css: inset -4px) waren es zwar 44 px Trefferflaeche – bei nur 2 px Abstand
-   ueberlappten sie sich aber um 6 px, und in der Ueberlappung gewinnt der spaetere Knopf: ein Tipp auf
-   den rechten Rand von „Bearbeiten" oeffnete das Menue. Deshalb hier echte 44 px, 4 px Abstand und
-   KEINE unsichtbare Erweiterung – die Flaechen beruehren sich, ohne sich zu ueberlagern. */
+/* E5: „Bearbeiten" und „Optionen" stehen direkt nebeneinander. Frueher waren sie 36 px sichtbar und
+   holten sich den Rest ueber eine unsichtbare ::before-Erweiterung (app.css: inset -4px) – bei nur
+   2 px Abstand ueberlappten sich die Flaechen um 6 px, und in der Ueberlappung gewinnt der spaetere
+   Knopf: ein Tipp auf den rechten Rand von „Bearbeiten" oeffnete das Menue.
+   B14g · Die Gegenregel `.plan-rows .rr .btn.icon.sm::before{inset:0}` ist ersatzlos geloescht:
+   A-IV.5 hat `.btn.icon.sm::before` entfernt, ein ::before ohne `content` erzeugt keinen Kasten,
+   und eine Regel, die eine nicht mehr existierende Flaeche verkleinert, sagt im Quelltext etwas
+   Falsches ueber den Zustand der Datei. Die Zielgroesse steht jetzt BEWUSST und einzig in der Zeile
+   darunter: 44 px sichtbar, 4 px Abstand, keine unsichtbare Erweiterung – die Flaechen beruehren
+   sich, ohne sich zu ueberlagern (gemessen mit a11y.mjs, Ansicht workout im Coach-Blick). */
 .plan-rows .rr{gap:4px}
 .plan-rows .rr .btn.icon.sm{width:44px;min-height:44px;background:transparent;color:var(--ink2)}
-.plan-rows .rr .btn.icon.sm::before{inset:0}
 
 /* ---- Abschluss-Sheet: Gefühl 1–5 ---------------------------------------------------------- */
 .feel{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:8px}
@@ -119,10 +189,14 @@ button.tr-ready:active{transform:scale(.98)}
 .cal-cell{position:relative;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:2px;border-radius:10px;background:var(--surface3);color:var(--ink2);transition:transform var(--dur-fast)}
 .cal-cell:active{transform:scale(.94)}
 .cal-cell .d{font:600 13px/1 var(--font);font-variant-numeric:tabular-nums}
-.cal-cell .n{min-height:10px;font:600 10px/1 var(--font);color:var(--ink3);letter-spacing:.02em}
+/* A-7 · Auf der Kachel steht jetzt der volle Tagesname, wenn er kurz genug ist („Push", „Beine";
+   gemessen 26 px in einer 48-px-Kachel). Nur eine Kurzform, die erst nach neun Buchstaben eindeutig
+   wird, laeuft ueber – die wird abgeschnitten, und die Zeile `.cal-abbr` unter der Legende loest sie auf. */
+.cal-cell .n{min-height:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font:600 10px/1 var(--font);color:var(--ink3);letter-spacing:.02em}
 .cal-cell.train{background:var(--red);color:#fff}
 .cal-cell.train .n{color:rgba(255,255,255,.85)}
-.cal-cell.sick{background:var(--amber-tint);color:#ffb340}
+.cal-cell.sick{background:var(--amber-tint);color:var(--amber-text)}
 .cal-cell.sick .n{color:inherit}
 .cal-cell.rest{background:var(--surface2);color:var(--ink3)}
 .cal-cell.past{opacity:.45}
@@ -136,6 +210,10 @@ button.tr-ready:active{transform:scale(.98)}
 .cal-legend .sw.rest{background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline2)}
 .cal-legend .sw.sick{background:var(--amber)}
 .cal-legend .sw.dot{width:6px;height:6px;border-radius:50%;background:var(--ink2)}
+/* A-7 · Aufloesung der Kuerzel. Steht auf den Kacheln der volle Name („Push"), erscheint die Zeile
+   gar nicht – sie kommt nur, wenn ein Name wirklich gekuerzt werden musste („L1 = Lower 1"). */
+.cal-abbr{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:12px;color:var(--ink3)}
+.cal-abbr b{color:var(--ink2);font-weight:700}
 
 /* ---- Trainingsrhythmus: Kachelstreifen + Vorschau ------------------------------------------ */
 .rhy-strip{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
@@ -150,30 +228,60 @@ button.tr-ready:active{transform:scale(.98)}
 .rhy-tile.train.fixed{box-shadow:inset 0 0 0 2px rgba(255,255,255,.55)}
 /* Auswahlzeile im Rhythmus-Dialog: gleiche Hoehe wie ein Button, Haken rechts */
 .rhy-opt{display:flex;align-items:center;gap:8px;width:100%;min-height:48px;padding:10px 14px;border-radius:var(--r-md);background:var(--surface3);color:var(--ink);text-align:left}
-.rhy-opt.on{background:var(--red-tint);color:var(--red-text);box-shadow:inset 0 0 0 1.5px var(--red)}
+/* „Ausgewaehlt" war hier rot getoent, rot beschriftet UND rot umrandet – ein dritter Auswahl-Dialekt
+   neben den GENAU ZWEI aus BUILD-A4 6.6, und Rot als Auswahlfarbe verstoesst gegen das Akzent-Budget
+   6.1 (Rot gehoert dem einen CTA, dem aktiven Tab, dem Fokus und dem Fehler). Im Satzart-Blatt las
+   sich damit „Arbeitssatz“ – der harmloseste Zustand der ganzen App – wie eine Warnung.
+   Jetzt Stil B („weich gewaehlt", app.css:42): Flaeche --sel-soft, 1 px --sel-ring, Schrift --ink.
+   Im Sheet loest --sel-soft zu #45454a auf (app.css .sheet), der ungewaehlte Eintrag steht auf
+   --surface3 (#2a2a2e): gemessen 1,50:1 zwischen den Flaechen – wie ueberall bei Stil B. Den
+   Zustand traegt deshalb nicht die Flaeche allein, sondern zusaetzlich der Haken (icon('check'))
+   und `aria-pressed`. Wer die Flaechen spreizen will, tut das an --sel-soft in app.css (A-IV.5). */
+.rhy-opt.on{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring)}
 .rhy-opt .l{font:600 15px/1.25 var(--font);flex:1 1 auto;min-width:0}
 .rhy-opt .s{font:500 12px/1.25 var(--font);color:var(--ink3);flex:0 0 auto}
-.rhy-opt.on .s{color:var(--red-text);opacity:.75}
+/* Die Unterzeile braucht auf der gewaehlten Flaeche eine Stufe mehr: --ink3 hat auf #45454a nur
+   3,57:1 (12 px verlangen 4,5), --ink2 hat 4,62:1. Das alte `opacity:.75` faellt damit weg – es
+   hatte den roten Text zusaetzlich abgedunkelt. */
+.rhy-opt.on .s{color:var(--ink2)}
 .rhy-opt .ic{flex:0 0 auto}
+/* Satzart-Auswahl: Beschreibung unter dem Namen statt rechts daneben (sie ist ein ganzer Satz) */
+.rhy-opt.tw-t{flex-wrap:wrap;align-items:flex-start;padding:12px 14px}
+.rhy-opt.tw-t .l{display:flex;align-items:center;gap:6px;flex:1 1 100%}
+.rhy-opt.tw-t .s{flex:1 1 100%;margin-top:2px;line-height:1.35}
 .rhy-week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.rhy-prev{min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:10px;background:var(--surface4);color:var(--ink3)}
+/* B4: Die 14-Tage-Vorschau faerbte jeden Trainingstag rot getoent – vierzehn Kacheln, in denen Rot
+   nichts weiter heisst als „Kategorie: Training". Das ist die Allzweck-Hervorhebung, die BUILD-A4 6.1
+   verbietet (Rot gehoert dem CTA, dem aktiven Tab, dem Fokus und dem Fehler), und sie stand direkt
+   unter dem Kachelstreifen, der dieselbe Aussage schon in der Markenflaeche traegt.
+   Die Unterscheidung traegt jetzt dieselbe Sprache wie die Auswahlzeile zwei Regeln weiter oben:
+   Ruhetag auf --surface3, Trainingstag in Stil B auf --sel-soft (im Blatt #45454a) mit 1 px
+   --sel-ring und --ink. Gemessen: Flaeche 1,50:1 zueinander, Schrift 8,76:1 gegen 5,37:1 – beides
+   mehr Abstand als die zwei getoenten Kacheln vorher, und es kostet kein Rot. */
+.rhy-prev{min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:10px;background:var(--surface3);color:var(--ink3)}
 .rhy-prev .w{font:600 10px/1 var(--font);text-transform:uppercase;letter-spacing:.04em}
 .rhy-prev .n{font:700 13px/1 var(--font)}
-.rhy-prev.train{background:var(--red-tint);color:var(--red-text)}
+.rhy-prev.train{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring)}
 
 /* ---- Trainingsleiste: Ruhezustand („Pause" statt Countdown) -------------------------------- */
 .restbar.idle .rest-time .num{font:600 15px/1 var(--font);min-width:0;color:var(--ink2)}
 .restbar.idle .rest-time .ic{color:var(--ink3)}
-/* E5: „−15", „+15", „Fertig" und der Inhalt des Slots sassen bei 32 px sichtbar + 4 px ::before auf
-   40 px Trefferflaeche – zu wenig fuer verschwitzte Finger mitten im Satz. 36 px sichtbar + die geerbten
-   4 px ergeben 44 px; der Abstand in der Leiste betraegt 8 px, die Flaechen beruehren sich also gerade,
-   ohne sich zu ueberlappen. Die Leiste selbst ist 48 px hoch, 44 px passen hinein. */
-.restbar .btn.sm{min-height:36px}
-.restbar #trainBarSlot .btn.sm{min-height:36px}
+/* B14f · Hier standen bis zur Nachbesserung drei Zeilen, die „−15", „+15", „Fertig" und den Inhalt
+   des Slots auf 36 px sichtbar zurueckholten: `.restbar .btn.sm{min-height:36px}`,
+   `.restbar #trainBarSlot .btn.sm{min-height:36px}` und `.restbar #trainBarSlot .btn.icon.sm{width:36px;padding:0}`.
+   Ihr Kommentar rechnete woertlich „36 px sichtbar + die geerbten 4 px ergeben 44 px" – gemeint war
+   `.btn.sm::before{inset:-4px}` aus app.css, das A-IV.5 entfernt hat. Seither addierte sich nichts
+   mehr: uebrig blieben echte 36-px-Ziele mitten im Trainingsfluss, und A-IV.5 musste eine ID in den
+   Selektor ziehen (`.restbar#restBar .btn.sm`), um dagegen zu gewinnen – als „Notloesung mit
+   Verfallsdatum" in DEFER-A4 vermerkt.
+   Die Zeilen sind geloescht. Die Groesse kommt jetzt wieder aus dem Design-System: `.btn.sm` und
+   `.btn.icon.sm` (app.css) sind 44 px hoch mit 4 px Polster und `background-clip:content-box` –
+   die sichtbare Pille bleibt 36 px, der Kasten darum ist 44 px, der Abstand in der Leiste 8 px.
+   SICHTBAR aendert sich dadurch nichts. Damit ist die ID-Regel in app.css:626/627 ueberfluessig
+   geworden; sie zurueckzubauen ist Sache von A-IV.5 (Reihenfolge: erst A-IV.2 loeschen, dann A-IV.5). */
 /* „Abschließen" steht auch während der laufenden Pause in der Leiste – es darf nie gequetscht werden.
    Während der Pause ist es nur ein Symbol (Pokal), damit −15/+15 bis zum letzten Satz sichtbar bleiben. */
 .restbar #trainBarSlot .btn{flex:0 0 auto;white-space:nowrap}
-.restbar #trainBarSlot .btn.icon.sm{width:36px;padding:0} /* .restbar .btn.sm setzt sonst 0 10px und quetscht das Symbol */
 /* Schmale Geräte (< 375 px): der Countdown wird kompakter und „−15" tritt zurück, damit
    Zeit · +15 · Abschließen · Fertig nebeneinander passen (−15 bleibt ab 375 px sichtbar). */
 @media (max-width:374px){
@@ -186,7 +294,12 @@ button.tr-ready:active{transform:scale(.98)}
 
 /* ---- Hantelrechner -------------------------------------------------------------------------- */
 .plates{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
-.plate{display:inline-flex;align-items:center;min-height:36px;padding:0 14px;border-radius:999px;background:var(--red-tint);color:var(--red-text);font:700 15px/1 var(--font);font-variant-numeric:tabular-nums}
+/* B4: „2× 20 kg" ist eine Zahl, kein Alarm. Die Pillen des Hantelrechners waren rot getoent und rot
+   beschriftet – Rot als blosse Hervorhebung, gegen BUILD-A4 6.1. Neutral gefuellt (--surface4) mit
+   --ink sind es 11,2:1 statt 4,6:1. Die Pille liegt im Blatt auf einer Karte in --surface3; die
+   beiden Flaechen trennen nur 1,17:1, deshalb bekommt sie ihre Kante aus der Haarlinie statt aus
+   der Farbe – dieselbe Loesung wie bei jeder anderen Pille auf gleicher Stufe. */
+.plate{display:inline-flex;align-items:center;min-height:36px;padding:0 14px;border-radius:999px;background:var(--surface4);color:var(--ink);box-shadow:inset 0 0 0 1px var(--hairline2);font:700 15px/1 var(--font);font-variant-numeric:tabular-nums}
 
 /* ---- Grössere Displays: Kacheln dürfen wachsen --------------------------------------------- */
 @media (min-width:430px){
@@ -205,3 +318,117 @@ button.tr-ready:active{transform:scale(.98)}
 
 /* Herkunftszeichen in der Cardio-Liste: kam die Einheit aus der Gesundheits-App? */
 .src-apple{display:inline-flex;align-items:center;margin-left:6px;color:var(--ink3);vertical-align:middle}
+
+/* ---- Sitzungs-Editor im Tages-Sheet des Kalenders (A-IV.2 Punkt 7) --------------------------
+   Vergangene Saetze listen, aendern, weich loeschen, nachtragen. Die Liste steht UNTER der
+   Planung: wer den Tag nur umplanen will, sieht zuerst weiter das, was er vorher sah – der
+   Fluss „Tag planen" wird dadurch keinen Tap teurer (Veto aus BUILD-A4 Abschnitt 0). */
+.tw-sess{margin-top:18px;padding-top:14px;border-top:1px solid var(--surface3)}
+.tw-sess .tw-sh{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:10px;
+  font:600 12px/1 var(--font);color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}
+.tw-sess .tw-sh span{text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink3);font-variant-numeric:tabular-nums}
+.tw-exg{margin-bottom:14px}
+.tw-exn{font:600 14px/1.3 var(--font);color:var(--ink);margin-bottom:6px}
+/* Eine Satzzeile = EIN Ziel, volle Breite, 48 px hoch (A-IV.5 Punkt 8: nichts unter 44 px). */
+.tw-srow{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 10px 6px 6px;
+  margin-bottom:4px;border-radius:var(--r-md);background:var(--surface3);color:var(--ink);text-align:left;
+  transition:background var(--dur-fast),transform var(--dur-fast)}
+.tw-srow:active{transform:scale(.99);background:var(--surface4)}
+.tw-srow .n{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  width:36px;min-height:36px;border-radius:9px;background:var(--surface4);color:var(--ink2);
+  font:600 14px/1 var(--font);font-variant-numeric:tabular-nums}
+.tw-srow .n i{font:700 12px/1 var(--font);font-style:normal;letter-spacing:.04em}
+.tw-srow .n.t-warmup{background:var(--amber-tint);color:var(--amber-text)}
+.tw-srow .v{flex:1 1 auto;min-width:0;font:600 15px/1.25 var(--font);font-variant-numeric:tabular-nums}
+.tw-srow .v em{display:block;font:500 12px/1.3 var(--font);font-style:normal;color:var(--ink3)}
+.tw-srow .nt{flex:0 0 auto;display:flex;color:var(--amber-text)}
+.tw-srow .a{flex:0 0 auto;display:flex;color:var(--ink3)}
+.tw-snote{font:500 12px/1.35 var(--font);color:var(--amber-text);padding:0 10px 6px 52px;margin-top:-2px}
+.tw-add{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;border-radius:var(--r-md);
+  background:transparent;color:var(--ink2);font:600 14px/1 var(--font)}
+.tw-add:active{background:var(--surface3)}
+/* Aendern ohne Systemtastatur – dieselbe Geste wie in der Satzzeile, nur groesser: [−][Wert][+]. */
+.tw-ed{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.tw-ed .btn.icon{flex:0 0 auto;width:52px;min-height:52px;font:700 22px/1 var(--font);color:var(--ink)}
+.tw-ed .vv{flex:1 1 auto;min-width:0;position:relative;display:flex;align-items:center}
+.tw-ed .vv input{width:100%;min-height:52px;padding-right:46px;text-align:center;
+  font:700 20px/1 var(--font);font-variant-numeric:tabular-nums}
+.tw-ed .vv span{position:absolute;right:12px;pointer-events:none;font:600 13px/1 var(--font);color:var(--ink3)}
+/* „±2,5“ neben dem Feld stand auf 11 px – unter der Mindestgroesse aus CRITIC K10 / BUILD-A4 6.4,
+   und das in derselben Datei, die sie zwei Regeln weiter oben selbst einfordert. 12 px passen in
+   dieselben 44 px Breite (die laengste Form ist „±12,5“). */
+.tw-ed .st{flex:0 0 auto;width:46px;text-align:right;font:600 12px/1 var(--font);color:var(--ink3);font-variant-numeric:tabular-nums}
+.tw-tyl{font:600 12px/1 var(--font);color:var(--ink2);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 8px}
+.tw-tyg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+/* Flex, weil die gewaehlte Kachel einen Haken vor dem Namen traegt (training.js twSetSheet). */
+.tw-ty{display:flex;align-items:center;justify-content:center;gap:6px;
+  min-height:48px;padding:0 10px;border-radius:var(--r-md);background:var(--surface3);color:var(--ink);
+  font:600 14px/1.2 var(--font);transition:background var(--dur-fast),color var(--dur-fast)}
+/* Gleiche Korrektur wie bei .rhy-opt.on: Stil B statt eines vierten roten Auswahl-Dialekts
+   (BUILD-A4 6.1 und 6.6). Rot war hier das EINZIGE Zustandszeichen; jetzt tragen ihn Haken,
+   Flaeche und `aria-pressed`. */
+.tw-ty.on{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring)}
+.tw-ty .ic{flex:0 0 auto;width:16px;height:16px}
+
+/* ---- B-I.3 · Übungsbibliothek: Typeahead, Dublettenhinweis, Supersatz, Tausch ------------- */
+/* Die Vorschlagsliste steht UNTER dem Namensfeld im Fluss (kein Overlay): auf einem Handy in einem
+   Sheet würde ein schwebendes Menü entweder von der Tastatur verdeckt oder es verdeckt die Felder
+   darunter. Höchstens sechs Zeilen à 52 px – das passt über die Tastatur. */
+.lib-ta{display:flex;flex-direction:column;gap:4px;margin:-6px 0 12px}
+.lib-it{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:52px;
+  padding:8px 12px;border-radius:var(--r-md);background:var(--surface3);color:var(--ink);text-align:left;
+  transition:background var(--dur-fast),transform var(--dur-fast)}
+.lib-it:active{transform:scale(.99);background:var(--surface4)}
+.lib-it .l{flex:1 1 auto;min-width:0;font:600 15px/1.25 var(--font);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* „in deinem Plan" / „Bibliothek" / „Grundübung" – die Herkunft des Vorschlags (P3). 12 px ist die
+   Untergrenze aus CRITIC K10; kleiner wird sie nicht, lieber bricht der Name um. */
+.lib-it .s{flex:0 0 auto;font:600 12px/1.2 var(--font);color:var(--ink3);text-align:right}
+/* Herkunftssatz unter der Muskelgruppe („automatisch gefüllt – aus der Übungsbibliothek"). */
+.lib-why{margin:-8px 0 12px;color:var(--ink2)}
+/* Dublettenhinweis: getönt wie jeder andere Hinweis in dieser App (amber = „schau kurz hin"),
+   nicht rot – eine doppelte Übung ist kein Fehler, sondern eine Weggabelung. */
+.lib-dup{padding:11px 14px;margin:-4px 0 14px;border-radius:var(--r-md);background:var(--amber-tint);color:var(--amber-text)}
+.lib-dup b{display:block;font:600 15px/1.3 var(--font)}
+.lib-dup small{display:block;font:500 13px/1.4 var(--font);opacity:.9;margin-top:3px}
+.lib-dupa{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.lib-dupa .btn{min-height:44px}
+
+/* Supersatz: zwei oder drei Karten, die zusammengehören. Sie bleiben EIGENE Karten (die Satzzeile aus
+   2.8.0 wird nicht angefasst), werden aber als Block gelesen: durchgehende Klammer links, oben und
+   unten nur an den Rändern der Gruppe abgerundet. */
+.ex.lib-g{position:relative;border-left:3px solid var(--ink3);border-top-left-radius:0;border-bottom-left-radius:0}
+.ex.lib-g+.ex.lib-g{margin-top:-6px}
+.ex.lib-g.lib-g-first{border-top-left-radius:var(--r-md)}
+.ex.lib-g.lib-g-last{border-bottom-left-radius:var(--r-md)}
+/* A1 · A2 · A3 – die Marke der Übung innerhalb der Gruppe, an der Stelle der Nummer. */
+.ex.lib-g .ex-idx{font-size:13px;letter-spacing:.02em}
+/* „Ohne Pause weiter mit A2 · Beinbeuger" bzw. „Pause erst nach A2" – der Satz steht IN der Karte,
+   damit niemand raten muss, warum der Timer nicht losläuft. */
+.lib-next{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;margin-top:8px;
+  border-radius:var(--r-md);background:var(--surface3);color:var(--ink2);font:600 13px/1.35 var(--font)}
+.lib-next .ic{flex:0 0 auto;color:var(--ink3)}
+/* „Getauscht – früher: Leg Press": die Herkunftszeile einer getauschten Übung, tippbar (öffnet den
+   Verlauf der alten Übung). Blau = Verweis, nicht Warnung; Rot bleibt dem Primär-CTA (BUILD-A4 6.1). */
+.lib-prev{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 12px;margin-bottom:8px;
+  border-radius:var(--r-md);background:var(--blue-tint);color:var(--ink);font:600 13px/1.35 var(--font);text-align:left}
+.lib-prev .ic{flex:0 0 auto;color:var(--blue)}
+.lib-prev .fill{flex:1 1 auto;min-width:0}
+button.lib-prev:active{transform:scale(.99)}
+/* Auswahl der Partner im Supersatz-Sheet – dieselbe Kachel wie die Satzart (.tw-ty), nur volle Breite. */
+.lib-pick{display:flex;align-items:center;gap:10px;width:100%;min-height:52px;padding:8px 12px;margin-bottom:8px;
+  border-radius:var(--r-md);background:var(--surface3);color:var(--ink);text-align:left;
+  font:600 15px/1.25 var(--font);transition:background var(--dur-fast)}
+.lib-pick .s{display:block;font:500 12px/1.3 var(--font);color:var(--ink3);margin-top:2px}
+.lib-pick.on{background:var(--sel-soft);box-shadow:inset 0 0 0 1px var(--sel-ring)}
+.lib-pick .ic{flex:0 0 auto;color:var(--ink)}
+.lib-pick .fill{flex:1 1 auto;min-width:0}
+/* e1RM-Verlauf im Detail-Sheet: die Fußnote gehört unter die Kurve, nicht in eine Legende irgendwo. */
+.lib-e1n{font:500 12px/1.45 var(--font);color:var(--ink3);margin-top:8px}
+/* FIX-B1 · „Heute geändert" in der Trainingsansicht (BUILD-B1 4.5). Kein Bedienelement, sondern die
+   Begründung neben dem Plan: Symbol links, Satz und Unterzeile rechts. Gleiche Bauform wie
+   `.note.status.adp-hold` in der Ernährung, damit derselbe Hinweis überall gleich aussieht. */
+.lib-ovr{display:flex;align-items:flex-start;gap:8px}
+.lib-ovr svg{flex:none;margin-top:2px;color:var(--ink3,var(--ink2))}
+.lib-ovr .fill{flex:1;min-width:0}
+.lib-ovr b{display:block;font:600 15px/1.3 var(--font)}
+.lib-ovr small{display:block;font:500 13px/1.45 var(--font);color:var(--ink2);margin-top:3px}
