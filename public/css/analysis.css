@@ -1,219 +1,141 @@
-/* BE INEVITABLE – analysis (Stage 2, WP5 Analyse). Tokens und Komponenten kommen aus /app.css.
-   Alles, was nur im Analyse-Tab gilt, ist auf #anaBody eingegrenzt; die Sheet-Teile (Fotos, Erfolge,
-   Monatsziel, Maße) tragen eigene Klassennamen, damit sie keine anderen Bereiche beeinflussen. */
+/* BE INEVITABLE – analysis (Paket D-4 „Analyse", DESIGN-4 6.9/6.10).
+   Tokens und Komponenten kommen aus /app.css. Diese Datei setzt KEINE eigenen Tokens, keine rohen
+   Schriftgroessen, keine rohen Radien und keine rohen Abstaende mehr (K16/K22) – sie beschreibt nur
+   noch, was es in app.css nicht gibt: die Heldkarte der Analyse, den Balken IN der Zeile und die
+   beiden Bildflaechen (Fotoraster, Vorher/Nachher).
 
-/* ---- Status-Hero (Körper) ---- */
-.ana-hero{margin-bottom:12px}
-.ana-hero .ana-big{display:flex;align-items:baseline;gap:6px;margin-top:8px}
-.ana-hero .ana-big em{font-style:normal;font-size:var(--t-md);color:var(--ink2);font-weight:500}
-.ana-hero .ana-trend{display:inline-flex;align-items:center;gap:4px;font-weight:600}
-.ana-hero .ana-trend .ic{width:16px;height:16px}
-.ana-hero .ana-verdict{font-size:var(--t-base);font-weight:600;margin-top:4px}
-.ana-hero .ana-next{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline);font-size:var(--t-sm);color:var(--ink2);line-height:1.4}
-/* A-IV.6/P6: Das Ziel-Symbol war rot und stand über dem Falz – ohne anklickbar zu sein. Ein Hinweis
-   ist kein Primär-CTA. Neutral getönt bleibt der Kasten das, was er ist: der nächste Schritt. */
-.ana-hero .ana-next .ic{flex:0 0 auto;margin-top:1px;color:var(--ink2)}
-.ana-hero .ana-next b{color:var(--ink);font-weight:600}
+   GELOESCHT gegenueber 3.0.2, mit Fundstelle und Grund:
+   .ana-hero/.ana-big/.ana-trend/.ana-verdict/.ana-next  -> die Heldkarte ist `.card.lg.an5-hero`
+   .tile / .tiles-Sonderregeln (#anaBody button.tile …)  -> die Kachelreihe war die zweite
+        Steuerebene UND der Diagrammschalter; DESIGN-4 6.9 macht daraus eine Liste (K3/K6)
+   .an2-range (Zeitraum-Chips)                            -> der Zeitraum steht im Untertitel des
+        grossen Titels und als Zeile mit Wert (3.6, R12)
+   .ana-muscle/.ana-zero/.ana-msg/.an2-lead               -> Zeile + `.bar` + `.pill` (4.6, 5.7, 5.10)
+   .ana-hist … text-overflow:ellipsis                     -> G11/K8: nichts wird abgeschnitten
+   .ana-wknav/.wk-t/.wk-sp/.ana-wk-meta/.ana-wk-hl/
+   .ana-wk-focus/.ana-wk-row/.wk-cmp/.wk2-bal*            -> Heldkarte + Gruppen aus der einen Zeile
+   .stat-strip-Sonderregel, .row.ach-Sonderregeln         -> `.row` (4.6)
+   .mg-ic/.mg-cel-ic (46 px / 64 px Emoji-Flaechen)       -> Symbolgroessen 3 + 36 (5.13/K18) */
 
-/* ---- Kacheln: antippbar, Trend-Slot mit Icon ---- */
-#anaBody button.tile{display:block;width:100%;text-align:left;font:inherit;color:inherit;transition:transform var(--dur-fast),background var(--dur-fast)}
-#anaBody .tile.tap{cursor:pointer}
-/* Das Druck-Echo darf die Auswahl nicht überschreiben: --surface2 (#1f1f22) ist DUNKLER als die
-   gewählte Fläche --sel-soft (#353539), die gewählte Kachel wäre beim Antippen also dunkler
-   geworden statt heller. Die Skalierung bleibt für alle, die Flächenänderung nur für die
-   ungewählten Kacheln. */
-#anaBody .tile.tap:active{transform:scale(.98)}
-#anaBody .tile.tap:not(.on):active{background:var(--surface2)}
-/* A-IV.6: Die Trendzeile darf umbrechen statt abgeschnitten zu werden – und die Kacheln duerfen
-   schmaler werden als ihr laengster Text. Gemessen bei 320 px: die Kachelreihe war 365 px breit und
-   schob die ganze Seite quer (`documentElement.scrollWidth` 365 bei `clientWidth` 320), weil
-   `white-space:nowrap` die Mindestbreite des Rasters bestimmte. Mit `min-width:0` und Umbruch bleibt
-   die Seite bei 320 px ohne Querlauf, und „dein Bereich 48–50 bpm" steht zweizeilig statt als „48–50 b…". */
-#anaBody .tiles>*{min-width:0}
-#anaBody .tile .trend{display:flex;align-items:center;gap:4px;min-width:0;white-space:normal;line-height:1.3}
-#anaBody .tile .trend .ic{width:14px;height:14px;flex:0 0 auto}
-#anaBody .tiles>.skeleton{margin:0;height:92px}
-/* Nachbesserung A-IV.6 (Befund B8): Die gewaehlte Kachel zeigt keinen Wert – sie ist die
-   Auswahlmarke. Der Haken sitzt im Wert-Slot und haelt dessen Hoehe (1,2 × 26 px), damit die
-   Kachelreihe beim Wechseln nicht springt und alle Kacheln einer Zeile gleich hoch bleiben.
-   Neutral getoent (`--ink`), nicht rot: „ausgewaehlt" sagt hier derselbe Ring wie beim aktiven Chip. */
-#anaBody .tile .v.an2-sel{display:flex;align-items:center;min-height:1.2em;color:var(--ink)}
-#anaBody .tile .v.an2-sel .ic{width:22px;height:22px}
-.ana-lifetime{margin:-4px 4px 0}
+/* ---- Die eine Held-Karte je Analyse-Bildschirm (5.3 `.card.lg`) ----
+   Sie traegt genau eine Hauptaussage: im Koerper-Bereich die Zahl mit Kurve, im Trainings-Bereich
+   den Satz mit seiner Konsequenz, im Wochen-Bereich die drei Aussagen des Rueckblicks. */
+#anaBody .an5-hero{margin-bottom:var(--s-3)}
+#anaBody .an5-hero>:first-child{margin-top:0}
+/* Die grosse Zahl: `--t-2xl` (26/30) wie jede Kennzahl der App (5.8). Sie ist bewusst NICHT
+   `--t-4xl` – 34 px gehoeren dem grossen Titel, und zwei 34-px-Zeilen uebereinander lesen sich wie
+   zwei Ueberschriften. `tabular-nums`, damit die Zahl beim Auffrischen nicht springt. */
+#anaBody .an5-big{font:700 var(--t-2xl)/var(--lh-2xl) var(--font-head);color:var(--ink);
+  letter-spacing:var(--track-head);font-variant-numeric:tabular-nums}
+/* Die Einheit teilt Groesse UND Gewicht mit dem Wert rechts in einer Zeile (`.row .rr`, 15/400) –
+   jede zusaetzliche Kombination ist eine Schriftpaarung mehr auf demselben Bildschirm (K7). */
+#anaBody .an5-big em{font-style:normal;margin-left:var(--s-1);
+  font:400 var(--t-base)/var(--lh-base) var(--font);color:var(--ink2);letter-spacing:var(--track)}
+/* Etikett und Veraenderung – dieselben zwei Stufen wie `.kpi .l` und `.kpi .d` (5.8). */
+#anaBody .an5-l{margin-top:var(--s-1);font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
+#anaBody .an5-d{margin-top:var(--s-1);font:600 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
+#anaBody .an5-verdict{margin-top:var(--s-1);font:600 var(--t-base)/var(--lh-base) var(--font);color:var(--ink)}
+/* Der EINE Satz. Er steht zwischen Zahl und Kurve: erst die Aussage, dann der Beleg. */
+/* Derselbe Zuschnitt wie der Zeilentitel (`.row .rl`, 17/500): eine Groesse, ein Gewicht, eine
+   Zeilenhoehe – der Satz liest sich als dieselbe Stimme wie die Liste darunter (K7). */
+#anaBody .an5-say{margin:var(--s-3) 0 0;font:500 var(--t-md)/var(--lh-md) var(--font);color:var(--ink);
+  letter-spacing:var(--track)}
+#anaBody .an5-quiet{margin:var(--s-2) 0 0;font:400 var(--t-base)/var(--lh-base) var(--font);color:var(--ink2)}
+#anaBody .an5-quiet b{color:var(--ink);font-weight:600}
+#anaBody .an5-say+svg,#anaBody .an5-say+.chart-card{margin-top:var(--s-3)}
+#anaBody .an5-hero svg{margin-top:var(--s-3)}
+/* Die eine Primaeraktion des Bildschirms (5.1/G10). Sie steht unter der Hauptaussage, nicht in ihr. */
+#anaBody .an5-cta{margin-bottom:var(--s-2)}
 
-/* ---- Diagramm-Karte: es steht immer genau eine da, gewaehlt ueber die Kacheln ---- */
-#anaBody .chart-card{scroll-margin-top:calc(var(--safe-t) + 72px)}
+/* Die vier verbliebenen rohen Pixelwerte in dieser Datei sind ABSICHT und keine Abstaende:
+   1 px ist die Breite des Korridor-Strichs im Balken, 2 px sein Ueberstand nach oben und unten,
+   2 px heben Symbol und Unterzeile auf die Grundlinie ihrer Nachbarzeile (optischer Ausgleich, nicht
+   Rhythmus), und 72 px ist die gemessene Hoehe der Kopfzeile fuer `scroll-margin-top`. Keiner davon
+   hat ein Token, weil keiner ein Abstand im Sinne der Skala ist (K16). */
 
-/* ---- A-IV.6: Zeitraum-Chips ueber dem Diagramm (4 W / 3 M / 1 J) ----
-   Sie stehen ueber der Karte, zu der sie gehoeren – nicht oben auf der Seite: ein Zeitraum, der
-   sichtbar neben dem Diagramm steht, muss nicht erklaert werden. 44 px hoch (Trefferflaeche, M6). */
-#anaBody .an2-range{margin:0 0 10px;gap:8px}
-#anaBody .an2-range .chip{min-height:44px;padding:0 18px;font-variant-numeric:tabular-nums}
+/* ---- Der Balken IN der Zeile (5.7: „Balken = Anteil in einer Liste") ----
+   Er sitzt in der Titelspalte unter der Unterzeile und laeuft ueber deren volle Breite – nicht als
+   dritte Spalte neben dem Wert. Farbe sagt den Zustand, aber NIE allein: daneben steht immer die
+   Marke mit einem Wort (A47). Rot bleibt der Akzentfarbe vorbehalten (G10). */
+#anaBody .row .an5-bar,.sheet .row .an5-bar{display:block;margin-top:var(--s-2);width:100%}
+/* Der Strich in der Mitte markiert die untere Korridorgrenze (10 von 20 Saetzen). */
+#anaBody .row .an5-bar.low,#anaBody .row .an5-bar.ok,#anaBody .row .an5-bar.zero,
+#anaBody .row .an5-bar.unknown{position:relative;overflow:visible}
+#anaBody .row .an5-bar.low::after,#anaBody .row .an5-bar.ok::after,
+#anaBody .row .an5-bar.zero::after,#anaBody .row .an5-bar.unknown::after{content:'';position:absolute;
+  left:50%;top:-2px;bottom:-2px;width:1px;background:var(--ink3);opacity:.8}
+#anaBody .row .an5-bar.low>i{background:var(--amber)}
+#anaBody .row .an5-bar.ok>i{background:var(--green)}
+#anaBody .row .an5-bar.zero>i,#anaBody .row .an5-bar.unknown>i{background:var(--ink3);min-width:2px}
 
-/* ---- A-IV.6: der EINE Aussagesatz ueber jedem Diagramm ----
-   Gleiche Bauform wie .ana-msg ueber den Muskel-Balken: Symbol + Satz, nie eine zweite Zahl.
-   Steht zwischen Kartenkopf und Kurve, damit man den Satz zuerst liest und die Kurve als Beleg. */
-#anaBody .an2-say{display:flex;gap:8px;align-items:flex-start;margin:10px 0 4px;font-size:var(--t-base);line-height:1.4;color:var(--ink)}
-#anaBody .an2-say .ic{flex:0 0 auto;margin-top:2px;color:var(--ink2)}
-#anaBody .an2-say.tone-green .ic{color:var(--green)}
-#anaBody .an2-say.tone-amber .ic{color:var(--amber)}
+/* ---- Lange Woerter brechen um, statt die Seite quer zu schieben (G11/K23) ----
+   „Herzratenvariabilität" ist 21 Zeichen; bei 320 px und 150 % Textgroesse passt es in keine Spalte.
+   `.rl` hat `min-width:0` und darf deshalb schrumpfen – ohne diese Regel liefe das Wort ueber. */
+#anaBody .row .rl,.sheet .row .rl{overflow-wrap:anywhere}
 
-/* ---- Übungen: Variante (Trainingstag/Nummer) nur bei gleichnamigen Übungen ---- */
-#anaBody .row .rl .ana-vari{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--surface3);color:var(--ink2);font-size:12px;font-weight:600;vertical-align:1px}
+/* ---- Diagramm-Karte ---- */
+#anaBody .chart-card,#pushView .chart-card{scroll-margin-top:calc(var(--safe-t) + 72px)}
+#anaBody .an5-hero .chart-card{background:transparent;padding:0}
 
-/* ---- Übungen: Trend bleibt einzeilig im rechten Slot ---- */
-#anaBody .row .rr .trend{display:inline-flex;align-items:center;gap:4px;font-size:14px;font-weight:600}
-#anaBody .row .rr .trend .ic{width:14px;height:14px}
-#anaBody .row .rr .muted-2{display:inline-flex;align-items:center;gap:4px;font-size:14px}
-
-/* ---- Muskelgruppen-Balken ---- */
-.ana-muscle+.ana-muscle{margin-top:12px}
-.ana-muscle .bar{margin-top:6px}
-.ana-muscle .caption{margin-top:4px}
-/* Sätze je Muskelgruppe (D17): die Breite misst gegen 20 Sätze/Woche, der Strich markiert 10.
-   Farbe sagt den Zustand – nichts eingetragen (grau), unter der Orientierung (amber), drin (grün),
-   darüber (neutral). Rot bleibt der Warnfarbe vorbehalten. */
-.ana-muscle .bar.corr{position:relative;overflow:visible}
-.ana-muscle .bar.corr::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--ink3);opacity:.8}
-.ana-muscle .bar.corr>i{background:var(--ink)}
-.ana-muscle .bar.corr.zero>i{background:var(--ink3);min-width:2px}
-/* Noch keine abgeschlossene Woche: es gibt keinen Wochenschnitt, also auch keine Bewertung – der
-   Balken bleibt leer und neutral statt in Warnfarbe („zu wenig") zu stehen. */
-.ana-muscle .bar.corr.unknown>i{background:var(--ink3)}
-.ana-muscle .bar.corr.low>i{background:var(--amber)}
-.ana-muscle .bar.corr.ok>i{background:var(--green)}
-/* Gruppen ohne einen Satz: eine Zeile statt sechs leerer Balken */
-.ana-zero{margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline);font-size:var(--t-sm);color:var(--ink2);line-height:1.4}
-/* Der Aussagesatz über den Balken: ein Satz, nicht noch eine Zahl */
-.ana-msg{display:flex;gap:8px;align-items:flex-start;margin-bottom:14px;font-size:var(--t-base);line-height:1.4;color:var(--ink)}
-.ana-msg .ic{flex:0 0 auto;margin-top:2px}
-.ana-msg.tone-green .ic{color:var(--green)}
-.ana-msg.tone-amber .ic{color:var(--amber)}
-
-/* ---- A-IV.6: die Einsichts-Karte oben im Trainings-Segment ----
-   Gleiche Bauform wie „Für nächste Woche" im Wochenrückblick (.ana-wk-focus), aber neutral getoent:
-   Rot bleibt dem einen Primaer-CTA, dem aktiven Tab, dem Fokus und echten Fehlern vorbehalten (P6). */
-.an2-lead{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
-.an2-lead>.ic{flex:0 0 auto;margin-top:2px;color:var(--ink2)}
-.an2-lead.tone-amber>.ic{color:var(--amber)}
-.an2-lead.tone-green>.ic{color:var(--green)}
-.an2-lead>div{min-width:0}
-.an2-lead b{display:block;margin-top:2px;font-size:var(--t-md);font-weight:600;letter-spacing:-.01em;line-height:1.35}
-
-/* ---- Check-in Historie: links Datum + Nebenwerte, rechts das Gewicht ---- */
-.ana-hist .row .rr{font-size:15px;font-weight:600;color:var(--ink)}
-.ana-hist .row .rl small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#anaBody .section-label .sl-r .btn.sm{margin:-8px 0}
-
-/* ---- Wochenrückblick (Segment „Woche"): Kopfzeile, Highlights, Fokus, Zahlenzeilen ---- */
-.ana-wknav{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.ana-wknav .wk-t{flex:1;min-width:0;text-align:center}
-.ana-wknav .wk-t b{display:block;font-size:var(--t-md);font-weight:600;letter-spacing:-.01em}
-.ana-wknav .wk-t small{display:block;margin-top:1px;color:var(--ink2);font-size:var(--t-sm)}
-.ana-wknav .wk-sp{flex:0 0 36px;height:36px} /* Platzhalter, damit der Zeitraum mittig bleibt */
-.ana-wk-meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;margin:-8px 0 16px;font-size:var(--t-sm);color:var(--ink2)}
-.ana-wk-meta .ic{width:14px;height:14px;color:var(--amber)}
-.ana-wk-meta .sep{color:var(--ink3)}
-.ana-wk-hl{display:grid;gap:10px;margin-bottom:12px}
-.ana-wk-hl .wk-hl{display:flex;align-items:flex-start;gap:10px;font-size:var(--t-base);line-height:1.4}
-.ana-wk-hl .wk-hl .ic{flex:0 0 auto;margin-top:2px;color:var(--green)}
-/* B4: „Für nächste Woche" ist ein Vorschlag, kein Fehler – und stand trotzdem als einziges Element
-   der Wochenansicht rot getönt, rot umrandet und mit rotem Symbol da. Rot gehört nach BUILD-A4 6.1
-   dem einen CTA, dem aktiven Tab, dem Fokus und dem Fehler; hier war es reine Hervorhebung.
-   Die Karte behält ihr Gewicht, bekommt es aber aus der Hierarchie: eine Flächenstufe heller als die
-   Karten darüber (--surface2 statt --surface) plus Haarlinie. Das Symbol bleibt farbig, aber in
-   --amber-text – dieselbe „Achtung, kein Alarm"-Farbe, die zwei Regeln weiter oben schon in
-   .ana-wk-meta steht und die die Erfolgshäkchen in --green sauber gegenüberstellt. */
-.ana-wk-focus{display:flex;align-items:flex-start;gap:12px;background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline2)}
-.ana-wk-focus>.ic{flex:0 0 auto;margin-top:2px;color:var(--amber-text)}
-.ana-wk-focus>div{min-width:0} /* langer Begründungssatz bricht um, statt die Karte zu sprengen */
-.ana-wk-focus b{display:block;margin-top:2px;font-size:var(--t-md);font-weight:600;letter-spacing:-.01em}
-/* Wert oben, Vergleich darunter – nebeneinander liefe die Zeile bei 320 px über den Rand */
-#anaBody .ana-wk-row .rr{flex-direction:column;align-items:flex-end;gap:0;max-width:62%;white-space:normal;text-align:right}
-#anaBody .ana-wk-row .rr .v{font-size:var(--t-md);font-weight:600;color:var(--ink)}
-#anaBody .ana-wk-row .rr .v em{font-style:normal;font-size:var(--t-sm);font-weight:500;color:var(--ink2)}
-#anaBody .ana-wk-row .rr .v .muted-2{font-size:var(--t-sm);font-weight:500} /* „keine Daten" tritt zurück */
-#anaBody .ana-wk-row .rr .wk-cmp{display:flex;align-items:center;gap:3px;margin-top:2px;font-size:var(--t-xs);color:var(--ink3)}
-#anaBody .ana-wk-row .rr .wk-cmp .ic{width:12px;height:12px}
+/* ---- Der Aussagesatz ueber einer Kurve (Kennzahl-Seiten, Wochen-Verlauf) ---- */
+.an2-say{display:flex;gap:var(--s-2);align-items:flex-start;margin:var(--s-3) 0 var(--s-1);
+  font:400 var(--t-base)/var(--lh-base) var(--font);color:var(--ink)}
+.an2-say .ic{flex:0 0 auto;margin-top:2px;color:var(--ink2)}
+.an2-say.tone-green .ic{color:var(--green)}
+.an2-say.tone-amber .ic{color:var(--amber)}
 
 /* ---- Fotos (Sheet) ---- */
-.ph-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.ph-th{position:relative;display:block;width:100%;aspect-ratio:3/4;padding:0;border-radius:12px;overflow:hidden;background:var(--surface3)}
+.ph-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-2)}
+.ph-th{position:relative;display:block;width:100%;aspect-ratio:3/4;padding:0;
+  border-radius:var(--r-sm);overflow:hidden;background:var(--surface3)}
 .ph-th img{width:100%;height:100%;object-fit:cover;display:block}
-.ph-th .ph-cap{position:absolute;left:6px;bottom:6px;font-size:12px;font-weight:600;background:rgba(0,0,0,.6);color:#fff;padding:2px 6px;border-radius:6px}
-.ph-view{display:block;width:100%;border-radius:14px;background:var(--surface3)}
+.ph-th .ph-cap{position:absolute;left:var(--s-2);bottom:var(--s-2);
+  font:600 var(--t-xs)/var(--lh-xs) var(--font);background:rgba(0,0,0,.6);color:#fff;
+  padding:2px var(--s-2);border-radius:var(--r-sm)}
+.ph-view{display:block;width:100%;border-radius:var(--r);background:var(--surface3)}
 .sheet label.btn{cursor:pointer}
 .sheet label.btn input{display:none}
 
-/* ---- A-IV.6: Vorher / Nachher ----
+/* ---- Vorher / Nachher ----
    Zwei gleich grosse 3:4-Rahmen nebeneinander, beide `object-fit:cover` mit derselben Bildmitte:
    nur so vergleicht man Koerper und nicht Bildausschnitte. Auch bei 320 px bleiben zwei Spalten –
    untereinander waere es wieder „ein Foto ansehen, scrollen, das naechste ansehen". */
-.an2-cmp{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.an2-cmp{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);margin-top:var(--s-3)}
 .an2-cmp-s{margin:0;min-width:0}
-.an2-cmp-box{width:100%;aspect-ratio:3/4;border-radius:12px;overflow:hidden;background:var(--surface3)}
+.an2-cmp-box{width:100%;aspect-ratio:3/4;border-radius:var(--r-sm);overflow:hidden;background:var(--surface3)}
 .an2-cmp-box img{width:100%;height:100%;object-fit:cover;object-position:50% 50%;display:block}
-.an2-cmp-s figcaption{margin-top:8px;line-height:1.35}
-.an2-cmp-s figcaption b{display:block;font-size:var(--t-base);font-weight:600}
-.an2-cmp-s figcaption small{display:block;margin-top:1px;font-size:var(--t-sm);color:var(--ink2)}
+.an2-cmp-s figcaption{margin-top:var(--s-2)}
+.an2-cmp-s figcaption b{display:block;font:600 var(--t-base)/var(--lh-base) var(--font)}
+.an2-cmp-s figcaption small{display:block;margin-top:1px;
+  font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
 /* Blaetter-Knoepfe: 44 px, auch in einer 155-px-Spalte (M6) */
-.an2-cmp-nav{display:flex;align-items:center;justify-content:space-between;gap:2px;margin-top:6px}
-.an2-cmp-nav .btn.icon{width:44px;height:44px;flex:0 0 auto}
+.an2-cmp-nav{display:flex;align-items:center;justify-content:space-between;gap:var(--s-1);margin-top:var(--s-2)}
+.an2-cmp-nav .btn.icon{width:var(--tap);height:var(--tap);flex:0 0 auto}
 .an2-cmp-nav .meta{font-variant-numeric:tabular-nums;white-space:nowrap}
 /* Die Zahlen zum Bild: eine Zeile, nie eine zweite Meinung */
-.an2-cmp-d{display:flex;gap:8px;align-items:flex-start;margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline);font-size:var(--t-base);line-height:1.4}
+.an2-cmp-d{display:flex;gap:var(--s-2);align-items:flex-start;margin-top:var(--s-3);
+  padding:var(--s-3) var(--s-4);border-radius:var(--r-sm);background:var(--surface2);
+  box-shadow:inset 0 0 0 1px var(--hairline);
+  font:400 var(--t-base)/var(--lh-base) var(--font);color:var(--ink)}
 .an2-cmp-d .ic{flex:0 0 auto;margin-top:2px;color:var(--ink2)}
-.an2-cmp-hint{margin-top:10px}
+.an2-cmp-hint{margin-top:var(--s-3)}
 
-/* ---- Integrationen (das Apple-Health-Sheet selbst wohnt in account.js/account.css) ---- */
-.row.soon{opacity:.55}
+/* ---- Optionsliste „Zeitraum" (5.2, Zustand „gewaehlt (Optionsliste)") ----
+   Eine Optionsliste waehlt, sie fuehrt nicht weiter – deshalb traegt sie kein Chevron (G7). Das
+   gewaehlte Wort steht rechts, wo sonst der Wert steht. */
+#an5Zeitraum .row .chev{display:none}
+
+/* ---- Integrationen: „kommt bald" tritt zurueck, bleibt aber lesbar (Kontrast!) ---- */
+.row.soon .rl{color:var(--ink2)}
 .row.soon .pill{white-space:nowrap}
 
-/* ---- Erfolge (Sheet) ---- */
-.row.ach .r-ic{font-size:22px;line-height:1}
-.row.ach:not(.done) .rl{opacity:.6}
-.row.ach .bar{max-width:220px}
-.ach-head .h3{display:flex;align-items:center;gap:6px}
+/* ---- Erfolge und Monatsziel (Sheets) ---- */
+.ach-head .h3{display:flex;align-items:center;gap:var(--s-1)}
 .ach-head .h3 .ic{color:var(--amber)}
-
-/* ---- Monatsziel (Sheet) ---- */
-.mg-ic{display:flex;justify-content:center;font-size:46px;line-height:1;margin-top:8px;color:var(--ink2)}
-.mg-part{display:flex;align-items:center;gap:14px}
+.mg-ic{display:flex;justify-content:center;margin-top:var(--s-2);color:var(--ink2)}
+.mg-ic .ic{width:36px;height:36px}              /* die Leerzustands-Groesse aus 5.13 */
+.mg-part{display:flex;align-items:center;gap:var(--s-3)}
 .mg-ring{position:relative;flex:0 0 auto}
-.mg-ring-ic{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--green)}
-.mg-cel .mg-cel-ic{font-size:64px;line-height:1}
-.mg-xp{height:32px;padding:0 16px;font-size:15px}
-
-/* ---- Stat-Strips „Ziele & Erfolge" ---- */
-#anaBody .stat-strip .sx .ic{width:18px;height:18px}
-
-/* Kachelreihe = Diagramm-Auswahl. NEUTRAL, nicht rot (A-IV.5-P6): die rote Kachel brachte allein
-   drei rote Elemente über den Falz – bei einem Budget von drei für die ganze Seite.
-   Aber neutral allein genügt nicht: bis 2.8.0 stand hier ein EIGENER Auswahl-Dialekt
-   (`inset 0 0 0 1.5px var(--ink)` auf `var(--surface2)`, gerendert #1f1f22 mit weißem 1,5-px-Ring)
-   und der alte Kommentar „derselbe helle Ring wie beim aktiven Chip" stimmte nicht: der aktive Chip
-   ist Stil A – GEFÜLLT mit --sel-fill, Schrift --on-sel – und hat überhaupt keinen Ring. Damit war
-   die Kachel der vierte Flächen-Dialekt neben den vertraglichen zwei (BUILD-A4 6.6, Befund B9).
-   Jetzt Stil B („weich gewählt": Mehrfach-/Statuswahl) mit den Tokens und damit zeichengleich mit
-   `.tile.sel` in app.css:270 – die Kachel ist eine Wahl innerhalb der Seite, keine Navigation.
-   app.css führt `.tile.on` selbst als Verbraucher von Stil B auf. */
-.tiles .tile.tap{cursor:pointer;box-shadow:inset 0 0 0 1px transparent;transition:box-shadow var(--dur) var(--ease),background var(--dur)}
-.tiles .tile.on{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring)}
-
-/* ---- B-I.5: Bilanz-Karte des Wochenberichts (zwei Korridore, dann die Zahlen) ----
-   Zwei Zeilen, jede mit Thema + Herkunftssatz links und Wert + Band rechts. Auf 320 px bricht die
-   Zeile um, statt den Herkunftssatz abzuschneiden – ohne ihn waere „133 %" wieder eine Zahl ohne
-   Maßstab (P3). Kein Rot: das Band ordnet ein, es warnt nicht ([Q38] – Feedback auf die Aufgabe,
-   nicht auf die Person). */
-#anaBody .wk2-bal{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
-#anaBody .wk2-bal-r{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px}
-#anaBody .wk2-bal-t{flex:1 1 44%;min-width:0;font-size:var(--t-base);font-weight:600;color:var(--ink)}
-#anaBody .wk2-bal-t small{display:block;margin-top:2px;font-size:var(--t-xs);font-weight:500;
-  color:var(--ink3);line-height:1.35;white-space:normal}
-/* margin-left:auto haelt Wert und Band auch dann rechts, wenn die Zeile umbricht: bei 320 px passen
-   Thema und Wert nicht nebeneinander, und `justify-content:space-between` schob den Wert dann an den
-   linken Rand der zweiten Zeile – die Zahl stand unter dem Text statt an der Kante, an der alle
-   anderen Zahlen des Rueckblicks stehen. */
-#anaBody .wk2-bal-v{flex:0 1 auto;margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;text-align:right;min-width:0}
-#anaBody .wk2-bal-v b{font-size:var(--t-md);font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
-#anaBody .wk2-bal-b{margin-top:2px;font-size:var(--t-sm);font-weight:600;font-variant-numeric:tabular-nums}
+.mg-ring-ic{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--green)}
+.mg-cel .mg-cel-ic .ic{width:36px;height:36px;color:var(--amber)}
+.mg-xp{height:22px}

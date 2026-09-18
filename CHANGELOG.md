@@ -1,5 +1,59 @@
 # Changelog
 
+## 3.1.0
+
+Diese Version ändert nichts an dem, was die App kann – und alles daran, wie man es findet.
+
+Der Anlass war ein Satz: „Momentan ist alles sehr versteckt und unübersichtlich." Bevor daran
+gearbeitet wurde, ist gezählt worden, über 22 Ansichten in drei Rollen. Das Ergebnis war unbequem
+deutlich: **1.178 Verstöße gegen die eigenen Regeln.** 70 Punkte-Menüs. 293 Symbolknöpfe ohne ein
+einziges Wort daneben – 192 davon allein im Trainings-Reiter. 157 verschiedene Zeilenformen für immer
+dieselbe Sache. 19 abgeschnittene Beschriftungen, darunter der Name **jeder** Übung. 23 Bedienelemente,
+die vollständig hinter der Tab-Leiste lagen. Und 153 Schriftgrößen in Pixeln, die deshalb auf die
+Textgrößen-Einstellung des Telefons nicht reagierten.
+
+Die Antwort ist eine einzige Design-Sprache, nach dem Vorbild der Apple-Apps.
+
+### Man weiß jetzt, wo man ist
+- **Jeder Bildschirm hat einen großen Titel**, und er trägt dasselbe Wort wie sein Reiter. Beim Scrollen
+  schrumpft er in die Kopfzeile. Die Wortmarke steht nicht mehr als Titel über der Startseite – der
+  Name der App sagt einem nicht, wo man ist. Der Reiter „Home" heißt jetzt **„Heute"**.
+- **Der Zurück-Knopf trägt den Namen dessen, wohin er führt** – nicht „Zurück", nicht nur ein „×".
+  Dafür gibt es jetzt echte Unterseiten statt immer neuer Überlagerungen: **Übung**, **Profil** und
+  **Athlet** (für den Coach) sind eigene Seiten mit eigener Adresse.
+- **Höchstens eine Steuerebene unter dem Titel.** In der Ernährung lagen vier übereinander.
+
+### Nichts ist mehr versteckt
+- **Alle Punkte-Menüs sind weg** – 70 waren es. Was dahinter lag, steht jetzt als Zeile mit einem Wort
+  da: der Hantelrechner, der Pausen-Timer, das Technik-Lexikon, der Trainingsrhythmus, der Kalender.
+- **Kein langer Druck, kein Rechtsklick** ist noch der einzige Weg zu einer Funktion.
+- Die **grauen Pillen am Ende der Startseite** (Maße, Foto, Kalender, Erfolge) waren versteckte
+  Navigation. Sie haben jetzt einen benannten Platz.
+- **287 stumme Symbolknöpfe haben ein Wort bekommen.**
+
+### Man versteht, was dasteht
+- **Wörter statt Kürzel:** „Reserve" statt RIR, „Wiederholungen" statt „Wdh", „Eiweiß/Kohlenhydrate/Fett"
+  statt „g P/g C/g F", „10,6 Tonnen bewegt" statt „10,6 t", „noch nicht eingetragen" statt „–".
+- **Erklärt wird unter der Gruppe**, als grauer Text, der immer dasteht – kein ⓘ, kein Tooltip, kein
+  Aufklapper. Dort steht jetzt, woher dein Kalorienziel kommt, was „Reserve" bedeutet und warum die
+  App diese Woche nichts angepasst hat.
+- **Nichts wird mehr abgeschnitten.** Lange Übungsnamen brechen um. Vorher hießen zwei verschiedene
+  Übungen auf dem Bildschirm sichtbar gleich.
+
+### Eine Sprache statt sieben
+Eine Zeilenform (56 px: Symbol, Titel, Unterzeile, Wert, Chevron) ersetzt 25. Drei Knopfvarianten
+ersetzen 59 Bauformen. Sieben Schriftstufen statt zehn, drei Eckenradien statt elf. Alle Schriftgrößen
+in `rem` – die App folgt jetzt der Textgröße, die im Telefon eingestellt ist, und im Profil gibt es
+zusätzlich einen eigenen Schalter dafür.
+
+### Was dabei nicht passiert ist
+Kein Handgriff ist teurer geworden – der Satz ist weiter mit **einem** Tipp bestätigt, das Gewicht mit
+**zwei** geändert, der Check-in mit **zwei** erledigt (mit vier vorbelegten Feldern). Die Ladezeit ist
+gleich geblieben (11 Anfragen, 133 KB, 1,4 s auf langsamem Mobilfunk), der Offline-Start zeigt weiter
+den letzten Stand, und der Betreiber sieht weiterhin keine personenbezogenen Daten (0 von 1.248
+geprüften Rollen-Zellen). Von 1.178 gemessenen Verstößen sind **311** geblieben, und **keiner** der
+verbliebenen ist schlechter als vorher.
+
 ## 3.0.2
 
 Die drei Kanten, die 3.0.1 beim Nachladen stehen gelassen hat.

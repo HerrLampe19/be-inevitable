@@ -8,7 +8,7 @@
 
 /* ---------- Allgemeine Bausteine ---------- */
 .mind-chips{display:flex;flex-wrap:wrap;gap:var(--s-2)}
-.mchip{position:relative;min-height:44px;padding:var(--s-2) var(--s-3);border-radius:var(--r-pill);background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline);font:500 var(--t-sm)/1.25 var(--font);color:var(--ink2);display:inline-flex;align-items:center;gap:var(--s-1);transition:background var(--dur) var(--ease),color var(--dur),transform var(--dur-fast);text-align:left}
+.mchip{position:relative;min-height:44px;padding:var(--s-2) var(--s-3);border-radius:var(--r-pill);background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline);font:500 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);display:inline-flex;align-items:center;gap:var(--s-1);transition:background var(--dur) var(--ease),color var(--dur),transform var(--dur-fast);text-align:left}
 /* Stil B „weich gewaehlt" (BUILD-A4 6.6) – dieselbe Flaeche und derselbe Ring wie .chip.soft.on
    und .seg button.on. Bis 2.7.0 war das der dritte von fuenf Auswahl-Dialekten. */
 .mchip.on{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring)}
@@ -18,119 +18,161 @@
 .mind-dots span{width:8px;height:8px;border-radius:50%;background:var(--surface4)}
 .mind-dots span.on{background:var(--ink);transform:scale(1.2)}
 .mind-dots span.done{background:color-mix(in srgb,var(--ink) 55%,var(--surface4))}
-.mind-link{display:flex;align-items:center;min-height:44px;padding:var(--s-2) 0;border-bottom:.5px solid var(--hairline2);font-size:var(--t-sm);color:var(--blue-text);line-height:1.35}
-.mind-link:last-child{border-bottom:none}
-.mind-links{margin-top:var(--s-1)}
-.mind-p{font-size:var(--t-base);line-height:1.55;color:var(--ink2);margin-bottom:var(--s-3)}
-.mind-h{font-weight:700;font-size:var(--t-base);margin:var(--s-4) 0 var(--s-2);letter-spacing:var(--track)}
-.mind-ul,.mind-ol{padding-left:var(--s-4);font-size:var(--t-sm);line-height:1.55;color:var(--ink2);margin-bottom:var(--s-3)}
+/* `.mind-link` / `.mind-links` GELOESCHT (D5): fuenf blaue Textzeilen mit eigener Unterkante waren
+   eine eigene Zeilenform fuer genau fuenf Eintraege. Die offiziellen Quellen stehen jetzt in einer
+   `.rows`-Gruppe wie alles andere (mindLinkGroup in mindset.js). */
+.mind-p{font:400 var(--t-md)/var(--lh-md) var(--font);color:var(--ink2);margin-bottom:var(--s-3)}
+.mind-h{font:700 var(--t-md)/var(--lh-md) var(--font);margin:var(--s-4) 0 var(--s-2);letter-spacing:var(--track)}
+.mind-ul,.mind-ol{padding-left:var(--s-4);font:400 var(--t-md)/var(--lh-md) var(--font);color:var(--ink2);margin-bottom:var(--s-3)}
 .mind-ul li,.mind-ol li{margin-bottom:var(--s-1)}
 .mind-ul b,.mind-ol b,.mind-p b{color:var(--ink)}
-.mind-quote{background:var(--surface3);border-left:3px solid var(--ink3);border-radius:0 var(--r-sm) var(--r-sm) 0;padding:var(--s-2) var(--s-3);font-size:var(--t-sm);line-height:1.5;color:var(--ink2);margin-top:var(--s-2)}
+.mind-quote{background:var(--surface3);border-left:3px solid var(--ink3);border-radius:0 var(--r-sm) var(--r-sm) 0;padding:var(--s-2) var(--s-3);font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);margin-top:var(--s-2)}
 .mind-quote b{color:var(--ink)}
-.mind-actions{font-size:var(--t-base);color:var(--ink);margin:var(--s-1) 0 0}
 .mind-done{text-align:center;padding:var(--s-1) 0 var(--s-3)}
-.mind-done-ic{font-size:var(--t-num);line-height:1}
-.mind-done-t{font:700 var(--t-xl)/var(--lh-snug) var(--font-head);margin-top:var(--s-2);letter-spacing:var(--track-head)}
-.mind-done-s{color:var(--ink2);font-size:var(--t-sm);margin-top:var(--s-1)}
-/* Emoji-Illustration im Sheet – die Titel selbst bleiben schlicht */
-.mind-sheet-ic{font-size:var(--t-4xl);line-height:1;text-align:center;margin:0 0 var(--s-3)}
+.mind-done-ic{line-height:1}
+.mind-done-t{font:700 var(--t-xl)/var(--lh-xl) var(--font-head);margin-top:var(--s-2);letter-spacing:var(--track-head)}
+.mind-done-s{color:var(--ink2);font:400 var(--t-sm)/var(--lh-sm) var(--font);margin-top:var(--s-1)}
+/* Symbol-Illustration im Sheet – die Titel selbst bleiben schlicht (seit 2.8.0 kein Emoji) */
+.mind-sheet-ic{line-height:1;text-align:center;margin:0 0 var(--s-3)}
 .mind-step-h{margin:0 var(--s-1) var(--s-3)}
-/* „fällig“ – ein einziger Stil für alle Fälligkeits-Marken */
-.pill.due{background:var(--amber-tint);color:var(--amber-text)}
+/* `.pill.due` ist GELOESCHT (DESIGN-4 5.10/6.8): zeichengleicher Doppelgaenger von `.pill.amber`,
+   der dieser Ansicht eine siebte Form fuer „hier musst du hinschauen" gab. Alle Faelligkeits-Marken
+   kommen jetzt aus rowHTML({pill:{text:'fällig',tone:'amber'}}). */
 /* Live-Wert außerhalb der Hinweis-Box (Rad-Formular) */
-.mind-live{font:700 var(--t-md)/1.2 var(--font);color:var(--ink);font-variant-numeric:tabular-nums;margin:var(--s-3) var(--s-1) var(--s-1)}
-.mind-hint{padding:var(--s-1) 0 var(--s-2);line-height:var(--lh-body)}
-.mind-lock{display:flex;align-items:center;gap:var(--s-1);margin:-6px var(--s-1) 0;color:var(--ink3)}
-.mind-lock .ic{width:14px;height:14px;flex:0 0 auto}
+.mind-live{font:700 var(--t-md)/var(--lh-md) var(--font);color:var(--ink);font-variant-numeric:tabular-nums;margin:var(--s-3) var(--s-1) var(--s-1)}
+/* `.mind-lock` GELOESCHT (D5): der Hinweis „bleibt in deinem Konto" steht jetzt im `.rows-f` der
+   Gruppe „Deine Arbeitsblaetter" – dem Erklaerungsort der App (G8). */
 /* Während eines Nachladens bleibt der alte Inhalt stehen und blendet nur leicht ab */
 .mind-loading{opacity:.5;transition:opacity var(--dur) var(--ease);pointer-events:none}
 
 /* Zahlen-Chips 1–10 (5 Spalten → auf 375 px ≈ 56 px breit, 44 px hoch) */
 .numchips{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--s-2)}
-.nchip{min-height:44px;border-radius:var(--r-sm);background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline);font:600 var(--t-base)/1 var(--font);color:var(--ink2);transition:background var(--dur) var(--ease),transform var(--dur-fast)}
+.nchip{min-height:44px;border-radius:var(--r-sm);background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline);font:600 var(--t-base)/var(--lh-base) var(--font);color:var(--ink2);transition:background var(--dur) var(--ease),transform var(--dur-fast)}
 /* Stil A „hart gewaehlt" (BUILD-A4 6.6): EINE Wahl aus zehn – dieselbe Flaeche wie .chip.on.
    Vollrot waere hier eine zweite gefuellte Akzentflaeche neben dem Speichern-Knopf. */
 .nchip.on{background:var(--sel-fill);box-shadow:none;color:var(--on-sel)}
 .nchip:active{transform:scale(.95)}
 
-/* ---------- Tab Heute ---------- */
-.mind-hero .daytype{font-size:var(--t-3xl)}
-.mind-hero .today-acts{margin-top:var(--s-4)}
-/* app.css streckt jeden Button in .today-acts – der leise Wiederholen-Knopf bleibt schmal */
-.mind-hero .today-acts .btn.inline{flex:0 0 auto;padding:0 var(--s-1)}
-.mind-hero-chips{margin-top:var(--s-3)}
-/* „Mit Tony (Video)“ verlässt die Hero-Aktionen und bleibt ein leiser Textlink */
-.mind-vlink{display:inline-flex;align-items:center;min-height:44px;margin-top:var(--s-1);padding:0;background:none;color:var(--blue-text);font:500 var(--t-sm)/1 var(--font)}
-.mind-vlink:active{opacity:.7}
+/* ---------- Tab Heute ----------
+   D5 · DIE HELD-KARTE IST JETZT `.card.lg` (DESIGN-4 5.3/6.8) und nicht mehr `.today`.
+   Was dabei ersatzlos entfiel und warum:
+   · `.mind-hero .daytype` (26 px) – die Karte traegt jetzt den Sheet-Titelgrad `--t-xl` (22/28).
+     Damit ist `--t-3xl` in dieser Datei verbraucht (Uebergabe aus Welle 1, DONE-D4-fundament 6).
+   · `.mind-hero-chips` und `.today.mind-hero .chip-row .chip` – der Minuten-Chip stand nur
+     vormittags in der Karte. Die Priming-Dauer ist jetzt eine ZEILE im Abschnitt „Heute" mit dem
+     Wert rechts; sie ist damit den ganzen Tag sichtbar (G5) und beantwortet „wie ist es
+     eingestellt?" ohne Tap (A28).
+   · `.mind-vlink` – ein vierter Knopf-Dialekt (blau, 13/500) fuer genau eine Stelle. „Mit Tony
+     (Video)" ist die leise Zweitaktion der Karte und damit `.btn.ghost` (5.1).
+   · `.mind-ok` – der gruene Haken ohne Wort. Status traegt in dieser App die Pille MIT Wort (A47).
+   · `.mind-clamp` – `-webkit-line-clamp:2` schnitt die Frage des Tages ab (G11/K8). */
+.mind-hero{margin-bottom:var(--s-4)}
+/* Die Ortszeile der Karte: „Donnerstag, 17. September · Abend". Sie beantwortet WANN – und damit,
+   warum gerade dieses Ritual in der Karte steht. Gemischte Schreibung, keine Versalien (A36). */
+.mind-hero-e{font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);margin-bottom:var(--s-1)}
+.mind-hero-t{font:700 var(--t-xl)/var(--lh-xl) var(--font-head);letter-spacing:var(--track-head);color:var(--ink)}
+.mind-hero-s{font:400 var(--t-base)/var(--lh-base) var(--font);color:var(--ink2);margin-top:var(--s-1)}
+.mind-hero .btn{margin-top:var(--s-4)}
+.mind-hero .btn.ghost{margin-top:var(--s-2)}
 /* Serien-Symbol: monochrom statt Farb-Emoji. Amber, nicht Rot – im Wochenrueckblick ist dieselbe
    Flamme seit 2.4.0 amber (analysis.css:52), im Mindset und auf Home war sie rot: eine Flamme,
-   zwei Farben (RATE M1). Rot bleibt dem CTA. (home.css:68 zieht nach, siehe DEFER-A4.) */
+   zwei Farben (RATE M1). Rot bleibt dem CTA. (home.css:68 zieht nach, siehe DEFER-A4.)
+   Noch EIN Verbraucher: die Kachel „Tage in Folge" im Incantation-Sheet. In der Tagesliste steht
+   die Serie seit D5 in Woertern (G9). */
 .ic.mind-flame{color:var(--amber-text);margin-right:var(--s-1)}
-/* Haken in der Tages-Checkliste */
-.mind-ok{display:inline-flex;align-items:center;color:var(--green-text)}
-.mind-ok .ic{width:18px;height:18px}
-/* Die Frage des Tages darf die Zeile nicht sprengen */
-.mind-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* „Noch nicht genug Werte" an der Stelle des Diagramms – kein Leerzustand mit Knopf, weil es hier
+   nichts zu tun gibt ausser: das naechste Ritual machen. */
+.mind-none{font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);padding:var(--s-4) 0;text-align:center}
 .mind-q{margin-bottom:var(--s-1)}
-.mind-q-text{font:700 var(--t-xl)/1.25 var(--font-head);letter-spacing:var(--track-head)}
-.mind-q-sub{color:var(--ink3);font-size:var(--t-sm);margin-top:var(--s-2)}
+.mind-q-text{font:700 var(--t-xl)/var(--lh-xl) var(--font-head);letter-spacing:var(--track-head)}
+.mind-q-sub{color:var(--ink3);font:400 var(--t-sm)/var(--lh-sm) var(--font);margin-top:var(--s-2)}
 /* 30-Tage-Streifen statt 7×5-Raster */
 .mind-cal{display:flex;flex-wrap:wrap;gap:var(--s-1)}
-.mind-cal-d{width:12px;height:12px;border-radius:3px;background:var(--surface3);flex:0 0 auto}
+.mind-cal-d{width:12px;height:12px;border-radius:var(--r-pill);background:var(--surface3);flex:0 0 auto}
 .mind-cal-d.ok{background:var(--green)}
 .mind-cal-d.half{background:var(--amber);opacity:.7}
 /* Durchgeklickt statt gemacht: grauer Kern statt Farbe – auch neben dem Heute-Ring erkennbar (B16) */
 .mind-cal-d.part{background:radial-gradient(circle at 50% 50%,var(--ink3) 0 3px,var(--surface4) 3px)}
 .mind-cal-d.is-today{box-shadow:inset 0 0 0 2px var(--ink)}
-.mind-legend{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-3);font-size:var(--t-xs);color:var(--ink3);margin-top:var(--s-2)}
+.mind-legend{display:flex;flex-wrap:wrap;gap:var(--s-2) var(--s-3);font:400 var(--t-xs)/var(--lh-xs) var(--font);color:var(--ink3);margin-top:var(--s-2)}
 .mind-legend span{display:inline-flex;align-items:center;gap:var(--s-1)}
-.mind-legend i{width:10px;height:10px;border-radius:3px;background:var(--surface3);display:inline-block}
+.mind-legend i{width:10px;height:10px;border-radius:var(--r-pill);background:var(--surface3);display:inline-block}
 .mind-legend i.ok{background:var(--green)}
 .mind-legend i.half{background:var(--amber);opacity:.7}
 .mind-legend i.part{background:radial-gradient(circle at 50% 50%,var(--ink3) 0 2.5px,var(--surface4) 2.5px)}
-/* Marke „übersprungen" in der Tages-Checkliste – neutral, nicht rot: es ist kein Fehler, nur kein Ritual */
-.mind-skip{display:inline-flex;align-items:center;padding:var(--s-1) var(--s-2);border-radius:var(--r-pill);background:var(--surface3);color:var(--ink3);font:600 var(--t-xs)/1 var(--font);white-space:nowrap}
+/* `.mind-skip` GELOESCHT (D5): eine eigene Marke fuer „uebersprungen" neben `.pill` war die zweite
+   Form fuer dieselbe Bedeutung. Jetzt `.pill.neutral` aus rowHTML – EINE Marke, immer mit Wort. */
 .mind-wbars{display:flex;align-items:flex-end;gap:var(--s-1);height:84px}
 .mind-wbars .wb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
-.mind-wbars .wbv{width:100%;max-width:34px;border-radius:5px 5px 2px 2px;transition:height var(--dur-data) var(--ease)}
-.mind-wbars .wbl{font-size:var(--t-min);color:var(--ink2);margin-top:var(--s-1)}
+.mind-wbars .wbv{width:100%;max-width:34px;border-radius:var(--r-sm) var(--r-sm) 0 0;transition:height var(--dur-data) var(--ease)}
+.mind-wbars .wbl{font:400 var(--t-xs)/var(--lh-xs) var(--font);color:var(--ink2);margin-top:var(--s-1)}
 
 /* ---------- Abend-Reflexion ---------- */
 .eve-card{background:var(--surface3);border-radius:var(--r);padding:var(--s-6) var(--s-4) var(--s-4);text-align:center;margin-bottom:var(--s-4)}
-.eve-ic{font-size:var(--t-num);line-height:1}
-.eve-q{font:700 var(--t-xl)/1.25 var(--font-head);letter-spacing:var(--track-head);margin-top:var(--s-3)}
-.eve-s{color:var(--ink2);font-size:var(--t-sm);margin-top:var(--s-2);line-height:var(--lh-body)}
-.eve-hint{font-size:var(--t-xs);color:var(--ink3);margin-top:var(--s-2)}
-.soft-bar{height:4px;background:var(--surface4);border-radius:2px;overflow:hidden;margin-top:var(--s-4)}
+.eve-ic{line-height:1}
+.eve-q{font:700 var(--t-xl)/var(--lh-xl) var(--font-head);letter-spacing:var(--track-head);margin-top:var(--s-3)}
+.eve-s{color:var(--ink2);font:400 var(--t-sm)/var(--lh-sm) var(--font);margin-top:var(--s-2)}
+.eve-hint{font:400 var(--t-xs)/var(--lh-xs) var(--font);color:var(--ink3);margin-top:var(--s-2)}
+.soft-bar{height:4px;background:var(--surface4);border-radius:var(--r-pill);overflow:hidden;margin-top:var(--s-4)}
 /* Ein Balken ist eine Menge, kein Ruf (BUILD-A4 6.1) – wie .bar>i in app.css. */
-.soft-bar>div{height:100%;width:0;background:var(--ink2);border-radius:2px;transition:width 30s linear}
+.soft-bar>div{height:100%;width:0;background:var(--ink2);border-radius:var(--r-pill);transition:width 30s linear}
 .mind-wkcount{margin:var(--s-1) var(--s-1) 0}
 
 /* ---------- Player (Vollbild) ---------- */
 body.mind-playing{overflow:hidden}
 .mind-player{position:fixed;inset:0;z-index:500;background:#000;color:#fff;display:flex;flex-direction:column;padding:calc(var(--safe-t) + var(--s-3)) var(--s-4) calc(var(--safe-b) + var(--s-4));max-width:540px;margin:0 auto}
-.mp-top{display:flex;justify-content:space-between;align-items:center;gap:var(--s-3);min-height:44px}
-.mp-head{min-width:0}
-.mp-step{font:600 var(--t-sm)/1.2 var(--font);color:rgba(255,255,255,.65);letter-spacing:.02em}
+/* KOPFZEILE (DESIGN-4 6.8b). Derselbe Dreispalter wie .sheet-h in app.css: Wortaktion links,
+   Titel mittig, Wortaktion rechts. Bis 3.0.2 standen hier zwei runde 44-px-Symbolziele ohne Wort
+   (.mp-ib) und gar kein Titel – der einzige Bildschirm der App ohne Namen (G1/K11/K12, 3.5 S4). */
+/* `flex:0 0 auto` ist hier KEIN Schmuck. `.mind-player` ist eine Spalte aus Flex-Elementen;
+   ohne diese Zeile schrumpft der Kopf bei 150 % Textgroesse auf 320 px auf seine `min-height`
+   zurueck, waehrend der Titel vier Zeilen braucht - und laeuft dann UEBER die Wortaktionen und
+   die Einordnungszeile (im Bild gesehen, `d5fix/shots/N-player-150-320.png`). K23. */
+.mp-top{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2);min-height:var(--tap)}
+/* „Wortaktion im Kopf" ist in app.css 2.1 auf --t-base/600 festgelegt. 44 px hoch: das Ziel bleibt
+   so gross wie der runde Knopf vorher, nur steht jetzt ein Wort darin. */
+.mp-tb{flex:0 0 auto;min-height:var(--tap);padding:0 var(--s-2);background:none;border:0;
+  color:rgba(255,255,255,.72);font:600 var(--t-base)/1 var(--font);white-space:nowrap}
+.mp-tb:active{color:#fff}
+.mp-tb-r{margin-left:auto}
+/* Sheet-Regel S2, eine Stufe kleiner (17/700 statt 22/700): neben dem Titel stehen ZWEI
+   Wortaktionen, und bei 320 px muessen alle drei nebeneinander passen. Umbrechen statt kuerzen
+   (G11) – und kleiner als die grosse Schritt-Ueberschrift .mp-title (26/700) im Bildschirm darunter.
+
+   `flex:1 1 8rem` IST DIE REGEL FUER GROSSE TEXTGROESSE, und sie steht bewusst in `rem`.
+   Auf 320 px stehen innerhalb der Polsterung 288 px zur Verfuegung. Bei 100 % sind 8 rem = 128 px,
+   und 76 (Beenden) + 8 + 128 + 8 + 68 (Ton aus) = 288 – die Zeile geht genau auf. Bei 150 % sind
+   dieselben 8 rem 192 px und „Beenden" allein 114 px: die Zeile geht NICHT mehr auf, und der Titel
+   rutscht von selbst in eine eigene, volle Zeile – dort steht „Morgen-Priming" an einem Stueck.
+   Ohne diese Regel bekam er 90 px und brach mitten im Wort („Morge / n- / Primin / g", gesehen in
+   d5fix/shots/N-player-150-320.png).
+   Ein `@media (max-width:...em)` kann das NICHT: `em` misst dort an der Grundschrift des
+   Browsers, nicht an der Wurzelschrift, die der Textgroessen-Schalter setzt (nachgemessen). */
+.mp-name{flex:1 1 8rem;min-width:0;text-align:center;color:#fff;overflow-wrap:break-word;hyphens:auto;
+  font:700 var(--t-md)/var(--lh-md) var(--font-head);letter-spacing:var(--track-head)}
+/* Zweite Zeile: wo im Ritual man steht, wie lange es noch dauert – und, wenn das Ritual eine
+   Einstellung hat (Atem-Tempo), deren WERT. Kein Trennzeichen, der Abstand trennt. */
+.mp-sub{flex:0 0 auto;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;
+  gap:0 var(--s-3);min-height:var(--lh-sm);margin-top:var(--s-1)}
+.mp-step{font:600 var(--t-sm)/var(--lh-sm) var(--font);color:rgba(255,255,255,.65);letter-spacing:.02em}
 /* .45 auf Schwarz sind 4,43:1 bei 12 px – knapp unter AA (RATE M6). .58 sind 6,4:1. */
-.mp-left{font:400 var(--t-xs)/1.2 var(--font);color:rgba(255,255,255,.58);margin-top:var(--s-1)}
-.mp-tools{display:flex;gap:var(--s-2);flex:0 0 auto}
-.mp-ib{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.09);display:flex;align-items:center;justify-content:center;color:#fff}
-.mp-ib:active{background:rgba(255,255,255,.18)}
-.mp-ib .ic{width:20px;height:20px}
+.mp-left{font:400 var(--t-xs)/var(--lh-xs) var(--font);color:rgba(255,255,255,.58)}
 /* Fortschritt über die ganze Einheit (ein Segment je Schritt) */
-.mp-steps{display:flex;gap:var(--s-1);margin:var(--s-3) 0 0}
-.mp-steps span{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.14);transition:background var(--dur) var(--ease)}
+.mp-steps{flex:0 0 auto;display:flex;gap:var(--s-1);margin:var(--s-3) 0 0}
+.mp-steps span{flex:1;height:3px;border-radius:var(--r-pill);background:rgba(255,255,255,.14);transition:background var(--dur) var(--ease)}
 .mp-steps span.done{background:rgba(255,255,255,.45)}
 /* Der Player hat eine eigene, rein weisse Skala (.14 / .45 / hier) – ein roter Streifen darin waere
-   die einzige Fremdfarbe. Der Akzent dieses Vollbilds ist der Atem-Ring, sonst nichts. */
+   die einzige Fremdfarbe. Seit 6.8b gilt das auch fuer den Fortschrittsring: die EINZIGE rote
+   Flaeche dieses Vollbilds ist die Atemscheibe .breath-pacer, und die ruft nicht, sie taktet. */
 .mp-steps span.on{background:rgba(255,255,255,.9)}
 .mp-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:var(--s-3);padding:var(--s-2) 0}
 .mp-ringwrap{position:relative;width:min(66vw,260px);aspect-ratio:1;display:flex;align-items:center;justify-content:center;margin-bottom:var(--s-1)}
 .mind-ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
 .mind-ring .bg{stroke:rgba(255,255,255,.13)}
-.mind-ring .fg{stroke:var(--accent);transition:stroke-dashoffset var(--dur-fast) linear}
+/* K19/G10: KEIN ROTER FORTSCHRITTSRING. Bis 3.0.2 lief der Bogen in Markenrot (--accent) – ein
+   Fortschritt ist eine Menge, kein Ruf (5.7), und rot ist Marke, nicht Status. Der Ring benutzt
+   jetzt dieselbe rein weisse Skala wie .mp-steps (.13 Untergrund / .9 Fortschritt). */
+.mind-ring .fg{stroke:rgba(255,255,255,.9);transition:stroke-dashoffset var(--dur-fast) linear}
 /* Ruhiger Taktgeber: flache, durchscheinende Scheibe statt glänzender Kugel.
    A-IV.5 · ZWEI Dinge, die hier bewusst NICHT das Bewegungs-Token benutzen, und warum:
    1. `--dur` ist hier eine LOKALE Variable, keine Nutzung des globalen Tokens. mindset.js setzt
@@ -155,25 +197,25 @@ body.mind-playing{overflow:hidden}
 .breath-pacer.rest{transform:scale(.55);transition:none;opacity:.45}
 .breath-pacer.hidden{display:none}
 @keyframes mindHold{0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,.08),0 0 10px rgba(225,6,0,.18)}50%{box-shadow:0 0 0 1px rgba(255,255,255,.14),0 0 16px rgba(225,6,0,.32)}}
-.mp-time{position:relative;font-size:var(--t-num);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1;color:#fff}
+.mp-time{position:relative;font-size:var(--t-4xl);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1;color:#fff}
 /* „Pausiert“ als Marke im Ring – der Phasentext bleibt sichtbar */
-.mp-paused{position:absolute;bottom:22%;left:50%;transform:translateX(-50%);padding:var(--s-1) var(--s-2);border-radius:var(--r-pill);background:rgba(255,255,255,.14);font:600 var(--t-xs)/1 var(--font);color:#fff;white-space:nowrap}
-.mp-phase{font:600 var(--t-base)/1.3 var(--font);color:rgba(255,255,255,.72);min-height:22px}
-.mp-title{font:700 var(--t-2xl)/1.1 var(--font-head);letter-spacing:var(--track-head)}
-.mp-text{font-size:var(--t-base);line-height:1.5;color:rgba(255,255,255,.8);max-width:380px;min-height:72px}
+.mp-paused{position:absolute;bottom:22%;left:50%;transform:translateX(-50%);padding:var(--s-1) var(--s-2);border-radius:var(--r-pill);background:rgba(255,255,255,.14);font:600 var(--t-xs)/var(--lh-xs) var(--font);color:#fff;white-space:nowrap}
+.mp-phase{font:600 var(--t-base)/var(--lh-base) var(--font);color:rgba(255,255,255,.72);min-height:22px}
+.mp-title{font:700 var(--t-2xl)/var(--lh-2xl) var(--font-head);letter-spacing:var(--track-head)}
+.mp-text{font:400 var(--t-md)/var(--lh-md) var(--font);color:rgba(255,255,255,.8);max-width:380px;min-height:72px}
 .mp-bottom{display:flex;flex-direction:column;align-items:center;gap:var(--s-2)}
 /* EINE zentrale, runde Pause-Taste (64 px) */
 .mp-main{width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;color:#fff;transition:transform var(--dur-fast),background var(--dur-fast)}
 .mp-main:active{transform:scale(.94);background:rgba(255,255,255,.2)}
 .mp-main .ic{width:30px;height:30px}
 /* Überspringen bleibt leise (schlägt .btn.ghost aus app.css) */
-.mind-player .btn.ghost.mp-skip{position:relative;color:rgba(255,255,255,.6);background:none;min-height:44px;width:auto;padding:0 var(--s-4);font-size:var(--t-base)}
+.mind-player .btn.ghost.mp-skip{position:relative;color:rgba(255,255,255,.6);background:none;min-height:44px;width:auto;padding:0 var(--s-4);font:600 var(--t-base)/var(--lh-base) var(--font)}
 .mind-player .btn.ghost.mp-skip:active{color:#fff;opacity:1}
 /* Gesperrt bis zur Hälfte des Schritts (B16): kein blasser Geisterknopf, sondern ein erklärter
    Zustand – der Text sagt die Restzeit, der Balken darunter zeigt sie. --gate kommt aus mdGateDraw(). */
 .mind-player .btn.ghost.mp-skip[disabled]{opacity:1;color:rgba(255,255,255,.5);cursor:default}
 .mind-player .btn.ghost.mp-skip[disabled]:active{color:rgba(255,255,255,.5)}
-.mind-player .btn.ghost.mp-skip[disabled]::after{content:'';position:absolute;left:16px;right:16px;bottom:6px;height:2px;border-radius:1px;
+.mind-player .btn.ghost.mp-skip[disabled]::after{content:'';position:absolute;left:16px;right:16px;bottom:6px;height:2px;border-radius:var(--r-pill);
   background:linear-gradient(90deg,rgba(255,255,255,.55) var(--gate,0%),rgba(255,255,255,.14) var(--gate,0%));transition:none}
 .mp-confirm{display:flex;gap:var(--s-2);width:100%}
 .mp-confirm .btn{flex:1;min-height:52px}
@@ -183,96 +225,88 @@ body.mind-playing{overflow:hidden}
 .mp-confirm .btn.danger{background:rgba(255,255,255,.12);color:var(--red-text)}
 /* Abschluss-Zustand im Player (vor dem freiwilligen Formular) */
 .mind-player.mp-done .mp-center{gap:var(--s-2)}
-.mp-done-ic{font-size:var(--t-num);line-height:1}
+.mp-done-ic{line-height:1}
 .mp-done-acts{flex-direction:row;gap:var(--s-2);width:100%}
 .mp-done-acts .btn{flex:1;min-height:52px}
 .mp-done-acts .btn.sec{background:rgba(255,255,255,.12);color:#fff}
 
-/* ---------- Rad des Lebens ---------- */
+/* ---------- Rad des Lebens ----------
+   D5 · ERSATZLOS GELOESCHT, weil ihre Verwendungsstellen jetzt `.row` sind (DESIGN-4 4.6/5.2):
+   `.mind-intro`, `.mind-intro-ic` (Leerzustand -> `.empty`), `.mind-area-ic`, `.mind-area-v`
+   (Bereichszeile -> rowHTML), `.mind-tile-em`, `.mind-focus-ic` (Kacheln -> Zeilen mit Wert),
+   `.wheel-row`, `.wheel-row-h`, `.wheel-row-ic`, `.wheel-row-d` (Reglerzeile -> `.row.wrow`),
+   `.delta`, `.delta.up/.down/.flat` (Pfeilpille -> Satz in der Unterzeile),
+   `.mind-spark`, `.mind-spark-empty` (Sparklinie -> Zahl, 5.7 kennt nur Ring, Balken, Zahl). */
 .wheel-svg{width:100%;max-width:360px;height:auto;display:block;margin:0 auto}
-.mind-intro{padding:var(--s-6) var(--s-4)}
-.mind-intro-ic{font-size:var(--t-num);line-height:1}
-.mind-area-ic{font-size:var(--t-lg);line-height:1;justify-content:flex-start}
-.mind-area-v{font-size:var(--t-md);font-weight:700;min-width:28px;text-align:right;font-variant-numeric:tabular-nums}
-/* .tiles steht in app.css später als .grid-3 – hier gewinnt die Dreierspalte wieder */
+/* Legende „Ist / Ziel" unter dem Radar – zwei Woerter statt zweier Striche ohne Erklaerung (G9). */
+.mind-legend2{display:flex;justify-content:center;gap:var(--s-4);margin-top:var(--s-2);
+  font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
+.mind-legend2 span{display:inline-flex;align-items:center;gap:var(--s-1)}
+.mind-legend2 i{width:16px;height:0;border-top:2px solid var(--red);display:inline-block}
+.mind-legend2 i.ziel{border-top-style:dashed;border-top-color:var(--green)}
+/* .tiles steht in app.css später als .grid-3 – hier gewinnt die Dreierspalte wieder
+   (noch EIN Verbraucher: die Kachelreihe „7 / 38 / 55" im Rapport-Sheet). */
 .tiles.grid-3{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-2)}
 .tiles.grid-3 .tile{padding:var(--s-3)}
-.mind-tile-em{font-size:var(--t-base);line-height:1.3;font-weight:700}
-.mind-focus-ic{font-size:var(--t-xl);line-height:1}
-.wheel-row{padding:var(--s-2) 0 var(--s-1);border-bottom:.5px solid var(--hairline2)}
-.wheel-row:last-of-type{border-bottom:none}
-.wheel-row-h{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-2);font:600 var(--t-base)/1.3 var(--font)}
-.wheel-row-h b{font-size:var(--t-md);font-variant-numeric:tabular-nums}
-.wheel-row-ic{margin-right:var(--s-1)}
-.wheel-row-d{font-size:var(--t-xs);color:var(--ink3);margin-top:-2px;line-height:1.4}
-.wheel-slider{-webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;margin:0;display:block;--c:var(--accent);--pct:50%}
-.wheel-slider:focus{outline:none}
-.wheel-slider:focus-visible{outline:2px solid var(--c);outline-offset:2px;border-radius:8px}
-.wheel-slider::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--c) var(--pct),var(--surface3) var(--pct))}
-.wheel-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--c);margin-top:-9px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
-.wheel-slider::-moz-range-track{height:8px;border-radius:4px;background:var(--surface3)}
-.wheel-slider::-moz-range-progress{height:8px;border-radius:4px;background:var(--c)}
-.wheel-slider::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--c);box-shadow:0 2px 6px rgba(0,0,0,.45)}
-.delta{display:inline-block;font:700 var(--t-min)/1 var(--font);padding:var(--s-1) var(--s-2);border-radius:var(--r-pill);vertical-align:middle;font-variant-numeric:tabular-nums}
-.delta.up{background:var(--green-tint);color:var(--green-text)}
-.delta.down{background:var(--red-tint);color:var(--red-text)}
-.delta.flat{background:var(--surface3);color:var(--ink3)}
-.mind-spark{width:60px;height:18px;display:block}
-.mind-spark-empty{display:inline-block;width:60px;text-align:center;color:var(--ink3);font-size:var(--t-xs)}
 
-/* ---------- Challenge ---------- */
-.mind-chal-h{flex-wrap:nowrap;gap:var(--s-4)}
+/* Die Reglerzeile IST `.row` – dieselbe Klasse, dieselbe Trennlinie, dieselbe Signatur fuer die
+   Messung. `wrap` gibt dem 0–100-Regler die zweite Zeile (Begruendung in mindset.js). */
+.row.wrow{flex-wrap:wrap;align-items:center}
+.row.wrow .rl label{display:block}
+.row.wrow .rr b{font-variant-numeric:tabular-nums;color:var(--ink)}
+.row.wrow .wheel-slider{flex:1 0 100%;margin-top:var(--s-1)}
+/* Der Regler ist eine MENGE, kein Ruf (DESIGN-4 5.7): neutrale Fuellung wie `.bar`. Bis D5 trug
+   jeder der sieben Regler die Farbe seines Bereichs – „Physischer Koerper" damit eine vollflaechige
+   Markenrot-Spur direkt ueber dem roten Primaerknopf. Die sieben Farben bleiben dort, wo sie etwas
+   unterscheiden: im Radar, wo sieben Achsen ohne sie nicht auseinanderzuhalten sind. */
+.wheel-slider{-webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;margin:0;display:block;--c:var(--ink2);--pct:50%}
+.wheel-slider:focus{outline:none}
+.wheel-slider:focus-visible{outline:2px solid var(--c);outline-offset:2px;border-radius:var(--r-sm)}
+.wheel-slider::-webkit-slider-runnable-track{height:8px;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--c) var(--pct),var(--surface3) var(--pct))}
+.wheel-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--c);margin-top:-9px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+.wheel-slider::-moz-range-track{height:8px;border-radius:var(--r-pill);background:var(--surface3)}
+.wheel-slider::-moz-range-progress{height:8px;border-radius:var(--r-pill);background:var(--c)}
+.wheel-slider::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--c);box-shadow:0 2px 6px rgba(0,0,0,.45)}
+
+/* ---------- Challenge ----------
+   D5 · `.rule-row` samt `.ric/.rbody/.rlab/.rdyn/.rhint/.rauto/.rinfo` IST GELOESCHT. Sie war eine
+   zweite Zeilen-Anatomie mit eigener Schriftskala – und `.rinfo` war das ⓘ, hinter dem ab Tag 2
+   jeder Regelhinweis verschwand (fuenfzehn Symbolknoepfe ohne Wort in EINER Ansicht, K11).
+   Ersatz: `.row.switch` aus rowHTML(), Hinweis dauerhaft in der Unterzeile (G5/G8). */
+.mind-chal-h{display:flex;align-items:center;gap:var(--s-4)}
 .mind-chal-ring{flex:0 0 auto;display:flex}
-.chal-dots{display:flex;flex-wrap:wrap;gap:var(--s-2)}
+.mind-chal-tx{flex:1;min-width:0}
+.mind-chal-t{font:600 var(--t-md)/var(--lh-md) var(--font);color:var(--ink)}
+.mind-chal-s{font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);margin-top:var(--s-1)}
+.chal-dots{display:flex;flex-wrap:wrap;gap:var(--s-2);margin-top:var(--s-4)}
 .chal-dot{width:22px;height:22px;border-radius:50%;background:var(--surface3);flex:0 0 auto;box-sizing:border-box}
 .chal-dot.ok{background:var(--green)}
 .chal-dot.part{background:var(--amber)}
 .chal-dot.miss{background:var(--surface3);box-shadow:inset 0 0 0 1px var(--surface4)}
 .chal-dot.is-today{box-shadow:0 0 0 2px var(--ink)}
-/* Eine Zeilen-Anatomie: Symbol links, Bedienelement rechts – im Aufbau wie im Alltag */
-.rule-row{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:.5px solid var(--hairline2);min-height:56px;width:100%;text-align:left;background:transparent;color:inherit;cursor:pointer;font:inherit}
-.rule-row:last-child{border-bottom:none}
-.rule-row .ric{font-size:var(--t-xl);flex:0 0 auto;line-height:1.2;align-self:flex-start;margin-top:1px}
-.rule-row .rbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--s-1)}
-.rule-row .rlab{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-1);font:600 var(--t-base)/1.3 var(--font)}
-.rule-row .rdyn{font:600 var(--t-xs)/1.45 var(--font);color:var(--ink2)}
-.rule-row .rhint{font-size:var(--t-xs);color:var(--ink3);line-height:1.45}
-.rule-row .rhint b{color:var(--ink2);font-weight:600}
-.rule-row .rauto{font:600 var(--t-xs)/1.3 var(--font);color:var(--green-text);margin-top:var(--s-1)}
-.rule-row.on .rlab{color:var(--ink)}
-.rule-row.dis{cursor:default}
-/* .rcheck und .tgl (Schalter) sind nach app.css gewandert (WP0) – hier nur noch Kontext-Abstände */
-.rule-row .rcheck,.rule-row .tgl{align-self:center;margin-left:auto}
-/* Echte 44 px statt 36 px plus unsichtbarer Erweiterung (BUILD-A4 6.8). */
-.rule-row .rinfo{position:relative;flex:0 0 auto;align-self:center;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:transparent;color:var(--ink3)}
-.rule-row .rinfo:active{background:var(--surface3)}
-.rule-row .rinfo .ic{width:18px;height:18px}
 /* Klebende Startleiste: sticky statt fixed – ein transformierter Vorfahre (.page.first traegt die
    Einblend-Animation) macht sonst die Seite zum Bezugsrahmen und schiebt die Leiste aus dem Bild.
    Sie steht als letztes Element im Fluss, die negativen Seitenraender heben die 16 px .page-Polsterung auf. */
 .mind-stickybar{position:sticky;bottom:calc(var(--nav-h) + var(--safe-b));z-index:65;margin:0 calc(var(--s-4) * -1);min-height:60px;background:var(--surface2);border-top:.5px solid var(--hairline2);display:flex;align-items:center;justify-content:space-between;gap:var(--s-3);padding:var(--s-2) var(--s-4)}
-.mind-stick-t{font:600 var(--t-sm)/1.3 var(--font);color:var(--ink2)}
+.mind-stick-t{font:600 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
 /* Laeuft der Pausen-Timer, sitzt die 48 px hohe Ruheleiste (app.css) ueber der Nav – die Startleiste
    rueckt dann genauso weit nach oben, damit sie nicht verdeckt wird. */
 body.rest-on .mind-stickybar{bottom:calc(var(--nav-h) + 48px + var(--safe-b))}
 
-/* ---------- Wissen ---------- */
-.know-card{display:flex;align-items:flex-start;gap:var(--s-3);width:100%;text-align:left;background:var(--surface);border-radius:var(--r);padding:var(--s-4);margin-bottom:var(--s-3);cursor:pointer;transition:transform var(--dur-fast);font:inherit;color:inherit;min-height:44px}
-.know-card:active{transform:scale(.985)}
-.know-card .ki{font-size:var(--t-2xl);flex:0 0 auto;line-height:1.2}
-.know-card .kb{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--s-1)}
-.know-card .kt{font:600 var(--t-base)/1.3 var(--font);letter-spacing:var(--track)}
-.know-card .kd{font-size:var(--t-sm);color:var(--ink2);line-height:1.4}
-.know-card .kx{flex:0 0 auto;display:flex;align-items:center;align-self:center;color:var(--ink3)}
-.know-card .kx .ic{width:18px;height:18px}
-.know-card .kpills{display:flex;flex-wrap:wrap;gap:var(--s-1);margin-top:var(--s-1)}
-.know-card .klist{display:flex;flex-direction:column;gap:var(--s-1);margin-top:var(--s-1);font-size:var(--t-sm);color:var(--ink);font-style:italic}
-.know-card .klist span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ---------- Wissen ----------
+   D5 · `.know-card` samt `.ki/.kb/.kt/.kd/.kx/.kpills/.klist` IST GELOESCHT. Zwoelf Karten
+   untereinander waren zwoelf Objekte fuer zwoelf Zeilen; `.klist span` trug ausserdem
+   `text-overflow:ellipsis` – abgeschnittene Beschriftung im Inhalt (G11/K8). */
 
 /* ---------- Home-Widget ---------- */
-.stat-strip.mind-strip .sc .ss.mind-line{margin-top:var(--s-1);cursor:pointer;color:var(--ink2);white-space:normal;line-height:1.35}
+.stat-strip.mind-strip .sc .ss.mind-line{margin-top:var(--s-1);cursor:pointer;color:var(--ink2);white-space:normal;line-height:var(--lh-sm)}
 .mind-strip .btn.sm,.mind-strip .minibtn{flex:0 0 auto}
 .mind-strip .ss{white-space:normal}
+
+/* ---------- Seitenfuss: nichts endet hinter der Reiterleiste (K9) ----------
+   Die letzte Gruppe einer langen Ansicht darf nicht im 64-px-Streifen der Reiterleiste enden.
+   `.rows-f` bringt 24 px mit; die Leiste plus Safe-Area braucht mehr. */
+#mindBody{padding-bottom:calc(var(--nav-h) + var(--safe-b) + var(--s-6))}
 
 /* ---------- Bewegung reduzieren ---------- */
 @media (prefers-reduced-motion:reduce){
@@ -280,13 +314,5 @@ body.rest-on .mind-stickybar{bottom:calc(var(--nav-h) + 48px + var(--safe-b))}
   .breath-pacer.hold{animation:none}
   .mind-ring .fg{transition:none}
   .soft-bar>div{transition:none;width:100%}
-  .mind-wbars .wbv,.mchip,.nchip,.know-card,.mp-steps span{transition:none}
+  .mind-wbars .wbv,.mchip,.nchip,.mp-steps span{transition:none}
 }
-
-/* Der Chip im Mindset-Kopf („10 Min ⌄") steht in einem `.today` – und `.today .chip-row .chip`
-   aus home.css drueckt ihn auf 34 px zurueck (gemessen: 87x34, das letzte zu kleine Ziel dieser
-   Ansicht). Die Regel gehoert der Startseite und ihren Rhythmus-Chips; `.today` ist nur die
-   gemeinsame Hero-Klasse, die das Mindset mitbenutzt. mindset.css laedt VOR home.css, gleiche
-   Spezifitaet verliert also – deshalb eine Stufe mehr (0,4,0 statt 0,3,0). Hier gilt wieder die
-   Hausregel aus app.css: 44 px SICHTBAR, keine unsichtbare ::before-Erweiterung. */
-.today.mind-hero .chip-row .chip{min-height:44px;padding:0 var(--s-4)}

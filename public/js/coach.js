@@ -22,6 +22,13 @@ let THREAD=null;              // offene Unterhaltung {id,name,msgs}
 let MONTHLY_UID=null;         // Athlet, dessen Monatsziel gerade bearbeitet wird (explizit, kein Kontext-Nebeneffekt)
 const CACHE_MS=60000;
 
+// FIX-D5 · Die Zeile, die TUT statt WEITERFUEHRT (G7).
+// Das Chevron bedeutet genau eines: fuehrt weiter. Eine Zeile, die eine Testmail verschickt oder
+// einen Link erzeugt, fuehrt nirgendwohin – sie bekommt `.act`, und die Regel aus `account.css:126`
+// (`.row.tap.act .chev{display:none}`) blendet das Zeichen app-weit aus. Der Helfer schreibt die
+// Klasse in dieselbe Zeile, die `rowHTML()` baut; ein zweiter Zeilenbau entsteht dadurch NICHT.
+function coActRow(o){return rowHTML(o).replace('"row tap','"row tap act');}
+
 // Spiegel von logic.attentionStatus() – nur als Fallback, wenn der Server noch kein status/reasons liefert.
 // Die Regel steht seit 2.5.0 im Rechenkern (logic.js attentionStatus); dieser Zwilling MUSS gleich
 // rechnen, sonst wechselt dieselbe Zeile ohne Datenaenderung die Farbe, sobald der Fallback greift.
@@ -155,8 +162,12 @@ function coachInvalidate(){COACH_OV=null;ADMIN_CACHE=null;if(typeof invalidateVi
 // ===== KOPFZEILE & KONTEXTLEISTE (Verträge mit core.js/WP1) =====
 // coachHeaderActions() -> HTML für die .hdr (Rundnachricht, nur Coach ohne Athleten-Kontext). WP1 darf es in
 // .hdr .acts einhängen; solange nicht, hängt mountCoachHeader() es selbst vor die Glocke (id #coachHdrActs).
-function coachHeaderActions(){if(!ME||ME.role!=='coach'||COACH_CONTEXT||CUR_TAB==='messages')return '';
-  return `<button class="btn icon sm ghost" id="hdrBroadcast" aria-label="Nachricht an alle Athleten" title="Nachricht an alle Athleten" onclick="openBroadcast()">${icon('send',20)}</button>`;}
+// DESIGN-4 6.14 / R17: Der Papierflieger in der Kopfzeile war ein Symbol OHNE Wort – gemessen ein
+// K11-Verstoss und die einzige Stelle, an der „Nachricht an alle Athleten" zu finden war. Die
+// Aktion steht seit D-7 als benannter Primaerknopf im Reiter „Nachrichten" (6.16); die Kopfzeile
+// traegt dafuer nichts mehr. Die Funktion bleibt als Vertrag mit core.js/WP1 bestehen und liefert
+// leer – so muss dort nichts geaendert werden.
+function coachHeaderActions(){return '';}
 function mountCoachHeader(){let el=document.getElementById('coachHdrActs');
   if(!el){const bell=document.getElementById('bellBtn');if(!bell||!bell.parentNode)return;el=document.createElement('span');el.id='coachHdrActs';el.className='coach-hdr-acts';bell.parentNode.insertBefore(el,bell);}
   el.innerHTML=coachHeaderActions();}
@@ -168,8 +179,8 @@ function renderCtxBar(){if(!coachView()||!COACH_CONTEXT)return '';const id=VIEW_
   const a=(ATHLETES_CACHE||[]).find(x=>x.id===id);const st=a?athleteStatus(a):null;
   if(id)setTimeout(()=>loadAthAvatars([id]),0);
   return `<div class="ctx-av" data-ath-av="${id}">${initialOf(name)}</div><div class="ctx-t"><span class="ctx-lbl">Du siehst: </span><b>${esc2(name)}</b></div>${st?attPill(st.status):''}`+
-    `<button class="btn icon sm" aria-label="Nachricht an ${esc2(name)}" onclick="coachQuickMessage(${id},'${esc(name)}')">${icon('mail',18)}</button>`+
-    `<button class="btn sm sec ctx-leave" aria-label="Athleten-Ansicht verlassen" onclick="coachLeaveAthlete()">${icon('logOut',18)}<span>Verlassen</span></button>`;}
+    `<button class="btn icon" aria-label="Nachricht an ${esc2(name)}" onclick="coachQuickMessage(${id},'${esc(name)}')">${icon('mail',20)}</button>`+
+    `<button class="btn sec ctx-leave" aria-label="Athleten-Ansicht verlassen" onclick="coachLeaveAthlete()">${icon('logOut',18)}<span>Verlassen</span></button>`;}
 // Zurueck aus dem Athleten-Kontext: der Coach in seine Liste, der Betreiber in die Verwaltung –
 // die Athletenliste ist fuer ihn seit 2.6.0 eine Absage, kein Ziel.
 function coachLeaveAthlete(){const el=document.getElementById('ctxBar');if(el)el.innerHTML='';
@@ -330,10 +341,19 @@ async function renderAdmin(v,opts){opts=opts||{};
 // Jede Zeile ist ein echter <button>: bis 2.5.0 war auf der ganzen Seite genau EIN Element mit der
 // Tastatur erreichbar (gemessen mit tools/a11y.mjs --view admin). Und jede Zeile fuehrt zu einem
 // Satz, was zu tun ist – eine Ampel ohne Handlung ist nur eine Farbe.
+/* DESIGN-4 6.18 / 5.10 - EINE Marke fuer "Achtung", und sie traegt ein WORT.
+   Bis 3.0.2 war der Zustand ein 8-px-Farbpunkt (`.sdot.ok/.mid/.bad`) plus eine rote Kopfzeile mit
+   Warndreieck - zwei von sieben gemessenen Formen fuer dieselbe Bedeutung, und beide sagten den
+   Zustand NUR ueber Farbe (A47). Jetzt steht rechts in der Zeile eine `.pill` mit einem Wort.
+   Warum die Fehlerstufe zusaetzlich `bad` traegt: `accent.mjs` unterscheidet seit 2.8.0 zwei
+   Toepfe - Markenrot (Budget 3) und Status-/Fehlerrot (Budget 4). `.bad` ist der Fehlerkontext,
+   den das Werkzeug dafuer liest; ohne die Klasse wanderte ein ehrliches "E-Mail geht nicht raus"
+   ins Marken-Budget und verdraengte dort die eine Hauptaktion. */
+const AD_TONE={ok:['green','gut'],mid:['amber','prüfen'],bad:['red bad','Problem'],unknown:['neutral','unbekannt']};
 function coachStatusRow(tone,label,value,onclick,sub){
-  const inner=`<span class="sdot ${tone}"></span><span class="rl">${esc2(label)}${sub?`<small>${esc2(sub)}</small>`:''}</span><span class="rr">${esc2(value)}</span>`;
-  if(!onclick)return `<div class="row ad-srow">${inner}</div>`;
-  return `<button type="button" class="row tap ad-row ad-srow" onclick="${onclick}">${inner}</button>`;}
+  const t=AD_TONE[tone]||AD_TONE.unknown;
+  return rowHTML({title:label,sub:[value,sub].filter(Boolean).join(' – '),
+    pill:{text:t[1],tone:t[0]},tap:onclick||null});}
 // Letzten Eintrag einer Handlung im gelesenen Protokoll finden. Genau so kommt „Letzte Sicherung"
 // zustande: `POST /api/admin/backup` schreibt `backup.download` ins Protokoll, eine eigene Ablage
 // dafuer gibt es nicht. Kein Eintrag heisst „nicht protokolliert", nicht „nie gesichert".
@@ -377,77 +397,114 @@ function adBytes(n){n=Number(n)||0;
 // die beim Abgleich im Verzeichnis lag, ohne Zeile dazu. Ein unbekanntes Wort wird NICHT geraten –
 // dann steht es da, wie es kam, und man sieht, dass die Verwaltung eine neue Art nicht kennt.
 function adBkKind(k){return{auto:'nächtlich',manuell:'von Hand',probe:'Probe',gefunden:'nachgetragen'}[String(k||'')]||String(k||'–');}
+/* Der Status-STREIFEN ist mit D-7 entfallen. Er stand als eigene Steuerebene VOR der Navigation
+   (DESIGN-4 6.18: "4 Steuerebenen") und war eine Karte mit eigener Zeilenhoehe (40 px statt 56).
+   Was er zeigte, ist jetzt die Gruppe "Zustand" - dieselben Signale, dieselbe Zeile wie ueberall,
+   und jedes in DEUTSCH statt als Umgebungsvariable (G9):
+     EMAIL_HOST -> Mailversand · APP_URL -> Adresse der App · wal/WAL -> Datenbankmodus
+     Letzter Cron -> Letzte Aufgabe · ANTHROPIC_API_KEY -> KI-Analyse (im Bereich Betrieb)
+   Zaehlt zusammen, wie viele Punkte zu pruefen sind - die Zahl steht in der Unterzeile des
+   grossen Titels, nicht mehr als rote Kopfzeile mit Warndreieck. */
+function coAdminBad(st_,self){st_=st_||{};
+  const sc=(self&&self.schema)||{};
+  const schemaBad=(sc.missingTables||[]).length+(sc.missingColumns||[]).length+(sc.failedSteps||[]).length;
+  const jobs=Array.isArray(st_.jobs)?st_.jobs:null;
+  const down=jobs?jobs.filter(j=>String(j.state||'')==='down').length:0;
+  return (st_.mail==='konfiguriert'?0:1)
+    +((!!st_.app_url&&!/^FEHLT/i.test(String(st_.app_url)))?0:1)
+    +((self&&self.ok===false)?1:0)+(schemaBad?1:0)+(down?1:0);}
 function coAdminStatusHTML(st_,self,audit,bk){st_=st_||{};
   const mailOk=st_.mail==='konfiguriert';
   const urlOk=!!st_.app_url&&!/^FEHLT/i.test(String(st_.app_url));
-  const selfOk=self?self.ok===true:null;
   const sc=(self&&self.schema)||{};
   const schemaBad=(sc.missingTables||[]).length+(sc.missingColumns||[]).length+(sc.failedSteps||[]).length;
   const rows=[];
-  rows.push(coachStatusRow('ok','Version',String(st_.version||APP_VERSION||'–'),"adInfo('version')"));
-  rows.push(coachStatusRow(self?(schemaBad?'bad':'ok'):'unknown','Schema',
+  rows.push(coachStatusRow('ok','Version',String(st_.version||APP_VERSION||'–')+' läuft auf dem Server',"adInfo('version')"));
+  rows.push(coachStatusRow(self?(schemaBad?'bad':'ok'):'unknown','Datenbank-Schema',
     self?(schemaBad?pl(schemaBad,'Lücke','Lücken'):'vollständig'):'nicht erreichbar',"adInfo('schema')",
-    schemaBad?'Ein Teil der Datenbank fehlt – Selbsttest öffnen':''));
-  rows.push(coachStatusRow(mailOk?'ok':'bad','E-Mail-Versand',mailOk?'konfiguriert':'fehlt',"adInfo('mail')",
-    mailOk?'':'Bestätigungs- und Reset-Mails gehen nicht raus'));
-  rows.push(coachStatusRow(urlOk?'ok':'bad','APP_URL',urlOk?'gesetzt':'fehlt',"adInfo('appurl')",
+    schemaBad?'ein Teil der Datenbank fehlt, Selbsttest öffnen':''));
+  rows.push(coachStatusRow(mailOk?'ok':'bad','Mailversand',mailOk?'eingerichtet':'nicht eingerichtet',"adInfo('mail')",
+    mailOk?'':'Bestätigungs- und Reset-Mails landen nur im Protokoll'));
+  rows.push(coachStatusRow(urlOk?'ok':'bad','Adresse der App',urlOk?'gesetzt':'fehlt',"adInfo('appurl')",
     urlOk?'':'Links in Mails zeigen ins Leere'));
-  // Sicherung, Cron, Fehlerzahl und offene Einwilligungen kommen aus /api/admin/stats bzw. dem Protokoll.
+  const db=(self&&self.db)||{};
+  rows.push(coachStatusRow(self?(db.reachable?(db.walMb>64?'mid':'ok'):'bad'):'unknown','Datenbankmodus',
+    self?(db.reachable?(db.journalMode==='wal'?'schreibt protokolliert (WAL)':(db.journalMode||'erreichbar'))
+      +(db.walMb!=null?', '+fmtNum(db.walMb,1)+' MB Rückstand':''):'nicht erreichbar'):'unbekannt',
+    "coOpenSelftest()",db.walMb>64?'die Protokolldatei wächst, Checkpoint prüfen':''));
+  const co=st_.consentOpen==null?null:Number(st_.consentOpen);
+  rows.push(coachStatusRow(co==null?'unknown':(co===0?'ok':'mid'),'Einwilligung offen',
+    co==null?'unbekannt':(co===0?'alle haben zugestimmt':fmtNum(co)+' Konten'),"adInfo('consent')",
+    co?'sie können die App benutzen, aber keine Gesundheitswerte speichern':''));
+  return groupHTML('Zustand',rows,
+    'Sechs Signale. Steht eines auf „prüfen" oder „Problem", sagt die Zeile daneben den Grund – '
+    +'und führt zu dem Blatt, auf dem steht, was zu tun ist. „Adresse der App" ist die öffentliche '
+    +'Adresse, die in jeder Mail als Link steht.');}
+// Die Bereiche. Bis 3.0.2 waren sie ein Segment mit fuenf Tasten direkt unter dem Status-Streifen;
+// jeder Bereich ist jetzt eine PUSH-SEITE mit eigenem grossen Titel und dem Zurueck-Knopf
+// "Verwaltung" (6.18: von 4 Steuerebenen auf 0).
+function adBereicheHTML(d){
+  const st_=(d&&d.stats)||{};
   const jobs=Array.isArray(st_.jobs)?st_.jobs:null;
-  // FIX-B1 B-I.6-1/5: Die Zeile las bis hierher `backup.download` – den KNOPFDRUCK, nicht die
-  // Sicherung. Seit 3.0.0 laeuft sie nachts von selbst; gefragt wird deshalb die Ablage. Nur wenn es
-  // die Route nicht gibt (aeltere Serverfassung), bleibt der alte Weg – dort ist „nicht
-  // protokolliert" weiter die ehrliche Auskunft.
-  const bkData=adBackupData(bk);
-  if(bkData){
-    const last=adBackupLast(bk),job=adBackupJob(bk);
+  const beat=jobs&&jobs.length?jobs.map(j=>j.last_run_utc||j.last_ok_utc).filter(Boolean).sort().slice(-1)[0]:null;
+  const down=jobs?jobs.filter(j=>String(j.state||'')==='down').length:0;
+  const late=jobs?jobs.filter(j=>String(j.state||'')==='late').length:0;
+  const eN=st_.errors24h==null?null:Number(st_.errors24h);
+  const rowsN=st_.auditRows==null?null:Number(st_.auditRows);
+  const c=(d&&d.counts)||{};
+  const nutzer=(Number(c.admin)||0)+(Number(c.coach)||0)+(Number(c.athlete)||0);
+  const ops=(d&&d.ops&&d.ops.ok)?(OPS_STATE||d.ops.data||{}):null;
+  const reg=ops?(OPS_REG_LABEL[(ops.registration||{}).effective]||'–'):'';
+  return groupHTML('Bereiche',[
+    rowHTML({icon:'settings',title:'Betrieb',sub:'Schalter, die sofort wirken',
+      value:reg?'Registrierung '+reg:'',tap:"adTab('betrieb')"}),
+    rowHTML({icon:'users',title:'Konten',sub:'Ohne Namen und ohne Adressliste',
+      value:nutzer?pl(nutzer,'Konto','Konten'):'',tap:"adTab('konten')"}),
+    rowHTML({icon:'bookOpen',title:'Protokoll',sub:'Wer hat wann was getan',
+      value:rowsN!=null?pl(rowsN,'Ereignis','Ereignisse'):'',tap:"adTab('protokoll')"}),
+    rowHTML({icon:'alertTriangle',title:'Fehler',sub:'Die letzten 24 Stunden',
+      value:eN==null?'nicht protokolliert':(eN===0?'keiner':pl(eN,'Fehler','Fehler')),
+      pill:eN?{text:eN<10?'prüfen':'Problem',tone:eN<10?'amber':'red bad'}:null,tap:"adTab('fehler')"}),
+    rowHTML({icon:'timer',title:'Aufgaben',sub:down?pl(down,'Lauf steht','Läufe stehen'):(late?pl(late,'Lauf ist','Läufe sind')+' überfällig':'Läufe, die der Server selbst startet'),
+      value:!jobs?'nicht protokolliert':(beat?adAgoTxt(beat):'noch kein Lauf'),
+      pill:down?{text:'Problem',tone:'red bad'}:(late?{text:'prüfen',tone:'amber'}:null),tap:"adTab('jobs')"})
+  ],'Jeder Bereich ist ein eigener Bildschirm. „Aufgaben" sind die Läufe, die der Server von selbst '
+   +'startet – nachts die Sicherung, sonntags der Wochenrückblick.');}
+// Sicherung und Selbsttest standen als drei graue Pillen unter dem Falz des Reiters "Betrieb"
+// (R17: y = 1164 / 1246 / 1328 und y = 1696). Sie sind jetzt ein benannter Abschnitt auf der
+// ersten Seite der Verwaltung.
+function adSicherungHTML(d){
+  const bk=d&&d.backups;const bkData=adBackupData(bk);
+  let wert='',ton=null,sub='Liste, Aufbewahrung, jetzt sichern, Wiederherstellungsprobe';
+  if(bkData){const last=adBackupLast(bk),job=adBackupJob(bk);
     const ts=last?last.created_at:null;
     const hrs=ts?Math.floor((adAgo(ts)||0)/60):null;
     const js=job?String(job.state||''):'';
     const stale=hrs!=null&&hrs>36;
-    const tone=!ts?'bad':(js==='down'?'bad':((js==='late'||stale)?'mid':'ok'));
-    const sub=!ts
-      ? 'Der nächtliche Lauf hat noch keine Datei geschrieben – hier „Jetzt sichern" drücken'
-      : (js==='down'?('Der nächtliche Lauf steht: '+String(job.last_error||'Grund im Blatt „Sicherungen"').slice(0,70))
-        :((js==='late'||stale)?'Die letzte Nacht hat keine Kopie geschrieben':''));
-    rows.push(coachStatusRow(tone,'Letzte Sicherung',ts?adAgoTxt(ts):'noch keine',"adBackupSheet()",sub));
-  }else{
-    const bkTs=adLastAction(audit,'backup.download')||st_.lastBackup||null;
-    const bkDays=bkTs?Math.floor((adAgo(bkTs)||0)/1440):null;
-    rows.push(coachStatusRow(bkTs?(bkDays>7?'mid':'ok'):'unknown','Letzte Sicherung',
-      bkTs?adAgoTxt(bkTs):'nicht protokolliert',"adInfo('backup')",
-      bkTs?(bkDays>7?'Älter als eine Woche – neue Kopie ziehen':''):'Es gibt noch keine Ablage dafür'));}
-  const beat=jobs&&jobs.length?jobs.map(j=>j.last_run_utc||j.last_ok_utc).filter(Boolean).sort().slice(-1)[0]:null;
-  const down=jobs?jobs.filter(j=>String(j.state||'')==='down').length:0;
-  const late=jobs?jobs.filter(j=>String(j.state||'')==='late').length:0;
-  rows.push(coachStatusRow(!jobs||!jobs.length?'unknown':(down?'bad':(late?'mid':'ok')),'Letzter Cron',
-    !jobs?'nicht protokolliert':(beat?adAgoTxt(beat):'noch kein Lauf'),"adTab('jobs')",
-    !jobs||!jobs.length?'Der Zeitgeber hat sich noch nie eingetragen'
-      :(down?pl(down,'Lauf steht','Läufe stehen'):(late?pl(late,'Lauf ist','Läufe sind')+' überfällig':''))));
-  const eN=st_.errors24h==null?null:Number(st_.errors24h);
-  rows.push(coachStatusRow(eN==null?'unknown':(eN===0?'ok':(eN<10?'mid':'bad')),'Fehler (24 h)',
-    eN==null?'nicht protokolliert':fmtNum(eN),"adTab('fehler')",
-    eN==null?'Es gibt noch keinen Ringpuffer dafür':(eN?'Im Reiter „Fehler" nach Route und Art sortiert':'')));
-  // Diese Welle hat die Einwilligung eingefuehrt (Art. 9 DSGVO). Wie viele Athleten sie noch nicht
-  // gegeben haben, ist eine reine Zahl – und die einzige, die sagt, ob der Umbau angekommen ist.
-  const co=st_.consentOpen==null?null:Number(st_.consentOpen);
-  rows.push(coachStatusRow(co==null?'unknown':(co===0?'ok':'mid'),'Einwilligung offen',
-    co==null?'unbekannt':fmtNum(co),"adInfo('consent')",
-    co?'Diese Konten haben der Verarbeitung ihrer Gesundheitsdaten noch nicht zugestimmt':''));
-  const db=(self&&self.db)||{};
-  rows.push(coachStatusRow(self?(db.reachable?(db.walMb>64?'mid':'ok'):'bad'):'unknown','Datenbank',
-    self?(db.reachable?(db.journalMode||'erreichbar')+(db.walMb!=null?' · WAL '+fmtNum(db.walMb,1)+' MB':''):'nicht erreichbar'):'unbekannt',
-    "coOpenSelftest()",db.walMb>64?'Die WAL-Datei wächst – Checkpoint prüfen':''));
-  const bad=(!mailOk?1:0)+(!urlOk?1:0)+(selfOk===false?1:0)+(down?1:0);
-  const head=bad?`<div class="cs-h bad">${icon('alertTriangle',18)} ${pl(bad,'Punkt','Punkte')} zu prüfen</div>`
-    :`<div class="cs-h ok">${icon('check',18)} Betrieb ohne Befund</div>`;
-  return `<div class="co-status${bad?' bad':''}">${head}<div class="rows">${rows.join('')}</div></div>`;}
+    wert=ts?adAgoTxt(ts):'noch keine';
+    sub=adBkTileSub(bk);
+    if(!ts||js==='down')ton={text:'Problem',tone:'red bad'};
+    else if(js==='late'||stale)ton={text:'prüfen',tone:'amber'};}
+  else{const bkTs=adLastAction(d&&d.audit,'backup.download')||(d&&d.stats&&d.stats.lastBackup)||null;
+    wert=bkTs?adAgoTxt(bkTs):'nicht protokolliert';
+    sub='dieser Server hat noch keine eigene Ablage für Sicherungen';}
+  return groupHTML('Sicherung & Selbsttest',[
+    rowHTML({icon:'shield',title:'Letzte Sicherung',sub:sub,value:wert,pill:ton,tap:bkData?'adBackupSheet()':"adInfo('backup')"}),
+    rowHTML({icon:'download',title:'Sicherung herunterladen',sub:'Auf deine eigene Maschine – vollständig, mit Passwort',tap:'openBackupSheet()'}),
+    rowHTML({icon:'shield',title:'Selbsttest starten',sub:'Schema, Datenbank und Startschritte prüfen',tap:'coOpenSelftest()'}),
+    // FIX-D5 (G7): Diese Zeile verschickt eine Mail und oeffnet NICHTS – also kein Chevron.
+    // `.act` steht seit D-6 in account.css:126 und gilt app-weit. Die drei Zeilen darueber
+    // oeffnen je ein Blatt, dort ist das Chevron richtig.
+    coActRow({icon:'mail',title:'Testmail an mich',sub:(d&&d.stats&&d.stats.mail==='konfiguriert')?'Prüft den echten Versandweg bis ins Postfach':'Landet ohne Mailversand nur im Protokoll',tap:'adTestmail()'})
+  ],'Selbsttest, Sicherung und Testmail gab es bisher nur als Aufruf im Terminal. Eine Sicherung, '
+   +'die niemand je zurückgespielt hat, ist keine Sicherung – die Probe im Blatt „Letzte Sicherung" '
+   +'spielt sie in eine Testdatenbank zurück.');}
 // Was bedeutet die Zeile, und was ist zu tun? Ein Satz je Punkt – ohne Doku-Suche, ohne Fachchinesisch.
 const AD_HELP={
   version:['Version','Diese Fassung läuft gerade auf dem Server. Weicht sie von der Fassung ab, die du zuletzt ausgeliefert hast, ist die Auslieferung nicht durchgelaufen.','Nachsehen unter /api/version – dieselbe Zahl, ohne Anmeldung.'],
-  schema:['Schema','Der Selbsttest vergleicht die Datenbank mit der Soll-Liste im Code. Eine Lücke heißt: eine Migration ist nicht gelaufen, und Teile der App werfen Fehler.','Server neu starten (die Migrationen laufen beim Start) und danach den Selbsttest öffnen.'],
-  mail:['E-Mail-Versand','Ohne SMTP-Zugangsdaten schreibt der Server jede Mail nur ins Log. Bestätigungen, Passwort-Reset und der Wochenrückblick erreichen damit niemanden.','EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS und EMAIL_FROM setzen und neu starten. Danach hier „Testmail an mich" drücken.'],
-  appurl:['APP_URL','Jede Mail enthält Links zurück in die App. Ohne APP_URL zeigen sie ins Leere.','APP_URL auf die öffentliche Adresse setzen (z. B. https://be-inevitable.at) und neu starten.'],
+  schema:['Datenbank-Schema','Der Selbsttest vergleicht die Datenbank mit der Soll-Liste im Code. Eine Lücke heißt: eine Migration ist nicht gelaufen, und Teile der App werfen Fehler.','Server neu starten (die Migrationen laufen beim Start) und danach den Selbsttest öffnen.'],
+  mail:['Mailversand','Ohne Zugangsdaten für den Postausgang schreibt der Server jede Mail nur ins Log. Bestätigungen, Passwort-Reset und der Wochenrückblick erreichen damit niemanden.','Die Umgebungsvariablen EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS und EMAIL_FROM setzen und neu starten. Danach hier „Testmail an mich" drücken.'],
+  appurl:['Adresse der App','Jede Mail enthält Links zurück in die App. Ohne die öffentliche Adresse zeigen sie ins Leere.','Die Umgebungsvariable APP_URL auf die öffentliche Adresse setzen (z. B. https://be-inevitable.at) und neu starten.'],
   // Diese Hilfe erscheint nur noch auf Serverfassungen OHNE /api/admin/backups. Wo es die Ablage
   // gibt, öffnet die Zeile das Blatt „Sicherungen" – dort steht die Liste statt einer Erklärung.
   backup:['Letzte Sicherung','Dieser Server hat noch keine Ablage für Sicherungen. Gezeigt wird deshalb der Protokolleintrag „Sicherung heruntergeladen" – also dein letzter Knopfdruck, nicht ein Lauf. Eine Sicherung, die niemand je zurückgespielt hat, ist keine Sicherung.','Im Reiter „Betrieb" eine Kopie ziehen, verschlüsselt ablegen – und einmal im Quartal in eine Testdatenbank zurückspielen. Ab Version 3.0.0 sichert der Server nachts selbst.'],
@@ -460,20 +517,21 @@ function adInfo(k){const e=AD_HELP[k];if(!e)return;
 async function coOpenSelftest(){openSheet('Selbsttest','<div class="spinner"></div>');
   const r=await API.get('/selftest');const d=r.data;
   if(!d)return openSheet('Selbsttest',`<div class="note err">Der Selbsttest ist nicht erreichbar (Status ${r.status}).</div>`);
-  // Die Tonfarbe gehoert an das Symbol selbst: .r-ic setzt in app.css eine eigene Farbe und wuerde eine
-  // Klasse am Wrapper ueberschreiben.
-  const li=(items,cls,ic)=>items.map(t=>`<div class="row"><div class="r-ic">${icon(ic,18,cls)}</div><div class="rl">${esc2(t)}</div></div>`).join('');
+  // FIX-D5: gebaut mit rowHTML() statt von Hand (K6/9.3). Die Tonfarbe am Symbol faellt damit weg –
+  // sie war Farbe OHNE Wort (A47), und was der Eintrag ist, sagt schon die Ueberschrift der Gruppe
+  // („Probleme" / „Hinweise") und der Meldungskasten darueber. Das Symbol bleibt unterschiedlich.
+  const li=(items,ic)=>items.map(t=>rowHTML({icon:ic,title:t})).join('');
   const probs=d.problems||[],hints=d.hints||[];
-  let h=probs.length?`<div class="note err mb-3">${pl(probs.length,'Problem','Probleme')} – der Server antwortet auf ${'/api/selftest'} mit 503.</div><div class="rows mb-4">${li(probs,'tone-red','alertTriangle')}</div>`
+  let h=probs.length?`<div class="note err mb-3">${pl(probs.length,'Problem','Probleme')} – der Server antwortet auf ${'/api/selftest'} mit 503.</div><h2 class="rows-h">Probleme</h2><div class="rows inset mb-4">${li(probs,'alertTriangle')}</div>`
     :`<div class="note ok mb-3">${icon('check',18)} Keine Probleme. Schema, Datenbank und Startschritte sind in Ordnung.</div>`;
-  if(hints.length)h+=`<div class="section-label"><span>Hinweise</span></div><div class="rows mb-4">${li(hints,'tone-amber','info')}</div>`;
+  if(hints.length)h+=`<h2 class="rows-h">Hinweise</h2><div class="rows inset mb-4">${li(hints,'info')}</div>`;
   const sc=d.schema||{},db=d.db||{};
-  h+=`<div class="section-label"><span>Details</span></div><div class="rows mb-4">
-    <div class="row"><div class="rl">Version</div><div class="rr">${esc2(String(d.version||'–'))}</div></div>
-    <div class="row"><div class="rl">Läuft seit</div><div class="rr">${esc2(coachUptime(d.uptimeSec))}</div></div>
-    <div class="row"><div class="rl">Schema</div><div class="rr">${esc2(String(sc.init||'–'))}</div></div>
-    <div class="row"><div class="rl">Datenbank</div><div class="rr">${db.reachable?'erreichbar':'nicht erreichbar'}${db.journalMode?' · '+esc2(db.journalMode):''}</div></div>
-    ${db.walMb!=null?`<div class="row"><div class="rl">WAL-Datei</div><div class="rr">${fmtNum(db.walMb,1)} MB</div></div>`:''}</div>`;
+  h+=`<h2 class="rows-h">Details</h2><div class="rows mb-4">
+    ${rowHTML({title:'Version',value:String(d.version||'–')})}
+    ${rowHTML({title:'Läuft seit',value:coachUptime(d.uptimeSec)})}
+    ${rowHTML({title:'Schema',value:String(sc.init||'–')})}
+    ${rowHTML({title:'Datenbank',value:(db.reachable?'erreichbar':'nicht erreichbar')+(db.journalMode?' · '+db.journalMode:'')})}
+    ${db.walMb!=null?rowHTML({title:'WAL-Datei',value:fmtNum(db.walMb,1)+' MB'}):''}</div>`;
   openSheet('Selbsttest',h);}
 function coachUptime(sec){sec=Number(sec)||0;
   if(sec<3600)return Math.max(1,Math.round(sec/60))+' Min.';
@@ -481,42 +539,43 @@ function coachUptime(sec){sec=Number(sec)||0;
   return pl(Math.round(sec/86400),'Tag','Tagen');}
 
 // ===== SEITE: STATUS-STREIFEN + FUENF REITER =====
-const AD_TABS=[['betrieb','Betrieb'],['konten','Konten'],['protokoll','Protokoll'],['fehler','Fehler'],['jobs','Jobs']];
+// Fuenf Bereiche. Dritter Eintrag = die Unterzeile des grossen Titels der Push-Seite (3.2).
+// "Jobs" heisst jetzt "Aufgaben": ein Betreiber liest Deutsch, nicht Cron-Vokabular (G9).
+const AD_TABS=[['betrieb','Betrieb','Schalter, die sofort wirken'],
+  ['konten','Konten','Ohne Namen und ohne Adressliste'],
+  ['protokoll','Protokoll','Wer hat wann was getan'],
+  ['fehler','Fehler','Die letzten 24 Stunden'],
+  ['jobs','Aufgaben','Wiederkehrende Läufe des Servers']];
 // Wer role="tablist" vergibt, verspricht auch das Tastaturmuster (WAI-ARIA APG):
 // nur EIN Tab-Stopp in der Leiste (roving tabindex), Pfeiltasten wechseln den Reiter,
 // Pos1/Ende springen an den Rand, und Tab führt aus der Leiste in den Panel-Inhalt
 // (deshalb trägt #adBody tabindex="0"). Bis 2.6.0 waren alle fünf Reiter eigene Tab-Stopps
 // und die Pfeiltasten wirkungslos (Prüfbefund p2b-t10).
-function adTabsHTML(){return `<div class="seg ad-tabs" role="tablist" aria-label="Bereiche der Verwaltung" onkeydown="adTabKey(event)">`+
-  AD_TABS.map(([k,l])=>{const on=ADMIN_LOG_TAB===k;
-    return `<button type="button" role="tab" id="adTab-${k}" aria-selected="${on?'true':'false'}" tabindex="${on?'0':'-1'}" aria-controls="adBody" class="${on?'on':''}" onclick="adTab('${k}')">${l}</button>`;}).join('')+`</div>`;}
-function adTab(k,focus){if(!AD_TABS.some(t=>t[0]===k))return;ADMIN_LOG_TAB=k;
-  document.querySelectorAll('.ad-tabs [role="tab"]').forEach(b=>{const on=b.id==='adTab-'+k;
-    b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false');
-    b.setAttribute('tabindex',on?'0':'-1');
-    if(on&&focus)try{b.focus();}catch(e){}});
-  const body=document.getElementById('adBody');if(body)body.setAttribute('aria-labelledby','adTab-'+k);
-  adRenderTab();}
-// Pfeiltasten in der Reiterleiste. Die Auswahl folgt dem Fokus (APG „automatic activation") –
-// adRenderTab verwirft ohnehin jede Antwort, deren Reiter nicht mehr der gewählte ist,
-// schnelles Durchpfeilen kostet also nichts.
-function adTabKey(e){if(e.altKey||e.ctrlKey||e.metaKey)return;
-  const step={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1}[e.key];
-  const cur=document.activeElement,id=cur&&cur.id||'';
-  let i=AD_TABS.findIndex(t=>'adTab-'+t[0]===id);
-  if(i<0)i=Math.max(0,AD_TABS.findIndex(t=>t[0]===ADMIN_LOG_TAB));
-  let n=null;
-  if(step)n=(i+step+AD_TABS.length)%AD_TABS.length;
-  else if(e.key==='Home')n=0;
-  else if(e.key==='End')n=AD_TABS.length-1;
-  else return;
-  e.preventDefault();adTab(AD_TABS[n][0],true);}
+/* Aus fuenf Reitern werden fuenf Bildschirme (6.18). `adTab(k)` heisst weiter so: die Zeilen des
+   Zustands und die Schalterseite rufen sie, und der Name sagt dort weiterhin das Richtige -
+   "geh in den Bereich k". Nur liegt der Bereich jetzt eine Ebene tiefer statt hinter einer Taste. */
+function adTab(k,focus){const t=AD_TABS.find(x=>x[0]===k);if(!t)return;ADMIN_LOG_TAB=k;
+  if(typeof pushPage!=='function')return;
+  pushPage('admin-'+k,t[1],'Verwaltung',`<div id="adBody"></div>`,{sub:t[2]||'',onMount:adRenderTab});}
 function drawAdmin(v,data){ADMIN_USERS=data.users||[];ADMIN_COACHES=data.coaches||[];
+  const bad=coAdminBad(data.stats,data.self);
+  const sub='Version '+String((data.stats||{}).version||APP_VERSION||'–')
+    +' · '+(bad?pl(bad,'Punkt','Punkte')+' zu prüfen':'alles läuft');
   v.innerHTML=`<div class="page on${document.getElementById('adminPage')?'':' first'}" id="adminPage">
+    <h1 class="lg-title">Verwaltung<small>${esc2(sub)}</small></h1>
+    ${opNoticeBar()}
     ${coAdminStatusHTML(data.stats,data.self,data.audit,data.backups)}
-    ${adTabsHTML()}
-    <div id="adBody" class="ad-body" role="tabpanel" tabindex="0" aria-labelledby="adTab-${ADMIN_LOG_TAB}"></div></div>`;
-  adRenderTab();if(typeof cacheView==='function')cacheView('admin');}
+    ${adBereicheHTML(data)}
+    <div id="adSich">${adSicherungHTML(data)}</div>
+  </div>`;
+  // FIX-D5 (3.2/K2): Die Ansicht zeichnet ihren grossen Titel SELBST, und sie tut es nach einem
+  // `await` - also lange nachdem go() in core.js sein mountLargeTitle() gerufen hat. Der Beobachter
+  // aus shell.js setzt keinen neuen ein (es gibt ja einen `.lg-title`), haengt danach aber an einem
+  // toten Knoten: gemessen standen grosser UND kompakter Titel gleichzeitig da (hdrOpacity "1",
+  // sunk=true bei scrollY 0), waehrend die uebrigen Ansichten korrekt auf "0"/false stehen.
+  // Ein Aufruf nach dem Einhaengen setzt den Beobachter auf den LEBENDEN Titel.
+  if(typeof mountLargeTitle==='function')mountLargeTitle();
+  if(typeof cacheView==='function')cacheView('admin');}
 // Der Reiter zeichnet sich selbst. Protokoll, Fehler und Jobs holen ihre Daten erst beim Oeffnen –
 // niemand laedt hundert Protokollzeilen, nur weil er die Sicherung braucht.
 async function adRenderTab(){const el=document.getElementById('adBody');if(!el)return;
@@ -528,7 +587,7 @@ async function adRenderTab(){const el=document.getElementById('adBody');if(!el)r
   if(k==='protokoll')r=await adGet(['/admin/audit'],adAuditQuery());
   else if(k==='fehler')r=await adGet(['/admin/errors'],{hours:24,limit:200});
   else r=await adGet(['/admin/jobs']);
-  if(ADMIN_LOG_TAB!==k)return;                    // der Betreiber hat inzwischen weitergeklickt
+  if(ADMIN_LOG_TAB!==k)return;                    // der Betreiber ist inzwischen woanders
   const el2=document.getElementById('adBody');if(!el2)return;
   ADMIN_LOG[k]={ts:Date.now(),r:r};
   el2.innerHTML=k==='protokoll'?adminAuditHTML(r):(k==='fehler'?adminErrHTML(r):adminJobsHTML(r));}
@@ -559,26 +618,29 @@ function adKpiInfo(k){const e=AD_KPI.find(x=>x[0]===k);if(!e)return;
       des Servers ist der volle neue Zustand; angezeigt wird ausschliesslich er. */
 let OPS_STATE=null;          // letzte Antwort von GET /api/admin/ops (oder null = Route fehlt)
 const OPS_REG_LABEL={open:'offen',code:'nur mit Code',closed:'geschlossen'};
-const OPS_HELP={
-  registration:['Registrierung','Wer darf sich ein Konto anlegen? <b>Offen</b> heißt: jeder mit der Adresse der App. <b>Nur mit Code</b> verlangt zusätzlich den Einladungscode aus der Umgebungsvariablen REGISTER_CODE. <b>Geschlossen</b> weist jede neue Anmeldung ab – auch mit Code.','Der Schalter wirkt sofort, ohne neue Auslieferung. Bestehende Konten sind nie betroffen: Anmelden geht in jedem Zustand.'],
-  ai:['KI-Analyse','Der Not-Aus für den ganzen Betrieb. Er ist unabhängig vom Schalter des Athleten („KI-Analyse durch meinen Coach erlauben"): der sagt <i>ob dein Coach darf</i>, dieser hier sagt <i>ob die Anbindung überhaupt läuft</i>.','Abschalten, wenn die Kosten aus dem Ruder laufen, der Anbieter stört oder eine Datenschutzfrage offen ist. Der Schlüssel bleibt gesetzt – nichts geht verloren, es antwortet nur niemand mehr.'],
-  notice:['Wartungshinweis','Eine Zeile für alle – zum Beispiel „Wartung heute 22–23 Uhr". Es ist <b>kein</b> Wartungsmodus: niemand wird ausgesperrt, alles bleibt bedienbar.<br><br><b>Stand 2.9.0, ehrlich gesagt:</b> Der Server liefert den Text aus (<code>/api/notice</code> und die Auskunft der Anmeldeseite), und du siehst ihn hier in der Verwaltung. Die <b>Athleten-Ansicht zeigt ihn noch nicht</b> – dafür fehlt eine Zeile in der Hülle, und die gehört einem anderen Paket dieser Welle.','Kurz halten und wieder löschen, sobald es vorbei ist. Ein Hinweis, der wochenlang steht, wird nicht mehr gelesen.'],
-  mail:['Mailversand','Ohne SMTP-Zugangsdaten schreibt der Server jede Mail nur ins Log. Der <b>Selbsttest</b> prüft in zwei Sekunden, ob Host, Port und Passwort stimmen – ohne eine Mail zu verschicken. Die <b>Testmail</b> prüft den ganzen Weg bis in dein Postfach.','Erst Selbsttest, dann Testmail: Wenn schon die Verbindung nicht steht, sagt dir die Testmail nichts Neues.'],
-  weekly:['Wochen-Job','Sonntags ab 18 Uhr geht der Rückblick raus – als Nachricht in der App und als Mail. Verpasst der Server das Fenster (Neustart, Auslieferung), holt er es bis Montag 22 Uhr selbst nach.','„Jetzt nachholen" schickt den Rückblick der zuletzt abgeschlossenen Woche. Wer ihn schon hat, bekommt keinen zweiten – das ist je Konto gemerkt.']};
-function opInfo(k){const e=OPS_HELP[k];if(!e)return;
-  openSheet(e[0],`<p class="body mb-3">${e[1]}</p><div class="note status"><b>Was zu tun ist:</b> ${esc2(e[2])}</div>`);}
-// Eine Schalterzeile: Titel, Zustand als Ampel, darunter die Wahl. Die Wahl sind echte Knoepfe –
-// ein <select> haette auf dem Handy den Zustand hinter einem Systemdialog versteckt.
-// Die Wahl steht als `.seg` UNTER der Zeile, nicht daneben: drei Knoepfe neben einem Text passen auf
-// 390 px nicht nebeneinander, und `.seg` ist die Komponente, die es im Design-System fuer „genau
-// eines von wenigen" schon gibt – samt 44-px-Hoehe und geprueftem Kontrast (app.css:268).
-function opRow(key,label,tone,value,sub,choices,current,disabled){
-  const seg=(choices||[]).map(([v,l,warn,off])=>`<button type="button"${v===current?' class="on"':''} aria-pressed="${v===current?'true':'false'}"
-    ${off?'disabled ':''}onclick="opSet('${key}','${v}',${warn?1:0})">${esc2(l)}</button>`).join('');
-  return `<div class="rows mb-2"><div class="row ad-job"><span class="sdot ${tone}"></span>
-    <span class="rl">${esc2(label)}<small>${esc2(value)}${sub?' · '+esc2(sub):''}</small></span>
-    <button type="button" class="btn icon sm ghost" aria-label="Was bedeutet ${esc2(label)}?" onclick="opInfo('${disabled||''}')">${icon('info',18)}</button></div></div>
-    <div class="seg" role="group" aria-label="${esc2(label)}">${seg}</div>`;}
+/* `OPS_HELP` ist mit D-7 geloescht. Die fuenf Texte lagen hinter runden i-Knoepfen (K11) und
+   sprachen dort von `REGISTER_CODE` und `ANTHROPIC_API_KEY` - Umgebungsvariablen als Oberflaeche
+   (6.18/G9). Sie stehen jetzt als Fusstext unter der Schaltergruppe und unter jeder Optionsliste,
+   in Deutsch und ohne Interaktion sichtbar (G8). */
+/* DESIGN-4 G4/G5/G8 · Aus zwei Segmenten und fuenf i-Knoepfen werden fuenf Zeilen.
+   Gemessen trug der Reiter "Betrieb" ZWEI Inline-Segmente (Registrierung, KI-Analyse) unter der
+   Reiterleiste unter dem Status-Streifen - Ebene drei und vier. Und jede Schalterzeile hatte
+   einen runden i-Knopf: ein Symbol ohne Wort im Inhaltsbereich (K11), hinter dem der einzige
+   Erklaertext lag.
+   Ab jetzt: Die Zeile nennt den Zustand als Wert, ein Tipp oeffnet eine OPTIONSLISTE (A32: Haken
+   statt Segment), und die Erklaerung steht als Fusstext unter der Gruppe - dauerhaft sichtbar,
+   ohne Interaktion. */
+function adStrip(h){return String(h||'').replace(/<br\s*\/?>/gi,' ').replace(/<[^>]*>/g,'');}
+// Die Optionsliste EINES Schalters. Jede Wahl ist eine Zeile mit Wort; die gewaehlte traegt den
+// Haken, eine nicht waehlbare sagt in der Unterzeile, warum.
+function opChoiceSheet(key,titel,choices,current,hilfe){
+  // Die schon gewaehlte Zeile fuehrt nirgendwohin – sie bekommt deshalb KEIN Chevron (G7: das
+  // Zeichen bedeutet genau eines, „führt weiter"). Haken links, Wort rechts (5.2, A32).
+  const zeilen=choices.map(([v,l,warn,off,why])=>rowHTML({
+    icon:v===current?'check':null,title:l,sub:off?(why||'auf diesem Server nicht wählbar'):'',
+    value:v===current?'gewählt':'',
+    tap:(off||v===current)?null:`closeModal();opSet('${key}','${v}',${warn?1:0})`}));
+  openSheet(titel,groupHTML(null,zeilen,hilfe));}
 // Umlegen. Die gefaehrliche Richtung fragt nach; danach wird der Zustand NEU GELESEN, nicht geraten.
 async function opSet(key,value,warn){
   const texte={'ops.registration|closed':['Registrierung schließen','Ab sofort kann sich niemand mehr selbst ein Konto anlegen – auch nicht mit Einladungscode. Bestehende Konten melden sich weiter normal an.','Schließen'],
@@ -637,7 +699,7 @@ async function opMailCheck(){
       <p class="body">${esc2(String(d.hint||''))}</p>
       <button type="button" class="btn sec block mt-3" onclick="adTestmail()">${icon('mail',18)} Jetzt Testmail schicken</button>`
     :`<div class="note err mb-3"><b>Die Verbindung kam nicht zustande.</b>${d.error?`<br><span class="caption">${esc2(String(d.error).slice(0,160))}</span>`:''}</div>
-      <p class="body">${esc2(String(d.hint||'EMAIL_HOST ist nicht gesetzt.'))}</p>`);
+      <p class="body">${esc2(String(d.hint||'Für den Postausgang ist kein Server hinterlegt (EMAIL_HOST).'))}</p>`);
   opInvalidate();}   // FIX-A5 A5-1: derselbe Weg wie beim Schalter – der Reiter „Betrieb" bleibt lesbar
 // Der Wartungshinweis, wie ihn ein Nutzer sehen wuerde – in der Verwaltung als Vorschau, damit der
 // Betreiber ihn nicht nur speichert, sondern auch liest.
@@ -650,44 +712,46 @@ function opMountBanner(){const el=document.getElementById('opNoticeBar');if(el)e
 // Der Schalterblock. Fehlt die Route (aelterer Server), sagt er das – und behauptet keinen Zustand.
 function opSwitchesHTML(d){
   const r=(d&&d.ops)||null;
-  if(!r||!r.ok)return `<div class="section-label"><span>Schalter</span></div>${adMissingHTML('Die Laufzeit-Schalter',r||{status:404})}`;
+  if(!r||!r.ok)return `<h2 class="rows-h">Schalter</h2>${adMissingHTML('Die Laufzeit-Schalter',r||{status:404})}`;
   const s=OPS_STATE||r.data||{};
   const reg=s.registration||{},ai=s.ai||{},nt=s.notice||{},ml=s.mail||{},wk=s.weekly||{};
-  const wann=m=>m&&m.updatedAt?('zuletzt '+adAgoTxt(m.updatedAt)+(m.updatedBy?' von '+m.updatedBy:'')):'noch nie umgelegt';
-  let h=`<div class="section-label"><span>Schalter</span></div>`;
-  // 1. Registrierung
-  h+=opRow('ops.registration','Registrierung',reg.effective==='closed'?'mid':'ok',
-    OPS_REG_LABEL[reg.effective]||'–',wann(reg),
-    [['open','offen',0,0],['code','nur mit Code',0,!reg.envCode],['closed','geschlossen',1,0]],
-    reg.effective,'registration');
-  if(reg.codeMissing)h+=`<div class="note warn mb-3">„Nur mit Code" steht eingestellt, aber REGISTER_CODE ist nicht gesetzt – es gilt <b>offen</b>. Setz die Variable oder wähl bewusst einen anderen Zustand.</div>`;
-  else if(!reg.envCode)h+=`<div class="note status mb-3">„Nur mit Code" lässt sich erst wählen, wenn REGISTER_CODE als Umgebungsvariable gesetzt ist – sonst wäre es eine Tür ohne Schlüssel.</div>`;
-  // 2. KI-Analyse
-  h+=opRow('ops.ai','KI-Analyse',ai.mode==='off'?'mid':(ai.configured?'ok':'unknown'),
-    ai.mode==='off'?'Not-Aus gelegt':(ai.configured?'läuft':'kein Schlüssel gesetzt'),wann(ai),
-    [['on','an',0,0],['off','Not-Aus',1,0]],ai.mode,'ai');
-  if(ai.mode!=='off'&&!ai.configured)h+=`<div class="note status mb-3">ANTHROPIC_API_KEY ist nicht gesetzt – der Schalter steht auf „an", es antwortet aber niemand. Das ist kein Fehler, nur kein Anschluss.</div>`;
-  // 3. Wartungstext · 4. Mailversand · 5. Wochen-Job – Zeilen mit eigenem Weg statt Segment
-  // FIX-A5 A5-12: Diese drei waren `.row.tap`-Zeilen OHNE Info-Knopf – ihre drei Hilfetexte in
-  // OPS_HELP (notice/mail/weekly) waren damit unerreichbar, opInfo() wurde nur aus opRow() gerufen.
-  // Ein zweiter Knopf darf nicht in einem Knopf stehen (verschachtelte <button> sind ungueltig und
-  // im Browser nicht bedienbar), deshalb ist die Zeile jetzt dieselbe Bauform wie bei opRow():
-  // `.row.ad-job` mit einem Handlungs-Knopf rechts und dem Info-Knopf daneben. Gleiche Zahl Tipps
-  // wie vorher (ein Tipp loest aus), nur das Ziel ist der Knopf statt der ganzen Zeile.
-  h+=`<div class="rows mb-4">
-    <div class="row ad-job"><span class="sdot ${nt.text?'mid':'ok'}"></span>
-      <span class="rl">Wartungshinweis<small>${nt.text?esc2(String(nt.text).slice(0,60)):'kein Hinweis aktiv'} · ${esc2(wann(nt))}</small></span>
-      <button type="button" class="btn sm sec" onclick="opNoticeSheet()">Bearbeiten</button>
-      <button type="button" class="btn icon sm ghost" aria-label="Was bedeutet Wartungshinweis?" onclick="opInfo('notice')">${icon('info',18)}</button></div>
-    <div class="row ad-job"><span class="sdot ${ml.configured?'ok':'bad'}"></span>
-      <span class="rl">Mailversand<small>${ml.configured?'SMTP eingerichtet · Port '+fmtNum(ml.port)+(ml.secure?' (SSL)':' (STARTTLS)'):'EMAIL_HOST fehlt – Mails landen nur im Log'}${ml.lastCheck?' · Selbsttest '+(ml.lastCheck.ok?'grün':'rot'):''}</small></span>
-      <button type="button" class="btn sm sec" onclick="opMailCheck()">Selbsttest</button>
-      <button type="button" class="btn icon sm ghost" aria-label="Was bedeutet Mailversand?" onclick="opInfo('mail')">${icon('info',18)}</button></div>
-    <div class="row ad-job"><span class="sdot ${opJobTone(wk.job)}"></span>
-      <span class="rl">Wochen-Job<small>${esc2(opJobText(wk))}</small></span>
-      <button type="button" class="btn sm sec" onclick="adTab('jobs')">Jobs</button>
-      <button type="button" class="btn icon sm ghost" aria-label="Was bedeutet Wochen-Job?" onclick="opInfo('weekly')">${icon('info',18)}</button></div>
-  </div>`;
+  const wann=m=>m&&m.updatedAt?('zuletzt geändert '+adAgoTxt(m.updatedAt)+(m.updatedBy?' von '+m.updatedBy:'')):'noch nie umgelegt';
+  const regHilfe='Wer darf sich ein Konto anlegen? „Offen" heißt: jeder, der die Adresse der App kennt. '
+    +'„Nur mit Code" verlangt zusätzlich den Einladungscode, der als Registrierungscode auf dem Server '
+    +'hinterlegt sein muss – ohne ihn wäre es eine Tür ohne Schlüssel. „Geschlossen" weist jede neue '
+    +'Anmeldung ab, auch mit Code. Bestehende Konten sind nie betroffen: Anmelden geht in jedem Zustand. '
+    +'Der Schalter wirkt sofort, ohne neue Auslieferung.';
+  const aiHilfe='Der Not-Aus für den ganzen Betrieb. Er ist unabhängig vom Schalter des Athleten '
+    +'(„KI-Analyse durch meinen Coach erlauben"): der sagt, ob dein Coach darf – dieser hier sagt, ob die '
+    +'Anbindung überhaupt läuft. Abschalten, wenn die Kosten aus dem Ruder laufen oder eine Datenschutzfrage '
+    +'offen ist. Der Schlüssel bleibt gesetzt, es antwortet nur niemand mehr.';
+  const regChoices=[['open','Offen',0,0,''],['code','Nur mit Code',0,!reg.envCode,'Erst wählbar, wenn ein Registrierungscode auf dem Server hinterlegt ist'],['closed','Geschlossen',1,0,'']];
+  const aiChoices=[['on','An',0,0,''],['off','Not-Aus',1,0,'']];
+  const zeilen=[
+    rowHTML({icon:'users',title:'Registrierung',sub:wann(reg),
+      value:OPS_REG_LABEL[reg.effective]||'–',
+      pill:reg.effective==='closed'?{text:'geschlossen',tone:'amber'}:null,
+      tap:`opChoiceSheet('ops.registration','Registrierung',${JSON.stringify(regChoices)},${JSON.stringify(String(reg.effective||''))},${JSON.stringify(regHilfe)})`}),
+    rowHTML({icon:'sparkles',title:'KI-Analyse',sub:wann(ai),
+      value:ai.mode==='off'?'Not-Aus gelegt':(ai.configured?'läuft':'kein Schlüssel hinterlegt'),
+      pill:ai.mode==='off'?{text:'aus',tone:'amber'}:null,
+      tap:`opChoiceSheet('ops.ai','KI-Analyse',${JSON.stringify(aiChoices)},${JSON.stringify(String(ai.mode||''))},${JSON.stringify(aiHilfe)})`}),
+    rowHTML({icon:'info',title:'Wartungshinweis',sub:nt.text?String(nt.text).slice(0,70):'kein Hinweis aktiv',
+      value:nt.text?'läuft':'aus',pill:nt.text?{text:'sichtbar',tone:'amber'}:null,tap:'opNoticeSheet()'}),
+    rowHTML({icon:'mail',title:'Mailversand',
+      sub:ml.configured?('eingerichtet · Port '+fmtNum(ml.port)+(ml.secure?' (SSL)':' (STARTTLS)')):'nicht eingerichtet – Mails landen nur im Protokoll',
+      value:ml.lastCheck?('Selbsttest '+(ml.lastCheck.ok?'grün':'rot')):'Selbsttest',
+      pill:ml.configured?null:{text:'Problem',tone:'red bad'},tap:'opMailCheck()'}),
+    rowHTML({icon:'calendar',title:'Wochen-Rückblick',sub:opJobText(wk),
+      pill:(t=>t==='bad'?{text:'Problem',tone:'red bad'}:(t==='mid'?{text:'prüfen',tone:'amber'}:null))(opJobTone(wk.job)),
+      tap:"adTab('jobs')"})
+  ];
+  let h=groupHTML('Schalter',zeilen,
+    'Jede Zeile sagt ihren Zustand als Wort und führt zu der Liste, in der du ihn änderst. '
+    +'Alles wirkt sofort, ohne neue Auslieferung. „Mailversand" prüft die Verbindung, ohne eine Mail '
+    +'zu verschicken – die Testmail steht auf der ersten Seite der Verwaltung.');
+  if(reg.codeMissing)h+=`<div class="note warn mb-3">„Nur mit Code" steht eingestellt, aber auf dem Server ist kein Registrierungscode hinterlegt – es gilt <b>offen</b>. Hinterleg den Code oder wähl bewusst einen anderen Zustand.</div>`;
+  if(ai.mode!=='off'&&!ai.configured)h+=`<div class="note status mb-3">Für die KI-Analyse ist kein Schlüssel hinterlegt – der Schalter steht auf „an", es antwortet aber niemand. Das ist kein Fehler, nur kein Anschluss.</div>`;
   return h;}
 function opJobTone(j){if(!j)return 'unknown';const s=String(j.state||'');return s==='down'?'bad':(s==='late'?'mid':(s==='up'?'ok':'unknown'));}
 function opJobText(wk){
@@ -711,26 +775,16 @@ function adBkTileSub(bk){
   return pre+'Jüngste '+adAgoTxt(last.created_at)+' · '+fmtNum(d.filesOnDisk||0)+' auf der Platte · '+pl(Number(d.keepDays)||14,'Tag','Tage')+' Aufbewahrung';}
 function adBetriebHTML(d){const st_=d.stats||{},c=d.counts||{};
   const tiles=AD_KPI.map(([k,l])=>`<button type="button" class="tile ad-kpi" onclick="adKpiInfo('${k}')">
-    <span class="v">${st_[k]!=null?fmtNum(st_[k]):'–'}</span><span class="l">${esc2(l)} ${icon('info',13)}</span></button>`).join('');
-  const mailOk=st_.mail==='konfiguriert';
+    <span class="v">${st_[k]!=null?fmtNum(st_[k]):'–'}</span><span class="l">${esc2(l)}</span></button>`).join('');
   // Die Schalter stehen GANZ OBEN, vor den Zahlen: sie sind das, was man hier tut. Die Zahlen sind
-  // das, was man hier liest – und lesen kann man auch, nachdem man gehandelt hat.
+  // das, was man hier liest - und lesen kann man auch, nachdem man gehandelt hat.
   return `${opNoticeBar()}${opSwitchesHTML(d)}
-  <div class="grid-2 ad-kpis mb-4">${tiles}</div>
-  <div class="ad-counts mb-4">${adRoleLabel('admin')}: <b>${fmtNum(c.admin||0)}</b> · Coaches: <b>${fmtNum(c.coach||0)}</b> · Athleten: <b>${fmtNum(c.athlete||0)}</b> — Kürzel und Rollen stehen im Reiter „Konten".</div>
-  <div class="section-label"><span>Sicherung</span></div>
-  <div class="rows mb-4">
-    <button type="button" class="row tap ad-row" onclick="adBackupSheet()"><span class="r-ic">${icon('shield')}</span><span class="rl">Sicherungen<small>${esc2(adBkTileSub(d.backups))}</small></span></button>
-    <button type="button" class="row tap ad-row" onclick="openBackupSheet()"><span class="r-ic">${icon('download')}</span><span class="rl">Kopie herunterladen<small>Auf deine eigene Maschine – vollständig, mit Passwort</small></span></button>
-    <button type="button" class="row tap ad-row" onclick="coOpenSelftest()"><span class="r-ic">${icon('shield')}</span><span class="rl">Selbsttest<small>Schema, Datenbank und Startschritte prüfen</small></span></button>
-  </div>
-  <div class="section-label"><span>Mailversand</span></div>
-  <div class="rows mb-3">
-    <button type="button" class="row tap ad-row" onclick="adTestmail()"><span class="r-ic">${icon('mail')}</span><span class="rl">Testmail an mich<small>${mailOk?'Prüft den echten Versandweg bis ins Postfach':'Landet ohne SMTP nur im Server-Log'}</small></span></button>
-  </div>
-  <div class="note status mb-4">Selbsttest, Sicherung und Testmail gab es bisher nur als Aufruf im Terminal (RATE-admin M2). Die wiederkehrenden Läufe und ihre Knöpfe stehen im Reiter „Jobs"; was du auslöst, steht danach im Reiter „Protokoll".</div>`;}
-
-// ---- Reiter „Konten": Kuerzel statt Adressliste ----
+  <h2 class="rows-h">Zahlen</h2>
+  <div class="grid-2 ad-kpis">${tiles}</div>
+  <p class="rows-f">Tippe eine Zahl an, dann steht da, was sie zählt und über welchen Zeitraum.
+    Konten: ${fmtNum(c.admin||0)} ${esc2(adRoleLabel('admin'))} · ${fmtNum(c.coach||0)} Coaches · ${fmtNum(c.athlete||0)} Athleten.
+    Kürzel und Rollen stehen im Bereich „Konten".</p>`;}
+// ---- Bereich „Konten": Kuerzel statt Adressliste ----
 const AD_KFILTERS=[['all','Alle'],['admin','Betreiber'],['coach','Coaches'],['athlete','Athleten'],['nocoach','ohne Coach'],['quiet','länger still']];
 function adKontenMatch(u){const f=ADMIN_KONTEN_F;
   if(f==='all')return true;
@@ -765,7 +819,7 @@ function adKontenHTML(d){
         <input id="ad_mail" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="name@mail.com" enterkeyhint="search"></div>
       <button type="submit" class="btn sec" id="ad_find_go">${icon('search',18)} Konto finden</button></form>
     <div id="adFindOut" aria-live="polite">${ADMIN_LOOKUP?adLookupOutHTML(ADMIN_LOOKUP):''}</div>
-    <div class="section-label"><span>Konten</span><span class="sl-r">${fmtNum((ADMIN_USERS||[]).length)}</span></div>
+    <h2 class="rows-h">Konten<span class="a">${fmtNum((ADMIN_USERS||[]).length)}</span></h2>
     <div class="chip-row wrap ad-kf mb-2">${AD_KFILTERS.map(([k,l])=>`<button type="button" class="chip${ADMIN_KONTEN_F===k?' on':''}" data-f="${k}" aria-pressed="${ADMIN_KONTEN_F===k?'true':'false'}" onclick="adKontenFilter('${k}')">${l}</button>`).join('')}</div>
     <div class="ad-tbl" id="adUserTbl">${adUserTblHTML()}</div>
     <p class="caption ad-foot"><b>Aktiv</b> heißt: letzter eigener Eintrag in den letzten 7 Tagen · <b>ruhig</b> in den letzten 30 · <b>inaktiv</b> länger oder nie. <b>Seit</b> ist das Anlagedatum.</p>
@@ -774,7 +828,7 @@ function adKontenHTML(d){
     <div class="ad-acts mt-3">
       <button type="button" class="btn sec" onclick="adminNewUser()">${icon('plus',18)} Nutzer anlegen</button>
       <button type="button" class="btn sec" onclick="adminInvites()">${icon('link',18)} Einladungen</button></div>
-    <div class="section-label"><span>Hilfe-Freigaben</span></div>
+    <h2 class="rows-h">Hilfe-Freigaben</h2>
     <div id="adGrantsBody">${skeleton(2)}</div>`;}
 // Exakte Suche. PLAN-25 nennt `GET /api/admin/lookup?email=`, BUILD-A2 `GET /api/admin/users?email=` –
 // beide werden probiert. Heikel ist der dritte Fall: der heutige Server KENNT den Parameter nicht und
@@ -802,7 +856,7 @@ function adLookupOutHTML(res){
   if(!res)return '';
   if(res.kind==='hit'){const u=res.u,p=adPseudo(u);
     return `<div class="note ok mb-3">Gefunden: <b>${esc2(p)}</b> · ${esc2(adRoleLabel(u.role))} · zuletzt aktiv: ${esc2(adActivity(u).cls)}
-      <br><button type="button" class="btn sm sec mt-2" onclick="adminEditUser(${Number(u.id)||0})">Konto öffnen</button></div>`;}
+      <br><button type="button" class="btn sec mt-2" onclick="adminEditUser(${Number(u.id)||0})">Konto öffnen</button></div>`;}
   if(res.kind==='miss')return `<div class="note status mb-3">Kein Konto mit dieser Adresse. Achte auf Tippfehler – gesucht wird exakt, nicht nach Teilen.</div>`;
   if(res.kind==='unfiltered')return `<div class="note warn mb-3"><b>Dieser Server filtert noch nicht nach Adresse.</b>
     Er hat auf die Suche ${fmtNum(res.n)} Konten zurückgegeben statt eines. Dafür braucht der Server ein Update;
@@ -828,10 +882,11 @@ function adminGrantRow(g){
   const untilTxt=until?until.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})+' Uhr':'–';
   const zustand=dead?(g.revoked_at?'widerrufen':'abgelaufen')
     :'läuft bis '+untilTxt+(left!=null?' · noch '+pl(left,'Minute','Minuten'):'');
-  return `<div class="row ad-grant${dead?' off':''}">
-    <span class="sdot ${dead?'unknown':'ok'}"></span>
-    <span class="rl">${esc2(code)}<small>${esc2(scope)} · ${esc2(zustand)}${g.used?' · schon benutzt':''}</small></span>
-    ${dead||!g.user_id?'':`<button type="button" class="btn sm sec" onclick="adUseGrant(${Number(g.user_id)||0},'${esc(code)}')">Benutzen</button>`}</div>`;}
+  // D-7: Der Ampelpunkt sagte den Zustand nur ueber Farbe (A47) und der Knopf "Benutzen" stand
+  // als zweites Ziel in derselben Zeile. Jetzt: eine Pille mit Wort, und die ZEILE ist der Weg.
+  return rowHTML({title:code,sub:scope+' · '+zustand+(g.used?' · schon benutzt':''),
+    pill:{text:dead?(g.revoked_at?'widerrufen':'abgelaufen'):'läuft',tone:dead?'neutral':'green'},
+    tap:(dead||!g.user_id)?null:`adUseGrant(${Number(g.user_id)||0},'${esc(code)}')`});}
 // Rueckweg, falls `GET /api/admin/support-grants` einmal fehlt: die Freigaben lassen sich auch AUS DEM
 // PROTOKOLL ablesen – `support.grant` erteilt, `support.revoke` widerruft, `support.use` benutzt,
 // jeweils mit Kuerzel, Nutzer-Nummer und Zeitpunkt; die Laufzeit sind 30 Minuten
@@ -906,7 +961,13 @@ async function adminInvites(){
       Nur diese Übersicht über alle Einladungen fehlt hier gerade.</p>`);
   const rows=adRows(r.data,['invites','rows']);
   const st=i=>i.used_at?'eingelöst':(cParseTs(i.expires_at)&&cParseTs(i.expires_at).getTime()<Date.now()?'abgelaufen':'offen');
-  openSheet('Einladungen',(rows.length?`<div class="rows mb-3">${rows.map(i=>`<div class="row"><span class="rl">${esc2(adRoleLabel(i.role))}<small>${esc2(st(i))} · bis ${esc2(adTs(i.expires_at))}</small></span>${i.link?`<button type="button" class="btn sm sec" onclick="adCopy('${esc(i.link)}')">Link kopieren</button>`:''}</div>`).join('')}</div>`
+  // FIX-D5: gebaut mit rowHTML() (K6/9.3). Der Knopf IN der Zeile ist damit weg: die ganze Zeile
+  // kopiert den Link – ein 56-px-Ziel statt eines Knopfes darin, und ohne Chevron, weil sie nichts
+  // oeffnet (G7). Zeilen ohne Link bleiben stumme Wertzeilen.
+  openSheet('Einladungen',(rows.length?`<div class="rows inset mb-3">${rows.map(i=>{
+      const o={icon:'link',title:adRoleLabel(i.role),sub:st(i)+' · bis '+adTs(i.expires_at)};
+      return i.link?coActRow(Object.assign({},o,{value:'Link kopieren',tap:`adCopy('${esc(i.link)}')`})):rowHTML(o);
+    }).join('')}</div>`
     :`<div class="note status mb-3">Noch keine Einladung erstellt.</div>`));}
 function adCopy(t){try{navigator.clipboard.writeText(t);toast('Kopiert ✓');}catch(e){toast('Kopieren nicht möglich');}}
 
@@ -1019,16 +1080,20 @@ function adAuditDetail(i){
   const g=(ADMIN_LOG.auditGroups||[])[i];if(!g)return;
   const e=g.e;
   const zeit=g.n>1&&g.tLast?adTs(g.items[g.items.length-1].ts_utc||g.items[g.items.length-1].ts)+' bis '+adTs(e.ts_utc||e.ts):adTs(e.ts_utc||e.ts);
-  const einzel=g.n>1?`<div class="section-label"><span>Die ${fmtNum(g.n)} Einträge</span></div><div class="rows mb-3">`
-      +g.items.map(x=>`<div class="row"><span class="rl">${esc2(adTs(x.ts_utc||x.ts))}</span><span class="rr">${esc2(adAuditMeta(x)||'–')}</span></div>`).join('')+`</div>`
+  // FIX-D5: alle Wertzeilen dieses Blattes bauen mit rowHTML() (K6/9.3) – bis hierher waren es neun
+  // handgeschriebene `.row`-Kopien derselben Zeile.
+  const einzel=g.n>1?`<h2 class="rows-h">Die ${fmtNum(g.n)} Einträge</h2><div class="rows mb-3">`
+      +g.items.map(x=>rowHTML({title:adTs(x.ts_utc||x.ts),value:adAuditMeta(x)||'–'})).join('')+`</div>`
     :'';
   const metaTxt=g.n>1?'':adAuditMeta(e);
+  const akteur=String(e.actor||e.actor_pseudonym||(e.actor_id!=null?'#'+e.actor_id:'System'))
+    +(e.actor_role?' · '+adRoleLabel(e.actor_role):'');
   openSheet(adActionLabel(e.action),`<div class="rows mb-3">
-    <div class="row"><span class="rl">Zeitpunkt</span><span class="rr">${esc2(zeit)}</span></div>
-    <div class="row"><span class="rl">Akteur</span><span class="rr">${esc2(String(e.actor||e.actor_pseudonym||(e.actor_id!=null?'#'+e.actor_id:'System')))}${e.actor_role?' · '+esc2(adRoleLabel(e.actor_role)):''}</span></div>
-    <div class="row"><span class="rl">Betrifft</span><span class="rr">${esc2(String(e.target||e.target_pseudonym||e.target_type||'–'))}</span></div>
-    <div class="row"><span class="rl">Kennung</span><span class="rr">${esc2(String(e.action||'–'))}</span></div>
-    ${g.n>1?`<div class="row"><span class="rl">Anzahl</span><span class="rr">${fmtNum(g.n)}×</span></div>`:''}</div>
+    ${rowHTML({title:'Zeitpunkt',value:zeit})}
+    ${rowHTML({title:'Akteur',value:akteur})}
+    ${rowHTML({title:'Betrifft',value:String(e.target||e.target_pseudonym||e.target_type||'–')})}
+    ${rowHTML({title:'Kennung',value:String(e.action||'–')})}
+    ${g.n>1?rowHTML({title:'Anzahl',value:fmtNum(g.n)+'×'}):''}</div>
     ${metaTxt?`<div class="note status mb-3"><b>Zustände:</b> ${esc2(metaTxt)}</div>`:''}${einzel}`);}
 
 // ---- Reiter „Fehler": der Ringpuffer, gruppiert nach Route und Art ----
@@ -1064,10 +1129,10 @@ function adminErrHTML(r){
   return h;}
 function adErrDetail(i){const g=(ADMIN_LOG.fehlerGroups||[])[i];if(!g)return;
   openSheet('Fehler',`<div class="rows mb-3">
-    <div class="row"><span class="rl">Route</span><span class="rr">${esc2(g.route)}</span></div>
-    <div class="row"><span class="rl">Art</span><span class="rr">${esc2(g.kind)}</span></div>
-    <div class="row"><span class="rl">Anzahl</span><span class="rr">${fmtNum(g.n)}×</span></div>
-    <div class="row"><span class="rl">Zuletzt</span><span class="rr">${esc2(adTs(g.last))}</span></div></div>
+    ${rowHTML({title:'Route',value:g.route})}
+    ${rowHTML({title:'Art',value:g.kind})}
+    ${rowHTML({title:'Anzahl',value:fmtNum(g.n)+'×'})}
+    ${rowHTML({title:'Zuletzt',value:adTs(g.last)})}</div>
     ${g.msg?`<div class="note status"><b>Redigierte Meldung:</b><br>${esc2(g.msg)}</div>`:''}`);}
 
 // ---- Reiter „Jobs": Zustand, letzter Lauf, „jetzt nachholen" ----
@@ -1119,23 +1184,30 @@ function adminJobsHTML(r){
   let h='';
   if(!r||!r.ok||!avail)h+=adMissingHTML('Der Zustand der Läufe',avail?r:{status:404})
     +`<p class="body mt-3 mb-3">Die Zeilen unten zeigen deshalb nur, was es gibt und was du von Hand auslösen kannst.</p>`;
-  h+=`<div class="section-label"><span>Wiederkehrende Läufe</span></div><div class="rows mb-4">`;
-  h+=known.concat(extra).map(({label,trigger,text,btn,j})=>{
+  const jobZeilen=known.concat(extra).map(({label,trigger,text,btn,j})=>{
     const s=AD_JOB_STATE[j?String(j.state||'unknown'):'']||['unknown','Zustand nicht protokolliert'];
     const last=j?(j.last_ok_utc||j.last_run_utc):null;
     const err=j&&j.last_error?String(j.last_error):'';
     // Ab zwei Tagen in Tagen: „Karenz 192 Std." liest niemand als „acht Tage".
     const grace=j&&j.graceMin?('Karenz '+(j.graceMin>=2880?pl(Math.round(j.graceMin/1440),'Tag','Tage')
       :(j.graceMin>=120?fmtNum(j.graceMin/60,j.graceMin%60?1:0)+' Std.':j.graceMin+' Min.'))):'';
-    return `<div class="row ad-job"><span class="sdot ${s[0]}"></span>
-      <span class="rl">${esc2(label)}<small>${j?esc2(s[1]):'Zustand nicht protokolliert'}${last?' · zuletzt '+esc2(adAgoTxt(last)):''}${grace?' · '+esc2(grace):''}${err?`<br><span class="t-bad">Fehler: ${esc2(err.slice(0,80))}</span>`:''}<br>${esc2(text)}</small></span>
-      ${trigger?`<button type="button" class="btn sm sec" onclick="adJobRun('${trigger}')">${esc2(btn||'jetzt nachholen')}</button>`:''}</div>`;}).join('');
-  h+=`</div><div class="section-label"><span>Von Hand auslösen</span></div><div class="rows mb-3">
-    <button type="button" class="row tap ad-row" onclick="adJobRun('weekly')"><span class="r-ic">${icon('calendar')}</span><span class="rl">Wochen-Rückblick nachholen<small>Für die zuletzt abgeschlossene Woche – Nachricht und Mail</small></span></button>
-    <button type="button" class="row tap ad-row" onclick="adJobRun('freezes')"><span class="r-ic">${icon('refresh')}</span><span class="rl">Reparaturen verarbeiten<small>Vergibt fällige Reparaturen und räumt abgelaufene weg</small></span></button>
-    <button type="button" class="row tap ad-row" onclick="adBackupSheet()"><span class="r-ic">${icon('shield')}</span><span class="rl">Sicherungen<small>Liste, Aufbewahrung, jetzt sichern, Wiederherstellungsprobe</small></span></button>
-    <button type="button" class="row tap ad-row" onclick="openBackupSheet()"><span class="r-ic">${icon('download')}</span><span class="rl">Kopie herunterladen<small>Auf deine eigene Maschine – zusätzlich zur nächtlichen Sicherung</small></span></button></div>
-  <p class="caption ad-foot">„Aufräumen" und „Aufbewahrung" haben keinen Knopf: es gibt keine Route, um sie von Hand anzustoßen – sie laufen im Stundentakt mit. Was du hier auslöst, steht danach im Reiter „Protokoll".</p>`;
+    // D-7: Der Zustand steht als Pille mit WORT rechts, nicht als 8-px-Punkt links (5.10/A47).
+    // Der Knopf "jetzt nachholen" in der Zustandszeile ist entfallen - auslösen kann man jeden
+    // Lauf in der Gruppe darunter, mit einem Satz daneben, was dabei passiert (G5/A30).
+    const ton=({ok:['green','läuft'],up:['green','läuft'],mid:['amber','überfällig'],
+      bad:['red bad','steht'],unknown:['neutral','unbekannt']})[s[0]]||['neutral','unbekannt'];
+    return rowHTML({title:label,
+      sub:(j?s[1]:'Zustand nicht protokolliert')+(last?' · zuletzt '+adAgoTxt(last):'')+(grace?' · '+grace:'')
+        +(err?' · Fehler: '+err.slice(0,80):'')+' — '+text,
+      pill:{text:ton[1],tone:ton[0]}});}).join('');
+  h+=groupHTML('Wiederkehrende Läufe',jobZeilen,
+    '„Karenz" ist die Zeit, die ein Lauf zu spät sein darf, bevor er als überfällig gilt.');
+  h+=groupHTML('Von Hand auslösen',[
+    rowHTML({icon:'calendar',title:'Wochen-Rückblick nachholen',sub:'Für die zuletzt abgeschlossene Woche – Nachricht und Mail',tap:"adJobRun('weekly')"}),
+    rowHTML({icon:'refresh',title:'Reparaturen verarbeiten',sub:'Vergibt fällige Reparaturen und räumt abgelaufene weg',tap:"adJobRun('freezes')"}),
+    rowHTML({icon:'shield',title:'Sicherungen',sub:'Liste, Aufbewahrung, jetzt sichern, Wiederherstellungsprobe',tap:'adBackupSheet()'}),
+    rowHTML({icon:'download',title:'Kopie herunterladen',sub:'Auf deine eigene Maschine – zusätzlich zur nächtlichen Sicherung',tap:'openBackupSheet()'})
+  ],'„Aufräumen" und „Aufbewahrung" haben keinen Knopf: es gibt keine Route, um sie von Hand anzustoßen – sie laufen im Stundentakt mit. Was du hier auslöst, steht danach im Bereich „Protokoll".');
   return h;}
 // Von Hand ausloesen. Die Antwort wird ausgesprochen (wie viele Mails, wie viele Nachrichten) –
 // ein blosses „ok ✓" laesst den Betreiber raten, ob etwas passiert ist.
@@ -1175,7 +1247,7 @@ async function adTestmail(){
       <p class="body">Kommt sie nicht an, liegt es am Postfach oder am Spam-Ordner – der Server hat seinen Teil getan.</p>`
     :`<div class="note warn mb-3"><b>Es wurde keine Mail verschickt.</b></div>
       <p class="body mb-3">${esc2(String(d.hint||'Ohne SMTP-Zugangsdaten schreibt der Server jede Mail nur ins Log.'))}</p>
-      <div class="note status">Solange das so ist, erreichen Bestätigung, Passwort-Reset und Wochenrückblick niemanden. Setze EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS und EMAIL_FROM und starte neu.</div>`));}
+      <div class="note status">Solange das so ist, erreichen Bestätigung, Passwort-Reset und Wochenrückblick niemanden. Setze die Umgebungsvariablen EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS und EMAIL_FROM und starte neu.</div>`));}
 
 /* ===== FIX-B1 B-I.6-1/5 · DAS BLATT „SICHERUNGEN" =====
    Der Prüfbefund in einem Satz: die Sicherung läuft seit 3.0.0 jede Nacht, die Verwaltung sagte
@@ -1218,14 +1290,15 @@ function adBackupSheetHTML(r){
     :(vs==='down'?'zuletzt rot':(vs==='late'?'überfällig':((vs==='up'||vs==='ok')?'zuletzt grün':'noch nie erfolgreich gelaufen')))
       +((ver.last_ok_utc||ver.last_run_utc)?' · '+adAgoTxt(ver.last_ok_utc||ver.last_run_utc):'');
   const sha=last&&last.sha256?String(last.sha256).slice(0,12):'';
+  const vPill=({ok:['green','zuletzt grün'],mid:['amber','überfällig'],bad:['red bad','zuletzt rot'],unknown:['neutral','nie geprüft']})[vTone]||['neutral','nie geprüft'];
   let h=`<div id="adBkBox">${head}
-  <div class="rows mb-3">
-    <div class="row ad-job"><span class="sdot ${vTone}"></span><span class="rl">Wiederherstellungsprobe<small>${esc2(vTxt)}${probe&&probe.note?'<br>'+esc2(String(probe.note).slice(0,180)):''}</small></span></div>
-  </div>
-  <div class="rows mb-3">
-    <button type="button" class="row tap ad-row ad-bk-act" onclick="adBackupRun()"><span class="r-ic">${icon('shield')}</span><span class="rl">Jetzt sichern<small>Derselbe Lauf wie nachts – höchstens alle 10 Minuten</small></span></button>
-    <button type="button" class="row tap ad-row ad-bk-act" onclick="adBackupVerify()"><span class="r-ic">${icon('refresh')}</span><span class="rl">Wiederherstellungsprobe<small>Spielt die jüngste Kopie in eine Wegwerf-Datei – die laufende Datenbank bleibt unberührt</small></span></button>
-  </div>
+  ${groupHTML(null,[rowHTML({title:'Wiederherstellungsprobe',
+    sub:vTxt+(probe&&probe.note?' · '+String(probe.note).slice(0,180):''),
+    pill:{text:vPill[1],tone:vPill[0]}})],null)}
+  ${groupHTML(null,[
+    rowHTML({icon:'shield',title:'Jetzt sichern',sub:'Derselbe Lauf wie nachts – höchstens alle 10 Minuten',tap:'adBackupRun()',id:'adBkRun'}),
+    rowHTML({icon:'refresh',title:'Wiederherstellungsprobe starten',sub:'Spielt die jüngste Kopie in eine Wegwerf-Datei – die laufende Datenbank bleibt unberührt',tap:'adBackupVerify()',id:'adBkVer'})
+  ],null)}
   <div class="field"><label for="bk_keep">Aufbewahrung</label>
     <select id="bk_keep" onchange="adBackupKeep(this.value)">${(()=>{
       // Steht der Server auf einer Frist, die hier nicht in der Liste steht (von Hand gesetzt),
@@ -1238,10 +1311,10 @@ function adBackupSheetHTML(r){
     Auf der Platte: ${fmtNum(d.filesOnDisk||0)} ${(d.filesOnDisk===1?'Datei':'Dateien')} · ${esc2(adBytes(d.bytesOnDisk))}${d.freeMb!=null?' · frei '+esc2(adBytes(Number(d.freeMb)*1048576)):''}.
     ${d.dir?'Verzeichnis: <code>'+esc2(String(d.dir))+'</code>':''}</p>`;
   if(rows.length){
-    h+=`<div class="section-label"><span>Die letzten Läufe</span></div><div class="rows mb-3">`
-      +rows.slice(0,12).map(e=>`<div class="row"><span class="sdot ${Number(e.ok)===1?'ok':'bad'}"></span>
-        <span class="rl">${esc2(adTs(e.created_at))} · ${esc2(adBkKind(e.kind))}${e.note?`<small>${esc2(String(e.note).slice(0,140))}</small>`:''}</span>
-        <span class="rr">${esc2(adBytes(e.bytes))}</span></div>`).join('')+`</div>`;}
+    h+=groupHTML('Die letzten Läufe',rows.slice(0,12).map(e=>rowHTML({
+      title:adTs(e.created_at)+' · '+adBkKind(e.kind),
+      sub:e.note?String(e.note).slice(0,140):'',value:adBytes(e.bytes),
+      pill:Number(e.ok)===1?{text:'gelungen',tone:'green'}:{text:'fehlgeschlagen',tone:'red bad'}})),null);}
   h+=`<div class="note status">Die nächtliche Kopie liegt auf <b>demselben Server</b> wie die Datenbank – gegen einen Plattenschaden hilft sie, gegen den Verlust des Servers nicht. Dafür ist „Kopie herunterladen" da${sha?`. Prüfsumme der jüngsten: <code>${esc2(sha)}…</code>`:''}.</div></div>`;
   return h;}
 // Nach jedem Lauf wird der Zustand NEU GELESEN, nicht aus dem Klick abgeleitet (dieselbe Regel wie
@@ -1251,13 +1324,15 @@ function adBackupSheetHTML(r){
 async function adBackupRefresh(sheet){
   const r=await adGet(['/admin/backups']);
   if(ADMIN_CACHE){ADMIN_CACHE.backups=r;ADMIN_CACHE.sig='';}
-  const strip=document.querySelector('#adminPage .co-status');
-  if(strip&&ADMIN_CACHE)strip.outerHTML=coAdminStatusHTML(ADMIN_CACHE.stats,ADMIN_CACHE.self,ADMIN_CACHE.audit,r);
+  // Die Zeile "Letzte Sicherung" steht seit D-7 in der Gruppe "Sicherung & Selbsttest" auf der
+  // ersten Seite der Verwaltung (frueher: im Status-Streifen). Sie wird hier nachgezogen.
+  const sich=document.getElementById('adSich');
+  if(sich&&ADMIN_CACHE)sich.innerHTML=adSicherungHTML(Object.assign({},ADMIN_CACHE,{backups:r}));
   if(ADMIN_LOG_TAB==='jobs')adRenderTab();
   if(sheet)openSheet('Sicherungen',adBackupSheetHTML(r));
   return r;}
 function adBkBusy(on){AD_BK_BUSY=!!on;
-  document.querySelectorAll('.ad-bk-act').forEach(b=>{try{b.disabled=!!on;}catch(e){}});}
+  ['adBkRun','adBkVer'].forEach(k=>{const b=document.getElementById(k);if(b)try{b.disabled=!!on;}catch(e){}});}
 async function adBackupRun(){
   if(AD_BK_BUSY)return;
   adBkBusy(true);toast('Sicherung läuft – das kann einen Moment dauern …');
@@ -1296,16 +1371,19 @@ async function adBackupKeep(v){
 // wird als Blob gehalten und ueber einen kurzlebigen <a download> gespeichert. Auf dem Handy (iOS-PWA)
 // landet die Datei je nach System in „Dateien" oder oeffnet sich in einer Vorschau – daher der Hinweis
 // auf den Computer. Die Warnung stand bis 2.5.0 als siebenzeilige Textwand ueber dem Passwortfeld
-// (RATE-admin L1); jetzt sind es drei Stichpunkte, der Rest liegt unter „Mehr dazu".
+// (RATE-admin L1); jetzt sind es drei Stichpunkte.
+// FIX-D5: Der Rest lag bis hierher unter einem `details`-Aufklapper „Mehr dazu". Ein Aufklapper
+// versteckt (G5, DESIGN-4 5.14) – und weil `coach.css` seine Regeln bereits geloescht hatte, zeichnete
+// der Browser seinen eigenen rohen Pfeil daneben („▶ Mehr dazu ⌄", dz/pv/p13-backup-details.png).
+// Der Text steht jetzt dauerhaft im Fusstext der App (`.rows-f`, G8/A25): eine Erklaerung an der
+// Stelle des Zweifels, ohne Interaktion.
 function openBackupSheet(){
   openSheet('Sicherung herunterladen',`<form id="bkForm" onsubmit="doBackup();return false" novalidate>
     <ul class="ad-bullets mb-3">
       <li><b>Die Datei enthält alles</b> – Passwort-Hashes, Gesundheitswerte, Fotos, Nachrichten.</li>
       <li><b>Nur verschlüsselt ablegen</b> – 7-Zip oder age mit langem Passwort, nie im Cloud-Ordner.</li>
       <li><b>Alte Kopien löschen</b> – nach einer festen Frist, nicht „irgendwann".</li></ul>
-    <details class="admin-more mb-3"><summary>Mehr dazu ${icon('chevronDown',18)}</summary>
-      <p class="body muted mt-2">Am besten am Computer herunterladen. Bei vielen Fotos kann die Datei mehrere hundert MB groß sein und das Erstellen eine Weile dauern. Höchstens eine Sicherung alle 10 Minuten. Verschicke sie nie per E-Mail.</p>
-      <p class="body muted">Eine Sicherung, die noch nie zurückgespielt wurde, ist keine Sicherung: spiele sie einmal im Quartal in eine Testdatenbank ein und prüfe die Zeilenzahlen.</p></details>
+    <p class="rows-f">Am besten am Computer herunterladen. Bei vielen Fotos kann die Datei mehrere hundert MB groß sein und das Erstellen eine Weile dauern. Höchstens eine Sicherung alle 10 Minuten. Verschicke sie nie per E-Mail. Eine Sicherung, die noch nie zurückgespielt wurde, ist keine Sicherung: spiele sie einmal im Quartal in eine Testdatenbank ein und prüfe die Zeilenzahlen.</p>
     ${pwField({id:'bk_pw',label:'Zur Bestätigung dein Passwort',autocomplete:'current-password',enterkeyhint:'done'})}
     <div id="bk_status" class="mb-3"></div>
     <button class="btn sec block" id="bk_go" type="submit">${icon('download',18)} Sicherung herunterladen</button></form>`);
@@ -1343,7 +1421,7 @@ function adminNewUser(){openSheet('Neuen Nutzer anlegen',`<div id="auBox">
   <div class="note status mb-3">Name und Adresse brauchst du einmal zum Anlegen. Danach taucht beides in keiner Liste dieser Verwaltung mehr auf – das Konto erscheint nur noch als Kürzel.</div>
   <div class="field"><label for="au_name">Name</label><input id="au_name" placeholder="Vor- und Nachname" maxlength="80"></div>
   <div class="field"><label for="au_email">E-Mail</label><input id="au_email" type="email" inputmode="email" autocomplete="off" placeholder="name@mail.com"></div>
-  <div class="note mb-3">Lass das Passwortfeld <b>leer</b> – dann bekommst du einen Einladungslink zum Weitergeben und die Person setzt ihr Passwort selbst. Ein Startpasswort, das du kennst und durchgibst, ist der schlechtere Weg.</div>
+  <p class="rows-f">Lass das Passwortfeld <b>leer</b> – dann bekommst du einen Einladungslink zum Weitergeben und die Person setzt ihr Passwort selbst. Ein Startpasswort, das du kennst und durchgibst, ist der schlechtere Weg.</p>
   ${pwField({id:'au_pw',label:'Startpasswort (optional)',autocomplete:'new-password',placeholder:'leer lassen = Einladungslink',hint:true})}
   <div class="field"><label for="au_role">Rolle</label><select id="au_role" onchange="auRoleChange()">
     <option value="athlete">Athlet</option><option value="coach">Coach</option><option value="admin">Betreiber</option></select></div>
@@ -1367,22 +1445,28 @@ async function adminCreateUser(){const pw=val('au_pw');
 // Das Konto-Sheet zeigt Kuerzel, Rolle, Coach-Kuerzel, Aktivitaetsklasse und Anlagedatum – keinen
 // Namen, keine Adresse. Der Loesch-Hinweis haengt an der Rolle (RATE-admin L2): „Athleten verlieren
 // ihren Coach" ist bei einem Athleten schlicht falsch.
+// FIX-D5: „Zugang wiederherstellen" lag hier unter einem `details`-Aufklapper – eine Betreiberaktion
+// als Fussnote, davor der rohe Browser-Pfeil, weil coach.css die Regeln der Klasse laengst geloescht
+// hatte. Sie ist jetzt eine benannte Zeile (G5), OHNE Chevron (G7: sie fuehrt nicht weiter, sie
+// erzeugt einen Link), und die Begruendung steht dauerhaft im Fusstext (G8). `#euPwBox` bleibt als
+// Huelle bestehen – `adminResetPw()` meldet Fehler ueber showFieldErr('euPwBox').
+// Die vier Wertzeilen darueber bauen jetzt mit rowHTML() statt von Hand (K6/9.3).
 function adminEditUser(id){const u=(ADMIN_USERS||[]).find(x=>x.id===id);if(!u)return;
   const p=adPseudo(u),a=adActivity(u);
   let h=`<div id="euBox"><div class="rows mb-4">
-      <div class="row"><span class="rl">Rolle</span><span class="rr">${esc2(adRoleLabel(u.role))}</span></div>
-      <div class="row"><span class="rl">Coach</span><span class="rr">${esc2(adCoachCode(u))}</span></div>
-      <div class="row"><span class="rl">Aktivität</span><span class="rr">${esc2(a.cls)}</span></div>
-      <div class="row"><span class="rl">Angelegt</span><span class="rr">${esc2(adCreated(u))}</span></div></div>
+      ${rowHTML({title:'Rolle',value:adRoleLabel(u.role)})}
+      ${rowHTML({title:'Coach',value:adCoachCode(u)})}
+      ${rowHTML({title:'Aktivität',value:a.cls})}
+      ${rowHTML({title:'Angelegt',value:adCreated(u)})}</div>
     <div class="field"><label for="eu_role">Rolle ändern</label><select id="eu_role" onchange="euRoleChange()">
       <option value="athlete"${u.role==='athlete'?' selected':''}>Athlet</option>
       <option value="coach"${u.role==='coach'?' selected':''}>Coach</option>
       <option value="admin"${u.role==='admin'?' selected':''}>Betreiber</option></select></div>
     <div class="field" id="eu_coachwrap"${u.role==='athlete'?'':' hidden'}><label for="eu_coach">Coach</label><select id="eu_coach"><option value="">– kein Coach –</option>${ADMIN_COACHES.map(c=>`<option value="${c.id}"${u.coach_id===c.id?' selected':''}>${esc2(adCoachOption(c))}</option>`).join('')}</select></div>
     <button type="button" class="btn sec block" onclick="adminSaveUser(${id})">Speichern</button></div>
-    <details class="admin-more"><summary>Zugang wiederherstellen ${icon('chevronDown',18)}</summary>
-      <div id="euPwBox"><p class="caption mt-2 mb-2">Du vergibst kein Passwort mehr – das wäre „als Nutzer anmelden" durch die Hintertür. Stattdessen entsteht ein einmaliger Link (72 Stunden), mit dem sich die Person selbst ein neues Passwort setzt. Das bisherige Passwort gilt weiter, bis der Link benutzt wird; die Person bekommt in jedem Fall eine Nachricht.</p>
-      <button type="button" class="btn sec block" onclick="adminResetPw(${id})">Link zum Passwort-Setzen erzeugen</button></div></details>`;
+    <div id="euPwBox">${groupHTML('Zugang wiederherstellen',
+      [coActRow({icon:'link',title:'Link zum Passwort-Setzen erzeugen',sub:'Gilt 72 Stunden und nur einmal',tap:`adminResetPw(${id})`})],
+      'Du vergibst kein Passwort mehr – das wäre „als Nutzer anmelden" durch die Hintertür. Stattdessen entsteht ein einmaliger Link (72 Stunden), mit dem sich die Person selbst ein neues Passwort setzt. Das bisherige Passwort gilt weiter, bis der Link benutzt wird; die Person bekommt in jedem Fall eine Nachricht.')}</div>`;
   if(id!==(ME&&ME.id)){
     const folge=u.role==='coach'?'Seine Athleten bleiben erhalten, verlieren aber ihren Coach.'
       :(u.role==='admin'?'Ein Betreiber weniger – achte darauf, dass ein zweiter übrig bleibt.'
@@ -1459,7 +1543,7 @@ function adNoAthletesHTML(){
   return `<div class="page on" id="athPage">${emptyState({icon:'lock',title:'Keine Athletendaten',
     text:'Du bist als Betreiber angemeldet. Für den Betrieb brauchst du Zahlen, Protokolle und Fehler – keine Gesundheitsdaten. Deshalb steht hier nichts.'})}
     <div class="note status mb-3">Wenn dir ein Athlet eine <b>Hilfe-Freigabe</b> erteilt, findest du sie in der Verwaltung unter „Konten". Sie gilt zeitlich begrenzt und nur lesend – Ändern oder Löschen weist der Server ab –, und jede Nutzung wird protokolliert.</div>
-    <button type="button" class="btn sec block" onclick="go('admin')">${icon('settings',18)} Zur Verwaltung</button></div>`;}
+    <button type="button" class="btn sec" onclick="go('admin')">${icon('settings',18)} Zur Verwaltung</button></div>`;}
 async function renderAthletes(v,opts){opts=opts||{};mountCoachHeader();
   if(ME&&ME.role==='admin'){v.innerHTML=adNoAthletesHTML();if(typeof cacheView==='function')cacheView('athletes');return;}
   const fresh=COACH_OV&&(Date.now()-COACH_OV.ts<CACHE_MS)&&COACH_OV.role===(ME&&ME.role);
@@ -1470,70 +1554,99 @@ async function renderAthletes(v,opts){opts=opts||{};mountCoachHeader();
   const changed=!COACH_OV||COACH_OV.sig!==data.sig;COACH_OV=data;
   if((changed||!fresh)&&document.getElementById('athPage'))drawAthletes(v,data);
   else ATHLETES_CACHE=data.list;}
-// Kennzahl-Zeile aus EINEM Modell (kein zweiter Aufmerksamkeits-Zähler mehr)
-function coachStatHTML(list){list=list||[];
-  const alerts=list.filter(a=>a.status==='alert').length,watch=list.filter(a=>a.status==='watch').length;
-  // „aktiv diese Woche" in derselben Kalenderwoche wie Liste und Kachel (weekGoal.done), nicht im
-  // rollenden Sieben-Tage-Fenster – sonst zaehlt die Kopfzeile anders als die Zeilen darunter.
-  const active=list.filter(a=>{const w=coWeekGoal(a);return (w?w.done:(a.trainsThisWeek||0))>0;}).length;
-  const seg=[`<b>${pl(list.length,'Athlet','Athleten')}</b>`,`${fmtNum(active)} aktiv diese Woche`];
-  if(alerts)seg.push(`<b class="tone-red">${pl(alerts,'Alarm','Alarme')}</b>`);
-  if(watch)seg.push(`<span class="tone-amber">${fmtNum(watch)} beobachten</span>`);
-  if(!alerts&&!watch&&list.length)seg.push(`<span class="tone-green">alle im grünen Bereich</span>`);
-  return seg.map(x=>`<span>${x}</span>`).join('');}
-function drawCoachStat(){const el=document.querySelector('#athPage .coach-stat');if(el)el.innerHTML=coachStatHTML(ATHLETES_CACHE);}
+// DESIGN-4 3.2/6.14: Die Kennzahl-Zeile war eine eigene Textzeile unter dem Titel („2 Athleten · 1
+// aktiv diese Woche · 1 beobachten"). Sie ist jetzt die UNTERZEILE des grossen Titels – derselbe
+// Satz, aber an dem Ort, den 3.2 fuer Kontext vorsieht, und damit eine Zeile weniger auf der Seite.
+// Wortlaut nach 6.14: „12 Athleten · 3 brauchen dich". „Brauchen dich" ist Alarm UND Beobachten –
+// dieselbe Menge, die das Segment darunter unter demselben Wort zeigt (nie zwei Zaehlweisen).
+function coachStatText(list){list=list||[];
+  const need=list.filter(a=>a.status==='alert'||a.status==='watch').length;
+  const teile=[pl(list.length,'Athlet','Athleten')];
+  if(need)teile.push(fmtNum(need)+(need===1?' braucht dich':' brauchen dich'));
+  else if(list.length)teile.push('alle im grünen Bereich');
+  return teile.join(' · ');}
+// Der grosse Titel der Seite. Er steht als festes Markup in der Seite (nicht ueber die
+// Uebergangsmechanik der Huelle), damit die Unterzeile die gemessenen Zahlen tragen kann.
+function coachTitleHTML(list){
+  return `<h1 class="lg-title">Athleten<small>${esc2(coachStatText(list))}</small></h1>`;}
+function drawCoachStat(){const el=document.querySelector('#athPage .lg-title small');
+  if(el)el.textContent=coachStatText(ATHLETES_CACHE);}
 // B-I.6: Die Seite hat seit 3.0.0 zwei Reiter – „Athleten" (die Liste, unveraendert der Standard)
 // und „Diese Woche" (die Review-Inbox, Abschnitt am Dateiende). Der Rumpf steckt deshalb in einem
-// eigenen Kasten (#athBody), den der Reiterwechsel austauscht; alles darueber (Kennzahl-Zeile) und
-// alles darin bleibt, was es war. Ohne Athleten gibt es keine Reiter: ein leerer Coach braucht
-// einen Knopf, keine Ansichtswahl.
+// eigenen Kasten (#athList), den Filter und Suche austauschen. Ohne Athleten gibt es kein Segment:
+// ein leerer Coach braucht einen Knopf, keine Ansichtswahl.
 function drawAthletes(v,data){const list=data.list||[];ATHLETES_CACHE=list;
-  const stat=coachStatHTML(list);
-  if(!list.length)RV_TAB='list';
   let h=`<div class="page on${document.getElementById('athPage')?'':' first'}" id="athPage">`;
   // (Bis 2.5.0 stand hier ein „Zur Verwaltung"-Knopf fuer Admins. Ein Admin erreicht diese Liste seit
   //  2.6.0 gar nicht mehr – renderAthletes() biegt vorher ab.)
-  h+=`<div class="coach-stat">${stat}</div>`;
-  if(list.length)h+=rvTabsHTML();
-  h+=`<div id="athBody"${list.length?` role="tabpanel" tabindex="0" aria-labelledby="rvTab-${RV_TAB}"`:''}>${RV_TAB==='week'?rvInboxHTML():coachListHTML()}</div></div>`;
+  h+=coachTitleHTML(list);
+  h+=coachListHTML();
+  h+=`</div>`;
   v.innerHTML=h;
-  if(RV_TAB==='week')rvAfterDraw();else drawAthleteList(coachVisibleAthletes());
+  drawAthleteList(coachVisibleAthletes());
+  // FIX-D5 (3.2/K2): Die Ansicht zeichnet ihren grossen Titel SELBST, und sie tut es nach einem
+  // `await` - also lange nachdem go() in core.js sein mountLargeTitle() gerufen hat. Der Beobachter
+  // aus shell.js setzt keinen neuen ein (es gibt ja einen `.lg-title`), haengt danach aber an einem
+  // toten Knoten: gemessen standen grosser UND kompakter Titel gleichzeitig da (hdrOpacity "1",
+  // sunk=true bei scrollY 0), waehrend die uebrigen Ansichten korrekt auf "0"/false stehen.
+  // Ein Aufruf nach dem Einhaengen setzt den Beobachter auf den LEBENDEN Titel.
+  if(typeof mountLargeTitle==='function')mountLargeTitle();
   if(typeof cacheView==='function')cacheView('athletes');}
-// Der Reiter „Athleten": Wort fuer Wort die Seite von 2.9.0, nur als eigene Funktion – damit der
-// Reiterwechsel sie ohne einen zweiten Netzaufruf wieder aufbauen kann.
+/* DESIGN-4 6.14 · Die Seite hat GENAU EINE Steuerebene (G4).
+   Gemessen hatte sie drei: das Segment „Athleten | Wochen-Review", darunter die Filter-Chips und
+   darunter das Suchfeld. Das Segment traegt jetzt den Filter – „Alle · Brauchen dich · Neu", genau
+   die drei Eintraege aus 6.14 – und das Wochen-Review ist eine eigene Push-Seite mit eigenem Titel
+   geworden (Zurueck-Knopf „Athleten"). Das Suchfeld bleibt: es ist ein Feld, keine Steuerleiste,
+   und es steht erst ab sechs Athleten da, wo Suchen anfaengt. */
+const CO_SEG=[['all','Alle'],['need','Brauchen dich'],['new','Neu']];
+function coachSegHTML(){
+  return `<div class="seg co-seg" role="tablist" aria-label="Welche Athleten" onkeydown="coachSegKey(event)">`+
+    CO_SEG.map(([f,l])=>{const on=COACH_FILTER===f;
+      return `<button type="button" role="tab" id="coSeg-${f}" aria-selected="${on?'true':'false'}" tabindex="${on?'0':'-1'}"`
+        +` aria-controls="athList" class="${on?'on':''}" onclick="coachSetFilter('${f}')">${l} ${fmtNum(coachFilterCount(f))}</button>`;}).join('')
+    +`</div>`;}
+// Dasselbe Tastaturmuster wie in der Verwaltung (WAI-ARIA APG): ein Tab-Stopp, Pfeiltasten wechseln.
+function coachSegKey(e){if(e.altKey||e.ctrlKey||e.metaKey)return;
+  const step={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1}[e.key];
+  const id=(document.activeElement||{}).id||'';
+  let i=CO_SEG.findIndex(t=>'coSeg-'+t[0]===id);if(i<0)i=Math.max(0,CO_SEG.findIndex(t=>t[0]===COACH_FILTER));
+  let n=null;
+  if(step)n=(i+step+CO_SEG.length)%CO_SEG.length;
+  else if(e.key==='Home')n=0;else if(e.key==='End')n=CO_SEG.length-1;else return;
+  e.preventDefault();coachSetFilter(CO_SEG[n][0],true);}
 function coachListHTML(){const list=ATHLETES_CACHE||[];
-  let h=`<div class="section-label"><span>Athleten</span><span class="sl-r"><button class="btn sm sec" onclick="addAthlete()">${icon('plus',14)} Athlet</button></span></div>`;
-  // `value` mitgeben: COACH_QUERY ueberlebt das Neuzeichnen (Reiterwechsel, Rueckkehr in den Tab),
-  // das leere Feld tat es nicht – die Liste war gefiltert, und im Suchfeld stand nichts.
+  let h='';
+  if(list.length>1)h+=coachSegHTML();
+  // `value` mitgeben: COACH_QUERY ueberlebt das Neuzeichnen (Rueckkehr in den Tab), das leere Feld
+  // tat es nicht – die Liste war gefiltert, und im Suchfeld stand nichts.
   if(list.length>5)h+=`<input class="field ath-search" id="athSearch" type="search" placeholder="Athlet suchen" oninput="filterAthletes(this.value)" value="${esc2(COACH_QUERY)}">`;
-  // Filter-Chips ab derselben Schwelle wie die Suche: bei fünf Athleten ist die Liste die Übersicht,
-  // ab sechs beginnt das Suchen. Keine Sortier-Maschinerie – vier Chips, die man ohne Erklärung versteht.
-  if(list.length>5)h+=`<div class="chip-row wrap co-filters" id="athFilters">${coachFilterChipsHTML(list)}</div>`;
   h+=`<div id="athList"></div>`;
   const inNav=!!(ME&&ME.role==='coach'); // Coach-Navigation hat eigene Tabs für Nachrichten und Vorlagen
-  h+=`<div class="section-label"><span>Mehr</span></div><div class="rows mb-4">
-    ${inNav?'':`<button type="button" class="row tap ad-row" onclick="coachMessagesSheet()"><span class="r-ic">${icon('mail')}</span><span class="rl">Nachrichten<small>Unterhaltungen je Athlet</small></span></button>`}
-    <button type="button" class="row tap ad-row" onclick="coachInsights()"><span class="r-ic">${icon('chartLine')}</span><span class="rl">Einblicke<small>Aktivität, Ziele, jüngste Trainings</small></span></button>
-  </div>`;
+  const mehr=[];
+  if(list.length)mehr.push(rowHTML({icon:'calendar',title:'Wochen-Review',sub:'Die Woche jedes Athleten auf einer Karte – mit Antwortfeld',tap:'rvOpen()'}));
+  if(!inNav)mehr.push(rowHTML({icon:'mail',title:'Nachrichten',sub:'Unterhaltungen je Athlet',tap:'coachMessagesSheet()'}));
+  mehr.push(rowHTML({icon:'chartLine',title:'Einblicke',sub:'Aktivität, Ziele, jüngste Trainings',tap:'coachInsights()'}));
+  h+=groupHTML('Mehr',mehr,null);
   return h;}
 // ---- Filter + Suche: EIN Sieb, damit sich beide nicht gegenseitig aufheben ----
 function coachFilterCount(f){return (ATHLETES_CACHE||[]).filter(a=>coachMatchAthlete(a,f,'')).length;}
 function coachMatchAthlete(a,f,q){
   q=q==null?COACH_QUERY:q;f=f||COACH_FILTER;
   if(q&&!String(a.name||'').toLowerCase().includes(q))return false;
+  // „Brauchen dich" = Alarm und Beobachten zusammen. Genau die Menge, die die Unterzeile des Titels
+  // zaehlt – zwei Woerter fuer dieselbe Sache waeren zwei Zaehlweisen (6.14).
+  if(f==='need')return a.status==='alert'||a.status==='watch';
   if(f==='alert')return a.status==='alert';
   if(f==='watch')return a.status==='watch';
   if(f==='new')return !a.lastTrain&&!a.lastCheckin; // noch keine einzige Eintragung – braucht einen Start, keinen Alarm
   return true;}
 function coachVisibleAthletes(){return (ATHLETES_CACHE||[]).filter(a=>coachMatchAthlete(a));}
-function coachFilterChipsHTML(list){list=list||ATHLETES_CACHE||[];
-  const defs=[['all','Alle'],['alert','Alarm'],['watch','Beobachten'],['new','Neu']];
-  return defs.map(([f,label])=>{const n=coachFilterCount(f);
-    return `<button class="chip${COACH_FILTER===f?' on':''}" aria-pressed="${COACH_FILTER===f}" onclick="coachSetFilter('${f}')">${label} ${fmtNum(n)}</button>`;}).join('');}
-function coachDrawFilters(){const el=document.getElementById('athFilters');if(el)el.innerHTML=coachFilterChipsHTML();}
-// B-I.6: EIN Sieb fuer beide Reiter. rvAfterFilter() zeichnet die Wochen-Karten neu und meldet,
-// dass es zustaendig war; im Reiter „Athleten" laeuft alles wie bisher ueber drawAthleteList.
-function coachSetFilter(f){COACH_FILTER=f||'all';coachDrawFilters();if(!rvAfterFilter())drawAthleteList(coachVisibleAthletes());}
+function coachDrawFilters(){const el=document.querySelector('#athPage .co-seg');if(el)el.outerHTML=coachSegHTML();}
+// EIN Sieb fuer Liste UND Wochen-Review: rvAfterFilter() zeichnet die Wochen-Karten neu und meldet,
+// dass es zustaendig war; sonst laeuft alles ueber drawAthleteList.
+function coachSetFilter(f,focus){COACH_FILTER=f||'all';coachDrawFilters();
+  if(focus){const b=document.getElementById('coSeg-'+COACH_FILTER);if(b)try{b.focus();}catch(e){}}
+  if(!rvAfterFilter())drawAthleteList(coachVisibleAthletes());}
 function filterAthletes(q){COACH_QUERY=(q||'').toLowerCase().trim();if(!rvAfterFilter())drawAthleteList(coachVisibleAthletes());}
 /* ==== FIX-A5 · A5-2 / A5-3 / A5-8: die Athletenliste wird am Rechner eine Tabelle ==========
    Drei bestaetigte Befunde, eine Stelle:
@@ -1555,7 +1668,12 @@ let CO_SORT={key:'auto',dir:1};
 // Die Spalten des Rasters aus coach.css, in genau dieser Reihenfolge. `dir` ist die Richtung, in der
 // ein frisch gewaehlter Kopf zuerst sortiert – bei „Zuletzt aktiv" ist das absteigend (der laengst
 // Stille zuerst), bei Namen aufsteigend.
-const CO_COLS=[['name','Athlet',1,1],['status','Status',2,1],['grund','Grund',3,1],['akt','Zuletzt aktiv',4,-1]];
+// D-7: Die Zeile hat seit dem Umbau auf `rowHTML()` links Name und Grund (in `.rl`) und rechts
+// Wert und Statusmarke (in `.rr`). Der Spaltenkopf folgt genau diesem Bau – zwei Knoepfe links,
+// zwei rechts. „Zuletzt aktiv" ist keine eigene Spalte mehr (es steht im Grund bzw. in der
+// Unterzeile); sortieren laesst sich stattdessen nach der Woche.
+// Reihenfolge = Reihenfolge im Bild: `.rr` zeichnet erst die Statusmarke, dann den Wert.
+const CO_COLS=[['name','Athlet',1,1],['grund','Grund',2,1],['status','Status',3,1],['woche','Woche',4,1]];
 function coDesktop(){try{return !!(window.matchMedia&&window.matchMedia('(min-width:1024px)').matches);}catch(e){return false;}}
 function coSortKeyOf(a,k){
   if(k==='name')return String(a.name||'').toLowerCase();
@@ -1564,6 +1682,10 @@ function coSortKeyOf(a,k){
   if(k==='akt'){ // „nie trainiert" ist die laengste Stille, nicht die kuerzeste – sonst stuende sie vorn
     if(!a.lastTrain)return 1e6;
     const n=Number(a.daysSinceTrain);return Number.isFinite(n)?n:1e6;}
+  if(k==='woche'){const w=coWeekGoal(a);
+    // Anteil der Woche, nicht die nackte Zahl: „2 von 3" steht ueber „3 von 6".
+    if(w&&w.target)return -(w.done/w.target);
+    return -((a.trainsThisWeek||0)/Math.max(1,coDpw(a)));}
   return 0;}
 function coSortApply(list){
   list=list||[];
@@ -1589,21 +1711,26 @@ function coSortBy(k){
   const h=document.querySelector('#athList .co-thead [data-sort="'+k+'"]');if(h)try{h.focus({preventScroll:true});}catch(e){}}
 function coSortHeadHTML(){
   if(!coDesktop())return '';
-  const cell=([k,label,col])=>{
+  const cell=([k,label])=>{
     const on=CO_SORT.key===k;
     const arrow=on?(CO_SORT.dir>0?' ↑':' ↓'):'';
-    return `<button type="button" role="columnheader" data-sort="${k}" aria-sort="${on?(CO_SORT.dir>0?'ascending':'descending'):'none'}"
-      class="co-sort${on?' on':''}" onclick="coSortBy('${k}')"
-      style="grid-column:${col};${col===4?'justify-self:end;':'justify-self:start;'}background:none;border:0;padding:6px 5px;margin-inline:-5px;min-height:44px;cursor:pointer;font:600 var(--t-sm)/1.2 var(--font);color:var(--${on?'ink':'ink2'});letter-spacing:var(--track)"
-      title="Nach ${esc(label)} sortieren – noch einmal drücken kehrt um, ein drittes Mal stellt „Alarm zuerst“ wieder her">${esc2(label)}${arrow}</button>`;};
+    return `<button type="button" role="columnheader" data-sort="${k}" aria-sort="${on?(CO_SORT.dir>0?'ascending':'descending'):'none'}"`
+      +` class="co-sort${on?' on':''}" onclick="coSortBy('${k}')"`
+      +` aria-label="Nach ${esc(label)} sortieren">${esc2(label)}${arrow}</button>`;};
   // B-I.6: 32 px Spaltenkopf waren vier Tippziele unter dem 44-px-Ziel des Hauses – gemessen bei
   // 1280 px (B16-probe-1280.json), wo a11y.mjs nicht hinsieht (es misst 390 px, dort gibt es den
-  // Kopf nicht). 44 px kosten zwoelf Pixel Kopfzeile und sind der einzige Ort, an dem diese Ansicht
-  // unter der Hausregel lag.
-  return `<div class="row ath-row co-thead" style="min-height:44px;border-bottom:.5px solid var(--hairline2)">
-    <span class="ath-av" aria-hidden="true" style="visibility:hidden"></span>
-    <span class="rl">${CO_COLS.map(cell).join('')}</span>
-    <span aria-hidden="true" style="flex:0 0 16px"></span></div>`;}
+  // Kopf nicht). Die 44 px stehen jetzt in `coach.css` (.co-sort), nicht mehr als `style=`-Attribut:
+  // rohe px und rohe `font`-Werte im Markup sind gemessene K16/K22-Verstoesse.
+  // D-7: Der Kopf hat denselben Bau wie die Zeile darunter (`rowHTML`): Symbolspalte, `.rl`, `.rr`,
+  // Chevronbreite. Nur so stehen Ueberschrift und Wert wirklich in derselben Spalte.
+  // FIX-D5 (G7): Die Chevronbreite war bis hierher ein echtes `.chev` – also ein „›" hinter „Woche"
+  // in einer Kopfzeile, die nichts oeffnet. Gedacht als Spaltenplatzhalter, gelesen als Versprechen.
+  // `.chev-space` haelt dieselben 16 px, traegt aber keine Maske und damit kein Zeichen.
+  return `<div class="row co-thead">
+    <span class="r-ic" aria-hidden="true"></span>
+    <span class="rl">${CO_COLS.slice(0,2).map(cell).join('')}</span>
+    <span class="rr">${CO_COLS.slice(2).map(cell).join('')}</span>
+    <span class="chev-space" aria-hidden="true"></span></div>`;}
 // Die Kopfzeile gibt es nur ab 1024 px. Wechselt die Breite (Fenster ziehen, Geraet drehen), muss die
 // Liste neu gezeichnet werden – sonst steht der Kopf auf dem Handy quer oder fehlt am Rechner.
 try{
@@ -1628,53 +1755,77 @@ function coAthKey(e){
     try{s.focus({preventScroll:false});s.select();}catch(_){}
     return;}
   if(typing||(e.key!=='j'&&e.key!=='k'))return;
-  const rows=Array.prototype.slice.call(el.querySelectorAll('.rows .ath-row'));
+  // D-7: Die Athletenzeile ist seit dem Umbau `rowHTML()` – also `.row.tap` statt `.ath-row`.
+  const rows=Array.prototype.slice.call(el.querySelectorAll('.rows .row.tap'));
   if(!rows.length)return;
   e.preventDefault();
-  const cur=(t&&t.closest)?rows.indexOf(t.closest('.ath-row')):-1;
+  const cur=(t&&t.closest)?rows.indexOf(t.closest('.row.tap')):-1;
   let i=cur<0?(e.key==='j'?0:rows.length-1):cur+(e.key==='j'?1:-1);
   i=Math.max(0,Math.min(rows.length-1,i));
   try{rows[i].focus({preventScroll:true});rows[i].scrollIntoView({block:'nearest'});}catch(_){}}
 document.addEventListener('keydown',coAthKey);
 
+/* DESIGN-4 6.14 · DIE ATHLETENZEILE IST DIE EINE ZEILE (G6).
+   Sie traegt alles, was der Coach zum Entscheiden braucht: Bild · Name · Grund im Klartext ·
+   Kennzahl rechts · Statusmarke mit WORT · Chevron. Gebaut wird sie mit `rowHTML()` – die
+   Symbolspalte bekommt danach in EINEM dokumentierten Austausch das Profilbild statt eines
+   Icons. Das ist der einzige Unterschied zu jeder anderen Zeile der App; eine zweite Zeilenform
+   (`.ad-row`, `.ath-row .rl small.reason.alert`) gibt es nicht mehr. */
+function coAthRowHTML(a){
+  const st=a.status||'ok',reasons=a.reasons||[];
+  const desk=coDesktop();
+  const statusTxt=a.lastTrain?(a.daysSinceTrain===0?'heute trainiert':a.daysSinceTrain===1?'gestern trainiert':'Training '+daysAgoTxt(a.lastTrain)):'noch kein Training';
+  // Nie zweimal dieselbe Aussage: sagt der Grund schon „noch kein Training geloggt", faellt es aus
+  // der Unterzeile – sonst stuende es zweimal untereinander (RATE-coach, Design).
+  const noTrain=reasons.some(r=>/kein Training/i.test(r));
+  // „diese Woche" heisst hier dieselbe Kalenderwoche wie beim Athleten: 3 von 3 statt „3× diese
+  // Woche" (das war das rollende Sieben-Tage-Fenster neben einem anderen Wochenziel im Blatt).
+  const rw=coWeekGoal(a);
+  const weekDone=rw?rw.done:(a.trainsThisWeek||0);
+  // G9 · Woerter statt Kuerzel: „2 von 3" statt „2/3". Rechts in der Zeile ist Platz fuer eine
+  // Angabe, nicht fuer vier – die uebrigen stehen auf der Seite des Athleten.
+  const wert=rw?`${fmtNum(rw.done)} von ${fmtNum(rw.target)}`:(weekDone?fmtNum(weekDone)+'×':'');
+  // Die Unterzeile ist der GRUND – im Klartext, nicht als „+1" (6.14). Gibt es keinen, steht dort,
+  // was sonst die Entscheidung traegt: wann zuletzt trainiert wurde und wie schwer er ist.
+  const sub=reasons.length?reasonLine(reasons)
+    :[noTrain?'':statusTxt,a.lastWeight!=null?fmtNum(a.lastWeight,1)+' kg':''].filter(Boolean).join(' · ');
+  const row=rowHTML({icon:'user',title:a.name||'Athlet',sub:sub,
+    value:desk?(wert?wert+' Einheiten':''):wert,
+    pill:st!=='ok'?{text:ATT_LABEL[st]||'–',tone:st==='alert'?'red':'amber'}:null,
+    tap:`openDashboard(${a.id})`});
+  return coAvatarSwap(row,a.id,a.name);}
+// Der eine Austausch: das 24-px-Icon der Zeile gegen das Profilbild desselben Menschen. Es ist
+// dieselbe Spalte, dieselbe Breite, dieselbe Trennlinien-Einrueckung (52 px) – nur ein anderer
+// Inhalt. Deterministisch ueber den exakten Bau von rowHTML(), nicht ueber eine Regex-Heuristik.
+function coAvatarSwap(html,id,name){
+  const alt=`<span class="r-ic">${icon('user',24)}</span>`;
+  return html.indexOf(alt)<0?html:html.replace(alt,`<span class="r-ic">${athAvatar(id,name)}</span>`);}
 function drawAthleteList(list){const el=document.getElementById('athList');if(!el)return;
   if(!list.length){
     el.innerHTML=!(ATHLETES_CACHE||[]).length
       ? emptyState({icon:'users',title:'Noch keine Athleten',text:'Lege einen Athleten an oder ordne dir einen bestehenden zu.',btn:{label:'Athlet hinzufügen',onclick:'addAthlete()'}})
       : (COACH_FILTER!=='all'&&!COACH_QUERY
-        ? emptyState({icon:'filter',title:'Niemand in diesem Filter',text:COACH_FILTER==='alert'?'Kein Athlet steht gerade auf Alarm – das ist eine gute Nachricht.':COACH_FILTER==='watch'?'Kein Athlet steht auf Beobachten.':'Kein Athlet ohne erste Eintragung.',btn:{label:'Alle zeigen',onclick:"coachSetFilter('all')"}})
+        ? emptyState({icon:'filter',title:'Niemand in diesem Filter',text:COACH_FILTER==='need'?'Kein Athlet braucht dich gerade – das ist eine gute Nachricht.':'Kein Athlet ohne erste Eintragung.',btn:{label:'Alle zeigen',onclick:"coachSetFilter('all')"}})
         : emptyState({icon:'search',title:'Kein Treffer',text:'Kein Athlet passt zu deiner Suche.'}));return;}
   list=coSortApply(list);
-  const desk=coDesktop();
-  el.innerHTML=coSortHeadHTML()+`<div class="rows mb-3">`+list.map(a=>{
-    const st=a.status||'ok';const reasons=a.reasons||[];
-    const statusTxt=a.lastTrain?(a.daysSinceTrain===0?'heute trainiert':a.daysSinceTrain===1?'gestern trainiert':'Training '+daysAgoTxt(a.lastTrain)):'noch kein Training';
-    // FIX-A5 A5-8: Am Rechner erklaert der Spaltenkopf, was die Zahl bedeutet – dort reicht die
-    // Kurzform, und genau sie ist der Unterschied zwischen 329 px (gekappt) und rund 150 px (ganz).
-    const statusShort=a.lastTrain?(a.daysSinceTrain===0?'heute':a.daysSinceTrain===1?'gestern':(Number.isFinite(Number(a.daysSinceTrain))?pl(Number(a.daysSinceTrain),'Tag','Tage'):daysAgoTxt(a.lastTrain))):'nie';
-    // Nie zweimal dieselbe Aussage: sagt der Grund schon „noch kein Training geloggt", fallen „noch kein
-    // Training" und „0/3 diese Woche" aus der Unterzeile – sonst steht es dreimal untereinander (RATE-coach, Design).
-    const noTrain=reasons.some(r=>/kein Training/i.test(r));
-    // „diese Woche" heisst hier dieselbe Kalenderwoche wie beim Athleten: 3/3 statt „3× diese Woche"
-    // (das war das rollende Sieben-Tage-Fenster und stand neben einem anderen Wochenziel im Sheet).
-    const rw=coWeekGoal(a);
-    const weekTxt=rw?`${fmtNum(rw.done)}/${fmtNum(rw.target)} diese Woche`:(a.trainsThisWeek||0)+'× diese Woche';
-    const weekShort=rw?`${fmtNum(rw.done)}/${fmtNum(rw.target)}`:(a.trainsThisWeek||0)+'×';
-    const weekDone=rw?rw.done:(a.trainsThisWeek||0);
-    // Vier Angaben, vier eigene Elemente (DEFER V1-2): `data-col` ist der Anschluss, an dem A-V.1
-    // sie spaeter in eigene Rasterspalten legen kann, ohne dass hier noch einmal etwas zerlegt wird.
-    // „Ziel" faellt am Rechner weg: es ist eine Stammangabe, keine Kennzahl der Woche, und es war
-    // das Stueck, an dem die Alarmzeile zerbrach. Im Inspektor steht es weiterhin.
-    const cols=[['akt',noTrain?'':(desk?statusShort:statusTxt)],
-      ['week',(noTrain&&!weekDone)?'':(desk?weekShort:weekTxt)],
-      ['goal',desk?'':(a.goal?goalLabel(a.goal):'')],
-      ['kg',a.lastWeight!=null?fmtNum(a.lastWeight,1)+' kg':'']].filter(c=>c[1]);
-    const sub=cols.map((c,i)=>`${i?'<span aria-hidden="true"> · </span>':''}<span data-col="${c[0]}">${esc2(c[1])}</span>`).join('');
-    // Die volle Angabe bleibt erreichbar, auch wenn die Spalte am Rechner enger ist als der Text.
-    const full=[noTrain?'':statusTxt,(noTrain&&!weekDone)?'':weekTxt,
-      a.goal?goalLabel(a.goal):'',a.lastWeight!=null?fmtNum(a.lastWeight,1)+' kg':''].filter(Boolean).join(' · ');
-    return `<button type="button" class="row tap ad-row ath-row" onclick="openDashboard(${a.id})">${athAvatar(a.id,a.name)}
-      <span class="rl">${esc2(a.name)}${st!=='ok'?attPill(st):''}${reasons.length?`<small class="reason ${st}">${reasonLine(reasons)}</small>`:''}<small${full?` title="${esc(full)}"`:''}>${sub}</small></span></button>`;}).join('')+`</div>`;
+  // Zwei Gruppen, wenn es beides gibt: erst die, die dich brauchen, dann alle anderen (6.14).
+  // Im gefilterten Segment ist es EINE Gruppe – sonst hiesse der Filter zweimal dasselbe.
+  const need=list.filter(a=>a.status==='alert'||a.status==='watch');
+  const rest=list.filter(a=>!(a.status==='alert'||a.status==='watch'));
+  const kopf=coSortHeadHTML();
+  const plus={label:'+ Athlet',tap:'addAthlete()'};
+  const fuss='Wer oben steht, entscheidet sich nach offenen Beschwerden, Tagen ohne Check-in und '
+    +'Tagen ohne Training – gemessen am Trainingsrhythmus dieses Athleten. Am Rechner sortierst du '
+    +'die Liste über die Spaltenköpfe um.';
+  let h='';
+  if(COACH_FILTER!=='all'||!need.length||!rest.length){
+    h=groupHTML(COACH_FILTER==='need'?'Brauchen dich':COACH_FILTER==='new'?'Neue Athleten':'Alle Athleten',
+      kopf+list.map(coAthRowHTML).join(''),fuss,{action:plus,inset:true});
+  }else{
+    h=groupHTML('Brauchen dich',kopf+need.map(coAthRowHTML).join(''),null,{inset:true})
+     +groupHTML('Alle Athleten',rest.map(coAthRowHTML).join(''),fuss,{action:plus,inset:true});
+  }
+  el.innerHTML=h;
   loadAthAvatars(list.filter(a=>a.has_avatar).map(a=>a.id));}
 // Alter Name: lud die separate Ampel-Box – heute Teil der einen Liste (neu laden + zeichnen)
 async function loadAttention(){COACH_OV=null;const v=document.getElementById('views');if(document.getElementById('athPage')&&v)return renderAthletes(v);}
@@ -1684,8 +1835,9 @@ function coachInsights(){const o=COACH_OV?.o||{};let h='';
   const gc=o.goalCounts||{};const totalG=(gc.muscle||0)+(gc.fatloss||0)+(gc.health||0);
   if(totalG>0){const gbar=(label,n,cls)=>{const pct=totalG?Math.round(n/totalG*100):0;return `<div class="gbar"><div class="gl"><span>${label}</span><span>${fmtNum(n)}</span></div><div class="bar${cls?' '+cls:''}"><i style="width:${pct}%"></i></div></div>`;};
     h+=`<div class="card mb-3"><div class="h3 mb-3">Ziele deiner Athleten</div>${gbar('Muskelaufbau',gc.muscle||0,'')}${gbar('Definition',gc.fatloss||0,'amber')}${gbar('Gesundheit',gc.health||0,'green')}</div>`;}
-  if(o.recentActivity&&o.recentActivity.length){h+=`<div class="section-label"><span>Jüngste Aktivität</span></div><div class="rows mb-3">`+
-    o.recentActivity.map(a=>`<div class="row"><div class="rl">${esc2(a.name)}<small>${esc2(a.dayName||'Training')} · ${fmtDate(a.date,{weekday:'short'})}</small></div><div class="rr">${pl(a.sets,'Satz','Sätze')}</div></div>`).join('')+`</div>`;}
+  if(o.recentActivity&&o.recentActivity.length)h+=groupHTML('Jüngste Aktivität',
+    o.recentActivity.map(a=>rowHTML({title:a.name,sub:(a.dayName||'Training')+' · '+fmtDate(a.date,{weekday:'short'}),
+      value:pl(a.sets,'Satz','Sätze')})),null);
   if(!h)h=emptyState({icon:'chartLine',title:'Noch keine Einblicke',text:'Sobald deine Athleten trainieren, siehst du hier Aktivität und Ziele.'});
   openSheet('Einblicke',h);}
 function addAthlete(){openSheet('Athlet hinzufügen',`
@@ -1693,12 +1845,12 @@ function addAthlete(){openSheet('Athlet hinzufügen',`
   <div id="aaBody"></div>`);aaTab('new');}
 function aaTab(t){document.getElementById('aa_new').classList.toggle('on',t==='new');document.getElementById('aa_link').classList.toggle('on',t==='link');
   const b=document.getElementById('aaBody');
-  if(t==='new')b.innerHTML=`<div class="note mb-4">Lege direkt einen neuen Athleten an. Lass das Passwortfeld <b>leer</b> – du bekommst einen Einladungslink zum Weitergeben, und dein Athlet setzt sein Passwort selbst. Du kennst es dann nie.</div>
+  if(t==='new')b.innerHTML=`<p class="rows-f">Lege direkt einen neuen Athleten an. Lass das Passwortfeld <b>leer</b> – du bekommst einen Einladungslink zum Weitergeben, und dein Athlet setzt sein Passwort selbst. Du kennst es dann nie.</p>
     <div class="field"><label for="na_name">Name</label><input id="na_name" placeholder="Vor- und Nachname" maxlength="80"></div>
     <div class="field"><label for="na_email">E-Mail</label><input id="na_email" type="email" inputmode="email" autocomplete="off" placeholder="athlet@mail.com"></div>
     ${pwField({id:'na_pw',label:'Startpasswort (optional)',autocomplete:'new-password',placeholder:'leer lassen = Einladungslink',hint:true})}
     <button class="btn block" onclick="confirmCreateAthlete()">Athlet anlegen</button>`;
-  else b.innerHTML=`<div class="note mb-4">Der Athlet hat sich bereits selbst registriert. Gib seine E-Mail ein, um ihn dir zuzuordnen.</div>
+  else b.innerHTML=`<p class="rows-f">Der Athlet hat sich bereits selbst registriert. Gib seine E-Mail ein, um ihn dir zuzuordnen.</p>
     <div class="field"><label>E-Mail</label><input id="addEmail" type="email" inputmode="email" placeholder="athlet@mail.com"></div>
     <button class="btn block" onclick="confirmAddAthlete()">Zuordnen</button>`;}
 // Passwort optional (BUILD-A2 §4 Punkt 11): leer = Einladungslink. `password` geht nur mit, wenn
@@ -1788,14 +1940,14 @@ function coachKpiHTML(d,listRow){
     if(miss<=0){wReason='Wochenziel erreicht'+(miss<0?' · '+pl(-miss,'Einheit','Einheiten')+' mehr':'');wTone=coachKpiTone(wPct);}
     else if(left!=null&&miss<=left){wReason=pl(miss,'Training','Trainings')+' offen · noch '+pl(left,'Tag','Tage');wTone='';}
     else {wReason=wPct+' % · '+coachKpiBand(wPct);wTone=coachKpiTone(wPct);}
-    t1=tile('Trainings · diese Woche',`${fmtNum(wg.done)}<em>/${fmtNum(wg.target)}</em>`,
+    t1=tile('Trainings · diese Woche',`${fmtNum(wg.done)} <em>von ${fmtNum(wg.target)}</em>`,
       wReason,wTone,coachKpiFoot(wg.done,coPrevWeekDone(se,wg.weekStart)));
   }else{
     const target=coPlannedRate(a,listRow);
     const trainCur=(listRow&&listRow.trainsThisWeek!=null)?Number(listRow.trainsThisWeek):inWin(se,0,6);
     const trainPrev=covers(se,10,13)?inWin(se,7,13):null;
     const tPct=target?Math.round(trainCur/target*100):null;
-    t1=tile('Trainings · 7 Tage',`${fmtNum(trainCur)}<em>/${coRateTxt(target)}</em>`,
+    t1=tile('Trainings · 7 Tage',`${fmtNum(trainCur)} <em>von ${coRateTxt(target)}</em>`,
       tPct!=null?tPct+' % · '+coachKpiBand(tPct):'Kein Wochenziel gesetzt',
       tPct!=null?coachKpiTone(tPct):'',coachKpiFoot(trainCur,trainPrev));
   }
@@ -1803,7 +1955,7 @@ function coachKpiHTML(d,listRow){
   //    verpasst, solange er laeuft – sonst stuende jeder Athlet jeden Vormittag auf 6/7.
   const ciCur=inWin(ch,1,7),ciPrev=covers(ch,14,14)?inWin(ch,8,14):null;
   const ciPct=Math.round(ciCur/7*100);
-  const t2=tile('Check-ins · 7 Tage',`${fmtNum(ciCur)}<em>/7</em>`,
+  const t2=tile('Check-ins · 7 Tage',`${fmtNum(ciCur)} <em>von 7</em>`,
     ciCur===7?'jeden Tag':ciCur===0?'kein einziger':'an '+ciCur+' von 7 Tagen',
     coachKpiTone(ciPct),coachKpiFoot(ciCur,ciPrev));
   // 3) Gewicht: Veraenderung ueber rund 14 Tage. Bewusst ohne Ampel – ob −0,4 kg gut oder schlecht sind,
@@ -1832,79 +1984,149 @@ function coachKpiHTML(d,listRow){
       coachKpiFoot(cur,avg!=null?Math.round(avg):null,'Schnitt 7 Tage'));}
   else t4=tile('Erholung','–','Noch keine HRV- oder Puls-Werte','');
   return `<div class="tiles co-kpis">${t1}${t2}${t3}${t4}</div>`;}
+/* ===================== DESIGN-4 6.15 / R11 · DIE SEITE "COACH > ATHLET" =====================
+   Der wichtigste neue Bildschirm der App. Gemessen war der Athlet ein SHEET: 1.653 px Inhalt in
+   743 px sichtbarer Hoehe, 6 von 11 Aktionen unter dem Falz - und zwar genau die sechs Werkzeuge,
+   mit denen ein Coach arbeitet (Stufe & Funktionen, Phase & Ziele, Monatsziel, Supplements, Aus
+   Excel importieren, Fortschrittsfotos). Ein Sheet hat keinen Titel in der Kopfzeile, keinen
+   Zurueck-Weg mit Ziel und keine Tiefe.
+   Ab jetzt: eine PUSH-SEITE mit grossem Titel "<Name>", Unterzeile aus Stufe, Ziel und Phase und
+   dem Zurueck-Knopf "Athleten" (3.3 N1/N4). Die sechs Werkzeuge sind der benannte Abschnitt
+   "Einstellungen des Athleten"; nichts liegt mehr hinter einem Falz ohne Namen.
+   Der Name der Funktion bleibt `openDashboard(id)`: sie wird aus der Liste, aus dem Wochen-Review,
+   aus `analysis.js` und aus dem Rueckgaengig-Weg einer Beschwerde gerufen. Ein Umbenennen haette
+   nur Aufrufstellen in Dateien geaendert, die dieses Paket nicht besitzt. */
+// Ein Satz, der sagt, wie es dem Athleten geht - statt vier Zahlen, die der Coach selbst
+// zusammenrechnen muss (DESIGN-4 8 "nuetzlicher"). Er nennt nur, was im Payload wirklich steht.
+function coAthSummary(d,listRow){
+  d=d||{};const se=d.sessions||[],ch=d.checkins||[],we=d.weights||[];
+  const teile=[];
+  const wg=coWeekGoal(listRow)||coWeekGoal(d);
+  if(wg){const miss=wg.target-wg.done,left=coDaysLeftInWeek(wg.weekStart);
+    teile.push(miss<=0?`Diese Woche ${fmtNum(wg.done)} von ${fmtNum(wg.target)} Einheiten – Ziel erreicht`
+      :(left!=null&&miss<=left?`Diese Woche ${fmtNum(wg.done)} von ${fmtNum(wg.target)} Einheiten, ${fmtNum(miss)} offen bei noch ${pl(left,'Tag','Tagen')}`
+        :`Diese Woche nur ${fmtNum(wg.done)} von ${fmtNum(wg.target)} Einheiten`));}
+  else if(se.length)teile.push('Letztes Training '+daysAgoTxt(se[0].date));
+  const ci=ch.filter(x=>{const n=daysSince(x.date);return n!=null&&n>=1&&n<=7;}).length;
+  teile.push(ci===7?'Check-ins vollständig':ci===0?'kein einziger Check-in in sieben Tagen':`Check-ins an ${fmtNum(ci)} von 7 Tagen`);
+  const w0=we[0];
+  if(w0&&w0.weight!=null){const n0=daysSince(w0.date);
+    const ref=we.find(x=>{const n=daysSince(x.date);return n!=null&&n0!=null&&n-n0>=14;});
+    if(ref&&ref.weight!=null&&n0!=null){const dlt=w0.weight-ref.weight,sp=daysSince(ref.date)-n0;
+      teile.push(`Gewicht ${dlt>0?'+':dlt<0?'−':'±'}${fmtNum(Math.abs(dlt),1)} kg in ${pl(sp,'Tag','Tagen')}`);}
+    else teile.push('Gewicht '+fmtNum(w0.weight,1)+' kg');}
+  // Divergenz zwischen Gefuehl und Messwert ist selbst die Information (6.15) - nie verrechnet.
+  const str=ch.filter(x=>x.stress!=null).slice(0,7).map(x=>Number(x.stress));
+  const hrv=ch.filter(x=>x.hrv!=null).slice(0,7).map(x=>Number(x.hrv));
+  if(str.length>=4&&hrv.length>=4){
+    const m=(arr,f,t)=>{const q=arr.slice(f,t);return q.length?q.reduce((x,y)=>x+y,0)/q.length:null;};
+    const s1=m(str,0,3),s2=m(str,3,7),h1=m(hrv,0,3),h2=m(hrv,3,7);
+    if(s1!=null&&s2!=null&&h1!=null&&h2!=null&&s1>s2+0.6&&h1>=h2-2)
+      teile.push('Stress steigt, obwohl die Messwerte unauffällig sind');}
+  return teile.join(' · ')+'.';}
 async function openDashboard(id,opts){opts=opts||{};
-  const top=SHEET_STACK.length?SHEET_STACK[SHEET_STACK.length-1].title:null;
-  const openAgain=!!(opts.replace&&top&&(top===athName(id)||top===COACH_DASH[id]?.d?.athlete?.name));
-  if(!openAgain)openSheet('Lädt…','<div class="spinner"></div>');
+  if(typeof pushPage!=='function')return toast('Diese Ansicht braucht ein App-Update.');
+  const nm=athName(id);
+  // Bis die Daten da sind, steht der Bildschirm schon da - mit Namen, Zurueck-Weg und Platzhaltern
+  // in der Form dessen, was kommt (5.11). Eine leere Flaeche mit Kreisel gibt es nicht.
+  const schonDa=PUSH_STACK.length&&PUSH_STACK[PUSH_STACK.length-1].key==='athlet-'+id;
+  if(!schonDa)pushPage('athlet-'+id,nm,'Athleten',`<div id="coAthBody">${skeleton(1,'sm')}${skeleton(3)}</div>`);
   const [c,ai]=await Promise.all([loadDashboard(id),coachAiStatus()]);
-  if(!c){if(!openAgain)closeModal();const s=loadDashboard.lastStatus;
-    return toast(s===403||s===401?'Kein Coach-Zugriff auf diesen Athleten':'Fehler beim Laden');}
+  if(!c){const st0=loadDashboard.lastStatus;
+    const txt=st0===403||st0===401?'Dieser Athlet gehört nicht zu deinem Konto – oder die Sitzung ist abgelaufen.':'Die Daten dieses Athleten ließen sich nicht laden.';
+    const be=document.getElementById('coAthBody');
+    if(be)be.innerHTML=`<div class="note err mb-3">${esc2(txt)}</div>`
+      +`<button type="button" class="btn sec" onclick="openDashboard(${id})">Erneut versuchen</button>`;
+    return;}
   const d=c.d,a=d.athlete,flagged=c.flagged;const listRow=(ATHLETES_CACHE||[]).find(x=>x.id===id);
+  const first=String(a.name||'').split(' ')[0];
   const st=listRow?athleteStatus(listRow):attentionStatusClient({daysSinceCheckin:daysSince(d.checkins[0]?.date),daysSinceTraining:daysSince(d.sessions[0]?.date),openFlags:flagged.length,daysPerWeek:coDpw(a)});
   const status=st.status||st.level,reasons=st.reasons||[];
-  const lastW=d.weights[0]?.weight;const lastTrain=d.sessions[0]?.date;
-  // Die Frequenz-Pille zeigt dieselbe Rate wie die Kennzahl-Kachel darunter – sonst stuende „4×/Woche"
-  // direkt ueber „3/4,7" und der Coach haette zwei Zahlen fuer dieselbe Sache.
   const rate=coPlannedRate(a,listRow);
-  // A-IV.7: die Stufen-Pille zeigt die WIRKSAME Stufe (`experience_coach` schlaegt `experience`) – dieselbe
-  // Rangfolge, nach der sich die Trainingsansicht des Athleten richtet. Bis 2.7.0 stand hier die reine
-  // Selbstangabe: hatte der Coach uebersteuert, log die Pille. Ein Stern markiert die Uebersteuerung,
-  // ausgeschrieben steht sie eine Zeile tiefer in „Stufe & Funktionen".
-  const pills=[a.goal?goalLabel(a.goal):'',phaseLabel(a.phase)||'keine Phase',rate!=null?coRateLabel(rate):'',
-    expLabel(co2LevelOf(a))+(a.experience_coach?' ∗':'')].filter(Boolean);
-  let h=`<div class="dash-head">${athAvatar(id,a.name,'lg')}<div class="fill"><div class="dash-pills">${pills.map(t=>`<span class="pill neutral">${esc2(t)}</span>`).join('')}</div></div></div>`;
-  // Gründe, die der Beschwerden-Block ohnehin zeigt, hier weglassen (nie zweimal dieselbe Aussage)
-  const factReasons=flagged.length?reasons.filter(r=>!/Beschwerde/i.test(r)):reasons;
-  const fseg=[attPill(status)+(factReasons.length?' '+esc2(factReasons.join(' · ')):''),`<b>${lastW!=null?fmtNum(lastW,1)+' kg':'– kg'}</b>`,`Training ${esc2(daysAgoTxt(lastTrain))}`];
-  h+=`<div class="dash-facts">${fseg.map(x=>`<span>${x}</span>`).join('')}</div>`;
-  // Kennzahl-Reihe (B4): erst die Analyse, dann die Aufgaben. Werte kommen aus demselben Payload.
-  h+=coachKpiHTML(d,listRow);
-  // Offene Beschwerden – jede mit drei Handlungen: an der Uebung ansetzen, antworten, abhaken (mit Undo).
-  // Ohne die ersten beiden endete der Alarm bisher im „abhaken", ohne dass der Athlet je eine Antwort bekam.
+  // Die Unterzeile des Titels traegt den Kontext (3.2) - dieselben vier Angaben, die bis hierher
+  // als vier graue Pillen im Sheet standen. Eine Pille ist eine STATUS-Marke (5.10), kein Etikett.
+  const sub=[expLabel(co2LevelOf(a))+(a.experience_coach?' (vom Coach gesetzt)':''),
+    a.goal?goalLabel(a.goal):'',phaseLabel(a.phase)||'keine Phase',
+    rate!=null?coRateLabel(rate):''].filter(Boolean).join(' · ');
+  let h='';
+  // 1 - Wie geht es ihm? Ein Satz, die Haelfte der Arbeit (6.15, Teil 8).
+  h+=`<div class="card lg co-what"><div class="co-what-h">So geht es ${esc2(first)}</div>`
+    +`<p class="co-what-b">${esc2(coAthSummary(d,listRow))}</p>`
+    +(reasons.length?`<p class="co-what-r">${attPill(status)} ${esc2(reasons.join(' · '))}</p>`:'')+`</div>`;
+  // 2 - Die vier Kennzahlen mit Vorwochen-Vergleich.
+  // Der Erklaerort der App ist die Fusszeile (G8/K21): "HRV" ist ein Kuerzel und wird hier
+  // ausgeschrieben - nicht in einem i-Symbol, nicht in einem title-Attribut.
+  h+=coachKpiHTML(d,listRow)
+    +`<p class="rows-f">Jede Zahl vergleicht mit der Vorwoche. Die Prozentzahl der Trainings ist dein `
+    +`Toleranzband – ${esc2(first)} sieht sie nie, er sieht „erledigt von geplant". HRV ist die `
+    +`Herzratenvariabilität: der Abstand zwischen zwei Herzschlägen, gemessen beim Aufwachen. `
+    +`Steigt sie, ist er erholt; fällt sie über mehrere Tage, ist er es nicht.</p>`;
+  // 3 - Offene Beschwerden, jede mit drei benannten Handlungen (an der Uebung ansetzen, antworten,
+  //     abhaken mit Rueckgaengig). Ohne die ersten beiden endete der Alarm im "abhaken", ohne dass
+  //     der Athlet je eine Antwort bekam.
   if(flagged.length)h+=`<div class="complaints" id="complaints"><div class="ct">${icon('alertTriangle',18)}<span id="complaintsT">${pl(flagged.length,'offene Beschwerde','offene Beschwerden')}</span></div>`+
     flagged.map(n=>`<div class="complaint" id="cmp-${n.id}"><div class="cm">${esc2(n.exercise_name)} · ${fmtDate(n.date)}</div><div class="cb">${esc2(n.note)}</div>
       <div class="cmp-acts">
-        ${n.exercise_id?`<button class="btn sm sec" onclick="coachFixExercise(${id},'${esc(a.name)}',${n.exercise_id})">${icon('pencil',14)} Übung tauschen</button>`:''}
-        <button class="btn sm sec" onclick="coachReplyComplaint(${id},'${esc(a.name)}',${n.id})">${icon('mail',14)} Antworten</button>
-        <button class="btn sm sec" onclick="coachResolveNote(${n.id},${id},this)">${icon('check',14)} Erledigt</button>
+        ${n.exercise_id?`<button type="button" class="btn sec" onclick="coachFixExercise(${id},'${esc(a.name)}',${n.exercise_id})">${icon('pencil',18)} Übung tauschen</button>`:''}
+        <button type="button" class="btn sec" onclick="coachReplyComplaint(${id},'${esc(a.name)}',${n.id})">${icon('mail',18)} Antworten</button>
+        <button type="button" class="btn sec" onclick="coachResolveNote(${n.id},${id},this)">${icon('check',18)} Erledigt</button>
       </div></div>`).join('')+`</div>`;
-  h+=`<div class="coach-pair"><button class="btn" onclick="coachOpenPlan(${id},'${esc(a.name)}')">${icon('pencil',18)} Plan bearbeiten</button><button class="btn sec" onclick="openThread(${id},'${esc(a.name)}')">${icon('mail',18)} Nachricht</button></div>`;
-  const row=(ic,label,sub,onclick)=>`<button type="button" class="row tap ad-row" onclick="${onclick}"><span class="r-ic">${icon(ic)}</span><span class="rl">${label}${sub?`<small>${sub}</small>`:''}</span></button>`;
-  h+=`<div class="section-label"><span>Ansehen</span></div><div class="rows mb-4">`+
-    row('user',`Als ${esc2(a.name.split(' ')[0])} ansehen`,'Home, Training, Ernährung, Mindset und Analyse im Athleten-Kontext',`coachOpenView(${id},'${esc(a.name)}','home')`)+
-    row('chartLine','Volle Analyse','Körper und Training in Zahlen',`coachOpenView(${id},'${esc(a.name)}','tracker')`)+
-    // A-IV.7: Der KI-Schalter des Athleten steht seit 2.6.0 standardmaessig auf AUS – bis hierher erfuhr
-    // der Coach das erst NACH dem Tippen, als 403. Ist der Zustand bekannt, steht er in der Unterzeile.
-    (ai.configured!==false?row('sparkles','KI-Analyse',(()=>{const st=co2AiState(a);
-      return st===false?'Nicht freigegeben – nur '+esc2(a.name.split(' ')[0])+' selbst kann das ändern'
-        :st===true?'Freigegeben · Zweitmeinung aus Trainings- und Check-in-Daten'
-        :'Zweitmeinung aus Trainings- und Check-in-Daten';})(),`aiSummary(${id})`):'')+`</div>`;
-  h+=`<div class="section-label"><span>Verwalten</span></div><div class="rows mb-4">`+
-    // A-IV.7: die Stufe war eine tote Pille. Hier wird sie gesetzt – und daneben steht in einem Satz,
-    // was sich dadurch in der App des Athleten aendert (RIR-Feld, Satztypen, Tiefe).
-    row('settings','Stufe &amp; Funktionen',esc2(co2LevelSummary(a)),`co2LevelSheet(${id},'${esc(a.name)}')`)+
-    // D10: Dieselbe Zahl wie in der Kennzahl-Zeile der Übersicht (coKcalTargetTx) – zuerst die, nach der
-    // der Athlet wirklich isst, dann das gespeicherte Ziel. Zwei Zahlen auf einem Bildschirm sind nur so
-    // lange verwirrend, wie nicht dabeisteht, welche welche ist.
-    (()=>{const K=coKcalTargetTx(d,a);
-      const sv=a.kcal_target_train?fmtNum(a.kcal_target_train)+' / '+fmtNum(a.kcal_target_rest||0)+' kcal':'nicht gesetzt';
-      return row('target','Phase &amp; Ziele',d.kcalAsk?`${K.rr} gerechnet · gespeichert ${sv}`:K.rr,`coachPhaseSheet(${id})`);})()+
-    row('trophy','Monatsziel','Trainings, Check-ins und Volumen im Monat',`coachMonthlyGoal(${id},'${esc(a.name)}')`)+
-    row('pill','Supplements','Zuweisen, Pflicht und Dosierung',`coachSupp(${id},'${esc(a.name)}')`)+
-    row('fileSpreadsheet','Aus Excel importieren','Plan aus einer .xlsx-Datei übernehmen',`openImport(${id},'${esc(a.name)}')`)+
-    row('camera','Fortschrittsfotos','',`openPhotos(${id})`)+`</div>`;
+  // 4 - DIE EINE Hauptaktion des Bildschirms (G10/5.1). Alles andere ist eine benannte Zeile.
+  h+=`<button type="button" class="btn co-main" onclick="coachOpenPlan(${id},'${esc(a.name)}')">${icon('pencil',18)} Plan bearbeiten</button>`;
+  // 5 - Sofort, Woche, Einstellungen des Athleten: drei benannte Abschnitte statt eines Falzes.
+  h+=groupHTML('Sofort',[
+    rowHTML({icon:'mail',title:'Nachricht schreiben',sub:'Gespräch mit '+first+' öffnen',tap:`openThread(${id},'${esc(a.name)}')`}),
+    rowHTML({icon:'user',title:`Als ${first} ansehen`,sub:'Heute, Training, Ernährung, Mindset und Analyse in seiner Ansicht',tap:`coachOpenView(${id},'${esc(a.name)}','home')`}),
+    rowHTML({icon:'trophy',title:'Monatsziel',sub:'Trainings, Check-ins und Volumen im Monat',tap:`coachMonthlyGoal(${id},'${esc(a.name)}')`})
+  ],'„Plan bearbeiten“ ändert den Trainingsplan. „Als '+first+' ansehen“ öffnet seine App – du siehst, was er sieht, und kannst dort für ihn eintragen.');
+  const woche=[
+    rowHTML({icon:'chartLine',title:'Volle Analyse',sub:'Körper und Training in Zahlen',tap:`coachOpenView(${id},'${esc(a.name)}','tracker')`}),
+    rowHTML({icon:'calendar',title:'Wochen-Review',sub:'Die abgeschlossene Woche mit Antwortfeld',tap:'rvOpen()'})
+  ];
+  if(d.sessions.length){const s0=d.sessions[0];
+    woche.unshift(rowHTML({icon:'dumbbell',title:'Letzte Einheit',
+      sub:(s0.dayName||'Training')+' · '+daysAgoTxt(s0.date)+' · '+pl(s0.setCount,'Satz','Sätze')
+        +(s0.topWeight?' · schwerster Satz':''),
+      value:s0.topWeight?fmtNum(s0.topWeight)+' kg':'',tap:`coachOpenView(${id},'${esc(a.name)}','tracker')`}));}
+  if(ai.configured!==false){const aiSt=co2AiState(a);
+    woche.push(rowHTML({icon:'sparkles',title:'KI-Analyse',
+      sub:aiSt===false?'Nicht freigegeben – nur '+first+' selbst kann das ändern'
+        :aiSt===true?'Freigegeben · Zweitmeinung aus Trainings- und Check-in-Daten'
+        :'Zweitmeinung aus Trainings- und Check-in-Daten',tap:`aiSummary(${id})`}));}
+  h+=groupHTML('Woche',woche,null);
+  const K=coKcalTargetTx(d,a);
+  const sv=a.kcal_target_train?fmtNum(a.kcal_target_train)+' / '+fmtNum(a.kcal_target_rest||0)+' kcal':'nicht gesetzt';
+  h+=groupHTML('Einstellungen des Athleten',[
+    rowHTML({icon:'settings',title:'Stufe & Funktionen',sub:co2LevelSummary(a),tap:`co2LevelSheet(${id},'${esc(a.name)}')`}),
+    rowHTML({icon:'target',title:'Phase & Ziele',sub:d.kcalAsk?`${K.rr} gerechnet · gespeichert ${sv}`:K.rr,tap:`coachPhaseSheet(${id})`}),
+    rowHTML({icon:'pill',title:'Supplements',sub:'Zuweisen, Pflicht und Dosierung',tap:`coachSupp(${id},'${esc(a.name)}')`}),
+    rowHTML({icon:'camera',title:'Fortschrittsfotos',sub:'Bilder, die '+first+' hochgeladen hat',tap:`openPhotos(${id})`}),
+    rowHTML({icon:'fileSpreadsheet',title:'Aus Excel importieren',sub:'Plan aus einer .xlsx-Datei übernehmen',tap:`openImport(${id},'${esc(a.name)}')`})
+  ],'Diese fünf Werkzeuge und das Monatsziel lagen bis 3.0.2 unter dem Falz eines Sheets – sichtbar erst nach dem Scrollen, ohne Namen darüber. Was du hier änderst, gilt nur für '+first+'.');
+  // 6 - Verlauf. Diagramme sind keine Zeilen - sie bleiben Karten (5.3).
   if(d.weights.length>=2){const w=d.weights.slice().reverse().map(x=>x.weight);const sp=typeof sparkline==='function'?sparkline(w):'';
-    h+=`<div class="section-label"><span>Gewichtsverlauf</span></div><div class="chart-card">${sp}<div class="chart-foot"><span>${fmtNum(w[0],1)} kg</span><span>jetzt: ${fmtNum(w[w.length-1],1)} kg</span></div></div>`;}
+    h+=`<h2 class="rows-h">Gewichtsverlauf</h2><div class="chart-card">${sp}<div class="chart-foot"><span>${fmtNum(w[0],1)} kg</span><span>jetzt: ${fmtNum(w[w.length-1],1)} kg</span></div></div>`;}
   if(d.volume.length>=2){const vol=d.volume.slice().reverse().map(x=>x.tonnage);
-    h+=`<div class="section-label"><span>Trainingsvolumen</span><span class="sl-r">kg je Einheit</span></div><div class="chart-card">${barchart(vol)}</div>`;}
-  h+=`<div class="section-label"><span>Letzte Trainings</span></div>`;
-  if(!d.sessions.length)h+=`<div class="note status mb-4">Noch keine Trainings geloggt.</div>`;
-  else h+=`<div class="rows mb-4">`+d.sessions.map(s=>`<div class="row sess-row"><div class="rl">${esc2(s.dayName||'Training')}<small>${fmtDate(s.date,{weekday:'short'})}</small></div><div class="rr">${pl(s.exCount,'Übung','Übungen')} · ${pl(s.setCount,'Satz','Sätze')}${s.topWeight?`<small class="caption">Top ${fmtNum(s.topWeight)} kg</small>`:''}</div></div>`).join('')+`</div>`;
-  if(d.cardio.length)h+=`<div class="section-label"><span>Cardio</span><span class="sl-r">14 Tage</span></div><div class="rows mb-4">`+d.cardio.map(cd=>`<div class="row"><div class="rl">${esc2(cd.kind)}<small>${fmtDate(cd.date)}</small></div><div class="rr">${fmtNum(cd.minutes)} min · ${fmtNum(cd.kcal||0)} kcal</div></div>`).join('')+`</div>`;
+    h+=`<h2 class="rows-h">Trainingsvolumen<span class="a">kg je Einheit</span></h2><div class="chart-card">${barchart(vol)}</div>`;}
+  if(d.sessions.length)h+=groupHTML('Letzte Trainings',d.sessions.map(sx=>rowHTML({
+    title:sx.dayName||'Training',sub:fmtDate(sx.date,{weekday:'short'}),
+    value:pl(sx.exCount,'Übung','Übungen')+' · '+pl(sx.setCount,'Satz','Sätze')})),null);
+  if(d.cardio.length)h+=groupHTML('Cardio',d.cardio.map(cd=>rowHTML({
+    title:cd.kind,sub:fmtDate(cd.date),value:fmtNum(cd.minutes)+' min · '+fmtNum(cd.kcal||0)+' kcal'})),
+    'Cardio der letzten 14 Tage.');
   const withData=d.checkins.filter(x=>x.sleep||x.steps);
-  if(withData.length)h+=`<div class="section-label"><span>Schlaf &amp; Schritte</span></div><div class="rows mb-4">`+withData.slice(0,7).map(x=>{const p=[];if(x.sleep)p.push(fmtNum(x.sleep,1)+' h');if(x.steps)p.push(fmtNum(Math.round(x.steps))+' Schritte');
-    return `<div class="row"><div class="rl">${fmtDate(x.date,{weekday:'short'})}</div><div class="rr">${p.join(' · ')}</div></div>`;}).join('')+`</div>`;
-  openSheet(a.name,h);loadAthAvatars([id]);}
+  if(withData.length)h+=groupHTML('Schlaf & Schritte',withData.slice(0,7).map(x=>{const q=[];
+    if(x.sleep)q.push(fmtNum(x.sleep,1)+' h');if(x.steps)q.push(fmtNum(Math.round(x.steps))+' Schritte');
+    return rowHTML({title:fmtDate(x.date,{weekday:'short'}),value:q.join(' · ')});}),null);
+  const el=document.getElementById('coAthBody');
+  if(el)el.innerHTML=h;
+  // Titel und Unterzeile stehen erst jetzt fest (Stufe, Ziel, Phase kommen aus der Antwort).
+  const top=PUSH_STACK.length?PUSH_STACK[PUSH_STACK.length-1]:null;
+  if(top&&top.key==='athlet-'+id){top.title=a.name;top.sub=sub;
+    const hh=document.querySelector('#pushView .lg-title');
+    if(hh){hh.textContent=a.name;if(sub){const sm=document.createElement('small');sm.textContent=sub;hh.appendChild(sm);}}
+    if(typeof mountLargeTitle==='function')mountLargeTitle();}
+  loadAthAvatars([id]);}
 // Beschwerde erledigen: Block in place ausblenden, Zähler patchen, Rückgängig (server-seitig optional: POST /exercise-notes/:id/flag)
 async function coachResolveNote(noteId,athleteId,btn){const el=document.getElementById('cmp-'+noteId);if(btn)btn.disabled=true;
   const r=await API.post('/exercise-notes/'+noteId+'/resolve');
@@ -2045,7 +2267,7 @@ function co2LevelBodyHTML(id){
     h+='<div class="co2-src">Selbstangabe von '+first+' im Onboarding. Du hast nichts übersteuert – '+first+' bekommt, was zu seiner eigenen Antwort passt.</div>';
   }
   // 3) Ausnahmen je Funktion: eine Funktion abweichend von der Stufe.
-  h+='<div class="section-label"><span>Einzelne Funktionen</span></div>';
+  h+='<h2 class="rows-h">Einzelne Funktionen</h2>';
   h+='<div class="rows mb-3">'+CO2_FEATS.map(f=>{
     const key=f[0],label=f[1],sub=f[2],min=f[3];
     const on=co2FeatOn(a,key,min),set=co2FeatSet(a,key),def=co2LvNum(cur)>=min;
@@ -2074,7 +2296,7 @@ function co2LevelBodyHTML(id){
 // Zustand des KI-Schalters im Klartext – und, wenn er aus ist, der einzige Weg, der dem Coach bleibt:
 // fragen. Umstellen kann das nur der Athlet selbst.
 function co2AiConsentHTML(id,a,first){
-  const head='<div class="section-label"><span>KI-Auswertung</span></div>';
+  const head='<h2 class="rows-h">KI-Auswertung</h2>';
   const st=co2AiState(a);
   if(st===null)
     return head+'<div class="note status mb-4">Ob '+first+' die KI-Auswertung freigegeben hat, sagt dieser Server '+
@@ -2083,9 +2305,10 @@ function co2AiConsentHTML(id,a,first){
   const txt=st
     ? first+' hat sie freigegeben. Deine Analyse schickt 14 Tage Check-in- und Trainingswerte ohne Namen an Anthropic – und '+first+' bekommt danach eine Nachricht, dass du sie erstellt hast.'
     : first+' hat sie nicht freigegeben – das ist der Standard. Ohne Freigabe verlässt kein Wert den Server: die KI-Analyse antwortet dir mit einem Hinweis statt mit Text. Umstellen kann das nur '+first+' selbst.';
-  return head+'<div class="rows mb-3"><div class="row co2-ai"><span class="co2-dot '+(st?'on':'off')+'"></span>'+
-    '<span class="rl">KI-Auswertung durch dich<small>'+esc2(txt)+'</small></span>'+
-    '<span class="rr">'+(st?'An':'Aus')+'</span></div></div>'+
+  // FIX-D5: gebaut mit rowHTML() (K6/9.3). Der farbige Punkt ist dabei zur Pille MIT WORT geworden
+  // (A47: Farbe allein ist keine Aussage); `.co2-ai`/`.co2-dot` sind in coach.css geloescht.
+  return head+'<div class="rows inset mb-3">'+rowHTML({icon:'sparkles',title:'KI-Auswertung durch dich',
+      sub:txt,pill:{text:st?'freigegeben':'nicht freigegeben',tone:st?'green':'neutral'}})+'</div>'+
     (st?'':'<button type="button" class="btn sec block co2-blk mb-4" onclick="co2AskAiConsent('+id+')">'+icon('mail',18)+' '+first+' um die Freigabe bitten</button>');}
 // Die Bitte um die Freigabe: Unterhaltung oeffnen, Text vorschreiben, NICHT abschicken. Der Coach
 // formuliert selbst – eine automatische Nachricht waere bei genau diesem Thema das Falscheste.
@@ -2150,9 +2373,9 @@ function coKcalAskHTML(d,a){if(!d)return '';
       h+=`<div class="note status mb-3">
         <div>Die gespeicherten Ziele (<b>${fmtNum(st)} / ${fmtNum(sr)} kcal</b>) passen nicht mehr zum aktuellen Gewicht${kg?' von '+kg+' kg':''}.
           ${first} isst zurzeit nach <b>${fmtNum(su)} / ${fmtNum(ru)} kcal</b> (Training / Ruhe) – so rechnet der Server.</div>
-        <div class="mt-2"><button class="btn sm" onclick="coKcalAskFill(${su},${ru})">Gerechnete Werte eintragen</button></div>
+        <div class="mt-2"><button class="btn sec" onclick="coKcalAskFill(${su},${ru})">Gerechnete Werte eintragen</button></div>
       </div>`;}}
-  if(d.dobMissing)h+=`<div class="note mb-3">Ohne Geburtsjahr rechnet das Kalorienziel ohne Alter – die Zahlen sind ein Startwert. ${first} kann das Jahr im Profil unter „Ernährung &amp; Kalorien" nachtragen.</div>`;
+  if(d.dobMissing)h+=`<p class="rows-f">Ohne Geburtsjahr rechnet das Kalorienziel ohne Alter – die Zahlen sind ein Startwert. ${first} kann das Jahr im Profil unter „Ernährung &amp; Kalorien" nachtragen.</p>`;
   return h;}
 // Trägt die gerechneten Werte in die beiden Felder ein – ein Tipp, kein stiller Schreibzugriff.
 function coKcalAskFill(t,r){const kt=document.getElementById('cp_kt'),kr=document.getElementById('cp_kr');
@@ -2187,13 +2410,13 @@ async function coachMonthlyGoal(id,name){name=name||athName(id);MONTHLY_UID=id;o
   h+=`<div class="rows mb-4">`+m.parts.map(p=>`<div class="row"><div class="rl">${esc2(p.label)}<small>${p.key==='volume'?fmtNum(p.done):fmtNum(p.done)} / ${fmtNum(p.target)}${p.reached?' · erreicht':''}</small><div class="bar${p.reached?' green':''} mt-2"><i style="width:${Math.min(100,p.pct||0)}%"></i></div></div><div class="rr">${p.reached?icon('check',18,'tone-green'):Math.round(p.pct||0)+' %'}</div></div>`).join('')+`</div>`;
   const t=m.parts.find(p=>p.key==='trainings')?.target||0,cc=m.parts.find(p=>p.key==='checkins')?.target||0,vv=m.parts.find(p=>p.key==='volume')?.target||0;
   h+=`<button class="btn block sec" onclick="openEditMonthly('${m.month}',${t},${cc},${vv},${id})">${icon('target',18)} Ziel anpassen</button>`;
-  if(m.history&&m.history.length)h+=`<div class="section-label"><span>Geschaffte Monate</span></div><div class="cluster">`+m.history.map(x=>`<span class="pill neutral">${new Date(x.month+'-01T00:00:00').toLocaleDateString('de-DE',{month:'short',year:'2-digit'})}</span>`).join('')+`</div>`;
+  if(m.history&&m.history.length)h+=`<h2 class="rows-h">Geschaffte Monate</h2><div class="cluster">`+m.history.map(x=>`<span class="pill neutral">${new Date(x.month+'-01T00:00:00').toLocaleDateString('de-DE',{month:'short',year:'2-digit'})}</span>`).join('')+`</div>`;
   coachSheet('Monatsziel',{id,name},h);}
 // uid explizit: ohne uid (Aufruf aus analysis.js) fällt saveMonthly auf VIEW_USER zurück – nie auf einen alten Athleten.
 // Im Coach-Fluss trägt auch diese dritte Ebene den Athleten-Chip – hier tippt der Coach Zahlen für ein fremdes Konto.
 function openEditMonthly(month,t,c,v,uid){MONTHLY_UID=uid||null;
   const body=`<div id="mgBox">
-    <div class="note mb-4">Erreicht der Athlet sein Monatsziel, gibt es <b>doppelte XP</b> und eine besondere Auszeichnung. Anspruchsvoll, aber machbar wählen.</div>
+    <p class="rows-f">Erreicht der Athlet sein Monatsziel, gibt es <b>doppelte XP</b> und eine besondere Auszeichnung. Anspruchsvoll, aber machbar wählen.</p>
     <div class="field"><label>Trainings im Monat</label><input id="mg_t" type="number" inputmode="numeric" min="1" max="31" value="${t}"></div>
     <div class="field"><label>Check-ins im Monat</label><input id="mg_c" type="number" inputmode="numeric" min="1" max="31" value="${c}"></div>
     <div class="field"><label>Gesamt-Volumen (kg)</label><input id="mg_v" type="number" inputmode="numeric" min="1" value="${v}"></div>
@@ -2233,11 +2456,11 @@ async function coachHomeCardFill(id){const c=await loadDashboard(id);const el=do
     el.innerHTML=`<div class="eyebrow mb-2">Coach-Übersicht</div>`+(s===403||s===401
       ? (isOps
         ? `<div class="note status">Die Coach-Übersicht bleibt für dich geschlossen – sie gehört zum Coaching. Über die Hilfe-Freigabe siehst du die Ansicht des Athleten, nicht die Beurteilung seines Coaches.</div>
-           <button class="btn sm sec mt-3" onclick="coachLeaveAthlete()">Zurück zur Verwaltung</button>`
+           <button class="btn sec mt-3" onclick="coachLeaveAthlete()">Zurück zur Verwaltung</button>`
         : `<div class="note warn">Du hast keinen Coach-Zugriff auf ${who} – der Athlet ist dir nicht (mehr) zugeordnet oder deine Sitzung gehört zu einem anderen Konto.</div>
-           <button class="btn sm sec mt-3" onclick="coachLeaveAthlete()">Zur Athletenliste</button>`)
+           <button class="btn sec mt-3" onclick="coachLeaveAthlete()">Zur Athletenliste</button>`)
       : `<div class="note err">Daten konnten nicht geladen werden.</div>
-         <button class="btn sm sec mt-3" onclick="coachHomeCardFill(${id})">${icon('refresh',16)} Erneut versuchen</button>`);return;}
+         <button class="btn sec mt-3" onclick="coachHomeCardFill(${id})">${icon('refresh',16)} Erneut versuchen</button>`);return;}
   el.outerHTML=coachHomeCardHTML(c);loadAthAvatars([id]);}
 // D10 (Anzeige, Coach-Zeile): Das gespeicherte Kalorienziel ist nicht zwingend das, nach dem der Athlet isst.
 // Weicht es um mehr als 7 % von der Formel ab, verwirft der Server es und rechnet neu (dashboard.kcalAsk).
@@ -2250,39 +2473,47 @@ function coKcalTargetTx(d,a){
   const savedTx=kt?`${fmtNum(kt)} / ${fmtNum(kr||0)} kcal`:'nicht gesetzt';
   const ask=d&&d.kcalAsk;
   const t=Math.round(ask?.train?.suggested||0),r=Math.round(ask?.rest?.suggested||0);
-  if(!ask||(!t&&!r))return {rr:savedTx,hint:''};
-  return {rr:`${fmtNum(t)} / ${fmtNum(r)} kcal`,
-    hint:`<small>gerechnet · gespeichert ${kt?fmtNum(kt):'–'} / ${kr?fmtNum(kr):'–'} kcal</small>`};}
+  // FIX-D5: `sub` ist derselbe Satz als REINER TEXT – rowHTML() setzt das <small> selbst und
+  // escapt den Inhalt. `hint` (fertiges Markup) bleibt fuer den Fall, dass jemand es noch braucht.
+  if(!ask||(!t&&!r))return {rr:savedTx,hint:'',sub:''};
+  const subTx=`gerechnet · gespeichert ${kt?fmtNum(kt):'–'} / ${kr?fmtNum(kr):'–'} kcal`;
+  return {rr:`${fmtNum(t)} / ${fmtNum(r)} kcal`,sub:subTx,hint:`<small>${esc2(subTx)}</small>`};}
 function coachHomeCardHTML(c){const d=c.d,a=d.athlete,id=a.id,fl=c.flagged||[];
   const listRow=(ATHLETES_CACHE||[]).find(x=>x.id===id);
   const st=listRow?athleteStatus(listRow):attentionStatusClient({daysSinceCheckin:daysSince(d.checkins[0]?.date),daysSinceTraining:daysSince(d.sessions[0]?.date),openFlags:fl.length,daysPerWeek:coDpw(a)});
   const status=st.status||st.level;const lc=d.checkins[0],ls=d.sessions[0];
   const n=esc2(a.name),nm=esc(a.name);
-  const row=(ic,label,rr,onclick)=>onclick
-    ?`<button type="button" class="row tap ad-row" onclick="${onclick}"><span class="r-ic">${icon(ic)}</span><span class="rl">${label}</span><span class="rr">${rr}</span></button>`
-    :`<div class="row"><div class="r-ic">${icon(ic)}</div><div class="rl">${label}</div><div class="rr">${rr}</div></div>`;
+  // FIX-D5: Die vier Zeilen der Karte bauen mit rowHTML() (K6/9.3). Bis hierher stand hier ein
+  // lokaler Zeilenbauer, der die Zeile aus core.js Zeichen fuer Zeichen nachbaute – genau die
+  // Krankheit, die DESIGN-4 4.6 als „zeichengleiche Kopie" beschreibt. Die rote Fettzahl bei den
+  // Beschwerden ist dabei zur Pille MIT WORT geworden (A47: Farbe allein ist keine Aussage).
+  const K=coKcalTargetTx(d,a);
   return `<div class="card coach-home" id="coachHomeCard">
     <div class="between mb-3"><div><div class="eyebrow">Coach-Übersicht</div><div class="h2">${n}</div></div>${attPill(status)}</div>
     ${(st.reasons||[]).length?`<div class="meta mb-3">${st.reasons.map(esc2).join(' · ')}</div>`:''}
     <div class="coach-facts">
-      ${row('scale','Letzter Check-in',lc?`${lc.weight!=null?fmtNum(lc.weight,1)+' kg · ':''}${esc2(daysAgoTxt(lc.date))}`:'noch keiner')}
-      ${row('dumbbell','Letztes Training',ls?`${esc2(ls.dayName||'Training')} · ${esc2(daysAgoTxt(ls.date))}`:'noch keins')}
-      ${row('alertTriangle','Offene Beschwerden',fl.length?`<b class="tone-red">${fl.length}</b>`:'keine',fl.length?`openDashboard(${id})`:'')}
-      ${(()=>{const K=coKcalTargetTx(d,a);return row('utensils','Kalorienziele'+K.hint,K.rr,`coachPhaseSheet(${id})`);})()}
+      ${rowHTML({icon:'scale',title:'Letzter Check-in',value:lc?`${lc.weight!=null?fmtNum(lc.weight,1)+' kg · ':''}${daysAgoTxt(lc.date)}`:'noch keiner'})}
+      ${rowHTML({icon:'dumbbell',title:'Letztes Training',value:ls?`${ls.dayName||'Training'} · ${daysAgoTxt(ls.date)}`:'noch keins'})}
+      ${rowHTML({icon:'alertTriangle',title:'Offene Beschwerden',
+        pill:fl.length?{text:fmtNum(fl.length)+' offen',tone:'red'}:null,value:fl.length?'':'keine',
+        tap:fl.length?`openDashboard(${id})`:''})}
+      ${rowHTML({icon:'utensils',title:'Kalorienziele',sub:K.sub,value:K.rr,tap:`coachPhaseSheet(${id})`})}
     </div>
     <div class="cluster mt-3">
-      <button class="btn sm" onclick="coachQuickMessage(${id},'${nm}')">${icon('mail',14)} Nachricht</button>
-      <button class="btn sm sec" onclick="coachPhaseSheet(${id})">Phase &amp; Ziele</button>
-      <button class="btn sm sec" onclick="coachMonthlyGoal(${id},'${nm}')">Monatsziel</button>
-      <button class="btn sm sec" onclick="coachSupp(${id},'${nm}')">Supplements</button>
-      <button class="btn sm sec" onclick="openDashboard(${id})">Dashboard</button>
+      <button class="btn sec" onclick="coachQuickMessage(${id},'${nm}')">${icon('mail',14)} Nachricht</button>
+      <button class="btn sec" onclick="coachPhaseSheet(${id})">Phase &amp; Ziele</button>
+      <button class="btn sec" onclick="coachMonthlyGoal(${id},'${nm}')">Monatsziel</button>
+      <button class="btn sec" onclick="coachSupp(${id},'${nm}')">Supplements</button>
+      <button type="button" class="btn sec" onclick="openDashboard(${id})">Athletenseite öffnen</button>
     </div></div>`;}
 
 // ===== PLAN-EDITOR =====
 // Entfernt in 2.1.0: der Coach-Plan-Editor (coachPlanEditorHTML/coachExMenu/coachMoveEx/coachPlanOptions)
 // hatte keinen Aufrufer. Im Coach-Kontext zeichnet training.js selbst die Plan-Zeilen (_exRowCoach) und
-// bietet ueber openPlanMenu() dieselben Funktionen (Uebung/Tag hinzufuegen, Tag verwalten, Vorlage speichern
-// bzw. anwenden, Excel-Import). Es gibt damit genau EINEN Plan-Editor statt zweier Fassungen.
+// bietet dort dieselben Funktionen an (Uebung/Tag hinzufuegen, Tag verwalten, Vorlage speichern bzw.
+// anwenden, Excel-Import). Es gibt damit genau EINEN Plan-Editor statt zweier Fassungen.
+// (Der frueher hier genannte Name des Punktmenues ist mit DESIGN-4 G5 entfallen - training.js baut
+// die Funktionen als benannte Zeilen.)
 
 // ===== NACHRICHTEN: Schnellnachricht · Unterhaltung · Rundnachricht =====
 function coachQuickMessage(id,name){name=name||athName(id);
@@ -2352,17 +2583,46 @@ async function coachThreads(){
   const byAth={};msgs.forEach(m=>{if(!m.from_id)return;const g=byAth[m.from_id]||(byAth[m.from_id]={last:null,unread:0});if(!m.read)g.unread++;if(newer(m,g.last))g.last=m;});
   const rows=ath.map(a=>({a,g:byAth[a.id]})).sort((x,y)=>((y.g?.unread||0)-(x.g?.unread||0))||(String(y.g?.last?.created_at||'')>String(x.g?.last?.created_at||'')?1:-1));
   return{rows,ath,sys:msgs.filter(m=>!m.from_id||m.kind==='system'),unread:msgs.filter(m=>!m.read).length};}
+let COACH_SYS=[];   // die zuletzt gezeichneten Systemhinweise – Quelle fuer coSysOpen()
+// Vorschautext kuerzen, aber nie mitten im Wort.
+function coKurz(t,n){t=String(t||'');if(t.length<=n)return t;
+  const cut=t.slice(0,n);const sp=cut.lastIndexOf(' ');
+  return (sp>n*0.6?cut.slice(0,sp):cut).replace(/[\s.,;:–-]+$/,'')+'…';}
+function coSysOpen(i){const m=COACH_SYS[i];if(!m)return;
+  openSheet(m.title||'Systemhinweis',
+    `<p class="meta mb-3">${esc2(cRelTime(m.created_at))}</p>`
+    +`<p class="body">${esc2(String(m.body||'')).replace(/\n/g,'<br>')}</p>`);}
+/* DESIGN-4 6.16 - Nachrichten.
+   Zwei benannte Gruppen statt einer Liste: was auf dich wartet, und alles uebrige. Die Zeile ist
+   `rowHTML()` - Bild, Name, Vorschau als Unterzeile, Zeit rechts, Marke "n neu", Chevron. */
 function coachThreadsHTML(t){
-  let h=t.rows.length?`<div class="rows mb-4">`+t.rows.map(({a,g})=>`<button type="button" class="row tap ad-row msg-row" onclick="openThread(${a.id},'${esc(a.name)}')">${athAvatar(a.id,a.name,'sm')}
-      <span class="rl">${esc2(a.name)}${g&&g.unread?` <span class="pill red">${g.unread} neu</span>`:''}<small class="truncate">${g?.last?esc2(g.last.body||g.last.title||''):'Noch keine Nachrichten'}</small></span>
-      <span class="rr">${g?.last?esc2(cRelTime(g.last.created_at)):''}</span></button>`).join('')+`</div>`:
-    emptyState({icon:'users',title:'Noch keine Athleten',text:'Füge zuerst einen Athleten hinzu – dann kannst du ihm hier schreiben.',btn:{label:'Athlet hinzufügen',onclick:'addAthlete()'}});
-  if(t.sys.length)h+=`<div class="section-label"><span>System</span></div>`+t.sys.slice(0,10).map(m=>`<div class="msg system"><div class="mh"><div class="mt">${esc2(m.title||'')}</div><div class="md">${esc2(cRelTime(m.created_at))}</div></div><div class="mb">${esc2(m.body||'').replace(/\n/g,'<br>')}</div></div>`).join('');
+  if(!t.rows.length)return emptyState({icon:'users',title:'Noch keine Athleten',text:'Füge zuerst einen Athleten hinzu – dann kannst du ihm hier schreiben.',btn:{label:'Athlet hinzufügen',onclick:'addAthlete()'}});
+  const zeile=({a,g})=>coAvatarSwap(rowHTML({icon:'user',title:a.name,
+    sub:g&&g.last?String(g.last.body||g.last.title||''):'Noch keine Nachrichten',
+    value:g&&g.last?cRelTime(g.last.created_at):'',
+    pill:g&&g.unread?{text:fmtNum(g.unread)+' neu',tone:'red'}:null,
+    tap:`openThread(${a.id},'${esc(a.name)}')`}),a.id,a.name);
+  const wartet=t.rows.filter(r=>r.g&&r.g.unread);
+  const rest=t.rows.filter(r=>!(r.g&&r.g.unread));
+  let h='';
+  if(wartet.length)h+=groupHTML('Wartet auf dich',wartet.map(zeile),
+    'Diese Athleten haben dir geschrieben und noch keine Antwort. Eine Unterhaltung gilt erst als gelesen, wenn du sie öffnest.');
+  if(rest.length)h+=groupHTML(wartet.length?'Alle Gespräche':'Gespräche',rest.map(zeile),null);
+  if(t.sys.length){
+    // Die Vorschau ist eine Vorschau: ein Systemhinweis kann zwanzig Zeilen lang sein, und zwanzig
+    // Zeilen in einer Zeile sind keine Zeile mehr (G6). Der ganze Text steht einen Tipp entfernt –
+    // versteckt ist damit nichts (G5/G11).
+    COACH_SYS=t.sys.slice(0,10);
+    h+=groupHTML('Systemhinweise',COACH_SYS.map((m,i)=>rowHTML({
+      icon:'info',title:m.title||'Systemhinweis',
+      sub:coKurz(String(m.body||'').replace(/\s+/g,' '),90),value:cRelTime(m.created_at),
+      tap:`coSysOpen(${i})`})),
+      'Meldungen der App an dich – keine Nachrichten eines Athleten. Tippe eine an, um sie ganz zu lesen.');}
   return h;}
 async function coachMessagesSheet(){openSheet('Nachrichten','<div class="spinner"></div>');
   const t=await coachThreads();
   let h=coachThreadsHTML(t);
-  if(ME&&ME.role==='coach')h+=`<button class="btn block sec mt-4" onclick="openBroadcast()">${icon('send',18)} Nachricht an alle Athleten</button>`;
+  if(ME&&ME.role==='coach')h+=`<button type="button" class="btn sec mt-4" onclick="openBroadcast()">${icon('send',18)} Nachricht an alle Athleten</button>`;
   openSheet('Nachrichten',h);loadAthAvatars(t.ath.filter(a=>a.has_avatar).map(a=>a.id));}
 // Vertrag mit account.js/WP6: openMessages() delegiert für Coach/Admin hierher. Im eigenen Tab (Coach ohne
 // Athleten-Kontext) führt die Glocke auf den Tab, sonst öffnet das Sheet – so gibt es nie zwei Postfächer nebeneinander.
@@ -2373,30 +2633,84 @@ function coachOpenMessages(){
 // Kein Blanket-Read: Das Postfach anzusehen markiert nichts als gelesen. Erst openThread() ruft
 // POST /messages/:athleteId/read-thread – so bleibt „wer hat mir geschrieben?" (Pillen + Glocke) erhalten.
 async function renderMessagesTab(v,opts){opts=opts||{};mountCoachHeader();
-  if(!opts.cached)v.innerHTML=`<div class="page on${document.getElementById('msgPage')?'':' first'}" id="msgPage">${skeleton(4)}</div>`;
+  if(!opts.cached)v.innerHTML=`<div class="page on${document.getElementById('msgPage')?'':' first'}" id="msgPage">${skeleton(1,'sm')}${skeleton(4)}</div>`;
   const t=await coachThreads();
   if(!document.getElementById('msgPage')&&!opts.cached)return;
+  const wartet=t.rows.filter(r=>r.g&&r.g.unread).length;
+  const sub=wartet?(wartet===1?'1 wartet auf Antwort':fmtNum(wartet)+' warten auf Antwort')
+    :(t.rows.length?'alles beantwortet':'noch keine Gespräche');
   let h=`<div class="page on" id="msgPage">`;
-  h+=`<div class="coach-stat"><span><b>${pl(t.rows.length,'Unterhaltung','Unterhaltungen')}</b></span>${t.unread?`<span><b class="tone-red">${fmtNum(t.unread)} ungelesen</b></span>`:`<span>alles gelesen</span>`}</div>`;
-  if(ME&&ME.role==='coach')h+=`<button class="btn block mb-4" onclick="openBroadcast()">${icon('send',18)} Nachricht an alle Athleten</button>`;
+  h+=`<h1 class="lg-title">Nachrichten<small>${esc2(sub)}</small></h1>`;
+  // DIE EINE Hauptaktion dieses Bildschirms (G10) - und der Ort, an den der Papierflieger ohne
+  // Wort aus der Kopfzeile gewandert ist (6.14/6.16, R17).
+  if(ME&&ME.role==='coach')h+=`<button type="button" class="btn mb-4" onclick="openBroadcast()">${icon('send',18)} Nachricht an alle Athleten</button>`;
   h+=coachThreadsHTML(t)+`</div>`;
   v.innerHTML=h;loadAthAvatars(t.ath.filter(a=>a.has_avatar).map(a=>a.id));
+  // FIX-D5 (3.2/K2): Die Ansicht zeichnet ihren grossen Titel SELBST, und sie tut es nach einem
+  // `await` - also lange nachdem go() in core.js sein mountLargeTitle() gerufen hat. Der Beobachter
+  // aus shell.js setzt keinen neuen ein (es gibt ja einen `.lg-title`), haengt danach aber an einem
+  // toten Knoten: gemessen standen grosser UND kompakter Titel gleichzeitig da (hdrOpacity "1",
+  // sunk=true bei scrollY 0), waehrend die uebrigen Ansichten korrekt auf "0"/false stehen.
+  // Ein Aufruf nach dem Einhaengen setzt den Beobachter auf den LEBENDEN Titel.
+  if(typeof mountLargeTitle==='function')mountLargeTitle();
   if(typeof cacheView==='function')cacheView('messages');}
 // Tab „Vorlagen" (Coach-Navigation): dieselbe Liste wie das Sheet, nur als Seite
+/* DESIGN-4 6.17 - Vorlagen.
+   Gemessen meldete dieser Reiter NULL Zeilenformen: er zeigte einen Leerzustand mit einem Knopf,
+   der ein Sheet oeffnet. Und der Leerzustand klagte sich selbst an - "speichere ihn dort ueber
+   ,...' > ,Als Vorlage speichern'". Ab jetzt zeigt der Reiter die Vorlagen selbst, und der Weg,
+   eine anzulegen, ist die letzte Zeile der Gruppe - benannt, sichtbar, ohne Punktmenue. */
 async function renderTemplatesTab(v,opts){opts=opts||{};mountCoachHeader();
-  if(!opts.cached)v.innerHTML=`<div class="page on${document.getElementById('tplPage')?'':' first'}" id="tplPage">${skeleton(3)}</div>`;
+  if(!opts.cached)v.innerHTML=`<div class="page on${document.getElementById('tplPage')?'':' first'}" id="tplPage">${skeleton(1,'sm')}${skeleton(3)}</div>`;
   const r=await API.get('/templates');const list=r.data?.templates||[];
+  const tage=list.reduce((n,t)=>n+(Number(t.days)||0),0);
   let h=`<div class="page on" id="tplPage">`;
-  if(!list.length)h+=emptyState({icon:'fileSpreadsheet',title:'Noch keine Vorlagen',text:'Öffne den Plan eines Athleten und speichere ihn dort über „···" › „Als Vorlage speichern". Danach weist du ihn jedem Athleten mit zwei Tipps zu.',btn:{label:'Zu den Athleten',onclick:"go('athletes')"}});
-  else{h+=`<div class="coach-stat"><span><b>${pl(list.length,'Vorlage','Vorlagen')}</b></span><span>antippen und zuweisen</span></div>`;
-    // Zeile antippen = zuweisen (2 Tipps statt 6 über das versteckte „···"-Menü im Plan eines Athleten).
-    h+=`<div class="rows mb-4">`+list.map(t=>`<div class="row tap tpl-row" role="button" tabindex="0" onclick="coTplApplyTo(${t.id},'${esc(t.name)}')"><div class="r-ic">${icon('fileSpreadsheet')}</div>
-      <div class="rl">${esc2(t.name)}<small>${pl(t.days,'Tag','Tage')} · ${pl(t.exercises,'Übung','Übungen')}</small></div>
-      <div class="rr"><button class="btn icon sm ghost tpl-del" aria-label="Vorlage löschen" onclick="event.stopPropagation();delTemplate(${t.id},'${esc(t.name)}')">${icon('trash',18)}</button></div></div>`).join('')+`</div>`;
-    h+=`<div class="note status">Tippe eine Vorlage an, um sie einem Athleten zuzuweisen. Der bisherige Plan bleibt deaktiviert erhalten.</div>`;}
-  h+=`</div>`;v.innerHTML=h;if(typeof cacheView==='function')cacheView('templates');}
+  h+=`<h1 class="lg-title">Vorlagen<small>${esc2(list.length?pl(list.length,'Trainingsplan','Trainingspläne')+' · '+pl(tage,'Tag','Tage'):'noch keine Vorlage')}</small></h1>`;
+  if(!list.length)h+=emptyState({icon:'fileSpreadsheet',title:'Noch keine Vorlage',
+    text:'Aus dem Trainingsplan eines Athleten wird mit einem Tipp eine Vorlage, die du jedem anderen zuweisen kannst.',
+    btn:{label:'Vorlage aus einem Athletenplan erstellen',onclick:'coTplFromAthlete()'}});
+  else{
+    const zeilen=list.map(t=>rowHTML({icon:'fileSpreadsheet',title:t.name,
+      sub:pl(t.days,'Tag','Tage')+' · '+pl(t.exercises,'Übung','Übungen'),
+      tap:`coTplApplyTo(${t.id},'${esc(t.name)}')`}));
+    zeilen.push(rowHTML({icon:'copy',title:'Vorlage aus einem Athletenplan erstellen',
+      sub:'Öffnet den Plan – dort speicherst du ihn als Vorlage',tap:'coTplFromAthlete()'}));
+    // Löschen ist die letzte Zeile der Gruppe, nicht die Wortaktion im Kopf: bei 320 px und 150 %
+    // Textgröße lief „Trainingsvorlagen" + „Löschen" nebeneinander um 5 px über den rechten Rand
+    // (gemessen mit sprache.mjs --text 150 --width 320, K23). Dieselbe Stelle wie im Blatt
+    // „Vorlagen" – eine Funktion, zwei Wege, ein Ort.
+    zeilen.push(rowHTML({icon:'trash',title:'Vorlage löschen',sub:'Eine Vorlage aus der Liste nehmen',tap:'coTplDeleteMode()'}));
+    h+=groupHTML('Trainingsvorlagen',zeilen,
+      'Tippe eine Vorlage an, um sie einem Athleten zuzuweisen – zwei Tipps. Der bisherige Plan bleibt deaktiviert erhalten, geloggte Sätze bleiben stehen. Änderungen an einer Vorlage ändern laufende Pläne nicht.');
+  }
+  h+=`</div>`;v.innerHTML=h;
+  // FIX-D5 (3.2/K2): wie im Reiter Nachrichten - der Titel wird nach einem `await` eingehaengt,
+  // der Beobachter aus shell.js muss ihn danach erneut greifen. Sonst stehen grosser und kompakter
+  // Titel gleichzeitig da.
+  if(typeof mountLargeTitle==='function')mountLargeTitle();
+  if(typeof cacheView==='function')cacheView('templates');}
+// Loeschen ist eine seltene, zerstoerende Handlung: sie bekommt keinen Papierkorb an jeder Zeile
+// (ein Symbol ohne Wort, K11), sondern eine benannte Liste, in der jede Zeile sagt, was sie tut.
+async function coTplDeleteMode(){
+  const r=await API.get('/templates');const list=r.data?.templates||[];
+  if(!list.length)return toast('Es gibt keine Vorlage zum Löschen.');
+  openSheet('Vorlage löschen',groupHTML(null,list.map(t=>rowHTML({
+    title:t.name,sub:pl(t.days,'Tag','Tage')+' · '+pl(t.exercises,'Übung','Übungen'),
+    tap:`delTemplate(${t.id},'${esc(t.name)}')`,danger:true})),
+    'Eine gelöschte Vorlage lässt sich nicht zurückholen. Pläne, die schon aus ihr entstanden sind, bleiben unberührt.'));}
+// Der Weg zur ersten Vorlage: in den Plan eines Athleten. Bis 3.0.2 stand hier ein Satz, der auf
+// ein Punktmenue in einem anderen Bildschirm verwies - eine Funktion, die man nur findet, wenn man
+// schon weiss, wo sie liegt (G5).
+function coTplFromAthlete(){
+  closeAllSheets();
+  const list=ATHLETES_CACHE||[];
+  if(!list.length)return go('athletes');
+  if(list.length===1)return coachOpenPlan(list[0].id,list[0].name);
+  openSheet('Wessen Plan?',groupHTML(null,list.map(a=>coAvatarSwap(rowHTML({icon:'user',title:a.name,
+    sub:'Plan öffnen und als Vorlage speichern',tap:`closeAllSheets();coachOpenPlan(${a.id},'${esc(a.name)}')`}),a.id,a.name)),
+    'Im Plan findest du den Knopf „Als Vorlage speichern“.'));}
 function openBroadcast(){openSheet('Nachricht an alle Athleten',`<div id="bcBox">
-  <div class="note mb-4">Diese Nachricht geht an alle deine Athleten – per Push und, falls aktiviert, per E-Mail.</div>
+  <p class="rows-f">Diese Nachricht geht an alle deine Athleten – per Push und, falls aktiviert, per E-Mail.</p>
   <div class="field"><label>Titel (optional)</label><input id="bc_title" placeholder="z.B. Info zur Woche" maxlength="120"></div>
   <div class="field"><label>Nachricht</label><textarea id="bc_body" rows="4" placeholder="Deine Nachricht…" maxlength="2000"></textarea></div>
   <button class="btn block" onclick="sendBroadcast()">${icon('send',18)} An alle senden</button></div>`);}
@@ -2445,9 +2759,9 @@ function coachSuppBodyHTML(){const {cat,assigned}=COACH_SUPP_CTX;
         <span class="rr">${status}${icon('chevronRight',16)}</span></button></div>`;};
   const as=cat.filter(s=>assigned[s.id]),rest=cat.filter(s=>!assigned[s.id]);
   let h='';
-  h+=`<div class="section-label"><span>Zugewiesen</span><span class="sl-r">${as.length}</span></div>`;
+  h+=`<h2 class="rows-h">Zugewiesen<span class="a">${as.length}</span></h2>`;
   h+=as.length?`<div class="rows mb-3">${as.map(row).join('')}</div>`:`<div class="note status mb-3">Noch nichts zugewiesen – schalte unten ein Supplement ein.</div>`;
-  if(rest.length)h+=`<div class="section-label"><span>Katalog</span><span class="sl-r">${rest.length}</span></div><div class="rows">${rest.map(row).join('')}</div>`;
+  if(rest.length)h+=`<h2 class="rows-h">Katalog<span class="a">${rest.length}</span></h2><div class="rows">${rest.map(row).join('')}</div>`;
   return h;}
 function drawCoachSupp(){const b=document.getElementById('csBody');if(b)b.innerHTML=coachSuppBodyHTML();else coachSupp(COACH_SUPP_CTX.uid,COACH_SUPP_CTX.name);}
 async function coachToggleSupp(sid){const {uid,assigned,cat}=COACH_SUPP_CTX;const s=cat.find(x=>x.id===sid);if(!s)return;
@@ -2478,7 +2792,7 @@ let IMPORT={athleteId:null,athleteName:'',sheets:[],sheetIdx:0,type:'training',m
 function openImport(id,name){name=name||athName(id);
   IMPORT={athleteId:id,athleteName:name,sheets:[],sheetIdx:0,type:'training',mapping:{},headerIdx:0};
   coachSheet('Import',{id,name},`
-    <div class="note mb-4">Importiere einen bestehenden Plan aus einer Excel-Datei (.xlsx). Danach ordnest du die Spalten zu und prüfst alles vor dem Übernehmen.</div>
+    <p class="rows-f">Importiere einen bestehenden Plan aus einer Excel-Datei (.xlsx). Danach ordnest du die Spalten zu und prüfst alles vor dem Übernehmen.</p>
     <label class="btn block file-btn">${icon('upload',18)} Excel-Datei wählen<input type="file" accept=".xlsx,.xls" onchange="importPick(event)"></label>
     <div class="caption center mt-3">Tipp: Eine Spalte je Angabe (Übung, Sätze, Wdh., Gewicht). Tagesnamen wie „Push" in eine eigene Spalte.</div>`);}
 async function importPick(ev){
@@ -2508,10 +2822,10 @@ function drawImportMapping(){
   let h='';
   if(IMPORT.sheets.length>1)h+=`<div class="field"><label>Tabellenblatt</label><select onchange="importSelectSheet(this.value)">${IMPORT.sheets.map((s,i)=>`<option value="${i}" ${i===IMPORT.sheetIdx?'selected':''}>${esc2(s.name)} (${s.rowCount} Zeilen)</option>`).join('')}</select></div>`;
   h+=`<div class="seg"><button class="${IMPORT.type==='training'?'on':''}" onclick="importSetType('training')">Training</button><button class="${IMPORT.type==='nutrition'?'on':''}" onclick="importSetType('nutrition')">Ernährung</button></div>`;
-  h+=`<div class="section-label"><span>Spalten zuordnen</span></div>`;
+  h+=`<h2 class="rows-h">Spalten zuordnen</h2>`;
   h+=roles.map(([role,label])=>`<div class="map-row"><div class="ml">${label}</div><select aria-label="${esc2(label)}" onchange="importSetCol('${role}',this.value)">${colOpts(IMPORT.mapping[role]??'')}</select></div>`).join('');
   const dataRows=sh.rows.slice(IMPORT.headerIdx+1).filter(r=>r.some(c=>String(c).trim()!=='')).slice(0,5);
-  h+=`<div class="section-label"><span>Vorschau</span><span class="sl-r">erste Zeilen</span></div><div class="import-wrap"><table class="import-table">
+  h+=`<h2 class="rows-h">Vorschau<span class="a">erste Zeilen</span></h2><div class="import-wrap"><table class="import-table">
     <tr>${headers.map(hd=>`<th>${esc2(hd)}</th>`).join('')}</tr>
     ${dataRows.map(r=>`<tr>${headers.map((_,i)=>`<td>${esc2(r[i]||'')}</td>`).join('')}</tr>`).join('')}
   </table></div>`;
@@ -2548,7 +2862,7 @@ async function doImport(){
 const coTplHistoryNote='Geloggte Sätze bleiben. Übungen mit demselben Namen bringen Verlauf und Bestwerte mit, wirklich neue Übungen starten ohne Empfehlung.';
 function saveAsTemplate(){const name=COACH_CONTEXT||athName(VIEW_USER);
   coachSheet('Als Vorlage speichern',{id:VIEW_USER,name},`<div id="tplBox">
-    <div class="note mb-4">Speichert den aktuellen Plan als wiederverwendbare Vorlage – z.B. „Push/Pull/Legs Anfänger". Du kannst sie jedem Athleten mit einem Tipp zuweisen.</div>
+    <p class="rows-f">Speichert den aktuellen Plan als wiederverwendbare Vorlage – z.B. „Push/Pull/Legs Anfänger". Du kannst sie jedem Athleten mit einem Tipp zuweisen.</p>
     <div class="field"><label>Name der Vorlage</label><input id="tpl_name" placeholder="z.B. Oberkörper/Unterkörper 4x" maxlength="80"></div>
     <button class="btn block" onclick="doSaveTemplate()">Speichern</button></div>`);}
 async function doSaveTemplate(){const name=val('tpl_name');if(!name)return showFieldErr('tplBox','Bitte einen Namen eingeben.','tpl_name');
@@ -2556,14 +2870,19 @@ async function doSaveTemplate(){const name=val('tpl_name');if(!name)return showF
   if(r.status===200){closeModal();toast('Vorlage gespeichert ✓ ('+pl(r.data.days,'Tag','Tage')+')');}else showFieldErr('tplBox',r.data?.error||'Fehler');}
 async function openTemplates(){openSheet('Vorlagen','<div class="spinner"></div>');
   const r=await API.get('/templates');const list=r.data?.templates||[];const inCtx=coachView();
-  if(!list.length){openSheet('Vorlagen',emptyState({icon:'fileSpreadsheet',title:'Noch keine Vorlagen',text:inCtx?'Speichere zuerst diesen Plan als Vorlage.':'Speichere im Plan eines Athleten „Als Vorlage speichern".',btn:inCtx?{label:'Als Vorlage speichern',onclick:'saveAsTemplate()'}:null}));return;}
-  let h=inCtx?`<div class="note warn mb-4">Beim Anwenden wird der aktuelle Plan von ${esc2(COACH_CONTEXT)} ersetzt (der alte bleibt deaktiviert erhalten). ${coTplHistoryNote}</div>`
-    :`<div class="meta mb-3">Tippe eine Vorlage an und wähle den Athleten.</div>`;
-  // Ohne Athleten-Kontext führt die Zeile in die Athleten-Auswahl (coTplApplyTo) statt in eine Sackgasse.
-  h+=`<div class="rows">`+list.map(t=>`<div class="row tap" role="button" tabindex="0" onclick="${inCtx?`applyTemplate(${t.id},'${esc(t.name)}')`:`coTplApplyTo(${t.id},'${esc(t.name)}')`}"><div class="r-ic">${icon('fileSpreadsheet')}</div>
-    <div class="rl">${esc2(t.name)}<small>${pl(t.days,'Tag','Tage')} · ${pl(t.exercises,'Übung','Übungen')}</small></div>
-    <div class="rr"><button class="btn icon sm ghost tpl-del" aria-label="Vorlage löschen" onclick="event.stopPropagation();delTemplate(${t.id},'${esc(t.name)}')">${icon('trash',18)}</button></div></div>`).join('')+`</div>`;
-  openSheet('Vorlagen',h);}
+  if(!list.length){openSheet('Vorlagen',emptyState({icon:'fileSpreadsheet',title:'Noch keine Vorlage',
+    text:inCtx?'Speichere zuerst diesen Plan als Vorlage – danach weist du ihn jedem Athleten mit zwei Tipps zu.':'Öffne den Plan eines Athleten und speichere ihn dort als Vorlage.',
+    btn:inCtx?{label:'Diesen Plan als Vorlage speichern',onclick:'saveAsTemplate()'}:{label:'Zu den Athleten',onclick:"closeAllSheets();go('athletes')"}}));return;}
+  // Der Papierkorb an jeder Zeile war ein Symbol ohne Wort (K11) und die einzige Stelle, an der
+  // geloescht werden konnte. Loeschen ist jetzt eine benannte Zeile am Ende der Gruppe.
+  const zeilen=list.map(t=>rowHTML({icon:'fileSpreadsheet',title:t.name,
+    sub:pl(t.days,'Tag','Tage')+' · '+pl(t.exercises,'Übung','Übungen'),
+    tap:inCtx?`applyTemplate(${t.id},'${esc(t.name)}')`:`coTplApplyTo(${t.id},'${esc(t.name)}')`}));
+  zeilen.push(rowHTML({icon:'trash',title:'Vorlage löschen',sub:'Eine Vorlage aus der Liste nehmen',tap:'coTplDeleteMode()'}));
+  const fuss=inCtx
+    ?'Beim Anwenden wird der aktuelle Plan von '+(COACH_CONTEXT||'diesem Athleten')+' ersetzt; der alte bleibt deaktiviert erhalten. '+coTplHistoryNote
+    :'Tippe eine Vorlage an und wähle danach den Athleten – zwei Tipps. '+coTplHistoryNote;
+  openSheet('Vorlagen',groupHTML(null,zeilen,fuss));}
 // Vorlage zuweisen in 2 Tipps: Zeile antippen (1) → Athlet antippen (2). Der Warnhinweis steht ÜBER der
 // Auswahl – der zweite Tipp ist damit die bewusste Bestätigung, kein zusätzlicher Rückfrage-Dialog.
 async function coTplApplyTo(tid,tname){
@@ -2571,9 +2890,10 @@ async function coTplApplyTo(tid,tname){
   let list=ATHLETES_CACHE||[];
   if(!list.length){const r=await API.get('/athletes');list=r.data?.athletes||[];if(list.length)ATHLETES_CACHE=sortAthletes(list);list=ATHLETES_CACHE;}
   if(!list.length)return openSheet('Vorlage zuweisen',emptyState({icon:'users',title:'Noch keine Athleten',text:'Lege zuerst einen Athleten an – dann kannst du ihm diese Vorlage zuweisen.',btn:{label:'Athlet hinzufügen',onclick:'addAthlete()'}}));
-  const h=`<div class="note warn mb-3"><b>„${esc2(tname)}"</b> ersetzt den aktuellen Plan des Athleten. Der alte Plan bleibt deaktiviert erhalten. ${coTplHistoryNote}</div>
-    <div class="rows">`+list.map(a=>`<button type="button" class="row tap ad-row" onclick="coTplApply(${tid},'${esc(tname)}',${a.id},'${esc(a.name)}')">${athAvatar(a.id,a.name,'sm')}
-      <span class="rl">${esc2(a.name)}<small>${esc2([a.goal?goalLabel(a.goal):'',coPlannedRate(a)!=null?coRateLabel(coPlannedRate(a)):''].filter(Boolean).join(' · '))}</small></span></button>`).join('')+`</div>`;
+  const h=`<div class="note warn mb-3"><b>„${esc2(tname)}"</b> ersetzt den aktuellen Plan des Athleten. Der alte Plan bleibt deaktiviert erhalten. ${coTplHistoryNote}</div>`
+    +groupHTML(null,list.map(a=>coAvatarSwap(rowHTML({icon:'user',title:a.name,
+      sub:[a.goal?goalLabel(a.goal):'',coPlannedRate(a)!=null?coRateLabel(coPlannedRate(a)):''].filter(Boolean).join(' · '),
+      tap:`coTplApply(${tid},'${esc(tname)}',${a.id},'${esc(a.name)}')`}),a.id,a.name)),null);
   openSheet('Vorlage zuweisen',h);loadAthAvatars(list.filter(a=>a.has_avatar).map(a=>a.id));}
 async function coTplApply(tid,tname,uid,uname){
   const r=await API.post('/templates/'+tid+'/apply/'+uid,{});
@@ -2752,7 +3072,9 @@ function co2PerfStop(){if(CO2_OBS){CO2_OBS.disconnect();CO2_OBS=null;}
    nie (RESEARCH-25-coaching Abschnitt 7 Punkt 5) – sie stehen hier, im Werkzeug des Coaches.
    Und sie schickt nichts von allein: jede Anpassung ist ein Vorschlag mit Begruendung, den der
    Coach freigibt (P10). */
-let RV_TAB='list';         // 'list' = Athletenliste (Standard, unveraendert) | 'week' = Wochen-Review
+/* RV_TAB ist mit D-7 entfallen: das Review ist eine eigene Push-Seite, kein Reiter mehr.
+   Ob es offen ist, sagt `rvOn()` am DOM - ein gemerkter Zustand koennte nach dem Zurueck-Knopf
+   falsch stehen bleiben. */
 let RV_WEEK=0;             // 0 = letzte abgeschlossene Woche (Standard), 1 = laufende Woche
 let RV_DATA={};            // 'uid|start' -> {state:'load'|'ok'|'err', w, flags, ask, status}
 let RV_THREADS=null;       // {ts, by:{uid:{unread,last}}} – EIN Postfach-Aufruf fuer alle Karten
@@ -2786,29 +3108,21 @@ function rvSpanTxt(start,end){if(!start)return '';
 // „Athleten" bleibt der Standard: die Liste ist der Einstieg, den jeder Fluss dieser App kennt
 // (tapcount `coach_msg` tippt die erste `.ath-row` an) – die Inbox ist der zweite Reiter,
 // kein neuer erster Bildschirm.
-const RV_TABS=[['list','Athleten'],['week','Wochen-Review']];
-function rvTabsHTML(){return `<div class="seg rv-seg" role="tablist" aria-label="Ansicht der Athleten" onkeydown="rvTabKey(event)">`+
-  RV_TABS.map(([k,l])=>{const on=RV_TAB===k;
-    return `<button type="button" role="tab" id="rvTab-${k}" aria-selected="${on?'true':'false'}" tabindex="${on?'0':'-1'}" aria-controls="athBody" class="${on?'on':''}" onclick="rvSetTab('${k}')">${l}</button>`;}).join('')+`</div>`;}
-function rvTabKey(e){if(e.altKey||e.ctrlKey||e.metaKey)return;
-  const step={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1}[e.key];
-  const id=(document.activeElement||{}).id||'';
-  let i=RV_TABS.findIndex(t=>'rvTab-'+t[0]===id);if(i<0)i=Math.max(0,RV_TABS.findIndex(t=>t[0]===RV_TAB));
-  let n=null;
-  if(step)n=(i+step+RV_TABS.length)%RV_TABS.length;
-  else if(e.key==='Home')n=0;else if(e.key==='End')n=RV_TABS.length-1;else return;
-  e.preventDefault();rvSetTab(RV_TABS[n][0],true);}
-function rvSetTab(k,focus){if(!RV_TABS.some(t=>t[0]===k))return;RV_TAB=k;
-  document.querySelectorAll('.rv-seg [role="tab"]').forEach(b=>{const on=b.id==='rvTab-'+k;
-    b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false');b.setAttribute('tabindex',on?'0':'-1');
-    if(on&&focus)try{b.focus();}catch(e){}});
-  const body=document.getElementById('athBody');if(!body)return;
-  body.setAttribute('aria-labelledby','rvTab-'+k);
-  body.innerHTML=k==='week'?rvInboxHTML():coachListHTML();
-  if(k==='week')rvAfterDraw();else{drawAthleteList(coachVisibleAthletes());}}
-// EIN Sieb fuer beide Reiter: Filter-Chips und Suche wirken auf Liste UND Inbox (coachSetFilter /
-// filterAthletes rufen das hier). Sonst zeigte derselbe Chip „Alarm 1" zwei verschiedene Mengen.
-function rvAfterFilter(){if(RV_TAB!=='week')return false;
+/* DESIGN-4 6.14/G4 · Das Wochen-Review war der zweite Eintrag eines Segments ueber der
+   Athletenliste – eine zweite Steuerebene ueber einer Seite, die schon Filter und Suche trug.
+   Es ist jetzt eine eigene PUSH-SEITE mit eigenem grossen Titel und dem Zurueck-Knopf „Athleten"
+   (3.3 N1). Damit hat die Athletenliste genau eine Steuerebene, und das Review hat zum ersten Mal
+   einen Namen in der Kopfzeile.
+   Der Filter der Liste wirkt hier NICHT mit: das Review ist die Woche ALLER Athleten. Seine eine
+   Steuerebene ist die Wochenwahl. */
+function rvOpen(){
+  if(typeof pushPage!=='function')return toast('Diese Ansicht braucht ein App-Update.');
+  pushPage('rvWeek','Wochen-Review','Athleten',`<div id="rvBody">${rvInboxHTML()}</div>`,
+    {sub:rvSpanNow(),onMount:rvAfterDraw});}
+// Offen ist es genau dann, wenn seine Karten im Dokument stehen – kein zweiter Zustand daneben,
+// der nach dem Zurueck-Knopf falsch stehen bleiben koennte.
+function rvOn(){return !!document.getElementById('rvCards');}
+function rvAfterFilter(){if(!rvOn())return false;
   const b=document.getElementById('rvCards');if(!b)return true;
   b.innerHTML=rvCardsHTML();rvAfterDraw();return true;}
 
@@ -2816,11 +3130,9 @@ function rvAfterFilter(){if(RV_TAB!=='week')return false;
 // Suche und Filter-Chips sind DIESELBEN wie im Reiter „Athleten" (gleiche Kennungen, gleiche
 // Funktionen) – ein Sieb, zwei Darstellungen. Wer in der Liste auf „Alarm" gefiltert hat, findet
 // im Review dieselben Athleten, nicht plötzlich alle.
-function rvInboxHTML(){const list=ATHLETES_CACHE||[];
-  let h=`<div class="rv-bar">${rvWeekBtnHTML()}</div>`;
-  if(list.length>5)h+=`<input class="field ath-search" id="athSearch" type="search" placeholder="Athlet suchen" oninput="filterAthletes(this.value)" value="${esc2(COACH_QUERY)}">`
-    +`<div class="chip-row wrap co-filters" id="athFilters">${coachFilterChipsHTML(list)}</div>`;
-  return h+rvSrcHTML()+`<div class="rv-cards" id="rvCards">${rvCardsHTML()}</div>`;}
+function rvInboxHTML(){
+  return `<div class="rv-bar">${rvWeekBtnHTML()}</div>`+rvSrcHTML()
+    +`<div class="rv-cards" id="rvCards">${rvCardsHTML()}</div>`;}
 // Zwei Knoepfe, kein Datumsblaetterer: der Review findet fuer die abgeschlossene Woche statt, und
 // wer am Sonntagabend schon schauen will, braucht die laufende. Alles dazwischen ist Archiv – das
 // steht im Wochenrueckblick des Athleten, mit Blaetterpfeilen, die es dort schon gibt.
@@ -2833,8 +3145,12 @@ function rvWeekBtnHTML(){
 function rvSpanNow(){const k=rvWeekStart();
   return (RV_SPAN&&RV_SPAN.key===k)?rvSpanTxt(RV_SPAN.start,RV_SPAN.end):rvSpanTxt(k,coIsoAdd(k,6));}
 function rvSetWeek(v){v=v?1:0;if(RV_WEEK===v)return;RV_WEEK=v;
-  const body=document.getElementById('athBody');if(!body)return;
-  body.innerHTML=rvInboxHTML();rvAfterDraw();}
+  // Die Seite zeichnet sich in der Push-Ebene neu; die Unterzeile des grossen Titels nennt danach
+  // das Fenster, das wirklich gezeigt wird.
+  const body=document.getElementById('rvBody');if(!body)return;
+  body.innerHTML=rvInboxHTML();
+  const sub=document.querySelector('#pushView .lg-title small');if(sub)sub.textContent=rvSpanNow();
+  rvAfterDraw();}
 function rvCardsHTML(){
   const list=coachVisibleAthletes();
   if(!list.length)return (ATHLETES_CACHE||[]).length
@@ -2855,9 +3171,9 @@ function rvCardHTML(a){
       <label class="rv-lbl" for="rv-t-${id}">Antwort an ${esc2(first)}</label>
       <textarea id="rv-t-${id}" rows="2" maxlength="2000" placeholder="Kurz zurückmelden – ein Satz reicht." oninput="rvDraft(${id},this.value)">${esc2(RV_DRAFT[id]||'')}</textarea>
       <div class="rv-acts">
-        <button type="button" class="btn sm sec rv-send" onclick="rvSend(${id})">${icon('send',16)} Senden</button>
-        <button type="button" class="btn sm sec" onclick="rvPivot(${id},'${esc(name)}')">${icon('refresh',16)} Heute ändern</button>
-        <button type="button" class="btn sm sec" onclick="openThread(${id},'${esc(name)}')">${icon('mail',16)} Unterhaltung</button>
+        <button type="button" class="btn sec rv-send" onclick="rvSend(${id})">${icon('send',16)} Senden</button>
+        <button type="button" class="btn sec" onclick="rvPivot(${id},'${esc(name)}')">${icon('refresh',16)} Heute ändern</button>
+        <button type="button" class="btn sec" onclick="openThread(${id},'${esc(name)}')">${icon('mail',16)} Unterhaltung</button>
       </div>
       <div class="rv-hint" id="rv-s-${id}" role="status">${RV_SENT[id]?'Antwort gesendet ✓':''}</div>
     </div></article>`;}
@@ -2993,7 +3309,7 @@ async function rvThreadsLoad(){
   const t=await coachThreads();
   const by={};(t.rows||[]).forEach(r=>{if(r.g)by[r.a.id]=r.g;});
   RV_THREADS={ts:Date.now(),by};
-  if(RV_TAB==='week')coachVisibleAthletes().forEach(a=>rvPatch(a.id));}
+  if(rvOn())coachVisibleAthletes().forEach(a=>rvPatch(a.id));}
 function rvNeed(a,start){
   const key=a.id+'|'+start;
   if(RV_DATA[key])return;
@@ -3113,8 +3429,8 @@ function rvGoalHTML(a,e){
     // liest, nicht einen zweiten, umformulierten Grund (P3, und RATE-25-coach 11 zum Athleten-Du).
     const why=`<div class="why"><span class="rv-src-lbl">Begründung des Rechenkerns – so liest sie ${esc2(first)}:</span><br>„${esc2(p.reason||'—')}"${rvTdeeLine(tg,p)}</div>`;
     const acts=p.needsCoach
-      ? `<div class="acts"><button type="button" class="btn sm sec rv-ok" onclick="rvDecide(${id},${Number(p.id)},true)">${icon('check',16)} Freigeben</button>
-          <button type="button" class="btn sm sec" onclick="rvDecide(${id},${Number(p.id)},false)">Behalten</button></div>`
+      ? `<div class="acts"><button type="button" class="btn sec rv-ok" onclick="rvDecide(${id},${Number(p.id)},true)">${icon('check',16)} Freigeben</button>
+          <button type="button" class="btn sec" onclick="rvDecide(${id},${Number(p.id)},false)">Behalten</button></div>`
       : `<div class="why">${esc2(first)} hat „Ziele automatisch anpassen" aus – der Vorschlag wartet auf ihn, nicht auf dich.</div>`;
     return `<div class="rv-goal">${head}${why}${acts}</div>`;}
   if(tg&&tg.available===false&&tg.mode)return '';
@@ -3133,8 +3449,8 @@ function rvGoalHTML(a,e){
     <div class="b">Gespeichert <b>${fmtNum(st)} / ${fmtNum(sr)} kcal</b> → gerechnet <b>${fmtNum(su)} / ${fmtNum(ru)} kcal</b> (Training / Ruhe).</div>
     <div class="why">Warum: ${devTxt?esc2(devTxt+' gegenüber der Rechnung'):'Das gespeicherte Ziel weicht von der Rechnung ab'} zum aktuellen Gewicht${ask.weightKg?' von '+fmtNum(ask.weightKg,1)+' kg':''}.
       Die Ernährung des Athleten arbeitet bereits mit der gerechneten Zahl – gespeichert ist nur die alte.${e.dobMissing?' Ohne Geburtsjahr rechnet die Formel ohne Alter: ein Startwert, kein Messwert.':''}</div>
-    <div class="acts"><button type="button" class="btn sm sec rv-ok" onclick="rvApprove(${id},${su},${ru})">${icon('check',16)} Freigeben</button>
-      <button type="button" class="btn sm sec" onclick="rvKeep(${id})">Behalten</button></div></div>`;}
+    <div class="acts"><button type="button" class="btn sec rv-ok" onclick="rvApprove(${id},${su},${ru})">${icon('check',16)} Freigeben</button>
+      <button type="button" class="btn sec" onclick="rvKeep(${id})">Behalten</button></div></div>`;}
 // EIN Tipp. POST /api/targets/:id/decide ist dieselbe Route, die auch der Athlet benutzt – der
 // Server haelt fest, wer entschieden hat (`approved_by`), loest die vorige Zielzeile ab und schickt
 // dem Athleten den Satz dazu. Hier wird nichts nachgerechnet und nichts zweimal geschrieben.
@@ -3186,21 +3502,24 @@ async function rvPivot(uid,name){
   const from=ov?'bereits geändert':(t.confirmed?'bereits eingetragen':'Vorschlag aus dem Rhythmus');
   const first=String(name).split(' ')[0];
   const rvIsNow=d=>ov?(ov.day_id===d.id):(eff.type==='train'&&eff.dayName===d.name);
-  const rows=days.map(d=>`<button type="button" class="row tap ad-row rv-day" onclick="rvPivotTo(${uid},'${esc(date)}',${d.id},'${esc(d.name)}')">
-      <span class="r-ic">${icon('dumbbell')}</span><span class="rl">${esc2(d.name)}<small>${pl((d.exercises||[]).length,'Übung','Übungen')}</small></span>
-      ${rvIsNow(d)?'<span class="rr">heute</span>':''}</button>`).join('');
+  // FIX-D5: Die Auswahlzeilen bauen mit rowHTML() (K6/9.3). Die Klasse ad-row steht seit D-7 in
+  // coach.css als ERSATZLOS geloescht - sie hing hier noch im Markup und behauptete Regeln, die es
+  // nicht mehr gibt. Die Gruppe ist rows.pick: eine Zeile, die einen WERT SETZT, fuehrt nirgendwohin
+  // und traegt darum kein Chevron (A32/G7, Regel in account.css:126).
+  const rows=days.map(d=>rowHTML({icon:'dumbbell',title:d.name,sub:pl((d.exercises||[]).length,'Übung','Übungen'),
+    value:rvIsNow(d)?'heute':'',tap:`rvPivotTo(${uid},'${esc(date)}',${d.id},'${esc(d.name)}')`}).replace('"row tap','"row tap rv-day')).join('');
   const restNow=ov?ov.rest:(eff.type==='rest');
   coachSheet('Heute ändern',{id:uid,name},`<div id="rvPivBox">
     <div class="note status mb-3">Heute (${esc2(fmtDate(date,{weekday:'short'}))}) steht bei ${esc2(first)}: <b>${esc2(cur)}</b> – ${esc2(from)}.
       Die Änderung gilt <b>nur für diesen Tag</b>. Plan und Rhythmus bleiben, wie sie sind.</div>
-    ${ov?`<div class="note mb-3">${esc2(ov.text||'')}<br><span class="caption">Geändert von ${esc2(ov.by==='coach'?'dir':first)}.</span>
-      <div class="mt-2"><button type="button" class="btn sm sec" onclick="rvPivotUndo(${uid},'${esc(date)}')">${icon('refresh',16)} Änderung zurücknehmen</button></div></div>`:''}
+    ${ov?`<div class="note status mb-3">${esc2(ov.text||'')}<br><span class="caption">Geändert von ${esc2(ov.by==='coach'?'dir':first)}.</span>
+      <div class="mt-2"><button type="button" class="btn sec" onclick="rvPivotUndo(${uid},'${esc(date)}')">${icon('refresh',16)} Änderung zurücknehmen</button></div></div>`:''}
     <div class="field"><label for="rv_piv_note">Begründung (geht an ${esc2(first)})</label>
       <input id="rv_piv_note" maxlength="160" value="${esc2('Heute lieber etwas anderes – die Einheit holen wir nach.')}"></div>
-    <div class="section-label"><span>Stattdessen</span></div>
-    <div class="rows mb-3">${rows||'<div class="note status">Dieser Athlet hat noch keine Trainingstage im Plan.</div>'}
-      <button type="button" class="row tap ad-row rv-day" onclick="rvPivotTo(${uid},'${esc(date)}',null,'Ruhetag')">
-        <span class="r-ic">${icon('moon')}</span><span class="rl">Ruhetag<small>Heute nichts – erholen</small></span>${restNow?'<span class="rr">heute</span>':''}</button></div>
+    <h2 class="rows-h">Stattdessen</h2>
+    <div class="rows pick mb-3">${rows||'<div class="note status">Dieser Athlet hat noch keine Trainingstage im Plan.</div>'}
+      ${rowHTML({icon:'moon',title:'Ruhetag',sub:'Heute nichts – erholen',value:restNow?'heute':'',
+        tap:`rvPivotTo(${uid},'${esc(date)}',null,'Ruhetag')`}).replace('"row tap','"row tap rv-day')}</div>
     <div class="caption">Ein Tipp auf die Zeile ändert den Tag. Die Begründung geht als Nachricht mit – ohne sie weist der Server die Änderung ab.</div></div>`);}
 // Tipp 2. `day_id` ist der Vertrag von POST /api/session-override (B-I.2): eine Zahl heisst
 // Trainingstag, `null` heisst Ruhetag. Der Server prueft selbst, ob der Tag zu diesem Plan gehoert.
@@ -3236,7 +3555,7 @@ function rvAfterWrite(uid){
   delete COACH_DASH[uid];coachInvalidate();
   const start=rvWeekStart(),key=uid+'|'+start;
   delete RV_DATA[key];
-  if(RV_TAB!=='week')return;
+  if(!rvOn())return;
   const a=(ATHLETES_CACHE||[]).find(x=>x.id===uid);if(!a)return;
   RV_DATA[key]={state:'load'};rvPatch(uid);
   RV_QUEUE.push(()=>rvFetch(a,start,key));rvPump();}

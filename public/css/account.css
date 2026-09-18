@@ -23,77 +23,67 @@
   .login-brand p{display:none}
 }
 
-/* ---------- PROFIL-HUB ---------- */
-.pf-head{text-align:center;padding:0 0 var(--s-2)}
-/* Der grosse Profil-Avatar war eine rot gefuellte Flaeche ueber dem Falz des Profil-Sheets –
+/* ---------- PROFIL (DESIGN-4 6.11) ----------
+   Das Profil ist eine Push-Seite aus .rows-Gruppen. Fast alles kommt damit aus app.css; hier
+   bleiben nur drei Dinge, die es sonst nirgends gibt: der grosse Avatar auf der Unterseite
+   "Name und Foto", die Rueckmeldung am selbstspeichernden Feld und die Tabelle "Wer sieht was".
+   GELOESCHT, weil niemand es mehr erzeugt: .pf-rows (der Gruppenabstand kommt aus .rows-h/.rows-f),
+   .pf-avatar-acts und .pf-file (das Bild waehlt jetzt eine .row.tap, das Dateifeld liegt versteckt
+   daneben), .pf-version (die Fassung steht im Fusstext der Hilfe-Gruppe), .pf-details/.pf-steps
+   (der Aufklapper der Kurzbefehl-Anleitung - G5) und die Chip-Sperren (die Erinnerungen sind
+   bedienbar und sagen in der Unterzeile, was ohne Push fehlt, statt gesperrt dazustehen). */
+.pf-head{text-align:center;padding:0 0 var(--s-4)}
+/* Der grosse Profil-Avatar war eine rot gefuellte Flaeche ueber dem Falz des Profil-Sheets -
    und damit dieselbe Verschwendung wie der kleine im Kopf (app.css, .hdr .avatar). Identitaet ist
    kein Angebot: neutrale Flaeche, helle Initiale (13,1:1 auf --surface3). */
-.pf-avatar{width:84px;height:84px;margin:0 auto var(--s-3);border-radius:50%;background:var(--surface3);background-size:cover;background-position:center;color:var(--ink);display:flex;align-items:center;justify-content:center;font:700 var(--t-3xl)/1 var(--font-head);letter-spacing:var(--track-head)}
-.pf-head .meta{margin-top:var(--s-1)}
-.pf-avatar-acts{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:var(--s-2);margin-top:var(--s-3)}
-.pf-avatar-acts .btn{cursor:pointer}
-/* Datei-Dialog liegt unsichtbar im Label „Bild ändern" (.btn ist position:relative) */
-.pf-file{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0}
-.pf-head+.field{margin-top:var(--s-1)}
-.pf-rows{margin-bottom:var(--s-3)}
-.pf-rows+.pf-rows{margin-top:var(--s-4)}
-/* Die Ziffern in der Kurzbefehl-Anleitung sind eine Aufzaehlung, kein Ruf (RATE M1). */
-.rows .r-ic.num{font:700 var(--t-md)/var(--s-6) var(--font);text-align:center;color:var(--ink2);font-variant-numeric:tabular-nums}
-.pf-version{text-align:center;color:var(--ink3);font-size:var(--t-xs);margin:var(--s-6) 0 var(--s-1)}
-/* Auto-Save-Rückmeldung am Feld (kurz grüner Rahmen) */
+.pf-avatar{width:84px;height:84px;margin:0 auto;border-radius:50%;background:var(--surface3);background-size:cover;background-position:center;color:var(--ink);display:flex;align-items:center;justify-content:center;font:700 var(--t-2xl)/1 var(--font-head);letter-spacing:var(--track-head)}
+/* Auto-Save-Rueckmeldung am Feld (kurz gruener Rahmen) - es gibt keinen Speichern-Knopf. */
 .field.saved input,.field.saved select,.field.saved textarea{border-color:var(--green)}
-/* Schalter ohne Wirkung (nicht unterstützt / blockiert / Push aus / E-Mail unbestätigt) */
+/* Die Ziffern-Variante der Symbolspalte (Aufzaehlung statt Ruf) bleibt: home.js benutzt sie. */
+.rows .r-ic.num{font:700 var(--t-md)/var(--s-6) var(--font);text-align:center;color:var(--ink2);font-variant-numeric:tabular-nums}
+/* Der alte Schalter .tgl erzeugt diese Datei NICHT mehr - das Profil benutzt input.sw aus app.css
+   (DESIGN-4 5.5). Die beiden Regeln bleiben trotzdem stehen, weil analysis.js ("Woechentlich
+   erinnern") und coach.js (Athleten-Schalter) ihn weiter zeichnen und beide in Welle 5 dran sind.
+   Ohne die Trefferflaechen-Erweiterung faellt ihr Schalter von 68x44 auf 48x28 px zurueck - eine
+   gemessene a11y-Verschlechterung (G12), und die gehoert nicht in dieses Paket. */
 .tgl.dis{opacity:.45}
-/* Erinnerungs-Chips, solange Push auf diesem Gerät aus ist: sichtbar (die eingestellte Stunde bleibt
-   ablesbar), aber erkennbar wirkungslos. Der Tap bleibt möglich – er erklärt, was zuerst fehlt. */
-#pf_pushHour .chip.dis,#pf_mindHour .chip.dis{opacity:.45}
-/* Der Schalter selbst ist 48×28 px – unsichtbare Trefferflächen-Erweiterung auf 68×44 px (Design-System-Minimum).
-   .tgl ist in app.css bereits position:relative, ::after ist der Knauf – deshalb ::before. */
 .switch-row .tgl::before{content:'';position:absolute;inset:-8px -10px}
 
-/* Aufklappbare Abschnitte (Kurzbefehl-Anleitung, Format) */
-.pf-details{background:var(--surface3);border-radius:var(--r-sm);overflow:hidden}
-.pf-details+.pf-details{margin-top:var(--s-2)}
-.pf-details>summary{display:flex;align-items:center;gap:var(--s-2);min-height:52px;padding:var(--s-3) var(--s-4);font:600 var(--t-base)/1.3 var(--font);color:var(--ink);cursor:pointer;list-style:none}
-.pf-details>summary::-webkit-details-marker{display:none}
-.pf-details>summary::after{content:'';flex:0 0 16px;width:16px;height:16px;margin-left:auto;background:currentColor;color:var(--ink3);transition:transform var(--dur) var(--ease);-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat}
-.pf-details[open]>summary::after{transform:rotate(180deg)}
-.pf-details>.card{margin:0 var(--s-3) var(--s-3);border-radius:var(--r-sm)}
-.pf-steps{font-size:var(--t-sm);line-height:1.65;color:var(--ink2)}
-.pf-steps b{color:var(--ink)}
+/* ---------- WER SIEHT WAS ----------
+   Echte Tabellendaten, deshalb eine echte Tabelle (DESIGN-4 4.6, letzte Zeile: die import-table
+   bleibt ebenfalls Tabelle). Kurze Zellen sind hier kein Stil, sondern Bedingung: auf 390 px muss
+   die Spalte "Betreiber" SICHTBAR sein - sie ist die, wegen der die Tabelle existiert. Die Werte
+   standen bis 3.0.2 als style="" an jeder einzelnen Zelle, mit rohen 12/10-px-Groessen. */
+.lg-who{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:var(--s-3)}
+.lg-who table{border-collapse:collapse;width:100%}
+.lg-who th,.lg-who td{padding:var(--s-2) var(--s-1);border-bottom:.5px solid var(--line);
+  vertical-align:top;text-align:left;font:400 var(--t-sm)/var(--lh-sm) var(--font)}
+.lg-who thead th{color:var(--ink2);font-weight:600}
+.lg-who thead th.k,.lg-who tbody th{width:44%}
+.lg-who tbody th{font-weight:500;padding-left:0}
+.lg-who td.s{font-weight:600}
 
-/* ---------- NACHRICHTEN ---------- */
-/* Zwei Bereiche im Sheet: das Gespräch mit dem Coach und „Für dich" (B13).
-   Blasen, Datumstrenner und Eingabe liegen in coach.css (.thread/.bub/.thread-compose) – der Athlet
-   benutzt dieselbe Darstellung, coach.css lädt vor account.css. */
-.msg-seg{margin-bottom:var(--s-3)}
-.msg-seg .pill{margin-left:var(--s-1);vertical-align:2px}
-/* Lesebestätigung unter der letzten eigenen Blase – rechtsbündig wie die Blase selbst */
+/* ---------- POSTFACH (DESIGN-4 6.12) ----------
+   Gespraech und "Fuer dich" stehen untereinander auf einer Push-Seite; das Segment ist weg.
+   Blasen, Datumstrenner und die Lesebestaetigung liegen in coach.css (.thread/.bub) - der Athlet
+   benutzt dieselbe Darstellung, coach.css laedt vor account.css.
+   GELOESCHT, weil niemand es mehr erzeugt: .msg-seg (kein Segment mehr), .msg/.msg.unread/.mf
+   (jede Nachricht ist jetzt eine .row mit Absender und Zeit in der Unterzeile), .sun-card samt
+   Liste (die Wochennachricht ist eine Zeile, die in die Woche fuehrt), .msg-list, .msg-compose. */
+/* Lesebestaetigung unter der letzten eigenen Blase - rechtsbuendig wie die Blase selbst */
 .thread-receipt{align-self:flex-end;margin:-4px var(--s-1) 0;color:var(--ink3);font-size:var(--t-xs);line-height:1.3}
 .thread-receipt.seen{color:var(--green-text)}
-.msg-list{margin-top:-6px}
-.msg .mf{font-size:var(--t-xs);color:var(--ink3);margin-top:var(--s-1)}
-.msg .mt .pill{margin-left:var(--s-1)}
-.msg.unread{border-left:2px solid var(--accent);margin-left:calc((var(--s-3) + 2px) * -1);padding-left:var(--s-3)}
-.msg.system .mt{color:var(--ink)}
-/* Sonntagskarte („Deine Woche"): der Rumpf ist eine Aneinanderreihung von Kennzahl-Sätzen –
-   als Liste gelesen statt als Fließtext, mit dem Zeitraum im Kopf. */
-.sun-card{background:var(--surface3);border-radius:var(--r);padding:var(--s-3) var(--s-4) var(--s-4);margin-bottom:var(--s-3)}
-.sun-card.unread{box-shadow:inset 2px 0 0 var(--accent)}
-.sun-card .sc-h{display:flex;align-items:flex-start;gap:var(--s-2)}
-.sun-card .sc-h .ic{flex:0 0 20px;color:var(--ink2);margin-top:var(--s-1)}
-.sun-card .sc-h .fill{flex:1;min-width:0}
-.sun-card .sc-h .t{font:600 var(--t-md)/1.3 var(--font);color:var(--ink)}
-.sun-card .sc-h .d{margin-top:var(--s-1);color:var(--ink3);font-size:var(--t-xs)}
-.sun-card .sc-h .md{flex:0 0 auto;color:var(--ink3);font-size:var(--t-xs);white-space:nowrap}
-.sun-card .sc-l{list-style:none;margin:var(--s-3) 0 var(--s-3);padding:0}
-.sun-card .sc-l li{position:relative;padding-left:var(--s-4);color:var(--ink2);font-size:var(--t-sm);line-height:var(--lh-body)}
-.sun-card .sc-l li+li{margin-top:var(--s-1)}
-.sun-card .sc-l li::before{content:'';position:absolute;left:4px;top:.62em;width:5px;height:5px;border-radius:50%;background:var(--ink3)}
-.msg-notes{margin-top:var(--s-4)}
+/* Verfassen: Feld und ein Knopf MIT WORT (der alte war ein rotes Symbol ohne Text - K11 und der
+   fuenfte Akzent-Verbraucher der Ansicht). Kein position:sticky mehr: auf einer Push-Seite klebte
+   die Leiste sonst ueber dem Abschnitt "Fuer dich" und verdeckte dessen erste Zeile. */
+.ac-compose{display:flex;align-items:flex-end;gap:var(--s-2);margin:var(--s-2) 0 0}
+.ac-compose textarea{flex:1;min-width:0;min-height:var(--tap);resize:none}
+.ac-compose .btn{flex:0 0 auto}
+/* Der volle Text einer Nachricht auf ihrer eigenen Seite: nichts abgeschnitten (G11). */
+.ac-msgbody{margin:var(--s-2) var(--s-4) var(--s-6);color:var(--ink);
+  font:400 var(--t-md)/var(--lh-md) var(--font);overflow-wrap:break-word}
+.msg-notes{margin-top:var(--s-6)}
 .msg-notes .note+.note{margin-top:var(--s-2)}
-/* Verfassen bleibt am unteren Rand des Sheets stehen */
-.msg-compose{position:sticky;bottom:calc((var(--s-4) + var(--safe-b)) * -1);z-index:2;margin:var(--s-4) calc(var(--s-4) * -1) calc((var(--s-4) + var(--safe-b)) * -1);padding:var(--s-3) var(--s-4) calc(var(--s-4) + var(--safe-b));background:var(--surface2);border-top:.5px solid var(--hairline2)}
 
 /* ---------- TEILEN-DIALOGE ---------- */
 .sh-photo{display:block;width:100%;max-height:200px;object-fit:cover;border-radius:var(--r-sm);margin-bottom:var(--s-3)}
@@ -116,15 +106,24 @@
 @media (prefers-reduced-motion:reduce){
   .ex.flash,.row.flash,.rec.flash,.recipe.flash{animation:none;box-shadow:0 0 0 2px var(--accent-text)}}
 
-/* ---------- iOS-INSTALLHINWEIS ---------- */
-.install-hint{display:flex;align-items:center;gap:var(--s-2);margin:var(--s-2) var(--s-4) 0;padding:var(--s-2) var(--s-3)}
-/* „Anleitung" ist ein Link und sieht seit A-IV.5 aus wie jeder Link der App (a{--blue-text}) –
-   vorher war es der einzige rote Textlink und damit ein fuenfter Akzent-Verbraucher. */
-.install-hint a{position:relative;display:inline-block;padding:var(--s-1) 0;color:var(--blue-text);font-weight:600;cursor:pointer;white-space:nowrap}
-/* „Anleitung" ist nur ~58×17 px groß – unsichtbare Trefferfläche auf 44 px Höhe erweitern (wie bei .btn.icon) */
-.install-hint a::before{content:'';position:absolute;inset:-14px -8px}
-.install-hint .btn.icon{background:transparent;color:var(--ink3)}
+/* ---------- INSTALLATIONS-HINWEIS ----------
+   Bis zur D-6-Fix-Runde war das ein `.note`-Kasten mit Inline-Stilen und einem runden `.btn.icon.sm`
+   (Befund D14): ein zweites, fremdes Element zwischen grossem Titel und Segment. Jetzt baut
+   account.js ihn aus groupHTML()/rowHTML() – Ueberschrift mit der Wortaktion „Später", darunter EINE
+   Zeile. Damit bleibt hier nur noch die FRAGE DES ORTES; Flaeche, Radius, Schrift und Trefferflaeche
+   kommen aus app.css wie bei jedem anderen Abschnitt.
+   `.rows-h` bringt 24 px Luft nach oben mit – direkt unter dem grossen Titel ist das zu viel und es
+   wuerde durch den Rahmen hindurch kollabieren; deshalb hier 8 px. */
+.install-hint{margin:0 0 var(--s-4)}
+.install-hint>.rows-h{margin-top:var(--s-2)}
 
 /* ---------- EINFÜHRUNGS-TOUR ----------
    Die Tour-Stile (.tour-ov, .tour-card und .tour-card.hid, solange drawTourStep die Karte noch nicht
    positioniert hat; .tour-ov:not(.on) schluckt keine Taps) stehen seit 2.1.0 nur noch in app.css. */
+
+/* ---------- AUSWAHLGRUPPE (A32) ----------
+   Eine Zeile, die einen Wert SETZT, fuehrt nirgendwohin - also kein Chevron (G7). Der Haken rechts
+   ist das Zeichen. Das .chev-Element bleibt im Markup stehen und wird nur ausgeblendet: ohne es
+   zoege die Legacy-Regel in app.css (.row.tap:not(:has(.chev))) ein Pseudo-Chevron nach. */
+.rows.pick .row.tap .chev,.row.tap.act .chev{display:none}
+/* .act = die Zeile TUT etwas, statt weiterzufuehren (herunterladen, abmelden, Test senden). */

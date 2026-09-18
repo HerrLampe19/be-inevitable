@@ -61,103 +61,117 @@ function _searchAllow(av){
 function _searchOk(a){try{return a.ok?!!a.ok():true;}catch(e){console.error('[suche]',e);return false;}}
 
 // ===== AKTIONEN: die feste Liste der App-Funktionen =====
-// t=Titel · g=Bereich (steht als Unterzeile) · ic=Symbol aus ICONS · s=weitere Suchwörter (Synonyme,
-// bewusst ohne Umlaute – _searchNorm zieht beide Schreibweisen zusammen) · av=Sichtbarkeit (siehe
-// _searchAllow) · top=Vorschlag bei leerem Feld · ok()=erreichbar? · run()=hingehen.
+// t=Titel · g=Bereich · p=DER PFAD zum Ort (steht als Unterzeile, sonst g) · ic=Symbol aus ICONS ·
+// s=weitere Suchwörter (Synonyme, bewusst ohne Umlaute – _searchNorm zieht beide Schreibweisen
+// zusammen) · av=Sichtbarkeit (siehe _searchAllow) · top=Vorschlag bei leerem Feld · ok()=erreichbar? ·
+// run()=hingehen.
+//
+// WARUM p: DESIGN-4 6.13/7.9 verlangen, dass jede Trefferzeile den WEG zeigt („Hantelrechner ·
+// Training › Werkzeuge"), damit die Suche dem Nutzer den Ort BEIBRINGT, statt ihn zu ersetzen —
+// „Die Suche bleibt die Abkürzung, nicht der Weg." Bis zur D-6-Fix-Runde stand hier nur `sub:a.g`,
+// also „Training" ohne den Abschnitt: im Bild dz/pv/p18-suche.png stand unter „Hantelrechner"
+// bloss „Training", und wer danach in den Reiter ging, suchte weiter.
+// Die Pfade sind NICHT geraten, sondern am laufenden DOM abgelesen (scratchpad/d6fix-orte.mjs:
+// jedes onclick-Ziel gegen die `.rows-h` seiner Gruppe). Wo kein Abschnitt gemessen wurde, steht
+// weiterhin nur der Bereich — lieber eine kurze Wahrheit als ein erfundener Weg.
 const SEARCH_ACTIONS=[
   // --- Start ---
-  {t:'Check-in',g:'Start',ic:'check',av:'self',top:1,s:'gewicht schlaf schritte wasser eintragen tagesform waage taeglich',
+  {t:'Check-in',g:'Start',p:'Start › Heute offen',ic:'check',av:'self',top:1,s:'gewicht schlaf schritte wasser eintragen tagesform waage taeglich',
    ok:()=>typeof openCheckinSheet==='function',run:()=>openCheckinSheet(today())},
-  {t:'Mehrere Tage nachtragen',g:'Start',ic:'copy',av:'self',s:'nachtragen rueckwirkend mehrere tage vergangenheit sammel checkin',
+  {t:'Mehrere Tage nachtragen',g:'Start',p:'Analyse › Einträge',ic:'copy',av:'self',s:'nachtragen rueckwirkend mehrere tage vergangenheit sammel checkin',
    ok:()=>typeof openBulkCheckin==='function',run:()=>openBulkCheckin()},
-  {t:'Supplements',g:'Start',ic:'pill',av:'self',s:'nahrungsergaenzung kapseln vitamine kreatin einnahme haken',
+  {t:'Supplements',g:'Start',p:'Start › Heute offen',ic:'pill',av:'self',s:'nahrungsergaenzung kapseln vitamine kreatin einnahme haken',
    ok:()=>typeof openSupp==='function',run:()=>openSupp()},
-  {t:'Bereitschaft',g:'Start',ic:'zap',av:'view',s:'readiness erholung frisch belastung hrv ruhepuls schlaf ampel form',
+  {t:'Bereitschaft',g:'Start',p:'Start › Jetzt-Karte',ic:'zap',av:'view',s:'readiness erholung frisch belastung hrv ruhepuls schlaf ampel form',
    ok:()=>typeof openReadiness==='function',run:()=>openReadiness()},
   // --- Training ---
-  {t:'Kalender',g:'Training',ic:'calendar',av:'view',top:1,s:'kalender monat tage planen nachtragen trainingstage uebersicht',
+  {t:'Kalender',g:'Training',p:'Training › Plan',ic:'calendar',av:'view',top:1,s:'kalender monat tage planen nachtragen trainingstage uebersicht',
    ok:()=>typeof openCalendar==='function',run:()=>openCalendar()},
-  {t:'Trainingsrhythmus',g:'Training',ic:'refresh',av:'self',s:'rhythmus split folge trainingstage ruhetage muster wochenplan',
+  {t:'Trainingsrhythmus',g:'Training',p:'Training › Plan',ic:'refresh',av:'self',s:'rhythmus split folge trainingstage ruhetage muster wochenplan',
    ok:()=>typeof openRhythmus==='function',run:()=>openRhythmus()},
-  {t:'Technik-Lexikon',g:'Training',ic:'info',av:'any',s:'technik lexikon begriffe erklaerung dropsatz rir tempo definition',
+  {t:'Technik-Lexikon',g:'Training',p:'Training › Werkzeuge',ic:'info',av:'any',s:'technik lexikon begriffe erklaerung dropsatz rir tempo definition',
    ok:()=>typeof openDefs==='function',run:()=>openDefs()},
-  {t:'Hantelrechner',g:'Training',ic:'dumbbell',av:'any',s:'hantel scheiben platten langhantel rechner gewicht kg beladen',
+  {t:'Hantelrechner',g:'Training',p:'Training › Werkzeuge',ic:'dumbbell',av:'any',s:'hantel scheiben platten langhantel rechner gewicht kg beladen',
    ok:()=>typeof openPlateCalc==='function',run:()=>openPlateCalc()},
-  {t:'Pausen-Timer',g:'Training',ic:'timer',av:'self',s:'pause timer stoppuhr satzpause uhr countdown pausenlaenge',
+  {t:'Pausen-Timer',g:'Training',p:'Training › Werkzeuge',ic:'timer',av:'self',s:'pause timer stoppuhr satzpause uhr countdown pausenlaenge',
    ok:()=>typeof restPick==='function',run:()=>restPick()},
-  {t:'Cardio',g:'Training',ic:'heart',av:'self',s:'cardio ausdauer laufen joggen rad schwimmen hiit einheit erfassen',
+  {t:'Cardio',g:'Training',p:'Training › Cardio',ic:'heart',av:'self',s:'cardio ausdauer laufen joggen rad schwimmen hiit einheit erfassen',
    ok:()=>typeof openCardio==='function',run:()=>openCardio()},
   // --- Ernährung ---
-  {t:'Essen hinzufügen',g:'Ernährung',ic:'plus',av:'self',top:1,s:'essen loggen protokoll mahlzeit eintragen lebensmittel kalorien',
+  {t:'Essen hinzufügen',g:'Ernährung',p:'Ernährung › Tagebuch',ic:'plus',av:'self',top:1,s:'essen loggen protokoll mahlzeit eintragen lebensmittel kalorien',
    ok:()=>typeof openLogFood==='function',run:()=>openLogFood({focus:true})},
-  {t:'Ernährungsplan',g:'Ernährung',ic:'utensils',av:'view',s:'plan mahlzeiten essensplan tagesplan makros ziel',
+  {t:'Ernährungsplan',g:'Ernährung',p:'Ernährung › Plan',ic:'utensils',av:'view',s:'plan mahlzeiten essensplan tagesplan makros ziel',
    ok:()=>typeof renderDiet==='function',run:()=>{renderDiet.tab='plan';go('diet');}},
-  {t:'Rezepte',g:'Ernährung',ic:'fileSpreadsheet',av:'view',s:'rezepte kochen gerichte ideen mahlzeiten sammlung',
+  {t:'Rezepte',g:'Ernährung',p:'Ernährung › Rezepte',ic:'fileSpreadsheet',av:'view',s:'rezepte kochen gerichte ideen mahlzeiten sammlung',
    ok:()=>typeof renderDiet==='function',run:()=>{renderDiet.tab='recipes';go('diet');}},
-  {t:'Rezept anlegen',g:'Ernährung',ic:'pencil',av:'any',s:'rezept anlegen neu eigenes erstellen kochen speichern',
+  {t:'Rezept anlegen',g:'Ernährung',p:'Ernährung › Rezepte',ic:'pencil',av:'any',s:'rezept anlegen neu eigenes erstellen kochen speichern',
    ok:()=>typeof openNewRecipe==='function',run:()=>openNewRecipe()},
-  {t:'Einkaufswagen',g:'Ernährung',ic:'cart',av:'self',s:'einkaufen einkaufsliste einkaufszettel supermarkt besorgen liste',
+  {t:'Einkaufswagen',g:'Ernährung',p:'Ernährung › Einkauf',ic:'cart',av:'self',s:'einkaufen einkaufsliste einkaufszettel supermarkt besorgen liste',
    ok:()=>typeof renderDiet==='function',run:()=>{renderDiet.tab='cart';go('diet');}},
-  {t:'Barcode scannen',g:'Ernährung',ic:'barcode',av:'self',s:'barcode strichcode scannen ean produkt kamera packung',
+  {t:'Barcode scannen',g:'Ernährung',p:'Ernährung › Essen eintragen',ic:'barcode',av:'self',s:'barcode strichcode scannen ean produkt kamera packung',
    ok:()=>typeof openBarcodeScanner==='function',run:()=>openBarcodeScanner()},
-  {t:'Makro-Rechner',g:'Ernährung',ic:'flame',av:'any',s:'makro rechner kalorien naehrwerte eiweiss ausrechnen menge',
+  {t:'Makro-Rechner',g:'Ernährung',p:'Ernährung › Plan ändern',ic:'flame',av:'any',s:'makro rechner kalorien naehrwerte eiweiss ausrechnen menge',
    ok:()=>typeof openCalc==='function',run:()=>openCalc()},
-  {t:'Lebensmittel ausschließen',g:'Ernährung',ic:'filter',av:'self',s:'abneigung mag ich nicht ausschliessen unvertraeglich allergie',
+  {t:'Lebensmittel ausschließen',g:'Ernährung',p:'Ernährung › Plan ändern',ic:'filter',av:'self',s:'abneigung mag ich nicht ausschliessen unvertraeglich allergie',
    ok:()=>typeof openDislikes==='function',run:()=>openDislikes()},
   // --- Analyse ---
   // Suchwörter genau die Felder aus MEASURE_FIELDS (core.js:99) – „waage" stand hier falsch: Gewicht
   // wird im Check-in eingetragen, im Maß-Sheet gibt es kein Gewichtsfeld. Wegen des kurzen Titels stand
   // „Maße" bei „waage" sogar VOR dem Check-in und wäre mit der Eingabetaste das erste Ziel gewesen.
-  {t:'Maße',g:'Analyse',ic:'ruler',av:'view',top:1,s:'umfang taille brust arm bein huefte schultern nacken koerperfett messen zentimeter',
+  {t:'Maße',g:'Analyse',p:'Analyse › Maße & Fotos',ic:'ruler',av:'view',top:1,s:'umfang taille brust arm bein huefte schultern nacken koerperfett messen zentimeter',
    ok:()=>typeof openMeasure==='function',run:()=>openMeasure()},
-  {t:'Fotos',g:'Analyse',ic:'camera',av:'view',s:'fotos bilder vorher nachher fortschritt pose kamera',
+  {t:'Fotos',g:'Analyse',p:'Analyse › Maße & Fotos',ic:'camera',av:'view',s:'fotos bilder vorher nachher fortschritt pose kamera',
    ok:()=>typeof openPhotos==='function',run:()=>openPhotos()},
-  {t:'Erfolge',g:'Analyse',ic:'trophy',av:'view',top:1,s:'erfolge abzeichen level xp auszeichnungen serie streak',
+  {t:'Erfolge',g:'Analyse',p:'Analyse › Erfolge',ic:'trophy',av:'view',top:1,s:'erfolge abzeichen level xp auszeichnungen serie streak',
    ok:()=>typeof openAchievements==='function',run:()=>openAchievements()},
-  {t:'Monatsziel',g:'Analyse',ic:'medal',av:'view',s:'monatsziel monat ziel vorgabe fortschritt auszeichnung',
+  {t:'Monatsziel',g:'Analyse',p:'Analyse › Erfolge',ic:'medal',av:'view',s:'monatsziel monat ziel vorgabe fortschritt auszeichnung',
    ok:()=>typeof openMonthlyGoal==='function',run:()=>openMonthlyGoal()},
-  {t:'Gesundheitsdaten',g:'Analyse',ic:'link',av:'self',s:'apple health uhr smartwatch verbinden import garmin fitbit schritte',
+  {t:'Gesundheitsdaten',g:'Analyse',p:'Analyse › Verbindungen',ic:'link',av:'self',s:'apple health uhr smartwatch verbinden import garmin fitbit schritte',
    ok:()=>typeof openIntegrations==='function',run:()=>openIntegrations()},
   // Der Rückblick steht im dritten Segment „Woche" (analysis.js: Knopf #an_w → anaTab('woche') →
   // drawAnaWeek), NICHT im Segment „Körper" – dort gibt es keine Wochenkarte. Geprüft wird deshalb
   // drawAnaWeek und nicht renderTracker: fehlt das Segment, fällt anaTab still auf „Körper" zurück und
   // der Treffer landete wieder daneben – dann lieber gar kein Treffer.
-  {t:'Wochenrückblick',g:'Analyse',ic:'chartLine',av:'view',s:'woche wochenrueckblick rueckblick zusammenfassung bilanz sonntag deine woche',
+  {t:'Wochenrückblick',g:'Analyse',p:'Analyse › Woche',ic:'chartLine',av:'view',s:'woche wochenrueckblick rueckblick zusammenfassung bilanz sonntag deine woche',
    ok:()=>typeof drawAnaWeek==='function',run:()=>go('tracker','woche')},
   // --- Mindset ---
-  {t:'Priming',g:'Mindset',ic:'sun',av:'self',top:1,s:'priming morgenritual morgen atmung dankbarkeit energie ritual',
+  {t:'Priming',g:'Mindset',p:'Mindset › Heute',ic:'sun',av:'self',top:1,s:'priming morgenritual morgen atmung dankbarkeit energie ritual',
    ok:()=>typeof openPriming==='function',run:()=>openPriming()},
-  {t:'Rad des Lebens',g:'Mindset',ic:'scale',av:'view',s:'rad leben balance lebensrad bereiche bewertung',
+  {t:'Rad des Lebens',g:'Mindset',p:'Mindset › Rad des Lebens',ic:'scale',av:'view',s:'rad leben balance lebensrad bereiche bewertung',
    ok:()=>typeof renderMindset==='function',run:()=>{renderMindset.tab='wheel';go('mindset');}},
-  {t:'Wochencheck',g:'Mindset',ic:'star',av:'self',s:'wochencheck woche reflexion fragen auswertung sonntag',
+  {t:'Wochencheck',g:'Mindset',p:'Mindset › Woche & Monat',ic:'star',av:'self',s:'wochencheck woche reflexion fragen auswertung sonntag',
    ok:()=>typeof openWeeklyCheck==='function',run:()=>openWeeklyCheck()},
-  {t:'Challenge',g:'Mindset',ic:'shield',av:'self',s:'challenge vital 10 tage 30 tage regeln durchziehen',
+  {t:'Challenge',g:'Mindset',p:'Mindset › Challenge',ic:'shield',av:'self',s:'challenge vital 10 tage 30 tage regeln durchziehen',
    ok:()=>typeof renderMindset==='function',run:()=>{renderMindset.tab='challenge';go('mindset');}},
-  {t:'Wissen',g:'Mindset',ic:'brain',av:'view',s:'wissen themen lexikon glaubenssaetze triade erfolgsformel rapport lernen',
+  {t:'Wissen',g:'Mindset',p:'Mindset › Wissen',ic:'brain',av:'view',s:'wissen themen lexikon glaubenssaetze triade erfolgsformel rapport lernen',
    ok:()=>typeof renderMindset==='function',run:()=>{renderMindset.tab='wissen';go('mindset');}},
   // --- Profil ---
-  {t:'Profil',g:'Profil',ic:'user',av:'any',s:'profil konto einstellungen avatar name daten abmelden',
+  {t:'Profil',g:'Profil',p:'Avatar in der Kopfzeile',ic:'user',av:'any',s:'profil konto einstellungen avatar name daten abmelden',
    ok:()=>typeof openProfile==='function',run:()=>openProfile()},
   // Zwei verschiedene Sheets, die auch der Profil-Hub getrennt anbietet (account.js:175/177): „Ziel &
   // Training" (Muskelaufbau/Definition, Erfahrung, Phase, Rhythmus) und „Persönliche Ziele" (Schlaf,
   // Schritte, Wasser). Bis 2.3.0 trug EIN Treffer beide Wortfelder und öffnete immer nur das zweite –
   // wer „Muskelaufbau" suchte, landete bei seinem Schlafziel.
   // Beide av:'self': der Hub blendet diese ganze Reihe für Coach und Admin bewusst aus (account.js:170).
-  {t:'Ziel & Training',g:'Profil',ic:'target',av:'self',s:'ziel muskelaufbau definition gesundheit erfahrung anfaenger profi phase offseason prep trainingstage pro woche',
+  {t:'Ziel & Training',g:'Profil',p:'Profil › Training & Ernährung',ic:'target',av:'self',s:'ziel muskelaufbau definition gesundheit erfahrung anfaenger profi phase offseason prep trainingstage pro woche',
    ok:()=>typeof openGoalSheet==='function',run:()=>openGoalSheet()},
-  {t:'Persönliche Ziele',g:'Profil',ic:'moon',av:'self',s:'ziele schlaf schritte wasser tagesziel vorgabe stunden liter',
+  {t:'Persönliche Ziele',g:'Profil',p:'Profil › Training & Ernährung',ic:'moon',av:'self',s:'ziele schlaf schritte wasser tagesziel vorgabe stunden liter',
    ok:()=>typeof openGoalsSheet==='function',run:()=>openGoalsSheet()},
-  {t:'Benachrichtigungen',g:'Profil',ic:'bell',av:'any',s:'benachrichtigungen push erinnerung mitteilungen uhrzeit ton erlauben',
+  {t:'Benachrichtigungen',g:'Profil',p:'Profil › Erinnerungen',ic:'bell',av:'any',s:'benachrichtigungen push erinnerung mitteilungen uhrzeit ton erlauben',
    ok:()=>typeof openNotifSheet==='function',run:()=>openNotifSheet()},
   // Titel wie das Sheet selbst („Daten & Verbindungen" bzw. „Daten" für Coach/Admin, account.js:360).
   // „konto loeschen" stand hier als Suchwort, ohne dass es die Funktion irgendwo in der App gibt –
   // ein Treffer auf eine Suche, die nur ins Leere führen kann, ist schlimmer als gar keiner.
-  {t:'Daten & Export',g:'Profil',ic:'download',av:'any',s:'export daten herunterladen sicherung datei dsgvo installieren app',
-   ok:()=>typeof openDataSheet==='function',run:()=>openDataSheet()},
-  {t:'Nachrichten',g:'Profil',ic:'mail',av:'any',s:'nachrichten coach postfach glocke schreiben antwort',
+  {t:'Daten & Export',g:'Profil',p:'Profil › Deine Daten',ic:'download',av:'any',s:'export daten herunterladen sicherung datei dsgvo installieren app',
+   // Seit Welle 5 gibt es kein Daten-Sheet mehr: "Deine Daten" ist ein ABSCHNITT der Profilseite
+   // (account.js/openDataSheet ist nur noch eine Huelle um acProfileOpen({focus:'daten'})). Der Treffer
+   // nennt deshalb den Weg, den es wirklich gibt - Avatar -> Profil, dann der Abschnitt. Dasselbe Ziel,
+   // aber ohne einen Funktionsnamen, hinter dem in der ganzen App kein einziger Knopf mehr steht (K14).
+   ok:()=>typeof openProfile==='function',run:()=>openProfile({focus:'daten'})},
+  {t:'Nachrichten',g:'Profil',p:'Glocke in der Kopfzeile',ic:'mail',av:'any',s:'nachrichten coach postfach glocke schreiben antwort',
    ok:()=>typeof openMessages==='function',run:()=>openMessages()},
-  {t:'Hilfe',g:'Profil',ic:'help',av:'any',s:'hilfe faq anleitung support fragen tour erklaerung',
-   ok:()=>typeof openHelpSheet==='function',run:()=>openHelpSheet()}
+  {t:'Hilfe',g:'Profil',p:'Profil › Hilfe',ic:'help',av:'any',s:'hilfe faq anleitung support fragen tour erklaerung',
+   ok:()=>typeof openProfile==='function',run:()=>openProfile({focus:'hilfe'})}
 ];
 
 // Die zwölf Wissens-Themen aus openKnow() (public/mindset.js): Schlüssel, Titel ohne das führende Emoji
@@ -205,14 +219,14 @@ function _searchGroups(q){
   // aufgefüllt in Listenreihenfolge – so bleiben es auch im Coach-Blick sechs).
   if(!terms.length){
     const sug=acts.filter(a=>a.top).concat(acts.filter(a=>!a.top)).slice(0,6)
-      .map(a=>({ic:a.ic,t:a.t,sub:a.g,run:a.run}));
-    if(sug.length)out.push({title:'Vorschläge',hits:sug});
+      .map(a=>({ic:a.ic,t:a.t,sub:a.p||a.g,run:a.run}));
+    if(sug.length)out.push({title:'Vorschläge',hits:sug,gesamt:sug.length});
     return out;}
   // 1 Aktionen
   const hitsA=[];
   acts.forEach(a=>{const n=a._n||(a._n=_searchNorm(a.t)),x=a._x||(a._x=_searchNorm(a.t+' '+a.g+' '+(a.s||'')));
-    const r=_searchRank(n,x,terms);if(r>=0)hitsA.push({ic:a.ic,t:a.t,sub:a.g,run:a.run,r});});
-  if(hitsA.length)out.push({title:'Aktionen',hits:hitsA.sort(_searchSort).slice(0,8)});
+    const r=_searchRank(n,x,terms);if(r>=0)hitsA.push({ic:a.ic,t:a.t,sub:a.p||a.g,run:a.run,r});});
+  if(hitsA.length)out.push({title:'Aktionen',hits:hitsA.sort(_searchSort).slice(0,8),gesamt:hitsA.length});
   // 2 Übungen aus dem aktiven Plan (gelöschte liefert der Server gar nicht erst mit)
   const hitsE=[];
   if(typeof go==='function')(PLAN?.days||[]).forEach(d=>(d.exercises||[]).forEach(e=>{
@@ -220,7 +234,7 @@ function _searchGroups(q){
     const r=_searchRank(_searchNorm(e.name),_searchNorm([e.name,e.muscle,e.technique,d.name].join(' ')),terms);
     if(r<0)return;
     hitsE.push({ic:'dumbbell',t:e.name,sub:[d.name,e.muscle].filter(Boolean).join(' · '),r,run:()=>_searchOpenEx(d.id,e.id)});}));
-  if(hitsE.length)out.push({title:'Übungen',hits:hitsE.sort(_searchSort).slice(0,8)});
+  if(hitsE.length)out.push({title:'Übungen',hits:hitsE.sort(_searchSort).slice(0,8),gesamt:hitsE.length});
   // 3 Rezepte
   const hitsR=[];
   if(typeof openRecipe==='function')_searchRecipeList().forEach(rc=>{
@@ -229,7 +243,7 @@ function _searchGroups(q){
     if(r<0)return;
     const sub=[rc.kcal?fmtNum(rc.kcal)+' kcal':'',rc.category||''].filter(Boolean).join(' · ');
     hitsR.push({ic:'utensils',t:rc.name,sub,r,run:()=>openRecipe(rc.id)});});
-  if(hitsR.length)out.push({title:'Rezepte',hits:hitsR.sort(_searchSort).slice(0,8)});
+  if(hitsR.length)out.push({title:'Rezepte',hits:hitsR.sort(_searchSort).slice(0,8),gesamt:hitsR.length});
   // 4 Lebensmittel – nur im eigenen Konto: ins Protokoll schreibt allein der Athlet selbst.
   // FOODS enthält Dubletten nach Namen (eigene + globale), deshalb wird nach Kleinschreibung entdoppelt.
   const hitsF=[];
@@ -238,7 +252,7 @@ function _searchGroups(q){
       const r=_searchRank(_searchNorm(f.name),_searchNorm(f.name),terms);if(r<0)return;
       let sub='Lebensmittel';try{if(typeof kcalUnitTxt==='function')sub=kcalUnitTxt(f);}catch(e){}
       hitsF.push({ic:'apple',t:f.name,sub,r,run:()=>_searchOpenFood(f.name)});});}
-  if(hitsF.length)out.push({title:'Lebensmittel',hits:hitsF.sort(_searchSort).slice(0,8)});
+  if(hitsF.length)out.push({title:'Lebensmittel',hits:hitsF.sort(_searchSort).slice(0,8),gesamt:hitsF.length});
   // 5 Mindset-Wissen
   const hitsK=[];
   const own=(typeof mindOwn==='function')?mindOwn():_searchAllow('self');
@@ -246,7 +260,7 @@ function _searchGroups(q){
     if(w.w&&!own)return;
     const r=_searchRank(_searchNorm(w.t),_searchNorm(w.t+' mindset wissen '+(w.s||'')),terms);if(r<0)return;
     hitsK.push({ic:'brain',t:w.t,sub:'Mindset · Wissen',r,run:()=>openKnow(w.k)});});
-  if(hitsK.length)out.push({title:'Mindset-Wissen',hits:hitsK.sort(_searchSort).slice(0,8)});
+  if(hitsK.length)out.push({title:'Mindset-Wissen',hits:hitsK.sort(_searchSort).slice(0,8),gesamt:hitsK.length});
   return out;}
 
 // ===== ZEICHNEN =====
@@ -260,13 +274,22 @@ function runSearch(q){
   const inp=document.getElementById('gsInput');if(inp)try{inp.setAttribute('value',SEARCH_Q);}catch(e){}
   let groups=[];try{groups=_searchGroups(SEARCH_Q);}catch(e){console.error('[suche]',e);}
   const hits=[];let h='';
+  // DIE EINE ZEILE, AUS DEM EINEN HELFER (DESIGN-4 Teil 4, K6/9.3 Zielwert 0 handgeschriebene
+  // Zeilen). Bis zur D-6-Fix-Runde baute diese Schleife `<div class="row tap gs-hit">` samt `.r-ic`,
+  // `.rl`, `.rr` von Hand – mit einem 22-px-Symbol statt 24 und einer leeren `.rr`, die nur da war,
+  // damit die Legacy-Regel in app.css ein Chevron nachzieht. Jetzt kommt die Zeile aus rowHTML() und
+  // die Gruppe aus groupHTML(): dieselbe Zeile wie im Profil, im Training, in der Ernährung.
+  // Die Überschrift ist damit `.rows-h` (17/700, gemischt) statt `.section-label` (12 px VERSALIEN) –
+  // genau dort, wohin man geht, WEIL man etwas nicht findet, stand bis eben eine zweite Designsprache.
+  // Die Trefferzahl stand rechts in der Versal-Zeile; sie wandert in den Fußtext, und zwar nur dort,
+  // wo sie etwas sagt: wenn mehr da ist als die acht gezeigten (G5 – ein stiller Deckel versteckt).
   groups.forEach(g=>{
     if(!g.hits.length)return;
-    h+=`<div class="section-label"><span>${esc2(g.title)}</span><span class="sl-r">${fmtNum(g.hits.length)}</span></div><div class="rows gs-rows">`;
-    g.hits.forEach(it=>{const i=hits.length;hits.push(it);
-      h+=`<div class="row tap gs-hit" onclick="searchHit(${i})"><div class="r-ic">${icon(it.ic||'chevronRight',22)}</div>`+
-         `<div class="rl"><span>${esc2(it.t)}</span>${it.sub?`<small>${esc2(it.sub)}</small>`:''}</div><div class="rr"></div></div>`;});
-    h+='</div>';});
+    const zeilen=g.hits.map(it=>{const i=hits.length;hits.push(it);
+      return rowHTML({icon:it.ic||'chevronRight',title:it.t,sub:it.sub,tap:'searchHit('+i+')'});});
+    const mehr=(g.gesamt||g.hits.length)-g.hits.length;
+    const fuss=mehr>0?`Die ${fmtNum(g.hits.length)} besten von ${fmtNum(g.gesamt)} Treffern. Tippe genauer, wenn deiner nicht dabei ist.`:null;
+    h+=groupHTML(g.title,zeilen,fuss).replace('<div class="rows','<div class="rows gs-rows');});
   openSearch.hits=hits;
   if(!h)h=emptyState({icon:'search',title:'Nichts gefunden',text:'Probier ein anderes Wort – zum Beispiel „Maße", „Cardio", „Rezepte" oder „Priming".'});
   body.innerHTML=h;}
@@ -323,8 +346,12 @@ function _searchOpenEx(dayId,exId){
   try{if(typeof renderWorkout==='function')renderWorkout.tab='strength';go('workout');}catch(e){console.error('[suche]',e);return;}
   let n=30,again=1,last=null;
   const act=el=>{last=el;
-    if(el.classList.contains('ex')&&typeof toggleEx==='function'&&!el.classList.contains('open'))toggleEx(exId);
-    else try{el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
+    // Seit DESIGN-4 6.3 ist die Uebung eine eigene SEITE, kein Aufklapper mehr: der Sprung fuehrt
+    // hinein statt daneben. Der alte Zweig rief `toggleEx` auf einer Karte `.ex` – beides gibt es
+    // nicht mehr, der Aufruf war tot (static_check.py: „REMOVED BUT STILL CALLED"). Der Rueckfall
+    // bleibt fuer den Fall, dass das Trainings-Modul die Seite (noch) nicht anbietet.
+    if(typeof pushExercise==='function'){pushExercise(exId);return;}
+    try{el.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
     _searchFlash(el);};
   const tick=()=>{
     if(document.getElementById('exlist')){

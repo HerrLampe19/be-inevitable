@@ -180,88 +180,99 @@ function relDate(s){const d=_dbDate(s);if(!d)return '';const now=new Date();cons
   if(days===0)return 'vor '+Math.round(m/60)+' Std.';
   if(days===1)return 'gestern';if(days<7)return 'vor '+pl(days,'Tag','Tagen');
   return fmtDate(d,d.getFullYear()!==now.getFullYear()?{year:'numeric'}:{});}
-// B13 (RATE-25-account-auth H1, Beleg 43-messages-after-send.txt): Der Athlet hatte bis 2.4.0 nur einen
-// Briefkasten – seine eigene Nachricht an den Coach war nach dem Senden nirgends mehr zu sehen, weil
-// GET /api/messages/:userId ausschließlich `user_id=ich` liefert. Seit 2.5.0 gibt es zwei Bereiche:
-//   Gespräch  – GET /api/messages/thread/:athleteId (beide Richtungen). Der Endpunkt erlaubt dem Athleten
-//               seine eigene ID seit jeher (server.js threadPartners), die Oberfläche hat ihn nie benutzt.
-//               Gezeichnet wird mit threadHTML() aus coach.js: dieselbe Darstellung wie beim Coach, keine
-//               zweite Kopie. coach.js lädt vor account.js, der gemeinsame globale Scope trägt die Funktion.
-//   „Für dich" – alles, was NICHT aus dem Gespräch kommt: Nachrichten der App, des Admins, eines früheren
-//               Coachs. Die Sonntagsnachricht „Deine Woche" steht dort als Karte, nicht als Rohtext.
-let ACC_MSG_TAB='thread';  // zuletzt gewählter Bereich; ohne Coach immer 'sys'
-let acMsgData=null;        // Stand des offenen Nachrichten-Sheets: {msgs,thread,partner,canReply,unread}
-// Gehört eine Postfach-Nachricht ins Gespräch? Alles vom eigenen Coach – auch seine „Plan angepasst"-
-// Hinweise, die threadHTML als graue Systemblase zeichnet.
+// ===== POSTFACH (DESIGN-4 6.12) – EINE PUSH-SEITE, BEIDE BEREICHE UNTEREINANDER =====
+// Befund 3.0.2: Der Athlet sah seine EIGENEN gesendeten Nachrichten nie wieder und antwortete in
+// ein nacktes Textfeld ohne Verlauf – der Coach hatte den Thread laengst. Seit 2.5.0 gab es den
+// Verlauf, aber hinter einem SEGMENT („<Vorname>" | „Für dich") in einem Sheet: eine zweite
+// Steuerebene (G4) und ein Bereich, den man erst finden muss.
+// Jetzt: eine Push-Seite „Nachrichten" mit `‹ <Reiter>`, grossem Titel und ZWEI Abschnitten
+// untereinander – „Gespräch" und „Für dich". Kein Segment mehr, nichts umgeschaltet, nichts
+// versteckt. Die Blasen zeichnet weiterhin threadHTML() aus coach.js (dieselbe Darstellung wie
+// beim Coach, keine zweite Kopie); die Eingabe haengt diese Datei an, weil der Athlet eine eigene
+// Route hat (POST /api/messages/tocoach; die Coach-Route /api/messages gibt ihm 403).
+//   „Für dich" – alles, was NICHT aus dem Gespraech kommt: Nachrichten der App, des Admins, eines
+//   frueheren Coachs. Jede davon ist jetzt eine `.row` mit Absender und Zeit in der Unterzeile und
+//   der Pille „Neu" rechts (6.12, woertlich). Die Sonntagskarte „Deine Woche" ist ebenfalls eine
+//   Zeile – sie fuehrt in die Woche, wo die Zahlen ohnehin stehen, statt sie zu verdoppeln.
+let ACC_MSG_TAB='thread';  // legacy: der zuletzt gewaehlte Bereich. Es gibt kein Segment mehr –
+                           // der Name bleibt nur, weil acSetMsgTab() als Einsprung erhalten ist.
+let acMsgData=null;        // Stand des offenen Postfachs: {msgs,thread,partner,canReply,unread}
+// Gehoert eine Postfach-Nachricht ins Gespraech? Alles vom eigenen Coach – auch seine
+// „Plan angepasst"-Hinweise, die threadHTML als graue Systemblase zeichnet.
 function acInThread(m){return !!(ME&&ME.coach_id)&&Number(m&&m.from_id)===Number(ME.coach_id);}
 async function openMessages(){
-  // 2.7.0 (A-III.3): coachOpenMessages() UND threadHTML() wohnen in coach.js – seit dem Bündel-Umbau
-  // ein nachgeladenes Modul. Im Fenster zwischen Anmeldung und Nachlauf (gemessen ~1,5 s) zeigte das
-  // Sheet sonst die Notdarstellung („lässt sich auf diesem Stand nicht anzeigen") statt des Gesprächs.
-  // Erst nachladen, dann wie bisher entscheiden – der alte Rückfallweg bleibt Zeichen für Zeichen stehen.
+  // coachOpenMessages() UND threadHTML() wohnen in coach.js – seit dem Buendel-Umbau ein
+  // nachgeladenes Modul. Im Fenster zwischen Anmeldung und Nachlauf (gemessen ~1,5 s) zeigte die
+  // Seite sonst die Notdarstellung statt des Gespraechs. Erst nachladen, dann wie bisher entscheiden.
   if(window.bootLoad&&typeof threadHTML!=='function'){
-    // Athlet: sofort das Skelett zeigen, statt stumm auf das Modul zu warten. Coach/Admin nicht –
-    // coachOpenMessages() öffnet gleich darauf sein eigenes Sheet mit eigenem Titel, das wäre ein
-    // zweiter Eintrag im Sheet-Stapel und „Zurück" landete auf einem leeren Skelett.
-    if(ME&&ME.role==='athlete')openSheet('Nachrichten',skeleton(3));
+    if(ME&&ME.role==='athlete')acMsgOpen(skeleton(3));
     try{await window.bootLoad('coach');}catch(e){}
   }
-  // Coach/Admin: WP7 liefert eine nach Athleten gruppierte Ansicht – falls vorhanden, dorthin delegieren
+  // Coach/Admin: WP7 liefert eine nach Athleten gruppierte Ansicht – falls vorhanden, dorthin.
   if(ME&&ME.role!=='athlete'&&typeof coachOpenMessages==='function')return coachOpenMessages();
-  openSheet('Nachrichten',skeleton(3));
+  acMsgOpen(skeleton(3));
   const canReply=!!(ME&&ME.coach_id);
   const msgs=await loadMessages();
-  // Ungelesene IDs VOR dem Lesen merken -> „Neu"-Pille bleibt sichtbar, solange das Sheet offen ist
+  // Ungelesene IDs VOR dem Lesen merken -> die Pille „Neu" bleibt sichtbar, solange die Seite offen ist
   const unread=new Set(msgs.filter(m=>!m.read).map(m=>m.id));
   let thread=null,partner=null;
   if(canReply){const r=await API.get('/messages/thread/'+ME.id);
     if(r.status===200&&r.data&&Array.isArray(r.data.messages)){thread=r.data.messages;partner=r.data.partner||null;}}
   acMsgData={msgs,thread,partner,canReply,unread};
-  acSetMsgTab(ACC_MSG_TAB);}
-// Bereich wechseln. Ohne Coach (E23) gibt es kein Segment und keinen leeren Thread – nur „Für dich".
-function acSetMsgTab(tab){const d=acMsgData;if(!d)return;
-  ACC_MSG_TAB=(d.canReply&&d.thread&&tab!=='sys')?'thread':'sys';
-  openSheet('Nachrichten',acMsgSheetHTML());
-  if(ACC_MSG_TAB==='thread')acAthThreadOpen();else acReadSys();}
-function acMsgSheetHTML(){const d=acMsgData;const t=ACC_MSG_TAB;
+  acMsgOpen(acMsgPageHTML());
+  acAthThreadOpen();acReadSys();}
+// Die Seite oeffnen bzw. auffrischen. Push, wenn die Huelle es kann; sonst der alte Sheet-Weg.
+function acMsgOpen(html){
+  const sub=acMsgSub();
+  if(typeof pushPage!=='function')return openSheet('Nachrichten',html);
+  if(acRepaint('nachrichten',html,{sub}))return;
+  pushPage('nachrichten','Nachrichten',acParent(),html,{sub});}
+function acMsgSub(){const d=acMsgData;
+  if(!d)return '';
+  if(!d.canReply)return 'Noch kein Coach zugeordnet';
+  const n=(d.partner&&d.partner.name)||'';
+  return n?(n+' · dein Coach'):'Dein Coach';}
+// Einsprung aus aelteren Aufrufern: es gibt keine Bereiche mehr, beide stehen untereinander.
+function acSetMsgTab(){if(!acMsgData)return;acMsgOpen(acMsgPageHTML());acAthThreadOpen();acReadSys();}
+function acMsgPageHTML(){const d=acMsgData;if(!d)return skeleton(3);
   const sys=d.msgs.filter(m=>!acInThread(m));
-  const nNew=sys.filter(m=>d.unread.has(m.id)).length;
-  const first=String((d.partner&&d.partner.name)||'Coach').split(' ')[0]||'Coach';
-  const seg=(d.canReply&&d.thread)?`<div class="seg msg-seg" id="accMsgSeg" role="tablist">
-    <button type="button" role="tab" aria-selected="${t==='thread'}" class="${t==='thread'?'on':''}" onclick="acSetMsgTab('thread')">${esc2(first)}</button>
-    <button type="button" role="tab" aria-selected="${t==='sys'}" class="${t==='sys'?'on':''}" onclick="acSetMsgTab('sys')">Für dich${nNew?` <span class="pill red">${nNew}</span>`:''}</button>
-  </div>`:'';
-  return seg+(t==='thread'?acThreadHTML():acSysHTML(sys));}
-// Das Gespräch: threadHTML() aus coach.js liefert Blasen, Datumstrenner UND die Eingabe unten. Die Eingabe
-// dort schickt über POST /api/messages (Coach-Route, für den Athleten 403) – deshalb wird genau dieser
-// eine Aufruf auf acAthThreadSend() umgehängt. Hat coach.js die Eingabe umgebaut, hängen wir eine eigene an,
-// damit nie versehentlich die Coach-Route läuft.
+  return acThreadHTML()+acSysHTML(sys);}
+// Das Gespraech: threadHTML() aus coach.js liefert Blasen und Datumstrenner. Seine Eingabe wird
+// ABGESCHNITTEN und durch die eigene ersetzt – zwei Gruende: sie schickt ueber die Coach-Route
+// (fuer den Athleten 403), und ihr Senden-Knopf ist ein Symbolknopf ohne Wort (K11). Hier steht
+// das Wort „Senden" daneben.
 function acThreadHTML(){const d=acMsgData;
   const name=(d.partner&&d.partner.name)||'Dein Coach';
+  if(!d.canReply)
+    return groupHTML('Gespräch',[rowHTML({icon:'mail',title:'Noch kein Coach',
+        sub:'Sobald dir ein Coach zugeordnet ist, steht hier euer Verlauf'})],
+      'Nachrichten an einen Coach gibt es, sobald dir einer zugeordnet ist. Hinweise der App '
+      +'findest du darunter.');
   if(typeof threadHTML!=='function')
-    return `<div class="note warn mb-3">Das Gespräch lässt sich auf diesem Stand nicht anzeigen.</div>${acComposeHTML(name)}`;
+    return `<h2 class="rows-h">Gespräch</h2>
+      <p class="rows-f">Der Verlauf lässt sich auf diesem Stand gerade nicht anzeigen – schreiben geht trotzdem.</p>`
+      +acComposeHTML(name);
   const raw=threadHTML({id:ME.id,name,msgs:d.thread||[]});
-  const want='onclick="sendThread('+ME.id+')"';
-  if(raw.indexOf(want)>=0)return raw.replace(want,'onclick="acAthThreadSend()"');
-  console.warn('[nachrichten] threadHTML hat eine andere Eingabe – eigene wird angehängt');
   const i=raw.indexOf('<div class="thread-compose"');
-  return (i>=0?raw.slice(0,i):raw)+acComposeHTML(name);}
+  return `<h2 class="rows-h">Gespräch</h2>`+(i>=0?raw.slice(0,i):raw)+acComposeHTML(name);}
 function acComposeHTML(name){const first=String(name||'').split(' ')[0]||'deinen Coach';
-  return `<div class="thread-compose"><textarea id="th_body" rows="1" placeholder="Nachricht an ${esc2(first)}…" maxlength="2000" oninput="this.style.height='auto';this.style.height=Math.min(120,this.scrollHeight)+'px'"></textarea>
-    <button class="btn icon red" aria-label="Senden" onclick="acAthThreadSend()">${icon('send',20)}</button></div>`;}
-// Nach dem Zeichnen: ans Ende scrollen, Lesebestätigung setzen und die eigene Lesebestätigung zeigen.
+  return `<div class="ac-compose">
+    <textarea id="th_body" rows="1" placeholder="Nachricht an ${esc2(first)}…" maxlength="2000" aria-label="Nachricht an ${esc2(first)}" oninput="this.style.height='auto';this.style.height=Math.min(120,this.scrollHeight)+'px'"></textarea>
+    <button type="button" class="btn sm" onclick="acAthThreadSend()">Senden</button></div>
+    <p class="rows-f">Dein Coach bekommt sofort eine Mitteilung. Unter deiner letzten Nachricht steht, ob er sie schon gelesen hat.</p>`;}
+// Nach dem Zeichnen: ans Ende des Verlaufs scrollen und die Lesebestaetigung setzen.
 function acAthThreadOpen(){const d=acMsgData;
-  const sh=document.getElementById('sheet');if(sh)requestAnimationFrame(()=>{sh.scrollTop=sh.scrollHeight;});
+  const th=document.getElementById('thread');
+  if(th)requestAnimationFrame(()=>{try{th.scrollTop=th.scrollHeight;}catch(e){}});
   acDrawReceipt();
   if(!d||!d.thread||!d.thread.some(m=>m.dir==='in'&&!m.read))return;
-  // Lesebestätigung beidseitig: read-thread markiert NUR die Nachrichten dieses Gesprächs – der Coach
-  // sieht dadurch, dass gelesen wurde, und „Für dich" bleibt ungelesen (anders als das alte /read,
-  // das beim bloßen Öffnen des Postfachs alles stumm wegklickte).
+  // Lesebestaetigung beidseitig: read-thread markiert NUR die Nachrichten dieses Gespraechs – der
+  // Coach sieht dadurch, dass gelesen wurde, und „Für dich" bleibt ungelesen.
   API.post('/messages/'+ME.id+'/read-thread').then(r=>{if(r.status!==200)return;
     d.thread.forEach(m=>{if(m.dir==='in')m.read=1;});
     d.msgs.forEach(m=>{if(acInThread(m))m.read=1;});
     if(typeof setBellBadge==='function')setBellBadge(d.msgs.filter(m=>!m.read).length);});}
-// „Gelesen ✓" / „Gesendet" unter der letzten eigenen Blase – die Gegenrichtung der Lesebestätigung.
+// „Gelesen ✓" / „Gesendet" unter der letzten eigenen Blase.
 function acDrawReceipt(){const d=acMsgData;if(!d||!d.thread)return;
   const th=document.getElementById('thread');if(!th)return;
   th.querySelectorAll('.thread-receipt').forEach(e=>e.remove());
@@ -271,10 +282,10 @@ function acDrawReceipt(){const d=acMsgData;if(!d||!d.thread)return;
   const div=document.createElement('div');div.className='thread-receipt'+(last.read?' seen':'');
   div.textContent=last.read?'Gelesen ✓':'Gesendet';
   el.insertAdjacentElement('afterend',div);}
-// Athlet -> Coach. Eigene Route (POST /api/messages/tocoach); die Coach-Route /api/messages darf er nicht.
+// Athlet -> Coach. Eigene Route (POST /api/messages/tocoach); die Coach-Route darf er nicht.
 async function acAthThreadSend(){const ta=document.getElementById('th_body');const body=(ta?.value||'').trim();
-  if(!body)return showFieldErr('sheetBody','Bitte eine Nachricht eingeben.','th_body');
-  const btn=document.querySelector('#sheetBody .thread-compose button');if(btn)btn.disabled=true;
+  if(!body)return showFieldErr(null,'Bitte eine Nachricht eingeben.','th_body');
+  const btn=document.querySelector('.ac-compose .btn');if(btn)btn.disabled=true;
   const r=await API.post('/messages/tocoach',{body});
   if(btn)btn.disabled=false;
   if(r.status!==200)return toast(r.data?.error||'Senden fehlgeschlagen – bitte erneut versuchen.');
@@ -283,61 +294,77 @@ async function acAthThreadSend(){const ta=document.getElementById('th_body');con
   const th=document.getElementById('thread');
   if(th){th.querySelector('.empty')?.remove();
     th.insertAdjacentHTML('beforeend',`<div class="bub me">${esc2(body)}<div class="bd">${typeof cTime==='function'?cTime(m.created_at):''}</div></div>`);
-    acDrawReceipt();}
+    acDrawReceipt();try{th.scrollTop=th.scrollHeight;}catch(e){}}
   if(ta){ta.value='';ta.style.height='auto';}
-  const sh=document.getElementById('sheet');if(sh)sh.scrollTop=sh.scrollHeight;
   toast('An deinen Coach gesendet ✓');}
-// „Für dich": Nachrichten der App + die ausblendbaren Hinweise. Ohne Coach steht hier zusätzlich, warum
-// es kein Gespräch gibt – ein leerer Thread wäre eine Einladung, die niemand annehmen kann (E23).
+// „Für dich": Nachrichten der App + die ausblendbaren Hinweise. Jede Nachricht ist eine `.row`
+// mit Absender und Zeit in der Unterzeile und der Pille „Neu" rechts (6.12).
 function acSysHTML(sys){const d=acMsgData;
-  const list=sys.length?sys.map(m=>acSysMsgHTML(m,d.unread.has(m.id))).join('')
-    :emptyState({icon:'bell',title:'Noch nichts für dich',text:'Hier landen Hinweise der App – zum Beispiel dein Wochenrückblick am Sonntagabend.'});
-  // System-Hinweise (E-Mail bestätigen / Gesundheitsdaten) unten als ausblendbare Notizen – nie als Zähler
-  let notes='';
+  if(!sys.length)
+    return groupHTML('Für dich',[rowHTML({icon:'bell',title:'Noch nichts für dich',
+        sub:'Hier landen Hinweise der App – zum Beispiel dein Wochenrückblick am Sonntagabend'})],
+      'Nachrichten der App, deines Betreibers oder eines früheren Coachs stehen hier.')
+      +acMsgNotesHTML();
+  return groupHTML('Für dich',sys.map(m=>acSysMsgHTML(m,d.unread.has(m.id))),
+      'Der Wochenrückblick kommt sonntags ab 18 Uhr. Eine Zeile mit „Neu" hast du noch nicht '
+      +'geöffnet; sie verliert die Marke, sobald du diese Seite verlässt.')
+    +acMsgNotesHTML();}
+// System-Hinweise (E-Mail bestaetigen / Gesundheitsdaten) als ausblendbare Notizen – nie als Zaehler.
+function acMsgNotesHTML(){let notes='';
   for(const n of pendingNotifications()){
     if(n.type==='verify')notes+=infoBox('msg_verify',`<b>E-Mail bestätigen.</b> Bestätige ${esc2(ME.email||'')}, um Passwort-Reset und Mails zu nutzen.<div class="mt-2"><button class="btn sm sec" onclick="resendVerify()">Bestätigungs-Mail senden</button></div>`);
-    if(n.type==='health')notes+=infoBox('msg_health_'+(n.li||0),`<b>Gesundheitsdaten aktualisieren.</b> ${n.li?'Letzter Import vor '+pl(n.days,'Tag','Tagen')+'.':'Noch keine Daten importiert.'}<div class="mt-2"><button class="btn sm sec" onclick="closeAllSheets();if(typeof openIntegrations==='function')openIntegrations()">Jetzt importieren</button></div>`);}
-  // Ohne Coach: der Satz, warum es kein Gespräch gibt. Mit Coach, aber ohne geladenen Thread (kein Netz,
-  // älterer Server): ehrlich sagen, dass das Gespräch fehlt – und den einfachen Weg zum Schreiben lassen.
-  const tail=!d.canReply
-    ?`<div class="note mt-3">Nachrichten an einen Coach gibt es, sobald dir einer zugeordnet ist.</div>`
-    :d.thread?''
-    :`<div class="note warn mt-3">Dein Gespräch mit dem Coach lässt sich gerade nicht laden. Schreiben geht trotzdem.</div>
-      <div class="msg-compose"><button class="btn block" onclick="replyCoach()">${icon('send',18)} Nachricht an deinen Coach</button></div>`;
-  return `<div class="msg-list">${list}</div>${notes?`<div class="msg-notes">${notes}</div>`:''}${tail}`;}
+    if(n.type==='health')notes+=infoBox('msg_health_'+(n.li||0),`<b>Gesundheitsdaten aktualisieren.</b> ${n.li?'Letzter Import vor '+pl(n.days,'Tag','Tagen')+'.':'Noch keine Daten importiert.'}<div class="mt-2"><button class="btn sm sec" onclick="openAppleHealth()">Jetzt importieren</button></div>`);}
+  return notes?`<div class="msg-notes">${notes}</div>`:'';}
 // Eine Nachricht aus „Für dich". Die Sonntagsnachricht („Deine Woche", erkennbar an der Wochenmarke)
-// bekommt eine Karte: Zeitraum im Kopf, jede Kennzahl als eigene Zeile, darunter der Weg in die Woche.
-function acSysMsgHTML(m,isNew){const wk=_msgWeek(m);const pill=isNew?' <span class="pill red">Neu</span>':'';
+// fuehrt in die Woche – dort stehen dieselben Zahlen ohnehin, und zwar als Diagramm.
+function acSysMsgHTML(m,isNew){const wk=_msgWeek(m);
+  const pill=isNew?{text:'Neu',tone:'red'}:null;
   if(wk.week){
     const mon=new Date(Date.parse(wk.week+'T00:00:00'));const sun=new Date(mon.getTime()+6*864e5);
     const span=isNaN(mon.getTime())?'':fmtDate(mon)+' – '+fmtDate(sun);
-    // Satzgrenze = Satzzeichen, dem Leerraum oder das Ende folgt. Der Punkt im Tausendertrenner
-    // („27.270 kg") trennt deshalb nicht – sonst stünde „27." als eigene Zeile da.
-    const lines=String(wk.body).replace(/([.!?])(\s+|$)/g,'$1').split('').map(s=>s.trim()).filter(Boolean);
-    return `<div class="sun-card${isNew?' unread':''}">
-      <div class="sc-h">${icon('chartLine',20)}<div class="fill"><div class="t">${esc2(m.title||'Deine Woche')}${pill}</div>${span?`<div class="d">${esc2(span)}</div>`:''}</div><div class="md">${relDate(m.created_at)}</div></div>
-      <ul class="sc-l">${lines.map(l=>`<li>${esc2(l)}</li>`).join('')}</ul>
-      <button class="btn block sec" onclick="openWeekMessage('${esc(wk.week)}')">${icon('chartLine',16)} Woche ansehen</button>
-    </div>`;}
-  const kind=['message','change','system'].includes(m.kind)?m.kind:'message';
-  const sender=m.from_name?m.from_name:(m.kind==='system'?'System':'');
-  // Nachrichten kommen von anderen Nutzern -> immer escapen; Zeilenumbrüche erst NACH dem Escapen zu <br>
-  return `<div class="msg ${kind}${isNew?' unread':''}"><div class="mh"><div class="mt">${esc2(m.title||'')}${pill}</div><div class="md">${relDate(m.created_at)}</div></div>${sender?`<div class="mf">von ${esc2(sender)}</div>`:''}<div class="mb">${esc2(wk.body).replace(/\n/g,'<br>')}</div></div>`;}
-// „Für dich" gesehen -> diese Nachrichten als gelesen melden. Der Server kennt dafür keinen eigenen Weg:
-// POST /messages/:id/read markiert das GANZE Postfach. Deshalb erst dann, wenn im Gespräch nichts
-// Ungelesenes mehr liegt – sonst würde ein Blick auf „Für dich" eine ungelesene Coach-Nachricht
-// stumm wegklicken. (Eigener Weg für „nur Systemnachrichten lesen" -> DEFER-A1.)
+    return rowHTML({icon:'chartLine',title:m.title||'Deine Woche',
+      sub:(span?span+' · ':'')+relDate(m.created_at),pill:pill,
+      tap:`openWeekMessage('${esc(wk.week)}')`});}
+  const ic=m.kind==='system'?'info':(m.kind==='change'?'dumbbell':'mail');
+  const sender=m.from_name?m.from_name:(m.kind==='system'?'Die App':'');
+  // Unterzeile = Absender und Zeit (6.12, woertlich). KEINE Vorschau des Rumpfes: eine Vorschau
+  // ist abgeschnittener Text, und abgeschnitten wird nichts (G11). Der ganze Text steht eine Zeile
+  // weiter, auf seiner eigenen Seite.
+  return rowHTML({icon:ic,title:m.title||'Nachricht',
+    sub:(sender?sender+' · ':'')+relDate(m.created_at),
+    pill:pill,tap:`acOpenSysMsg(${+m.id})`});}
+// Eine Nachricht ganz lesen: eigene Push-Seite mit dem vollen Text. Vorher stand der Rumpf
+// abgeschnitten in einer Karte; ein langer Text war damit nur zur Haelfte da (G11).
+function acOpenSysMsg(id){const d=acMsgData;if(!d)return;
+  const m=d.msgs.find(x=>Number(x.id)===Number(id));if(!m)return;
+  const wk=_msgWeek(m);
+  const sender=m.from_name?m.from_name:(m.kind==='system'?'Die App':'');
+  const rows=[rowHTML({icon:'user',title:sender||'Nachricht',value:relDate(m.created_at)})];
+  if(wk.week)rows.push(rowHTML({icon:'chartLine',title:'Die Woche ansehen',
+    sub:'Gewicht, Sätze, Schlaf und Schritte als Diagramm',tap:`openWeekMessage('${esc(wk.week)}')`}));
+  acSubMsg('nachricht',m.title||'Nachricht',
+    groupHTML('Absender',rows,'')
+    +`<div class="ac-msgbody">${esc2(wk.body).replace(/\n/g,'<br>')}</div>`);}
+// Eine Unterseite des Postfachs (Eltern: „Nachrichten").
+function acSubMsg(key,title,html){
+  if(typeof pushPage!=='function')return openSheet(title,html);
+  let eltern='Nachrichten';
+  try{if(typeof PUSH_STACK!=='undefined'){const t=PUSH_STACK[PUSH_STACK.length-1];
+    if(t&&t.key==='nachrichten')eltern=t.title||'Nachrichten';}}catch(e){}
+  pushPage(key,title,eltern,html);}
+// „Für dich" gesehen -> diese Nachrichten als gelesen melden. Der Server kennt dafuer keinen
+// eigenen Weg: POST /messages/:id/read markiert das GANZE Postfach. Deshalb erst dann, wenn im
+// Gespraech nichts Ungelesenes mehr liegt – sonst wuerde ein Blick auf „Für dich" eine ungelesene
+// Coach-Nachricht stumm wegklicken.
 function acReadSys(){const d=acMsgData;if(!d)return;
   if(!d.msgs.some(m=>!m.read&&!acInThread(m)))return;
   if(d.msgs.some(m=>!m.read&&acInThread(m)))return;
   API.post('/messages/'+ME.id+'/read').then(r=>{if(r.status!==200)return;
     d.msgs.forEach(m=>{m.read=1;});
     if(typeof setBellBadge==='function')setBellBadge(0);});}
-// Montag der BERICHTETEN Woche einer Wochen-Nachricht. Er kommt vom Server mit – als Feld (week /
-// week_start / url mit „tracker/woche/JJJJ-MM-TT") oder als Marke „[week:JJJJ-MM-TT]" im Rumpf, die hier
-// herausgeschnitten wird, damit sie nie im Klartext steht. Aus created_at lässt er sich NICHT ableiten:
-// am nachgetragenen Montag und beim Admin-Knopf zeigte das nachweislich auf die falsche Woche. Ältere
-// Nachrichten ohne Marke bekommen schlicht keinen Knopf – kein Bruch.
+// Montag der BERICHTETEN Woche einer Wochen-Nachricht. Er kommt vom Server mit – als Feld oder als
+// Marke „[week:JJJJ-MM-TT]" im Rumpf, die hier herausgeschnitten wird. Aus created_at laesst er
+// sich NICHT ableiten: am nachgetragenen Montag zeigte das nachweislich auf die falsche Woche.
 function _msgWeek(m){let w=null,body=String((m&&m.body)||'');
   const ok=s=>/^\d{4}-\d{2}-\d{2}$/.test(String(s||''));
   for(const k of ['week','week_start','weekStart']){if(m&&ok(m[k])){w=String(m[k]);break;}}
@@ -347,54 +374,360 @@ function _msgWeek(m){let w=null,body=String((m&&m.body)||'');
   if(w&&isNaN(Date.parse(w+'T00:00:00')))w=null;
   return {week:w,body};}
 // Derselbe Weg wie der Sonntags-Push: Hash „#tracker/woche/<Montag>" setzen und den Router darauf
-// loslassen (applyHashRoute in core.js zieht die Woche in ANA_WEEK_LINK und wechselt in die Analyse).
-// replaceState statt location.hash: kein zusätzlicher History-Eintrag, kein zweites hashchange-Ereignis.
+// loslassen. replaceState statt location.hash: kein zusaetzlicher History-Eintrag.
 function openWeekMessage(w){if(!/^\d{4}-\d{2}-\d{2}$/.test(String(w||'')))return;
   try{history.replaceState(null,'',location.pathname+location.search+'#tracker/woche/'+w);}catch(e){location.hash='#tracker/woche/'+w;}
   if(typeof applyHashRoute==='function'){try{if(applyHashRoute())return;}catch(e){console.error('[nachrichten] Woche',e);}}
-  // Notnagel ohne Router: direkt in die Analyse (laufende Woche)
   if(typeof renderTracker==='function')renderTracker.tab='woche';go('tracker');}
-// Antwort an den Coach – ohne Betreff (Server-Standard „Nachricht von <Name>")
-function replyCoach(){openSheet('An deinen Coach',`<form id="rcForm" onsubmit="sendReplyCoach();return false" novalidate>
-    <div class="field"><label for="rc_body">Nachricht</label><textarea id="rc_body" rows="4" maxlength="2000" placeholder="Deine Nachricht…" enterkeyhint="send"></textarea></div>
-    <button class="btn block" type="submit">Senden</button></form>`);
-  setTimeout(()=>document.getElementById('rc_body')?.focus({preventScroll:true}),380);}
-async function sendReplyCoach(){const body=val('rc_body');
-  if(!body)return showFieldErr('rcForm','Bitte eine Nachricht eingeben.','rc_body');
-  const btn=document.querySelector('#rcForm .btn');if(btn)btn.disabled=true;
-  const r=await API.post('/messages/tocoach',{body});
-  if(r.status===200){closeModal();toast('An deinen Coach gesendet ✓');}
-  else{if(btn)btn.disabled=false;showFieldErr('rcForm',r.data?.error||'Senden fehlgeschlagen.','rc_body');}}
+// Antwort an den Coach ohne offenes Postfach (Kurzweg): oeffnet das Postfach und setzt den Fokus
+// ins Eingabefeld. Es gibt keinen zweiten Ort mehr, an dem man an den Coach schreibt.
+function replyCoach(){openMessages();
+  setTimeout(()=>{const ta=document.getElementById('th_body');
+    if(ta)try{ta.focus({preventScroll:true});}catch(e){}},600);}
+async function sendReplyCoach(){return acAthThreadSend();}
 
-// ===== PROFIL-HUB (alles Konto-bezogene liegt unter dem Profil-Icon) =====
-// Kurzer Hub: Avatar + Name oben, darunter Gruppen-Zeilen, die je ein Unter-Sheet öffnen (Zurück-Chevron über den
-// Sheet-Stapel). Jedes Feld speichert sofort (PUT /api/profile, Teil-Update) – es gibt keinen Speichern-Button mehr.
-let _PF_AVATAR_URL=null; // geladenes Profilbild (Data-URL), damit der Hub nach Rücksprung sofort das Bild zeigt
-// Die Stufen-Namen standen hier ein zweites Mal – dieselbe Tabelle wie in core.js (DS_LV_LABEL) und
-// in coach.js (expLabel). Zwei Quellen für dieselben drei Wörter sind zwei Stellen, an denen sie
-// auseinanderlaufen können; seit Ü-2 hängt an derselben Stufe auch ein Text. Also: eine Quelle.
+// ===== PROFIL (DESIGN-4 6.11) – EINE PUSH-SEITE STATT EINES SHEETS MIT AUFKLAPPERN =====
+// Was sich gegenueber 3.0.2 aendert, und warum:
+//   1. Das Profil war EIN Sheet mit Avatar-Block, Namensfeld, sieben Zeilen und sieben Unter-Sheets
+//      uebereinander (Sheet ueber Sheet ueber Sheet). Jetzt ist es eine PUSH-SEITE mit `‹ <Reiter>`
+//      oben links (G3/N1), grossem Titel und gruppierten Zeilen nach Apple-Art. 3.4 sagt es
+//      woertlich: „Einstellungsgruppe im Profil (Erinnerungen)" gehoert auf eine Push-Seite.
+//   2. JEDE Zeile kommt aus rowHTML(), jede Gruppe aus groupHTML() (G6/K6). Die 26 von Hand
+//      geschriebenen Zeilen dieser Datei (sprache.mjs, statisch) fallen damit weg.
+//   3. Jede Gruppe hat eine Ueberschrift und einen FUSSTEXT – der Erklaerungsort der App (G8).
+//      Vorher standen Erklaerungen in `.note`-Kaesten, `.caption`-Absaetzen und einem `title`.
+//   4. Der Aufklapper (das details/summary-Paar, account.css:57) ist ersatzlos weg: G5 -
+//      ein Aufklapper versteckt, und was hinter einem Dreieck liegt, gibt es fuer den Nutzer nicht.
+//   5. NEU: der Textgroessen-Schalter (6.11, W4) – siehe direkt darunter.
+// Sheets bleiben genau dort, wo etwas ABGESCHLOSSEN oder BESTAETIGT wird (3.4-Pruefrage):
+//   Passwort aendern · Konto loeschen · Widerruf der Einwilligung · Auswahl aus einer Liste ·
+//   confirmSheet · der Installations-Trichter. Alles andere speichert sofort und laesst sich
+//   halb erledigt liegen lassen – also Push-Seite.
+
+// ---- Die Textgroesse (DESIGN-4 6.11 „Neu: Textgröße", W4/K22) --------------------------------
+// Safari auf dem iPhone gibt die Systemtextgroesse NICHT an eine Webseite weiter. Welle 1 hat die
+// sieben Typo-Sprossen auf `rem` gestellt und `html{font-size:100%}` gesetzt – genau damit dieser
+// eine Schalter die ganze App groesser machen kann. Er steht hier, weil das Profil der Ort fuer
+// „wie haette ich es gern" ist, und er gilt NUR AUF DIESEM GERAET: eine Anzeige-Einstellung ist
+// nichts, was man dem Server schickt (sie gehoert nicht zu einem Konto, sondern zu einem Bildschirm).
+const AC_TEXT_KEY='be_textsize';
+const AC_TEXT_STEPS=[[100,'Standard'],[115,'Groß'],[130,'Größer'],[150,'Sehr groß']];
+function acTextScale(){let v=100;try{v=parseInt(localStorage.getItem(AC_TEXT_KEY),10);}catch(e){}
+  return AC_TEXT_STEPS.some(s=>s[0]===v)?v:100;}
+function acTextLabel(v){v=v==null?acTextScale():v;const s=AC_TEXT_STEPS.find(x=>x[0]===v);
+  return s?s[1]:'Standard';}
+// Die Wurzel traegt den Faktor, nicht `body`: `rem` misst immer an der Wurzel. 100 % wird wieder
+// ENTFERNT statt gesetzt – so bleibt der Stylesheet-Wert zustaendig und es gibt keinen zweiten Ort.
+function acTextApply(){const v=acTextScale();
+  try{const r=document.documentElement;if(v===100)r.style.removeProperty('font-size');
+    else r.style.fontSize=v+'%';}catch(e){}}
+function acTextSet(v){v=parseInt(v,10);if(!AC_TEXT_STEPS.some(s=>s[0]===v))return;
+  try{if(v===100)localStorage.removeItem(AC_TEXT_KEY);else localStorage.setItem(AC_TEXT_KEY,String(v));}catch(e){}
+  acTextApply();
+  acRepaint('textgroesse',acTextPageHTML());
+  acRepaint('profil',acProfileHTML());
+  toast('Textgröße: '+acTextLabel(v));}
+// Eine AUSWAHL-Gruppe (A32, „Optionsliste mit Haken"): jede Zeile setzt einen Wert und fuehrt
+// NIRGENDWOHIN. Das Chevron bedeutet genau eines - „fuehrt weiter" (G7) -, also darf hier keines
+// stehen. rowHTML() setzt es bei jedem `tap`; die Gruppe traegt deshalb `.pick`, und account.css
+// blendet das Chevron darin aus. Bewusst NICHT aus dem Markup geschnitten: waere `.chev` weg,
+// zoege die Legacy-Regel in app.css (`.row.tap:not(:has(.chev))`) ein Pseudo-Chevron nach. Die
+// saubere Loesung ist ein Schalter `pick:true` in rowHTML() - core.js gehoert einem anderen Paket,
+// der Auftrag steht in DEFER-D5.
+// Eine AKTIONSZEILE: sie tut etwas und oeffnet KEINEN neuen Bildschirm (herunterladen, abmelden,
+// Test-Mitteilung, Bild entfernen). Das Chevron bedeutet genau eines - „fuehrt weiter" (G7) -,
+// also traegt sie keines. Die Zeile bleibt Zeichen fuer Zeichen die `.row.tap`: gleiche Hoehe,
+// gleiche Spalten, gleicher Druckzustand; `.act` blendet nur das 16-px-Zeichen am Ende aus.
+// (sprache.mjs zaehlt Klassensignaturen und sieht darin eine zweite „Zeilenform" - das ist der
+// Messweg, nicht die Sache. Vermerkt in DONE-D5-D-6 und DEFER-D5.)
+function acActRow(o){return rowHTML(o).replace('class="row tap','class="row tap act');}
+// ACHTUNG, hier lag ein Fehler: groupHTML() liefert `<h2 class="rows-h">…</h2><div class="rows…`,
+// und String.replace mit einer ZEICHENKETTE ersetzt nur das ERSTE Vorkommen – das stand in der
+// Ueberschrift. Gemessen (dz/d6fix/vorher.json): `<h2 class="rows pick-h">Groesse</h2>` mit 25,5 px
+// Schrift neben der richtigen `<h2 class="rows-h">` mit 17 px auf derselben Seite. Drei Folgen:
+// die Ueberschrift erbte die Kartenflaeche von `.rows`, 25,5 px steht nicht in der Leiter aus 2.1
+// (K7), und `.pick` landete NIE auf der Gruppe – also trug jede Auswahlzeile ein Chevron, obwohl
+// sie nur einen Wert setzt (G7). Der Anker ist deshalb jetzt das oeffnende `<div`.
+function acPickGroup(head,rows,foot){return groupHTML(head,rows,foot).replace('<div class="rows','<div class="rows pick');}
+function acTextPageHTML(){const cur=acTextScale();
+  return acPickGroup('Größe',AC_TEXT_STEPS.map(([v,l])=>rowHTML({
+      title:l,sub:v+' % der Standardgröße',value:v===cur?'✓':'',tap:'acTextSet('+v+')'})),
+    'Die Textgröße gilt für die ganze App und nur auf diesem Gerät – sie wird nicht an den Server '
+    +'geschickt. Safari auf dem iPhone reicht die Systemtextgröße nicht an Webseiten weiter; '
+    +'deshalb steht der Schalter hier. Ab „Größer" rücken nebeneinanderstehende Kacheln '
+    +'untereinander, damit nichts abgeschnitten wird.')
+  +groupHTML('Beispiel',[
+      rowHTML({icon:'dumbbell',title:'Bankdrücken',sub:'3 Sätze · 8–12 Wiederholungen',value:'80 kg'})],
+    'So sieht eine Zeile in der gewählten Größe aus.',{inset:true});}
+function openTextSize(){acSub('textgroesse','Textgröße',acTextPageHTML());}
+acTextApply();   // sofort beim Laden – vor dem ersten Bild, damit nichts nachspringt
+
+// ---- Push-Seiten dieses Bereichs: oeffnen und auffrischen --------------------------------------
+// Der Zurueck-Knopf traegt den Namen dessen, was WIRKLICH darunter liegt (G3/N1/K13): eine offene
+// Push-Ebene, sonst der aktuelle Reiter.
+function acParent(){
+  try{if(typeof PUSH_STACK!=='undefined'&&PUSH_STACK.length)return PUSH_STACK[PUSH_STACK.length-1].title||'';}catch(e){}
+  return acTabLabel();}
+function acTabLabel(){try{const p=document.querySelector('.navbtn.on');const k=p&&p.dataset&&p.dataset.p;
+    if(k&&typeof TITLES==='object'&&TITLES[k])return TITLES[k];}catch(e){}
+  return 'Heute';}
+// Eine Unterseite des Profils. Steht das Profil noch nicht im Stapel (Kurzweg aus der Suche),
+// wird es ZUERST geoeffnet – sonst traegt der Zurueck-Knopf den Namen eines Reiters, und der Weg
+// zurueck ins Profil fehlt ganz.
+function acSub(key,title,html,opts){
+  if(typeof pushPage!=='function')return openSheet(title,html);
+  let eltern=null;
+  try{if(typeof PUSH_STACK!=='undefined'){const t=PUSH_STACK[PUSH_STACK.length-1];
+    if(t&&t.key==='profil')eltern=t.title||'Profil';}}catch(e){}
+  if(!eltern){acProfileOpen();eltern=acProfileTitle();}
+  pushPage(key,title,eltern,html,opts||{});}
+function acLgHTML(t,s){return `<h1 class="lg-title" data-auto="1">${esc2(t)}${s?`<small>${esc2(s)}</small>`:''}</h1>`;}
+// Eine Push-Seite dieses Bereichs neu zeichnen, OHNE den Fokus zu verschieben und ohne die Ebene
+// neu aufzubauen. _renderPush() springt mit dem Fokus auf den Titel – richtig beim Oeffnen, falsch
+// nach einem Schalter, den man gerade umgelegt hat. Liegt die Seite nicht obenauf, wird nur der
+// gespeicherte Stand aufgefrischt; beim Ruecksprung ist er dann aktuell.
+function acRepaint(key,html,o){o=o||{};
+  let e=null,oben=false;
+  try{if(typeof PUSH_STACK==='undefined')return false;
+    const i=PUSH_STACK.findIndex(x=>x.key===key);if(i<0)return false;
+    e=PUSH_STACK[i];oben=(i===PUSH_STACK.length-1);}catch(err){return false;}
+  if(o.title!=null)e.title=String(o.title);
+  if(o.sub!=null)e.sub=String(o.sub);
+  e.html=String(html==null?'':html);
+  if(!oben)return true;
+  const el=document.getElementById('pushView');const page=el&&el.querySelector('.page');
+  if(!page)return true;
+  const bar=page.querySelector('.push-bar');const y=el.scrollTop;
+  const h1=(e.title&&!/class="lg-title"/.test(e.html))?acLgHTML(e.title,e.sub):'';
+  page.innerHTML=(bar?bar.outerHTML:'')+h1+e.html;
+  el.scrollTop=y;
+  if(typeof mountLargeTitle==='function')mountLargeTitle();
+  if(typeof o.onMount==='function')try{o.onMount();}catch(err){console.error('[profil]',err);}
+  return true;}
+
+// ---- Die Wortmarken der Stufen und Rollen (unveraendert) --------------------------------------
+let _PF_AVATAR_URL=null; // geladenes Profilbild (Data-URL)
 const PHASE_LABEL={offseason:'Offseason',prep:'Wettkampf-Prep',maintain:'Maintenance'};
 const DIET_LABEL={all:'Alles',vegetarian:'Vegetarisch',vegan:'Vegan'};
 function roleLabel(r){return {admin:'Administrator',coach:'Coach',athlete:'Athlet'}[r]||'';}
-function openProfile(){openSheet('Profil',profileHubHTML());loadProfileAvatar();
-  // Fragt der Server das Kalorienziel an (kcalAsk)? Das entscheidet, ob die Ernährungs-Zeile einen
-  // Hinweis trägt – deshalb gleich beim Öffnen, nicht erst im Unter-Sheet.
-  if(ME&&ME.role==='athlete')acKcalAskLoad();}
+
+// ---- Der Titel der Seite: der Mensch, nicht das Wort „Profil" (6.11) ---------------------------
+// DESIGN-4 6.11 zeichnet den grossen Titel als „Marco Munsch" mit „Athlet · Stufe · seit …"
+// darunter – genau wie die Einstellungen-App das Konto oben zeigt. Der Ortsname steht trotzdem
+// dreifach fest: im Zurueck-Knopf steht, wo man herkommt, in der Kopfzeile derselbe Titel, und
+// die Glocke/der Avatar bleiben sichtbar. Ohne Namen (Kaltstart) heisst die Seite „Profil".
+function acProfileTitle(){return (ME&&ME.name)?String(ME.name):'Profil';}
+function acProfileSub(){const u=ME||{};const t=[];
+  if(u.role)t.push(roleLabel(u.role));
+  if(u.role==='athlete'){const lv=u.experience_coach||u.experience;
+    if(lv&&typeof dsLvLabel==='function')t.push(dsLvLabel(lv));}
+  const seit=acSeit(u.created_at);if(seit)t.push('seit '+seit);
+  return t.join(' · ');}
+function acSeit(v){const d=_dbDate(v);if(!d)return '';
+  try{return d.toLocaleDateString('de-DE',{month:'long',year:'numeric'});}catch(e){return '';}}
+
+// ---- Die Seite ---------------------------------------------------------------------------------
+// `openProfile` bleibt der oeffentliche Name (index.html, core.js, diet.js, search.js rufen ihn).
+// Die Arbeit macht acProfileOpen(): der Bundle-Lader in src/server.js legt um `openProfile` eine
+// Huelle, die erst training.js nachlaedt (fruehere Abhaengigkeit von applyAvatar/_mrow/cycleText).
+// Diese Datei ruft deshalb INTERN immer acProfileOpen – sonst waere jeder Sprung von einer
+// Unterseite zurueck ins Profil ein asynchrones Warten, und die Reihenfolge der Push-Ebenen
+// haengt davon ab, wer zuerst fertig ist.
+function openProfile(o){return acProfileOpen(o);}
+function acProfileOpen(o){o=o||{};
+  if(typeof pushPage!=='function'){openSheet('Profil',acProfileHTML());loadProfileAvatar();return;}
+  // Steht das Profil schon obenauf (zweiter Tipp auf den Avatar, Kurzweg aus der Suche), wird es
+  // AUFGEFRISCHT statt ein zweites Mal gestapelt. Ohne diesen Riegel stand „Marco Munsch" als
+  // Elternname ueber „Marco Munsch" - ein Zurueck-Weg auf denselben Bildschirm (K13).
+  let schonOben=false;
+  try{if(typeof PUSH_STACK!=='undefined'){const t=PUSH_STACK[PUSH_STACK.length-1];schonOben=!!(t&&t.key==='profil');}}catch(e){}
+  // DAS PROFIL LIEGT IMMER AUF EBENE 1. Der Avatar steht in `.hdr` und ist ueber JEDER Push-Ebene
+  // bedienbar. Lag schon eine fremde Ebene (z. B. „Probe-Uebung") darunter, war das Profil Ebene 2
+  // und jede seiner 13 Unterseiten waere Ebene 3 gewesen – dort ERSETZT N3 (shell.js:540) die
+  // oberste Ebene. Gemessen (dz/p/planE.out.json E5): Stapel [Probe-Uebung, Textgroesse], Zurueck
+  // hiess „‹ Probe-Uebung", das Profil war spurlos weg; in der Rolle Betreiber genauso („‹ Betrieb").
+  // 6.11 nennt als Eltern des Profils ohnehin „den aktuellen Reiter" – also raeumen wir fremde
+  // Ebenen ab, statt uns daraufzustapeln. Danach greift N3 auf keiner Unterseite mehr.
+  // Reihenfolge, auf die es ankommt: closeAllPages() stellt history.go(-n) in die Warteschlange
+  // (asynchron), das pushState von pushPage() laeuft synchron davor. Die spaeter eintreffende
+  // Rueckwaerts-Bewegung schluckt _pushPopstate() ueber _pushPop – gemessen bleibt genau EIN
+  // eigener History-Eintrag ueber dem Reiter (d6fix-probe.mjs, Abschnitt „zurueckKette").
+  if(!schonOben){try{if(typeof PUSH_STACK!=='undefined'&&PUSH_STACK.length&&typeof closeAllPages==='function')closeAllPages();}catch(e){}}
+  if(schonOben){acRepaint('profil',acProfileHTML(),{title:acProfileTitle(),sub:acProfileSub(),onMount:()=>acProfileMount(o)});}
+  else pushPage('profil',acProfileTitle(),acParent(),acProfileHTML(),
+    {sub:acProfileSub(),onMount:()=>acProfileMount(o)});
+  loadProfileAvatar();
+  if(ME&&ME.role==='athlete'){acKcalAskLoad();lgSupportLoad();}
+  acPushPaint();}
+// Nach dem Zeichnen: Schalter verdrahten und, wenn ein Kurzweg einen Abschnitt meint, dorthin.
+function acProfileMount(o){o=o||{};
+  acBindSwitches();
+  if(!o.focus)return;
+  const el=document.getElementById('pf_'+o.focus);if(!el)return;
+  try{el.scrollIntoView({block:'start',behavior:'auto'});}catch(e){}
+  const z=el.querySelector('.rows');if(z){z.classList.add('flash');setTimeout(()=>z.classList.remove('flash'),3400);}}
+// EIN Zuhoerer je Seite fuer alle Schalter (A29: der Zeilentext ist die Beschriftung, der Schalter
+// traegt keine eigene). rowHTML() setzt den Schalter als <input class="sw" name="…"> – hier haengt
+// die Wirkung dran. Kein onclick im Markup: ein `label` mit `onclick` loest bei jedem Klick auf den
+// Zeilentext ZWEIMAL aus (einmal am Label, einmal am weitergereichten Klick auf das Feld).
+function acBindSwitches(){
+  const el=document.getElementById('pushView');if(!el||el._acSw)return;
+  el._acSw=true;
+  el.addEventListener('change',e=>{const t=e.target;
+    if(!t||!t.classList||!t.classList.contains('sw'))return;
+    acSwitch(t.name,t);});}
+function acSwitch(name,el){
+  if(name==='push')return togglePush(el);
+  if(name==='mail')return toggleEmailNotif(el.checked,el);
+  if(name==='evening')return toggleEvePush(el);
+  if(name==='ai')return lgAiSet(el.checked,el);}
+
+function acProfileHTML(){const u=ME||{};const staff=u.role==='coach'||u.role==='admin';
+  let h='';
+
+  // --- Konto: Name, E-Mail, Passwort -----------------------------------------------------------
+  const mail=u.email?(u.email+(u.email_verified?' · bestätigt':' · noch nicht bestätigt')):'Noch keine Adresse hinterlegt';
+  h+='<div id="pf_konto">'+groupHTML('Konto',[
+    rowHTML({icon:'user',title:'Name und Foto',sub:u.name||'Noch kein Name',tap:'acOpenName()'}),
+    rowHTML({icon:'mail',title:'E-Mail',sub:mail,tap:'acOpenEmail()'}),
+    rowHTML({icon:'lock',title:'Passwort ändern',sub:'Danach melden sich alle anderen Geräte neu an',tap:'openChangePw()'})
+  ],'Dein Name steht über jeder Nachricht an deinen Coach. Die E-Mail ist dein Anmeldename – '
+   +'bestätigt brauchst du sie für „Passwort vergessen" und für Mails der App.')+'</div>';
+
+  // --- Training & Ernährung (nur der Athlet hat einen Plan) ------------------------------------
+  if(!staff){
+    const zielWert=goalLabel(u.goal);
+    // Der Wert rechts ist KURZ (er darf nicht umbrechen, .rr steht auf nowrap); der Rest steht in
+    // der Unterzeile, die umbrechen darf. Die Phase steht auf der Unterseite, nicht hier - drei
+    // Angaben in einer Unterzeile sind auf 390 px schon zwei Zeilen.
+    const zielSub=[(typeof dsLvLabel==='function'?dsLvLabel(u.experience_coach||u.experience):''),
+                   (u.days_per_week||4)+'×/Woche'].filter(Boolean).join(' · ');
+    const kcalSub=[DIET_LABEL[u.diet_type||'all'],
+      (u.kcal_target_train||u.kcal_target_rest)
+        ? fmtNum(u.kcal_target_train)+' kcal am Trainingstag · '+fmtNum(u.kcal_target_rest)+' kcal am Ruhetag'
+        : 'Noch keine Kalorienziele gesetzt',
+      AC_KCAL_ASK?'Weicht von der Rechnung ab':''].filter(Boolean).join(' · ');
+    const koerper=[u.height_cm?fmtNum(u.height_cm)+' cm':'Größe fehlt',
+                   acDobYear()?'Jahrgang '+acDobYear():'Geburtsjahr fehlt',
+                   u.start_weight?'Start '+fmtNum(u.start_weight,1)+' kg':''].filter(Boolean).join(' · ');
+    const sg=pfSleepGoal();
+    const zieleSub=fmtNum(sg.h,sg.h%1?1:0)+' h Schlaf'+(sg.derived?' (abgeleitet)':'')
+      +' · '+fmtNum(u.steps_goal||10000)+' Schritte · '+fmtNum(u.water_goal||3,(u.water_goal||3)%1?1:0)+' L Wasser';
+    const rows=[
+      rowHTML({icon:'target',title:'Ziel & Training',sub:zielSub,value:zielWert,tap:'openGoalSheet()'}),
+      rowHTML({icon:'utensils',title:'Ernährung & Kalorien',sub:kcalSub,tap:'openNutritionSheet()'}),
+      rowHTML({icon:'ruler',title:'Körperdaten',sub:koerper,tap:'acOpenBody()'}),
+      rowHTML({icon:'moon',title:'Persönliche Ziele',sub:zieleSub,tap:'openGoalsSheet()'})];
+    if(typeof openSupp==='function')
+      rows.push(rowHTML({icon:'pill',title:'Supplements',sub:'Deine Liste – abhaken und verwalten',tap:'openSupp()'}));
+    h+='<div id="pf_training">'+groupHTML('Training & Ernährung',rows,
+      'Ziel und Erfahrungsstufe entscheiden, womit die App rechnet und welche Felder du in einer '
+      +'Einheit siehst. Aus Größe, Geburtsjahr und Gewicht kommt dein Kalorienziel. Dein Coach '
+      +'kann Ziel, Stufe und Kalorien ebenfalls setzen – dann steht das dort.')+'</div>';
+  }else{
+    h+=groupHTML('Dein Konto',[
+      rowHTML({icon:'users',title:'Rolle',value:roleLabel(u.role)})],
+      'Als '+roleLabel(u.role)+' verwaltest du '+(u.role==='admin'?'das System':'deine Athleten')
+      +'. Einen eigenen Trainings- oder Ernährungsplan gibt es für dieses Konto nicht.');
+  }
+
+  // --- Darstellung: der Textgroessen-Schalter (NEU, W4) ----------------------------------------
+  h+='<div id="pf_darstellung">'+groupHTML('Darstellung',[
+    rowHTML({icon:'eye',title:'Textgröße',sub:acTextScale()+' % der Standardgröße',
+             value:acTextLabel(),tap:'openTextSize()'})],
+    'Größerer Text gilt für die ganze App und nur auf diesem Gerät.')+'</div>';
+
+  // --- Erinnerungen ----------------------------------------------------------------------------
+  const ph=u.push_hour==null?null:String(u.push_hour);
+  h+='<div id="pf_erinnerungen">'+groupHTML('Erinnerungen',[
+    rowHTML({icon:'bell',title:'Mitteilungen',
+      sub:ph?('An Trainingstagen um '+ph+' Uhr'):'Keine Trainings-Erinnerung eingestellt',
+      value:ph?(ph+' Uhr'):'Aus',tap:'openNotifSheet()',id:'pf_notifRow'})],
+    'Hier steht, was dich erreichen darf und wann. Ohne Push-Mitteilungen auf diesem Gerät kommt '
+    +'nichts an – das sagt die Seite dir dort auch.')+'</div>';
+
+  // --- Daten & Sichtbarkeit (nur der Athlet hat Gesundheitsdaten) ------------------------------
+  if(!staff){
+    h+='<div id="pf_sichtbarkeit">'+groupHTML('Sichtbarkeit',[
+      rowHTML({icon:'users',title:'Wer sieht was',sub:'Du, dein Coach, der Betreiber – Zeile für Zeile',tap:'lgOpenWhoSheet()'}),
+      rowHTML({icon:'shield',title:'Einwilligung',sub:lgConsentSub(),tap:'lgOpenConsentSheet()'}),
+      rowHTML({icon:'help',title:'Einblick für den Betreiber',sub:lgGrantSubText(),tap:'lgOpenSupportSheet()',id:'pf_grantRow'})
+    ],'Ohne deine Einwilligung speichert die App keine neuen Gesundheitswerte. Der Betreiber sieht '
+     +'in der App Zahlen und Zustände, keine Gesundheitsdaten – es sei denn, du gibst ihm für '
+     +fmtNum(lgGrantMin())+' Minuten Einblick. Jeder dieser Zugriffe steht im Protokoll.')+'</div>';
+  }
+
+  // --- Deine Daten -----------------------------------------------------------------------------
+  const drows=[];
+  if(!staff)drows.push(rowHTML({icon:'apple',title:'Gesundheitsdaten verbinden',
+    sub:u.last_health_import?('Letzter Import '+relDate(u.last_health_import)):'Apple Health per Kurzbefehl – noch nicht eingerichtet',
+    tap:'openAppleHealth()'}));
+  drows.push(rowHTML({icon:'refresh',title:'Offline-Warteschlange',sub:acOutboxSub(),
+    value:acOutboxN()?fmtNum(acOutboxN())+' wartet':'leer',tap:'openOutbox()'}));
+  drows.push(acActRow({icon:'download',title:'Daten herunterladen',sub:'Alles, was zu deinem Konto gehört, als eine JSON-Datei (DSGVO)',tap:'exportMyData()'}));
+  drows.push(rowHTML({icon:'share',title:'Als App installieren',
+    sub:isStandalone()?'Läuft auf diesem Gerät bereits als App':'Zum Startbildschirm hinzufügen – ohne Browserleiste, offline nutzbar',
+    tap:'openInstallSheet()'}));
+  h+='<div id="pf_daten">'+groupHTML('Deine Daten',drows,
+    'Die Warteschlange füllt sich, wenn du ohne Netz etwas einträgst; sobald du wieder online '
+    +'bist, geht alles von selbst raus. Der Download enthält jede Zeile, die zu deinem Konto '
+    +'gespeichert ist.')+'</div>';
+
+  // --- Hilfe und Rechtliches --------------------------------------------------------------------
+  const hrows=[acActRow({icon:'refresh',title:'Hinweise wieder anzeigen',sub:'Alle ausgeblendeten Hinweiskästen zurückholen',tap:'resetHints()'})];
+  if(u.role==='athlete')hrows.push(acActRow({icon:'play',title:'Einführung erneut ansehen',sub:'Die kurze Tour über die App',tap:'restartTour()'}));
+  hrows.push(lgLinkRow(LG_PRIVACY_URL,'shield','Datenschutz','Welche Daten, wozu, wer sie bekommt'));
+  hrows.push(lgLinkRow(LG_IMPRINT_URL,'info','Impressum','Wer diese App betreibt'));
+  h+='<div id="pf_hilfe">'+groupHTML('Hilfe',hrows,
+    'Datenschutz und Impressum öffnen sich als eigene Seite – sie funktionieren auch dann, wenn '
+    +'die App klemmt. Diese Fassung: Version '+APP_VERSION+'.')+'</div>';
+
+  // --- Sitzungen --------------------------------------------------------------------------------
+  h+=groupHTML('Sitzungen',[
+    rowHTML({icon:'devices',title:'Alle Geräte abmelden',sub:'Andere Handys, Tablets und Browser rauswerfen – hier bleibst du angemeldet',tap:'confirmLogoutAll()'}),
+    acActRow({icon:'logOut',title:'Abmelden',sub:'Nur dieses Gerät',tap:'logout()'})
+  ],'Auf einem geteilten Gerät (Familien-Tablet, Studio-Rechner): erst „Alle Geräte abmelden", '
+   +'dann „Abmelden" – so bleibt nirgends etwas von dir zurück.');
+
+  // --- Die zerstoerende Aktion: eigene Gruppe, einzeilig, rot, zentriert (4.4/A30) --------------
+  if(u.role==='admin'){
+    // inset:true, obwohl die Zeile kein Symbol traegt: eine einzeilige Gruppe hat keine Trennlinie,
+    // der Schalter aendert hier also nichts am Bild - er haelt nur die Gruppe bei EINER Klasse.
+    h+=groupHTML('',[rowHTML({title:'Konto löschen',value:'nur über die Verwaltung'})],
+      'Ein Administrator-Konto löscht sich nicht selbst – sonst stünde das System ohne Betreiber da.',{inset:true});
+  }else{
+    h+=groupHTML('',[rowHTML({title:'Konto löschen',tap:'openDeleteAccount()',danger:true})],
+      // siehe oben: inset haelt die Gruppe bei EINER Klasse, ohne das Bild zu aendern.
+      'Löscht dein Konto mit allem darin: Plan, Sätze, Check-ins, Maße, Fotos, Ernährung, '
+      +'Nachrichten, Mindset und Gesundheitsdaten. Es gibt keine Wiederherstellung – auch nicht '
+      +'durch den Betreiber. Vorher fragen wir nach deinem Passwort und bieten dir den Download an.',{inset:true});
+  }
+  return h;}
+
+// Die Warteschlange in Zahlen. outboxList/outboxOwn wohnen in core.js (Startbuendel).
+function acOutboxN(){try{if(typeof outboxList!=='function')return 0;
+    const a=outboxList();return (typeof outboxOwn==='function'?a.filter(outboxOwn):a).length;}catch(e){return 0;}}
+function acOutboxSub(){const n=acOutboxN();
+  return n?'Einträge, die noch nicht beim Server sind':'Alle Einträge sind beim Server angekommen';}
+
+// Der Hub im Stapel wird aufgefrischt (Werte in den Zeilen), damit der Ruecksprung aus einer
+// Unterseite frische Zahlen zeigt. Der Name bleibt: zwoelf Aufrufer in dieser Datei benutzen ihn.
+function refreshProfileHub(){
+  if(acRepaint('profil',acProfileHTML(),{title:acProfileTitle(),sub:acProfileSub()}))return;
+  // Notnagel ohne Push-Mechanik (sehr alte Huelle): der Hub liegt noch im Sheet-Stapel.
+  if(typeof SHEET_STACK==='undefined')return;
+  const i=SHEET_STACK.findIndex(e=>e.title==='Profil');if(i<0)return;
+  SHEET_STACK[i].html=acProfileHTML();
+  if(i===SHEET_STACK.length-1){const b=document.getElementById('sheetBody');if(b)b.innerHTML=SHEET_STACK[i].html;}}
+
 function loadProfileAvatar(){if(!ME||!ME.has_avatar||_PF_AVATAR_URL)return;
   API.get('/avatar/'+ME.id).then(r=>{if(r.status===200&&r.data&&r.data.avatar){_PF_AVATAR_URL=r.data.avatar;
     const el=document.getElementById('pf_avatar');if(el){el.textContent='';el.style.backgroundImage='url('+_PF_AVATAR_URL+')';}}});}
-// A-II.4: role="button" + tabindex="0" machen die 22 tippbaren Einstellungszeilen zu echten Knöpfen für
-// die Tastatur. Enter/Leertaste kommen vom EINEN delegierten Auslöser a11KeyActivate (shell.js) – kein
-// eigenes onkeydown hier, sonst löst es zweimal aus (BUILD-A2 Abschnitt 2, Abgrenzung A-II.5 ↔ A-II.6).
-// Der Fokusring steht in app.css (.row.tap:focus-visible). Keine Schachtelung: das Label enthält nie
-// einen Knopf oder Link, sonst wäre ein Knopf im Knopf entstanden.
-function pfRow(fn,ic,label,sub){return `<div class="row tap" role="button" tabindex="0" onclick="${fn}"><div class="r-ic">${icon(ic,24)}</div><div class="rl">${label}${sub?`<small>${sub}</small>`:''}</div></div>`;}
+
 // ===== D10/D1: DAS GESPEICHERTE KALORIENZIEL UND DAS GERECHNETE =====
-// Weicht das im Profil gespeicherte Ziel um mehr als 7 % von der Formel ab, rechnet der Server neu und
-// legt beide Zahlen als `kcalAsk` in die Antwort (GET /api/me, GET /api/foodlog, GET /api/dashboard).
-// Bis 2.5.0 zeigte das niemand: im Profil stand 3.017 / 2.600 kcal, die Ernährung rechnete mit
-// 3.173 / 2.975 kcal – zwei Wahrheiten für dieselbe Sache. Hier steht jetzt die Frage, samt der einen
-// Antwort, die den Widerspruch auflöst: übernehmen.
+// Weicht das im Profil gespeicherte Ziel um mehr als 7 % von der Formel ab, rechnet der Server neu
+// und legt beide Zahlen als `kcalAsk` in die Antwort. Bis 2.5.0 zeigte das niemand: im Profil stand
+// 3.017 / 2.600 kcal, die Ernährung rechnete mit 3.173 / 2.975 – zwei Wahrheiten für dieselbe Sache.
 let AC_KCAL_ASK=null;     // null = deckungsgleich oder noch nicht geladen
 async function acKcalAskLoad(){
   try{const r=await API.get('/me');
@@ -403,38 +736,35 @@ async function acKcalAskLoad(){
     if(r.data&&r.data.user&&typeof ME!=='undefined'&&ME&&r.data.user.id===ME.id)ME.dob=r.data.user.dob??null;
     acKcalAskPaint();
   }catch(e){}}
-// Den Kasten im offenen Sheet nachziehen, ohne das Sheet neu zu bauen (der Nutzer tippt womöglich gerade)
-function acKcalAskPaint(){const box=document.getElementById('pf_kcalAsk');if(box)box.innerHTML=acKcalAskHTML();
-  refreshProfileHub();}
+function acKcalAskPaint(){acRepaint('ernaehrung',acNutritionHTML());refreshProfileHub();}
+// Die Frage steht als eigene Gruppe mit EINER Zeile und dem Fusstext darunter – kein `.note`-Kasten
+// mehr (G8: erklaert wird in der Fusszeile, nicht in einem farbigen Kasten mitten im Fluss).
 function acKcalAskHTML(){const a=AC_KCAL_ASK;if(!a)return '';
   const t=a.train||{},r=a.rest||{};
-  const st=Math.round(t.saved||0),su=Math.round(t.suggested||0);
-  const sr=Math.round(r.saved||0),ru=Math.round(r.suggested||0);
+  const su=Math.round(t.suggested||0),ru=Math.round(r.suggested||0);
   if(!su&&!ru)return '';
+  const st=Math.round(t.saved||0),sr=Math.round(r.saved||0);
   const kg=a.weightKg?fmtNum(a.weightKg,1):'';
-  return `<div class="note status mb-3">
-    <div>Deine gespeicherten Ziele (<b>${fmtNum(st)} / ${fmtNum(sr)} kcal</b>) passen nicht mehr zu deinem Gewicht${kg?' von '+kg+' kg':''}.
-      Gerechnet wird zurzeit mit <b>${fmtNum(su)} / ${fmtNum(ru)} kcal</b> (Training / Ruhe) – das siehst du auch im Ernährungs-Tab.</div>
-    <div class="mt-2"><button class="btn sm" onclick="acKcalAskApply()">Auf ${fmtNum(su)} / ${fmtNum(ru)} kcal ändern</button></div>
-    <div class="caption mt-2">Solange du die alten Werte behältst, bleibt der Unterschied bestehen. Dein Coach kann die Ziele ebenfalls anpassen.</div>
-  </div>`;}
+  return groupHTML('Deine Ziele passen nicht mehr',[
+    rowHTML({icon:'alertTriangle',title:'Gespeichert',sub:'Damit steht es in deinem Profil',value:fmtNum(st)+' / '+fmtNum(sr)}),
+    rowHTML({icon:'chartLine',title:'Gerechnet',sub:'Damit rechnet die Ernährung gerade',value:fmtNum(su)+' / '+fmtNum(ru)}),
+    acActRow({icon:'check',title:'Auf die gerechneten Werte ändern',sub:fmtNum(su)+' kcal am Trainingstag · '+fmtNum(ru)+' kcal am Ruhetag',tap:'acKcalAskApply()'})
+  ],'Die Zahlen stehen für Trainingstag / Ruhetag. Deine gespeicherten Ziele passen nicht mehr zu '
+   +'deinem Gewicht'+(kg?' von '+kg+' kg':'')+'. Solange du die alten Werte behältst, bleibt der '
+   +'Unterschied bestehen. Dein Coach kann die Ziele ebenfalls anpassen.');}
 async function acKcalAskApply(){const a=AC_KCAL_ASK;if(!a)return;
   const t=Math.round(a.train?.suggested||0),r=Math.round(a.rest?.suggested||0);
   if(!t&&!r)return;
   const f={};if(t)f.kcal_target_train=t;if(r)f.kcal_target_rest=r;
-  // plan:true – der Ernährungsplan hängt an diesen Zielen und muss neu geladen werden
   if(!await profileSave(f,{msg:'Kalorienziele übernommen ✓',plan:true}))return;
-  const kt=document.getElementById('p_kt');if(kt)kt.value=t||'';
-  const kr=document.getElementById('p_kr');if(kr)kr.value=r||'';
   AC_KCAL_ASK=null;acKcalAskPaint();
-  acKcalAskLoad();}   // gegenprüfen: nur wenn der Server auch nichts mehr fragt, ist der Widerspruch weg
-// Geburtsjahr: fehlt es, rechnet der Server das Kalorienziel OHNE Alter und nennt das Ergebnis einen
-// Startwert (DOB_MISSING_NOTE). Das Onboarding fragt seit 2.5.0 danach (core.js) – Bestandskonten
-// kamen bisher nirgends mehr an das Feld heran. Dieselbe Spanne wie dort: 1920 bis heute minus zehn.
+  acKcalAskLoad();}   // gegenpruefen: nur wenn der Server nichts mehr fragt, ist der Widerspruch weg
+
+// Geburtsjahr: fehlt es, rechnet der Server das Kalorienziel OHNE Alter und nennt das Ergebnis
+// einen Startwert. Dieselbe Spanne wie im Onboarding: 1920 bis heute minus zehn.
 const AC_DOB_YEAR_MIN=1920;
 function acDobYearMax(){return (typeof crMaxBirthYear==='function')?crMaxBirthYear():(new Date().getFullYear()-10);}
 function acDobYear(){const d=(ME&&typeof ME.dob==='string')?ME.dob:'';return /^\d{4}-\d{2}-\d{2}$/.test(d)?d.slice(0,4):'';}
-// Der Satz unter dem Feld sagt, was das Jahr bewirkt – und ändert sich, sobald es da ist (oder wieder fehlt)
 function acDobNoteTx(){return acDobYear()?'Aus dem Jahr rechnen wir dein Alter – es fließt in dein Kalorienziel ein.'
   :'Ohne Geburtsjahr rechnet dein Kalorienziel ohne Alter – die Zahl ist dann nur ein Startwert.';}
 async function acDobSave(el){const raw=String(el.value||'').trim();const field=el.closest('.field');
@@ -446,66 +776,17 @@ async function acDobSave(el){const raw=String(el.value||'').trim();const field=e
     return showFieldErr(null,`Bitte ein Geburtsjahr zwischen ${AC_DOB_YEAR_MIN} und ${yMax}.`,'p_dobY');
   clearFieldErr('p_dobY');
   if(String(y)===cur)return;
-  // Der Tag ist der 1.1. – wie im Onboarding. Gespeichert wird das JAHR, nicht der Geburtstag:
-  // das Alter veraltet damit nie still, und mehr braucht die Kalorienformel nicht.
+  // Gespeichert wird das JAHR, nicht der Geburtstag: das Alter veraltet damit nie still.
   const ok=await profileSave({dob:y+'-01-01'},{msg:'Geburtsjahr gespeichert ✓',plan:true});
   if(ok){pfFlash(field);acDobNotePaint();acKcalAskLoad();}else el.value=cur;}
 function acDobNotePaint(){const n=document.getElementById('pf_dobNote');if(n)n.textContent=acDobNoteTx();}
-function profileHubHTML(){const u=ME||{};const staff=u.role==='coach'||u.role==='admin';
-  const avatarBg=(u.has_avatar&&_PF_AVATAR_URL)?` style="background-image:url(${_PF_AVATAR_URL})"`:'';
-  const head=`<div class="pf-head">
-    <div id="pf_avatar" class="pf-avatar"${avatarBg}>${avatarBg?'':esc2((u.name||'?').charAt(0).toUpperCase())}</div>
-    <div class="h2" id="pf_nameShow">${esc2(u.name||'')}</div>
-    <div class="meta">${esc2(u.email||'')}${u.role?' · '+roleLabel(u.role):''}</div>
-    <div class="pf-avatar-acts">
-      <label class="btn sm sec">${icon('camera',16)} Bild ändern<input type="file" accept="image/*" class="pf-file" onchange="avatarPick(event)"></label>
-      <button class="btn sm ghost${u.has_avatar?'':' hidden'}" id="pf_remove" onclick="removeAvatar()">Bild entfernen</button>
-    </div>
-  </div>
-  <div class="field"><label for="p_name">Name</label><input id="p_name" value="${esc2(u.name||'')}" maxlength="80" autocomplete="name" enterkeyhint="done" onchange="saveProfileName()"></div>`;
-  let rows='';
-  if(!staff){
-    const goalSub=[goalLabel(u.goal),(typeof DS_LV_LABEL==='object'?DS_LV_LABEL[u.experience]:'')||'',(u.days_per_week||4)+'×/Woche'].filter(Boolean).join(' · ');
-    // „· weicht ab" ist der Haken, an dem der Hinweis im Unter-Sheet hängt: die Zahl in dieser Zeile ist
-    // dann nicht die, mit der gerechnet wird. Ohne Geburtsjahr ist sie zusätzlich nur ein Startwert (D1).
-    const kcalSub=((u.kcal_target_train||u.kcal_target_rest)?`${DIET_LABEL[u.diet_type||'all']} · ${fmtNum(u.kcal_target_train)} / ${fmtNum(u.kcal_target_rest)} kcal`:DIET_LABEL[u.diet_type||'all'])
-      +(AC_KCAL_ASK?' · weicht ab':'')+(u.dob?'':' · Geburtsjahr fehlt');
-    const sg=pfSleepGoal();
-    const goalsSub=`${fmtNum(sg.h,sg.h%1?1:0)} h${sg.derived?' (abgeleitet)':''} · ${fmtNum(u.steps_goal||10000)} Schritte · ${fmtNum(u.water_goal||3,(u.water_goal||3)%1?1:0)} L`;
-    rows+=`<div class="section-label">Einstellungen</div><div class="rows pf-rows">
-      ${pfRow('openGoalSheet()','target','Ziel &amp; Training',esc2(goalSub))}
-      ${pfRow('openNutritionSheet()','utensils','Ernährung &amp; Kalorien',esc2(kcalSub))}
-      ${pfRow('openGoalsSheet()','moon','Persönliche Ziele',esc2(goalsSub))}
-      ${pfRow('openNotifSheet()','bell','Erinnerungen','Push, Uhrzeiten, Test-Mitteilung, E-Mail')}
-      ${pfRow('openDataSheet()','apple','Daten &amp; Verbindungen','Gesundheitsdaten, Export, App')}
-    </div>`;
-  }else{
-    rows+=`<div class="note mb-3">Als ${roleLabel(u.role)} verwaltest du ${u.role==='admin'?'das System':'deine Athleten'}. Trainings- und Ernährungsdaten gibt es hier nicht.</div>
-    <div class="section-label">Einstellungen</div><div class="rows pf-rows">
-      ${pfRow('openNotifSheet()','bell','Erinnerungen','Push, Test-Mitteilung, E-Mail')}
-      ${pfRow('openDataSheet()','download','Daten','Export, als App installieren')}
-    </div>`;
-  }
-  rows+=`<div class="rows pf-rows">
-    ${pfRow('openAccountSheet()','user','Konto',u.email&&!u.email_verified?'E-Mail noch nicht bestätigt':'E-Mail, Passwort, Abmelden')}
-    ${pfRow('openHelpSheet()','help','Hilfe',u.role==='athlete'?'Hinweise, Einführung':'Hinweise')}
-  </div>
-  <div class="pf-version" id="versionLine">Version ${esc2(APP_VERSION)}</div>`;
-  return head+rows;}
-// Hub im Sheet-Stapel aktualisieren (Werte in den Zeilen), damit der Rücksprung aus einem Unter-Sheet frische Daten zeigt
-function refreshProfileHub(){if(typeof SHEET_STACK==='undefined')return;const i=SHEET_STACK.findIndex(e=>e.title==='Profil');if(i<0)return;
-  SHEET_STACK[i].html=profileHubHTML();
-  if(i===SHEET_STACK.length-1){const b=document.getElementById('sheetBody');if(b)b.innerHTML=SHEET_STACK[i].html;}}
-// Teil-Update des Profils (Server: COALESCE -> nur übergebene Felder ändern sich). Nie go('home'):
-// der aktuelle Tab wird im Hintergrund neu gezeichnet, das Sheet bleibt offen.
+
+// ---- Speichern (unveraendert im Verhalten) -----------------------------------------------------
+// Teil-Update des Profils (Server: COALESCE -> nur uebergebene Felder aendern sich). Nie go('home'):
+// der aktuelle Tab wird im Hintergrund neu gezeichnet, die Seite bleibt offen.
 async function profileSave(fields,o){o=o||{};const r=await API.put('/profile',fields);
-  // Die Antwort trägt mehr als „ok": nach einem Zielwechsel steht dort die neu gerechnete Kalorien-
-  // Empfehlung (suggestedKcal). Sie hier festzuhalten ist billiger als eine zweite Abfrage – der
-  // Rückgabewert bleibt absichtlich der alte (true/false), damit die zwölf Aufrufer unverändert stimmen.
   profileSave.last=r.data||null;
   if(r.status!==200){toast(r.data?.error||'Speichern fehlgeschlagen');return false;}
-  // Lokalen Nutzer spiegeln: '' heißt „zurück auf den Standard" (Server speichert NULL),
-  // {reset:[…]} ist nur ein Hilfsschlüssel für den Server und gehört nicht nach ME.
   Object.keys(fields).forEach(k=>{if(k!=='reset')ME[k]=fields[k]===''?null:fields[k];});
   if(Array.isArray(fields.reset))fields.reset.forEach(k=>{ME[k]=null;});
   if(o.msg!==false)toast(o.msg||'Gespeichert ✓');
@@ -514,7 +795,6 @@ async function profileSave(fields,o){o=o||{};const r=await API.put('/profile',fi
   scheduleTabRefresh();return true;}
 let _tabRefreshT=null;
 function scheduleTabRefresh(){clearTimeout(_tabRefreshT);_tabRefreshT=setTimeout(refreshCurrentTab,600);}
-// Aktuellen Tab neu zeichnen, ohne go() (go() würde alle Sheets schließen und nach oben scrollen)
 function refreshCurrentTab(){try{if(typeof invalidateView==='function')invalidateView();}catch(e){}
   const cur=document.querySelector('.navbtn.on')?.dataset?.p;const v=document.getElementById('views');if(!cur||!v)return;
   const name={home:'renderHome',workout:'renderWorkout',diet:'renderDiet',mindset:'renderMindset',tracker:'renderTracker',athletes:'renderAthletes',admin:'renderAdmin'}[cur];
@@ -525,41 +805,29 @@ async function saveProfileName(){const name=val('p_name');
   clearFieldErr('p_name');
   if(name===ME.name)return;
   const ok=await profileSave({name},{msg:'Name gespeichert ✓',hub:false});
-  if(ok){const n=document.getElementById('pf_nameShow');if(n)n.textContent=name;applyAvatar();
-    if(typeof SHEET_STACK!=='undefined'){const e=SHEET_STACK.find(x=>x.title==='Profil');if(e&&e!==SHEET_STACK[SHEET_STACK.length-1])e.html=profileHubHTML();}}}
+  if(ok){if(typeof applyAvatar==='function')applyAvatar();
+    acRepaint('name',acNameHTML());refreshProfileHub();}}
 function saveSimpleProfile(){return saveProfileName();} // legacy-Name (Coach-Profil)
-// legacy: früher sammelte saveProfile() alle Felder des langen Formulars – heute speichert jedes Feld selbst.
 async function saveProfile(){const f={};[['p_name','name'],['p_height','height_cm'],['p_kt','kcal_target_train'],['p_kr','kcal_target_rest']].forEach(([id,k])=>{const el=document.getElementById(id);if(el&&el.value!=='')f[k]=k==='name'?el.value.trim():parseFloat(el.value);});
   if(Object.keys(f).length)await profileSave(f);}
-// Chip-Auswahl (Ziel/Erfahrung/Phase/Ernährungsweise): sofort speichern, bei Fehler zurückspringen
+// Chip-Auswahl (Ziel/Erfahrung/Phase/Ernaehrungsweise): sofort speichern, bei Fehler zurueckspringen
 function pfChips(key,opts){return opts.map(([v,l])=>`<button type="button" class="chip${String(ME[key]??'')===v?' on':''}" data-v="${v}" onclick="pfPick('${key}','${v}',this)">${l}</button>`).join('');}
 async function pfPick(key,v,btn){if(String(ME[key]??'')===v)return;const row=btn.parentElement;
-  const vorher=String(ME[key]??'');   // Ü-2: die Stufe VOR dem Tipp – sonst ist der Unterschied nicht mehr zu sagen
+  const vorher=String(ME[key]??'');
   row.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c===btn));
-  const ok=await profileSave({[key]:v});
+  const ok=await profileSave({[key]:v},{hub:false});
   if(!ok){row.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.v===String(ME[key]??'')));return;}
-  // A5/B15: „Muskelaufbau -> Definition" ändert die Kalorienziele NICHT von selbst – der Server sagt in
-  // derselben Antwort, welche Zahlen zum neuen Ziel gehören (suggestedKcal). Bis 2.5.0 wurde das
-  // verschwiegen: das Ziel stand auf Definition, gegessen wurde weiter nach Aufbau-Kalorien.
+  refreshProfileHub();
   if(key==='goal')acGoalAskPaint(profileSave.last&&profileSave.last.suggestedKcal);
-  // Ü-2: dasselbe Versäumnis eine Zeile tiefer. Ein Tipp auf „Anfänger" nahm dem Athleten die
-  // RIR-Spalte, die Satztypen und den e1RM – und sagte dazu „Gespeichert ✓". Jetzt steht der
-  // Unterschied im Kasten unter den Chips. KEIN Dialog: der würde einen Tap kosten (Veto A-IV).
   if(key==='experience')acExpNotePaint(vorher);}
-// --- Ü-2 · Was die Erfahrungs-Stufe bedeutet, unter den Chips ---
-// Hier stand bis 2.7.0 ein Satz, der zweimal danebenlag: „Profis alle Details (RIR, Volumen)" –
-// den Volumen-Korridor je Muskel sieht in 2.8.0 JEDER (analysis.js anaMuscleHTML hängt an keiner
-// Stufe), und „Profi" zeigt exakt dasselbe wie „Fortgeschritten". Gleichzeitig sagte beim Umstellen
-// NICHTS, was verschwindet. Beides ist derselbe Fehler: die Stufe war eine Vokabel.
-// Der Kasten steht deshalb IMMER da (wer wissen will, was seine Stufe bedeutet, soll dafür nicht
-// erst etwas kaputtmachen müssen) und bekommt nach einem Tipp den Unterschied dazu.
-// Wortlaut und Rangfolge kommen aus core.js (DS_LV_*) – dieselbe Quelle, die twLevel()/an2Level()
-// auswerten, damit hier nicht steht, was die Satzzeile anders macht.
-// `d`  = {weg,neu} aus dsLvDiff, nur direkt nach einer Umstellung · `von` = vorige Selbstangabe.
+// --- Ü-2 · Was die Erfahrungs-Stufe bedeutet ---------------------------------------------------
+// Der Text steht IMMER da (wer wissen will, was seine Stufe bewirkt, soll dafuer nicht erst etwas
+// kaputtmachen muessen) und bekommt nach einem Tipp den Unterschied dazu. Wortlaut und Rangfolge
+// kommen aus core.js (DS_LV_*) – dieselbe Quelle, die twLevel()/an2Level() auswerten.
 function acExpNoteHTML(d,von){
   const self=String(ME.experience||'beginner');
   const coach=ME.experience_coach?String(ME.experience_coach):'';
-  const wirk=coach||self;                    // dieselbe Rangfolge wie twLevel()/an2Level()
+  const wirk=coach||self;
   const lab=k=>(typeof dsLvLabel==='function')?dsLvLabel(k):String(k||'');
   const sees=(typeof dsLvSees==='function')?dsLvSees(wirk):[];
   const basis=(typeof DS_LV_BASE==='string')?DS_LV_BASE:'';
@@ -569,8 +837,6 @@ function acExpNoteHTML(d,von){
   h+=sees.length?'<div class="mt-2">Das siehst du damit:</div>'+li(sees)
     :(basis?'<div class="mt-2">'+esc2(basis)+'</div>':'');
   if(coach){
-    // Die Chips sind dann eine Selbstauskunft, kein Schalter – das muss dastehen, sonst tippt der
-    // Athlet auf „Profi" und wundert sich, dass die Satzzeile gleich bleibt.
     h+='<div class="mt-2 muted-2">Deine eigene Angabe ist „'+esc2(lab(self))+'". Wirksam ist die Stufe deines Coachs: solange sie steht, ändert ein Tipp auf die Chips oben nichts an dem, was du siehst.</div>';
   }else if(von!=null&&von!==''){
     if(!d){
@@ -579,24 +845,18 @@ function acExpNoteHTML(d,von){
       if(d.neu.length)h+='<div class="mt-2">Neu dazugekommen:</div>'+li(d.neu);
       if(d.weg.length){
         h+='<div class="mt-2">Weg ist damit:</div>'+li(d.weg);
-        // Der wichtigste Satz des Kastens: die Werte sind NICHT gelöscht. `set_logs.rir` bleibt
-        // stehen, und `recommend()` (logic.js) rechnet unverändert damit – die Funktion kennt gar
-        // kein Stufen-Argument. Weg ist das EINGABEFELD, nicht die Zahl. Genau so steht es hier
-        // auch: „du siehst sie nicht mehr" wäre schon wieder falsch, denn die Begründungszeile
-        // der Satzzeile nennt einen gespeicherten RIR weiterhin (training.js twWhy).
         if(d.weg.some(x=>/RIR/.test(x)))
-          h+='<div class="mt-2 muted-2">Schon eingetragene RIR-Werte bleiben gespeichert und rechnen weiter an deinen Empfehlungen mit – weg ist nur das Eingabefeld. Tipp oben wieder auf „'+esc2(lab(von))+'", und es ist zurück.</div>';
+          h+='<div class="mt-2 muted-2">Schon eingetragene Reserve-Werte (RIR) bleiben gespeichert und rechnen weiter an deinen Empfehlungen mit – weg ist nur das Eingabefeld. Tipp oben wieder auf „'+esc2(lab(von))+'", und es ist zurück.</div>';
       }
     }
   }
   return h+'</div>';}
-// Nach einer Umstellung neu zeichnen. Bei gesetzter Coach-Stufe ändert die eigene Angabe nichts an
-// dem, was zu sehen ist – dann wird auch kein Unterschied behauptet (d=null, der Kasten sagt warum).
 function acExpNotePaint(von){const box=document.getElementById('pf_expNote');if(!box)return;
   const coach=ME.experience_coach?String(ME.experience_coach):'';
   const d=(coach||typeof dsLvDiff!=='function')?null:dsLvDiff(von,String(ME.experience||'beginner'));
   box.innerHTML=acExpNoteHTML(d,von);}
-// Kasten unter den Ziel-Chips: die neu gerechneten Kalorien zum gewählten Ziel, mit einem Weg, sie zu nehmen.
+// Kasten unter den Ziel-Chips: die neu gerechneten Kalorien zum gewaehlten Ziel, mit einem Weg,
+// sie zu nehmen. A5/B15: „Muskelaufbau -> Definition" aendert die Kalorienziele NICHT von selbst.
 let AC_GOAL_ASK=null;
 function acGoalAskPaint(s){const box=document.getElementById('pf_goalAsk');
   const t=Math.round(s?.train||0),r=Math.round(s?.rest||0);
@@ -605,20 +865,20 @@ function acGoalAskPaint(s){const box=document.getElementById('pf_goalAsk');
   if(!AC_GOAL_ASK){box.innerHTML='';return;}
   const ct=Math.round(s.current?.train||0),cr=Math.round(s.current?.rest||0);
   const same=ct===t&&cr===r;
-  box.innerHTML=same?`<div class="note mt-3">Deine Kalorienziele passen schon zum neuen Ziel.</div>`
-    :`<div class="note status mt-3">
-      <div>Zum neuen Ziel gehören <b>${fmtNum(t)} / ${fmtNum(r)} kcal</b> (Training / Ruhe)${(ct||cr)?` – gespeichert sind ${fmtNum(ct)} / ${fmtNum(cr)} kcal`:''}.${s.dobMissing?' Ohne Geburtsjahr ist das ein Startwert.':''}</div>
-      <div class="mt-2"><button class="btn sm" onclick="acGoalAskApply()">Kalorienziele anpassen</button></div>
-      <div class="caption mt-2">Ohne Anpassung bleibt es bei den alten Zahlen – das Ziel allein ändert sie nicht.</div>
-    </div>`;}
+  box.innerHTML=same?`<p class="rows-f">Deine Kalorienziele passen schon zum neuen Ziel.</p>`
+    :groupHTML('',[acActRow({icon:'utensils',title:'Kalorienziele anpassen',
+        sub:fmtNum(t)+' kcal am Trainingstag · '+fmtNum(r)+' kcal am Ruhetag',tap:'acGoalAskApply()'})],
+      'Zum neuen Ziel gehören diese Zahlen'+((ct||cr)?' – gespeichert sind '+fmtNum(ct)+' / '+fmtNum(cr)+' kcal':'')+'.'
+      +(s.dobMissing?' Ohne Geburtsjahr ist das ein Startwert.':'')
+      +' Ohne Anpassung bleibt es bei den alten Zahlen – das Ziel allein ändert sie nicht.');}
 async function acGoalAskApply(){const g=AC_GOAL_ASK;if(!g)return;
   const f={};if(g.train)f.kcal_target_train=g.train;if(g.rest)f.kcal_target_rest=g.rest;
   if(!Object.keys(f).length)return;
   if(!await profileSave(f,{msg:'Kalorienziele angepasst ✓',plan:true}))return;
   AC_GOAL_ASK=null;const box=document.getElementById('pf_goalAsk');
-  if(box)box.innerHTML=`<div class="note mt-3">Kalorienziele stehen jetzt auf dein neues Ziel.</div>`;
+  if(box)box.innerHTML=`<p class="rows-f">Kalorienziele stehen jetzt auf dein neues Ziel.</p>`;
   acKcalAskLoad();}
-// Zahlenfeld: bei Änderung speichern. reset:true -> leeres Feld setzt auf Standard zurück (Server: '' = NULL)
+// Zahlenfeld: bei Aenderung speichern. reset:true -> leeres Feld setzt auf Standard zurueck.
 async function pfNum(key,el,o){o=o||{};const raw=String(el.value||'').trim();const field=el.closest('.field');
   if(raw===''){if(o.reset){if(ME[key]==null)return;const ok=await profileSave({[key]:''});if(ok)pfFlash(field);return;}
     el.value=ME[key]??'';return;}
@@ -626,128 +886,176 @@ async function pfNum(key,el,o){o=o||{};const raw=String(el.value||'').trim();con
   if(ME[key]!=null&&Number(ME[key])===n)return;
   const ok=await profileSave({[key]:n});if(ok)pfFlash(field);else el.value=ME[key]??'';}
 function pfFlash(field){if(!field)return;field.classList.add('saved');setTimeout(()=>field.classList.remove('saved'),1500);}
-// --- Unter-Sheet: Ziel & Training ---
-function openGoalSheet(){const u=ME;const dpw=u.days_per_week||4;
-  openSheet('Ziel & Training',`
-    <div class="section-label">Ziel</div>
-    <div class="chip-row wrap">${pfChips('goal',[['muscle','Muskelaufbau'],['fatloss','Definition'],['health','Gesundheit']])}</div>
+
+// ---- Unterseite: Name und Foto ----------------------------------------------------------------
+// Der grosse Avatar-Block stand bisher OBEN im Profil-Sheet und kostete 200 px, bevor die erste
+// Zeile kam. Er gehoert dorthin, wo man ihn aendert.
+function acNameHTML(){const u=ME||{};
+  const bg=(u.has_avatar&&_PF_AVATAR_URL)?` style="background-image:url(${_PF_AVATAR_URL})"`:'';
+  return `<div class="pf-head">
+    <div id="pf_avatar" class="pf-avatar"${bg}>${bg?'':esc2((u.name||'?').charAt(0).toUpperCase())}</div>
+  </div>
+  <div class="field"><label for="p_name">Dein Name</label><input id="p_name" value="${esc2(u.name||'')}" maxlength="80" autocomplete="name" enterkeyhint="done" onchange="saveProfileName()"></div>`
+  +groupHTML('Profilbild',[
+    acActRow({icon:'camera',title:'Bild auswählen',sub:'Aus deiner Fotomediathek – wird quadratisch zugeschnitten',tap:'acPickAvatar()',id:'pf_pick'}),
+    acActRow({icon:'trash',title:'Bild entfernen',sub:u.has_avatar?'Zurück zum Anfangsbuchstaben':'Zurzeit ist kein Bild gesetzt',tap:'removeAvatar()',id:'pf_remove'})
+  ],'Name und Bild sieht dein Coach. Der Name steht über jeder Nachricht, die du schreibst; '
+   +'geändert wird er sofort, ohne Speichern-Knopf.')
+  +`<input type="file" accept="image/*" id="pf_file" class="hidden" onchange="avatarPick(event)">`;}
+function acOpenName(){acSub('name','Name und Foto',acNameHTML());}
+function acPickAvatar(){document.getElementById('pf_file')?.click();}
+
+// ---- Unterseite: E-Mail ------------------------------------------------------------------------
+function acEmailHTML(){const u=ME||{};const ok=!!u.email_verified;
+  const rows=[rowHTML({icon:'mail',title:u.email||'Noch keine Adresse',
+    sub:ok?'Bestätigt – Passwort-Reset und Mails funktionieren':'Noch nicht bestätigt'})];
+  if(u.email&&!ok)rows.push(acActRow({icon:'send',title:'Bestätigungs-Mail senden',
+    sub:'An '+u.email+' – schau auch im Spam-Ordner nach',tap:'resendVerify()'}));
+  return groupHTML('Deine Adresse',rows,
+    ok?'Mit der E-Mail meldest du dich an. Ändern kann sie zurzeit nur dein Coach oder der Betreiber – '
+      +'so kann niemand ein Konto still auf eine fremde Adresse umschreiben.'
+      :'Ohne Bestätigung funktionieren „Passwort vergessen" und die E-Mail-Benachrichtigungen nicht. '
+      +'Die Adresse selbst ändert zurzeit nur dein Coach oder der Betreiber.');}
+function acOpenEmail(){acSub('email','E-Mail',acEmailHTML());}
+
+// ---- Unterseite: Ziel & Training ---------------------------------------------------------------
+// `openGoalSheet` bleibt der oeffentliche Name (search.js springt direkt hierher und der
+// Bundle-Lader umhuellt ihn, weil cycleText aus training.js kommt).
+function openGoalSheet(){return acGoalPage();}
+function acGoalPage(){const u=ME;const dpw=u.days_per_week||4;
+  acSub('ziel','Ziel & Training',
+    `<h2 class="rows-h">Ziel</h2><div class="chip-row wrap">${pfChips('goal',[['muscle','Muskelaufbau'],['fatloss','Definition'],['health','Gesundheit']])}</div>
     <div id="pf_goalAsk"></div>
-    <div class="section-label">Erfahrung</div>
-    <div class="chip-row wrap">${pfChips('experience',[['beginner','Anfänger'],['intermediate','Fortgeschritten'],['advanced','Profi']])}</div>
+    <p class="rows-f">Dein Ziel steuert, wie die App Sätze empfiehlt und womit sie deine Kalorien rechnet. Es ändert die gespeicherten Kalorienziele nicht von selbst – dafür steht der Weg direkt darunter.</p>
+    <h2 class="rows-h">Erfahrung</h2><div class="chip-row wrap">${pfChips('experience',[['beginner','Anfänger'],['intermediate','Fortgeschritten'],['advanced','Profi']])}</div>
     <div id="pf_expNote" aria-live="polite">${acExpNoteHTML()}</div>
-    <div class="section-label">Phase</div>
-    <div class="chip-row wrap">${pfChips('phase',[['offseason','Offseason'],['prep','Wettkampf-Prep'],['maintain','Maintenance']])}</div>
-    <div class="section-label">Trainingsrhythmus</div>
-    <div class="rows">${_mrow('refresh','Zyklus anpassen',"closeAllSheets();openRhythmus()",{sub:_pfCycleSub(dpw)})}</div>
-    <p class="caption mt-2">Deine Folge aus Trainings- und Ruhetagen – unabhängig vom Wochentag. Sie bestimmt auch, wie viele Trainings pro Woche in deine Kalorienziele einfließen.</p>
-    <div class="note mt-4">Änderungen werden sofort gespeichert.</div>`);}
-// Untertitel der Rhythmus-Zeile: die echte Folge, sonst nur die Frequenz.
-// Der Rhythmus wird ausschließlich im Editor (Training → Kalender) geändert – eine Quelle,
-// kein zweiter Regler, der eine fein gebaute Folge stillschweigend überschreibt.
+    <h2 class="rows-h">Phase</h2><div class="chip-row wrap">${pfChips('phase',[['offseason','Offseason'],['prep','Wettkampf-Prep'],['maintain','Maintenance']])}</div>
+    <p class="rows-f">Die Phase hält fest, worauf du gerade hinarbeitest. Sie steht auf deiner Startseite und dein Coach sieht sie.</p>`
+    +groupHTML('Trainingsrhythmus',[
+      rowHTML({icon:'refresh',title:'Zyklus anpassen',sub:_pfCycleSub(dpw),tap:"go('workout');if(typeof openRhythmus==='function')openRhythmus();else toast('Der Kalender wird noch geladen - gleich nochmal versuchen.')"})],
+     'Deine Folge aus Trainings- und Ruhetagen – unabhängig vom Wochentag. Sie bestimmt auch, wie '
+     +'viele Trainings pro Woche in deine Kalorienziele einfließen. Geändert wird sie an EINER '
+     +'Stelle, im Kalender unter Training – ein zweiter Regler hier würde eine fein gebaute Folge '
+     +'stillschweigend überschreiben.')
+    +`<p class="rows-f">Alles auf dieser Seite wird sofort gespeichert.</p>`);}
 function _pfCycleSub(dpw){
   let pat=null;try{pat=ME&&ME.pattern?JSON.parse(ME.pattern):null;}catch(e){pat=null;}
   const txt=(typeof cycleText==='function'&&Array.isArray(pat))?cycleText(pat,(PLAN?.days||[]).map(d=>d.name)):'';
   return txt?txt+' · '+dpw+'×/Woche':dpw+' Trainings pro Woche';}
-// --- Unter-Sheet: Ernährung & Kalorien ---
-function openNutritionSheet(){const u=ME;
-  const start=u.start_weight?`Startgewicht ${fmtNum(u.start_weight,1)} kg${u.created_at?' · gesetzt am '+fmtDate(u.created_at):''}`:'Kein Startgewicht gesetzt';
-  const yMax=acDobYearMax();
-  acKcalAskLoad();   // frisch holen, während das Sheet schon steht – #pf_kcalAsk füllt sich nach
-  openSheet('Ernährung & Kalorien',`
-    <div class="section-label">Ernährungsweise</div>
-    <div class="chip-row wrap">${pfChips('diet_type',[['all','Alles'],['vegetarian','Vegetarisch'],['vegan','Vegan']])}</div>
-    <p class="caption mt-2">Filtert Rezepte und deinen Ernährungsplan.</p>
-    <div class="section-label">Kalorienziele</div>
-    <div id="pf_kcalAsk">${acKcalAskHTML()}</div>
+
+// ---- Unterseite: Ernährung & Kalorien ----------------------------------------------------------
+function openNutritionSheet(){return acNutritionPage();}
+function acNutritionPage(){acKcalAskLoad();acSub('ernaehrung','Ernährung & Kalorien',acNutritionHTML());}
+function acNutritionHTML(){const u=ME||{};
+  return `<h2 class="rows-h">Ernährungsweise</h2><div class="chip-row wrap">${pfChips('diet_type',[['all','Alles'],['vegetarian','Vegetarisch'],['vegan','Vegan']])}</div>
+    <p class="rows-f">Filtert Rezepte und deinen Ernährungsplan.</p>`
+    +`<div id="pf_kcalAsk">${acKcalAskHTML()}</div>`
+    +`<h2 class="rows-h">Kalorienziele</h2>
     <div class="grid-2">
       <div class="field"><label for="p_kt">Trainingstag (kcal)</label><input id="p_kt" type="number" inputmode="numeric" min="0" max="15000" value="${u.kcal_target_train||''}" placeholder="z.B. 3000" onchange="pfNum('kcal_target_train',this)"></div>
       <div class="field"><label for="p_kr">Ruhetag (kcal)</label><input id="p_kr" type="number" inputmode="numeric" min="0" max="15000" value="${u.kcal_target_rest||''}" placeholder="z.B. 2600" onchange="pfNum('kcal_target_rest',this)"></div>
     </div>
-    <p class="caption">Dein Coach kann diese Ziele ebenfalls anpassen.</p>
-    <div class="section-label">Körperdaten</div>
-    <div class="grid-2">
+    <p class="rows-f">An Trainingstagen braucht dein Körper mehr Energie als an Ruhetagen – deshalb zwei Zahlen. Lässt du sie leer, rechnet die App aus Größe, Gewicht, Alter und Trainingstagen. Dein Coach kann sie ebenfalls anpassen. Änderungen werden sofort gespeichert.</p>`
+    +groupHTML('Körperdaten',[
+      rowHTML({icon:'ruler',title:'Größe, Geburtsjahr, Startgewicht',
+        sub:[u.height_cm?fmtNum(u.height_cm)+' cm':'Größe fehlt',acDobYear()||'Geburtsjahr fehlt'].join(' · '),
+        tap:'acOpenBody()'})],
+      'Aus diesen drei Angaben kommt dein Kalorienziel.');}
+
+// ---- Unterseite: Körperdaten --------------------------------------------------------------------
+function acBodyHTML(){const u=ME||{};const yMax=acDobYearMax();
+  const start=u.start_weight?`Startgewicht ${fmtNum(u.start_weight,1)} kg${u.created_at?' · gesetzt am '+fmtDate(u.created_at):''}`:'Kein Startgewicht gesetzt';
+  return `<div class="grid-2">
       <div class="field"><label for="p_dobY">Geburtsjahr</label><input id="p_dobY" type="number" inputmode="numeric" autocomplete="bday-year" min="${AC_DOB_YEAR_MIN}" max="${yMax}" step="1" value="${esc2(acDobYear())}" placeholder="z.B. 1996" onchange="acDobSave(this)"></div>
       <div class="field"><label for="p_height">Größe (cm)</label><input id="p_height" type="number" inputmode="numeric" min="50" max="260" value="${u.height_cm||''}" placeholder="z.B. 180" onchange="pfNum('height_cm',this)"></div>
     </div>
-    <p class="caption mb-3" id="pf_dobNote">${acDobNoteTx()}</p>
-    <div class="note status">${esc2(start)}<br><span class="muted-2">Fest – daran wird dein Fortschritt gemessen. Korrektur über deinen Coach.</span></div>
-    <div class="note mt-3">Änderungen werden sofort gespeichert.</div>`);}
-// --- Unter-Sheet: Persönliche Ziele ---
-// Wirksames Schlafziel fürs Profil: der gesetzte Wert – sonst das Ziel, das der Server ohne Profilangabe aus
-// dem eigenen 14-Tage-Schnitt ableitet (7–8 h) und in readiness.sleepGoal mitliefert (Home-Aggregat bzw.
-// Analyse-Cache). So steht hier dieselbe Zahl wie in Bereitschaft und Wochenrückblick, und es steht dabei,
-// woher sie kommt. Ohne Serverwert (noch nichts geladen) bleibt der App-Standard 8.
+    <p class="rows-f" id="pf_dobNote">${acDobNoteTx()}</p>`
+    +groupHTML('Startgewicht',[
+      rowHTML({icon:'scale',title:u.start_weight?fmtNum(u.start_weight,1)+' kg':'Nicht gesetzt',
+        sub:u.created_at?'Gesetzt am '+fmtDate(u.created_at):'Kommt aus deinem ersten Check-in'})],
+      esc2(start)+' – fest, daran wird dein Fortschritt gemessen. Eine Korrektur macht dein Coach. '
+      +'Dein aktuelles Gewicht trägst du im Check-in ein, nicht hier.')
+    +`<p class="rows-f">Änderungen werden sofort gespeichert.</p>`;}
+function acOpenBody(){acSub('koerper','Körperdaten',acBodyHTML());}
+
+// ---- Unterseite: Persönliche Ziele --------------------------------------------------------------
+// Wirksames Schlafziel: der gesetzte Wert – sonst das Ziel, das der Server ohne Profilangabe aus
+// dem eigenen 14-Tage-Schnitt ableitet (7–8 h) und in readiness.sleepGoal mitliefert.
 function pfSleepGoal(){const u=ME||{};const set=+u.sleep_goal;if(set>0)return {h:set,derived:false};
   const num=v=>{v=Number(v);return (v>0&&isFinite(v))?v:null;};let v=null;
   try{if(typeof HOME_DATA!=='undefined'&&HOME_DATA&&HOME_DATA.readiness&&VIEW_USER===u.id)v=num(HOME_DATA.readiness.sleepGoal);}catch(e){}
   try{if(!v&&typeof anaCached==='function'&&VIEW_USER===u.id){const R=anaCached('readiness');if(R)v=num(R.sleepGoal);}}catch(e){}
   return v?{h:v,derived:true}:{h:8,derived:false};}
-function openGoalsSheet(){const u=ME;const sg=pfSleepGoal();
+function openGoalsSheet(){return acGoalsPage();}
+function acGoalsPage(){const u=ME;const sg=pfSleepGoal();
   const sgTxt=fmtNum(sg.h,sg.h%1?1:0)+' h';
-  openSheet('Persönliche Ziele',`
-    <div class="grid-3 mt-2">
+  acSub('ziele','Persönliche Ziele',`<div class="grid-3">
       <div class="field"><label for="p_sleepg">Schlaf (h)</label><input id="p_sleepg" type="number" inputmode="decimal" step="0.5" min="0" max="24" value="${u.sleep_goal??''}" placeholder="${sg.derived?esc2(sgTxt):'Standard 8'}" onchange="pfNum('sleep_goal',this,{reset:true})"></div>
       <div class="field"><label for="p_stepsg">Schritte</label><input id="p_stepsg" type="number" inputmode="numeric" min="0" max="100000" value="${u.steps_goal??''}" placeholder="Standard 10.000" onchange="pfNum('steps_goal',this,{reset:true})"></div>
       <div class="field"><label for="p_waterg">Wasser (L)</label><input id="p_waterg" type="number" inputmode="decimal" step="0.1" min="0" max="30" value="${u.water_goal??''}" placeholder="Standard 3" onchange="pfNum('water_goal',this,{reset:true})"></div>
     </div>
-    ${sg.derived?`<p class="caption mb-3">Schlaf: ohne Angabe leitet die App dein Ziel aus deinem eigenen Schnitt der letzten 14 Nächte ab (7–8 h) – zurzeit ${esc2(sgTxt)}. Trag einen Wert ein, wenn ein anderes Ziel gelten soll.</p>`:''}
-    <div class="note">Diese Ziele erscheinen als grüne Linie in deiner Analyse. Leer lassen = Schlafziel aus deinem eigenen Schnitt (7–8 h) · 10.000 Schritte · 3 L. Änderungen werden sofort gespeichert.</div>`);}
-// --- Unter-Sheet: Benachrichtigungen (Push mit echtem Status, Uhrzeiten als Chips, Mindset, E-Mail) ---
-// A5/M2a (RATE-25-account-auth, 09-notif-sheet.png): Bis 2.4.0 stand hier „Push Aus" und daneben leuchtete
-// „10 Uhr". Eine Erinnerung ohne Push kommt aber nirgends an. Alles, was Push braucht, startet deshalb
-// GESPERRT (.dis) und wird von renderPushRow() erst freigegeben, wenn Push auf DIESEM Gerät wirklich läuft –
-// gesperrt statt versteckt, damit die eingestellte Stunde sichtbar bleibt.
-// Ebenso der E-Mail-Schalter: ohne bestätigte Adresse verschickt der Server keine Mail (server.js prüft
-// `a.email_notifications && a.email && a.email_verified`), also darf der Schalter das nicht behaupten.
-// Und selbst mit bestätigter Adresse geht nichts raus, wenn auf dem Server gar kein Mailversand
-// eingerichtet ist (GET /api/register-info → `mailConfigured:false`, Serverlog „SMTP fehlt"). Dann ist der
-// Schalter gesperrt wie die Push-Chips – ein bedienbarer Schalter wäre ein Versprechen, das niemand einlöst.
-// Ältere Server kennen das Feld nicht; acMailConfigured() liefert dafür null und es bleibt beim alten Verhalten.
-async function openNotifSheet(){const u=ME;const athlete=u.role==='athlete';
-  const pushSub=athlete?(u.coach_id?'Trainings-Erinnerung und Nachrichten deines Coachs':'Trainings-Erinnerung und Hinweise der App'):'Neue Nachrichten deiner Athleten';
-  // Beide Erinnerungs-Reihen führen '' = Aus als erste Wahl; NULL in der DB bedeutet in beiden Fällen „keine Erinnerung"
-  const ph=u.push_hour==null?'':String(u.push_hour);const mh=u.mindset_push_hour==null?'':String(u.mindset_push_hour);
-  let noMail=false;try{noMail=await acMailConfigured()===false;}catch(e){}
+    <p class="rows-f">Diese drei Ziele erscheinen als grüne Linie in deiner Analyse. Lässt du ein Feld leer, gilt der Standard: Schlaf aus deinem eigenen Schnitt der letzten 14 Nächte (7–8 h${sg.derived?', zurzeit '+esc2(sgTxt):''}) · 10.000 Schritte · 3 L Wasser. Änderungen werden sofort gespeichert.</p>`);}
+
+// ---- Unterseite: Erinnerungen -------------------------------------------------------------------
+// A5/M2a: Bis 2.4.0 stand hier „Push Aus" und daneben leuchtete „10 Uhr". Eine Erinnerung ohne Push
+// kommt nirgends an. Alles, was Push braucht, startet deshalb GESPERRT und wird von renderPushRow()
+// erst freigegeben, wenn Push auf DIESEM Geraet wirklich laeuft – gesperrt statt versteckt, damit
+// die eingestellte Stunde ablesbar bleibt.
+// Ebenso der E-Mail-Schalter: ohne bestaetigte Adresse und ohne eingerichteten Mailversand
+// verschickt der Server keine Mail – ein bedienbarer Schalter waere ein Versprechen, das niemand
+// einloest.
+function openNotifSheet(){return acNotifPage();}
+function acNotifPage(){
+  acSub('erinnerungen','Erinnerungen',acNotifHTML(null),{onMount:acNotifMount});
+  acMailConfigured().then(v=>{acRepaint('erinnerungen',acNotifHTML(v===false),{onMount:acNotifMount});})
+    .catch(()=>{});}
+function acNotifMount(){acBindSwitches();renderPushRow();
+  // Ohne bestaetigte Adresse ODER ohne eingerichteten Mailversand verschickt der Server keine Mail
+  // (server.js prueft `email_notifications && email && email_verified`). Ein bedienbarer Schalter
+  // waere ein Versprechen, das niemand einloest - der Fusstext darunter sagt, was zuerst fehlt.
+  const mr=document.getElementById('pf_mailRow');
+  const sw=mr&&mr.querySelector('input.sw');
+  if(sw)sw.disabled=!(!!(ME&&ME.email_verified)&&acMailCfg!==false);}
+function acNotifHTML(noMail){const u=ME||{};const athlete=u.role==='athlete';
   const verified=!!u.email_verified;
-  const mailOk=verified&&!noMail;const mailOn=!!u.email_notifications&&mailOk;
-  const mailSub=noMail?'Auf diesem Server ist kein Mailversand eingerichtet':(verified?'Benachrichtigungen auch per E-Mail':'Erst nach der E-Mail-Bestätigung aktiv');
-  const mailTap=noMail?"toast('Auf diesem Server ist kein Mailversand eingerichtet.')":"toast('Bestätige zuerst deine E-Mail-Adresse.')";
-  const mailNote=noMail
-    ?`<div class="note mb-3">Auf diesem Server ist kein Mailversand eingerichtet – es kommt keine E-Mail an, egal was hier steht. Was dich erreichen soll, läuft über Push-Mitteilungen.</div>`
-    :`<div class="note mb-3">Bestätige zuerst deine E-Mail-Adresse – vorher verschickt die App keine Mail an dich.<div class="mt-2"><button class="btn sm sec" onclick="resendVerify()">Bestätigungs-Mail senden</button></div></div>`;
-  let h=`<div class="rows mb-3">
-    <div class="switch-row"><div class="r-ic">${icon('bell',24)}</div><div class="rl">Push-Mitteilungen<small id="pf_pushStatus">Status wird geprüft…</small></div><button type="button" class="tgl" id="pf_pushTgl" role="switch" aria-checked="false" aria-label="Push-Mitteilungen" onclick="togglePush()"></button></div>
-    <div class="switch-row"><div class="r-ic">${icon('mail',24)}</div><div class="rl">E-Mail<small>${esc2(mailSub)}</small></div><button type="button" class="tgl${mailOn?' on':''}${mailOk?'':' dis'}" id="p_notif" role="switch" aria-checked="${mailOn?'true':'false'}"${mailOk?'':' aria-disabled="true"'} aria-label="E-Mail-Benachrichtigungen" onclick="${mailOk?"toggleEmailNotif(!this.classList.contains('on'),this)":mailTap}"></button></div>
-  </div>
-  <p class="caption mb-2">${pushSub}.</p>
-  ${mailOk?'':mailNote}
-  <div class="note mb-3" id="pf_pushOff">Push-Mitteilungen sind auf diesem Gerät aus – ohne sie kommt keine Erinnerung an.<div class="mt-2"><button class="btn sm sec" onclick="togglePush()">Push einschalten</button></div></div>`;
-  // A-V.3 (BUILD-A5 5.3): Das ERINNERUNGS-CENTER. Bis 2.8.0 standen hier drei Chip-Reihen – und
-  // fünf weitere Push-Arten (Wochen-Rückblick, Coach-Nachricht, Plan-Änderung, Reparatur,
-  // Abend-Hinweis) waren unsichtbar und unschaltbar (RATE-25-engagement M1). Wer nicht weiß, was
-  // ihn erreichen kann, schaltet im Zweifel alles ab. Deshalb steht ab jetzt JEDE Art hier – und
-  // zwar mit dem Zeitfenster, das der Server wirklich benutzt (src/server.js cronTick).
-  // Was noch keinen eigenen Schalter hat, steht trotzdem da und sagt das auch: eine ehrliche Liste
-  // ist mehr wert als ein Schalter, der nichts tut.
-  h+=`<div class="rows mb-3">
-    <div class="switch-row"><div class="r-ic">${icon('bell',24)}</div><div class="rl">Test-Mitteilung<small id="lp_testSub">Zeigt sofort eine Mitteilung auf diesem Gerät – so siehst du, ob Sperrbildschirm und Ton stimmen</small></div><button type="button" class="btn sm sec" id="lp_testBtn" onclick="lpTestNotification()">Senden</button></div>
-  </div>`;
+  const mailOk=verified&&noMail!==true;const mailOn=!!u.email_notifications&&mailOk;
+  const pushSub=athlete?(u.coach_id?'Trainings-Erinnerung und Nachrichten deines Coachs':'Trainings-Erinnerung und Hinweise der App')
+                       :'Neue Nachrichten deiner Athleten';
+  let h=groupHTML('Auf diesem Gerät',[
+    rowHTML({icon:'bell',title:'Push-Mitteilungen',sub:'Status wird geprüft …',switch:{name:'push',on:false},id:'pf_pushRow'}),
+    rowHTML({icon:'mail',title:'E-Mail',
+      sub:noMail===true?'Auf diesem Server ist kein Mailversand eingerichtet'
+         :(verified?'Benachrichtigungen zusätzlich per E-Mail':'Erst nach der E-Mail-Bestätigung möglich'),
+      switch:{name:'mail',on:mailOn},id:'pf_mailRow'})],
+    pushSub+'. '+(noMail===true
+      ? 'Auf diesem Server ist kein Mailversand eingerichtet – es kommt keine E-Mail an, egal was hier steht. Was dich erreichen soll, läuft über Push-Mitteilungen.'
+      : (verified?'Push-Mitteilungen gelten nur für dieses Gerät; auf jedem weiteren Gerät schaltest du sie erneut ein.'
+                 :'Bestätige zuerst deine E-Mail-Adresse – vorher verschickt die App keine Mail an dich. Den Weg dazu findest du unter Profil › E-Mail.')));
+
+  h+=groupHTML('Prüfen',[
+    acActRow({icon:'zap',title:'Test-Mitteilung senden',
+      sub:'Zeigt sofort eine Mitteilung auf diesem Gerät',tap:'lpTestNotification()',id:'lp_testRow'})],
+    'Die Test-Mitteilung zeichnet der Dienst dieses Geräts. Sie beweist, dass Erlaubnis, '
+    +'Sperrbildschirm und Ton stimmen – nicht, dass eine Mitteilung vom Server ankommt.');
+
   if(athlete){
-    h+=`<div class="section-label">Trainings-Erinnerung</div>
-    <div class="chip-row wrap" id="pf_pushHour" role="group" aria-label="Uhrzeit der Trainings-Erinnerung">${[['','Aus'],['6','6 Uhr'],['7','7 Uhr'],['8','8 Uhr'],['9','9 Uhr'],['10','10 Uhr'],['12','12 Uhr'],['16','16 Uhr'],['17','17 Uhr'],['18','18 Uhr'],['19','19 Uhr'],['20','20 Uhr']].map(([v,l])=>`<button type="button" class="chip dis${v===ph?' on':''}" data-v="${v}" aria-pressed="${v===ph?'true':'false'}" onclick="pfPushHour('${v}',this)">${l}</button>`).join('')}</div>
-    <p class="caption mt-2">An Trainingstagen zur vollen Stunde · deutsche Zeit · nur mit aktiven Push-Mitteilungen. War der Server zur vollen Stunde gerade neu gestartet, kommt sie bis zu drei Stunden später nach. „Aus" betrifft nur diese Erinnerung.</p>
-    <div class="section-label">Priming-Erinnerung</div>
-    <div class="chip-row wrap" id="pf_mindHour" role="group" aria-label="Uhrzeit der Priming-Erinnerung">${[['','Aus'],['5','5 Uhr'],['6','6 Uhr'],['7','7 Uhr'],['8','8 Uhr'],['9','9 Uhr'],['10','10 Uhr']].map(([v,l])=>`<button type="button" class="chip dis${v===mh?' on':''}" data-v="${v}" aria-pressed="${v===mh?'true':'false'}" onclick="pfMindHour('${v}',this)">${l}</button>`).join('')}</div>
-    <p class="caption mt-2">„Zeit für dein Priming" zur gewählten Stunde, solange heute noch kein Priming gespeichert ist.</p>
-    <div class="rows mt-3 mb-3">
-      <div class="switch-row"><div class="r-ic">${icon('moon',24)}</div><div class="rl">Abend-Reflexion<small>Erinnerung um 20 Uhr</small></div><button type="button" class="tgl dis${u.evening_push?' on':''}" id="p_evepush" role="switch" aria-checked="${u.evening_push?'true':'false'}" aria-label="Abend-Reflexion erinnern" onclick="toggleEvePush(this)"></button></div>
-    </div>`+lpOtherPushHTML();
+    const ph=u.push_hour==null?'':String(u.push_hour);
+    const mh=u.mindset_push_hour==null?'':String(u.mindset_push_hour);
+    h+=groupHTML('Deine Uhrzeiten',[
+      rowHTML({icon:'timer',title:'Trainings-Erinnerung',sub:'An Trainingstagen zur vollen Stunde',
+        value:ph?ph+' Uhr':'Aus',tap:"acHourSheet('push')",id:'pf_pushHourRow'}),
+      rowHTML({icon:'brain',title:'Priming-Erinnerung',sub:'Solange heute noch kein Priming gespeichert ist',
+        value:mh?mh+' Uhr':'Aus',tap:"acHourSheet('mind')",id:'pf_mindHourRow'}),
+      rowHTML({icon:'moon',title:'Abend-Reflexion',sub:'Erinnerung um 20 Uhr',
+        switch:{name:'evening',on:!!u.evening_push},id:'pf_eveRow'})],
+      'Deutsche Zeit. War der Server zur vollen Stunde gerade neu gestartet, kommt die Erinnerung '
+      +'bis zu drei Stunden später nach. „Aus" betrifft immer nur diese eine Erinnerung – und ohne '
+      +'eingeschaltete Push-Mitteilungen kommt keine von ihnen an.');
+    h+=lpOtherPushHTML();
   }
-  h+=`<div class="note">Änderungen werden sofort gespeichert.</div>`;
-  openSheet('Erinnerungen',h);renderPushRow();}
-// Die übrigen Push-Arten – was der Server wirklich verschickt, mit dem Fenster aus cronTick.
-// Reine Anzeige: jede Zeile hier hängt an EINEM Schalter, nämlich „Push-Mitteilungen" ganz oben.
-// Was hier steht, ist gegen src/server.js geprüft – wer dort ein Fenster ändert, ändert diese Zeilen mit.
+  return h;}
+// Die uebrigen Push-Arten – was der Server wirklich verschickt, mit dem Fenster aus cronTick.
+// Reine Anzeige: jede Zeile haengt an EINEM Schalter, naemlich „Push-Mitteilungen" ganz oben.
 function lpOtherPushHTML(){
   const rows=[
     ['calendar','Dein Wochenrückblick','Sonntag ab 18 Uhr · Nachricht in der App, Push und (mit bestätigter Adresse) E-Mail'],
@@ -756,23 +1064,41 @@ function lpOtherPushHTML(){
     ['shield','Reparatur eingesetzt','Morgens, wenn ein vergessener Tag automatisch nachgetragen wurde'],
     ['flame','Abend-Hinweis','19–21 Uhr, wenn heute noch kein Check-in da ist']
   ];
-  return `<div class="section-label">Was dir die App sonst schickt</div>
-    <div class="rows mb-2">`+rows.map(([ic,t,sub])=>
-      `<div class="row"><div class="r-ic">${icon(ic,22)}</div><div class="rl">${esc2(t)}<small>${esc2(sub)}</small></div></div>`).join('')
-    +`</div>
-    <p class="caption mb-3">Diese fünf haben keinen eigenen Schalter – sie hängen am Schalter „Push-Mitteilungen" ganz oben.</p>
-    <!-- 2.9.0 Fix-Runde A-V.3: BUILD-A5 5.3 verlangt außerdem „zuletzt gesendet" und Ruhezeiten.
-         Beides braucht Spalten in der Datenbank (DEFER-A5 A5-4/A5-5) und ist nach Stufe B verschoben.
-         Solange es fehlt, steht das hier – eine Lücke, die man kennt, ist besser als eine, die man
-         beim ersten nächtlichen Ping entdeckt. Ein Ruhezeit-Schalter im Browser wäre wirkungslos:
-         die Mitteilung zeichnet der Service Worker im Auftrag des Servers. -->
-    <p class="caption mb-3">Eine <b>Nachtruhe</b> lässt sich noch nicht einstellen: schreibt dir dein Coach um 2 Uhr, kommt die Mitteilung um 2 Uhr. Auch <b>„zuletzt gesendet"</b> kann die App noch nicht anzeigen – der Server merkt sich bisher nicht, was er dir schon geschickt hat.</p>`;}
-// Test-Mitteilung: wird LOKAL vom Service Worker dieses Geräts gezeichnet (registration.showNotification).
-// Das beweist Erlaubnis, Service Worker und Anzeige – NICHT die Zustellung vom Server. Genau das steht
-// auch dort, wo der Knopf sitzt: eine Prüfung, die mehr behauptet als sie zeigt, ist wertlos.
-// Fuer die echte Zustellung gibt es IPHONE-TEST.md (Paket A-V.4).
+  return groupHTML('Was dir die App sonst schickt',
+    rows.map(([ic,t,sub])=>rowHTML({icon:ic,title:t,sub:sub})),
+    'Diese fünf haben keinen eigenen Schalter – sie hängen am Schalter „Push-Mitteilungen" ganz '
+    +'oben. Eine Nachtruhe lässt sich noch nicht einstellen: schreibt dir dein Coach um 2 Uhr, '
+    +'kommt die Mitteilung um 2 Uhr. Auch „zuletzt gesendet" kann die App noch nicht anzeigen – '
+    +'der Server merkt sich bisher nicht, was er dir schon geschickt hat.');}
+// Die Uhrzeit als AUSWAHL AUS EINER LISTE – das ist ein Sheet (3.4), kein zweiter Regler auf der
+// Seite. Damit fallen die beiden waagrechten Chip-Reihen weg, die hier eine zweite Steuerebene
+// gewesen waeren (G4).
+const AC_PUSH_HOURS=['','6','7','8','9','10','12','16','17','18','19','20'];
+const AC_MIND_HOURS=['','5','6','7','8','9','10'];
+function acHourSheet(kind){
+  const mind=kind==='mind';
+  const cur=mind?(ME.mindset_push_hour==null?'':String(ME.mindset_push_hour))
+                :(ME.push_hour==null?'':String(ME.push_hour));
+  const list=mind?AC_MIND_HOURS:AC_PUSH_HOURS;
+  openSheet(mind?'Priming-Erinnerung':'Trainings-Erinnerung',
+    acPickGroup('Uhrzeit',list.map(v=>rowHTML({
+        title:v===''?'Keine Erinnerung':v+' Uhr',
+        value:v===cur?'✓':'',
+        tap:`acHourPick('${esc(kind)}','${esc(v)}')`})),
+      mind?'„Zeit für dein Priming" zur gewählten Stunde, solange heute noch kein Priming gespeichert ist.'
+          :'An Trainingstagen zur vollen Stunde, deutsche Zeit. Ohne eingeschaltete Push-Mitteilungen kommt sie nicht an.'));}
+async function acHourPick(kind,v){
+  const mind=kind==='mind';
+  closeModal();
+  if(mind){await saveMindsetReminders({hour:v===''?null:parseInt(v,10)});}
+  else{await pfPushHour(v);}
+  acRepaint('erinnerungen',acNotifHTML(acMailCfg===false),{onMount:acNotifMount});
+  refreshProfileHub();}
+// Test-Mitteilung: wird LOKAL vom Service Worker dieses Geraets gezeichnet. Das beweist Erlaubnis,
+// Service Worker und Anzeige – NICHT die Zustellung vom Server. Genau das steht auch im Fusstext.
 async function lpTestNotification(){
-  const sub=document.getElementById('lp_testSub');
+  const row=document.getElementById('lp_testRow');
+  const sub=row&&row.querySelector('.rl small');
   const say=(t)=>{if(sub)sub.textContent=t;};
   const st=await pushStatus();
   if(st.state==='install'){openInstallSheet();return;}
@@ -787,136 +1113,124 @@ async function lpTestNotification(){
     say('Zuletzt geprüft: heute '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+' · lokal auf diesem Gerät');
     toast('Test-Mitteilung gezeigt – schau auf deinen Sperrbildschirm');
   }catch(e){console.error('[lp] test',e);say('Anzeige auf diesem Gerät fehlgeschlagen');toast('Das Gerät hat die Mitteilung nicht angezeigt');}}
-// Trainings-Erinnerung: Stunde als String, '' = Aus. Aus setzt push_hour über den reset-Weg auf NULL
-// (PROFILE_RESETTABLE); das mitgesendete '' greift zusätzlich, falls der Server '' wie bei den Zielfeldern behandelt.
-async function pfPushHour(v,btn){
-  if(btn&&btn.classList.contains('dis'))return toast('Erst Push-Mitteilungen einschalten – sonst kommt die Erinnerung nicht an.');
+// Trainings-Erinnerung: Stunde als String, '' = Aus. Aus setzt push_hour ueber den reset-Weg auf NULL.
+async function pfPushHour(v){
   v=String(v==null?'':v);const cur=ME.push_hour==null?'':String(ME.push_hour);
-  if(v===cur)return;const row=btn.parentElement;const off=v==='';
-  const mark=(sel)=>row.querySelectorAll('.chip').forEach(c=>{const on=sel(c);c.classList.toggle('on',on);c.setAttribute('aria-pressed',String(on));});
-  mark(c=>c===btn);
-  const ok=await profileSave(off?{push_hour:'',reset:['push_hour']}:{push_hour:parseInt(v,10)},
-    {msg:off?'Trainings-Erinnerung aus':'Erinnerung um '+v+' Uhr ✓',hub:false});
-  if(!ok)mark(c=>c.dataset.v===cur);}
-function pfMindHour(v,btn){
-  if(btn&&btn.classList.contains('dis'))return toast('Erst Push-Mitteilungen einschalten – sonst kommt die Erinnerung nicht an.');
-  btn.parentElement.querySelectorAll('.chip').forEach(c=>{const on=c===btn;c.classList.toggle('on',on);c.setAttribute('aria-pressed',String(on));});saveMindsetReminders();}
-function toggleEvePush(btn){
-  if(btn&&btn.classList.contains('dis'))return toast('Erst Push-Mitteilungen einschalten – sonst kommt die Erinnerung nicht an.');
-  const on=!btn.classList.contains('on');btn.classList.toggle('on',on);btn.setAttribute('aria-checked',String(on));saveMindsetReminders();}
-async function toggleEmailNotif(on,btn){if(btn){btn.classList.toggle('on',!!on);btn.setAttribute('aria-checked',String(!!on));}
+  if(v===cur)return true;const off=v==='';
+  return await profileSave(off?{push_hour:'',reset:['push_hour']}:{push_hour:parseInt(v,10)},
+    {msg:off?'Trainings-Erinnerung aus':'Erinnerung um '+v+' Uhr ✓',hub:false});}
+function toggleEvePush(el){saveMindsetReminders({evening:el&&el.checked?1:0});}
+async function toggleEmailNotif(on,el){
   const r=await API.post('/notifications',{email_notifications:!!on});
-  if(r.status!==200){if(btn){btn.classList.toggle('on',!on);btn.setAttribute('aria-checked',String(!on));}return toast(r.data?.error||'Fehler');}
+  if(r.status!==200){if(el)el.checked=!on;return toast(r.data?.error||'Fehler');}
   if(ME)ME.email_notifications=on?1:0;
   toast(on?'E-Mail-Benachrichtigungen an ✓':'E-Mail-Benachrichtigungen aus');}
-// Mindset-Erinnerungen: Priming-Stunde (Chips) + Abend-Reflexion (Schalter) sofort speichern.
-// Teil-Update: nur diese zwei Schlüssel – Priming-Dauer und Grundbedürfnisse bleiben unangetastet.
-async function saveMindsetReminders(){
-  const sel=document.querySelector('#pf_mindHour .chip.on');const hv=sel?sel.dataset.v:(document.getElementById('p_mindhour')?.value??'');
-  const hour=hv===''||hv==null?null:parseInt(hv,10);
-  const eveEl=document.getElementById('p_evepush');const eve=eveEl?(eveEl.classList.contains('on')||eveEl.checked===true?1:0):(ME.evening_push?1:0);
+// Mindset-Erinnerungen: Priming-Stunde und Abend-Reflexion sofort speichern. Teil-Update: nur diese
+// zwei Schluessel – Priming-Dauer und Grundbeduerfnisse bleiben unangetastet.
+async function saveMindsetReminders(o){o=o||{};
+  const hour=o.hour!==undefined?o.hour:(ME.mindset_push_hour==null?null:+ME.mindset_push_hour);
+  const eve=o.evening!==undefined?o.evening:(ME.evening_push?1:0);
   const r=await API.put('/mindset/prefs',{mindset_push_hour:hour,evening_push:eve});
   if(r.status===200){if(ME){ME.mindset_push_hour=hour;ME.evening_push=eve;}
     try{if(typeof MIND_TODAY!=='undefined'&&MIND_TODAY&&MIND_TODAY.prefs)Object.assign(MIND_TODAY.prefs,{mindset_push_hour:hour,evening_push:eve});}catch(e){}
-    toast(hour==null&&!eve?'Mindset-Erinnerungen aus':'Mindset-Erinnerungen gespeichert ✓');}
-  else toast(r.data?.error||'Fehler');}
-// --- Push-Status: Berechtigung + vorhandenes Abo auf DIESEM Gerät ---
+    toast(hour==null&&!eve?'Mindset-Erinnerungen aus':'Mindset-Erinnerungen gespeichert ✓');return true;}
+  toast(r.data?.error||'Fehler');return false;}
+// --- Push-Status: Berechtigung + vorhandenes Abo auf DIESEM Geraet ---
 function isIOS(){return /iphone|ipod|ipad/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);}
 function isStandalone(){try{return window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches;}catch(e){return false;}}
 async function pushStatus(){
   if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window))return{state:'unsupported',text:'Auf diesem Gerät nicht verfügbar'};
-  if(isIOS()&&!isStandalone())return{state:'install',text:'Zuerst zum Home-Bildschirm hinzufügen'};
+  if(isIOS()&&!isStandalone())return{state:'install',text:'Zuerst zum Startbildschirm hinzufügen'};
   if(Notification.permission==='denied')return{state:'blocked',text:isIOS()?'Blockiert – iOS Einstellungen › BE INEVITABLE › Mitteilungen':'Blockiert – in den Browser-Einstellungen erlauben'};
   let sub=null;try{const reg=await navigator.serviceWorker.getRegistration('/sw.js');if(reg)sub=await reg.pushManager.getSubscription();}catch(e){}
   if(sub&&Notification.permission==='granted')return{state:'on',text:'Aktiv auf diesem Gerät',sub};
-  return{state:'off',text:'Aus – antippen zum Aktivieren'};}
-async function renderPushRow(){const st=await pushStatus();const s=document.getElementById('pf_pushStatus'),t=document.getElementById('pf_pushTgl');if(!s||!t)return;
-  s.textContent=st.text;const on=st.state==='on';t.classList.toggle('on',on);t.setAttribute('aria-checked',String(on));
-  t.classList.toggle('dis',st.state==='unsupported'||st.state==='blocked');
-  // Alles, was ohne Push nichts bewirkt, folgt dem echten Gerätestatus (M2a): Stunden-Chips und
-  // Abend-Reflexion bleiben sperrt, solange Push aus ist, und der Hinweis darüber sagt, warum.
-  document.querySelectorAll('#pf_pushHour .chip,#pf_mindHour .chip').forEach(c=>c.classList.toggle('dis',!on));
-  document.getElementById('p_evepush')?.classList.toggle('dis',!on);
-  document.getElementById('pf_pushOff')?.classList.toggle('hidden',on);}
-async function togglePush(){const st=await pushStatus();
+  return{state:'off',text:'Aus – hier einschalten'};}
+// Alles, was ohne Push nichts bewirkt, folgt dem echten Geraetestatus (M2a): die beiden
+// Uhrzeit-Zeilen und die Abend-Reflexion bleiben gesperrt, solange Push aus ist.
+async function renderPushRow(){const st=await pushStatus();const on=st.state==='on';
+  const row=document.getElementById('pf_pushRow');
+  if(row){const s=row.querySelector('.rl small');if(s)s.textContent=st.text;
+    const sw=row.querySelector('input.sw');
+    if(sw){sw.checked=on;sw.disabled=(st.state==='unsupported'||st.state==='blocked');}}
+  // Die drei Erinnerungen bleiben BEDIENBAR, auch wenn Push aus ist - aber jede sagt in ihrer
+  // Unterzeile, dass ohne Push nichts ankommt. Ein gesperrtes Bedienelement ohne Grund daneben ist
+  // dasselbe Versteck wie ein ausgeblendetes (G5); der alte Weg sperrte und erklaerte erst nach
+  // einem Tipp in einem Toast.
+  const warn='Kommt erst an, wenn die Push-Mitteilungen oben eingeschaltet sind';
+  const setSub=(id,txt)=>{const r=document.getElementById(id);if(!r)return;
+    const s=r.querySelector('.rl small');if(s)s.textContent=txt;};
+  if(!on){setSub('pf_pushHourRow',warn);setSub('pf_mindHourRow',warn);setSub('pf_eveRow',warn);}
+  else{setSub('pf_pushHourRow','An Trainingstagen zur vollen Stunde');
+       setSub('pf_mindHourRow','Solange heute noch kein Priming gespeichert ist');
+       setSub('pf_eveRow','Erinnerung um 20 Uhr');}
+  acPushPaint();}
+// Die Zeile im Profil sagt, was auf diesem Geraet wirklich laeuft – nicht nur, was eingestellt ist.
+async function acPushPaint(){
+  if(!document.getElementById('pf_notifRow'))return;
+  let st;try{st=await pushStatus();}catch(e){return;}
+  const r=document.getElementById('pf_notifRow');if(!r)return;
+  const rr=r.querySelector('.rr'),sm=r.querySelector('.rl small');
+  const ph=ME&&ME.push_hour!=null?String(ME.push_hour):null;
+  if(st.state!=='on'){if(rr)rr.textContent='Aus';
+    if(sm)sm.textContent='Push-Mitteilungen sind auf diesem Gerät aus – ohne sie kommt keine Erinnerung an';return;}
+  if(rr)rr.textContent=ph?ph+' Uhr':'An';
+  if(sm)sm.textContent=ph?('An Trainingstagen um '+ph+' Uhr'):'An – aber keine Trainings-Erinnerung eingestellt';}
+async function togglePush(el){const st=await pushStatus();
   if(st.state==='on'){try{await API.del('/push/subscribe',{endpoint:st.sub.endpoint});await st.sub.unsubscribe();}catch(e){console.error('[push]',e);}
     toast('Push-Mitteilungen aus');renderPushRow();return;}
-  if(st.state==='install')return openInstallSheet();
-  if(st.state==='blocked'||st.state==='unsupported')return toast(st.text);
+  if(st.state==='install'){if(el)el.checked=false;return openInstallSheet();}
+  if(st.state==='blocked'||st.state==='unsupported'){if(el)el.checked=false;return toast(st.text);}
   await enablePush();renderPushRow();}
-// --- Unter-Sheet: Daten & Verbindungen ---
-function openDataSheet(){const athlete=ME.role==='athlete';
-  openSheet(athlete?'Daten & Verbindungen':'Daten',`<div class="rows mt-2">
-    ${athlete?pfRow("if(typeof openIntegrations==='function')openIntegrations();else toast('Gesundheitsdaten sind über die Analyse erreichbar')",'apple','Gesundheitsdaten verbinden',ME.last_health_import?'Letzter Import '+relDate(ME.last_health_import):'Apple Health per Kurzbefehl'):''}
-    ${pfRow('exportMyData()','download','Meine Daten exportieren','Alle deine Daten als JSON-Datei (DSGVO)')}
-    ${pfRow('openInstallSheet()','share','Als App installieren',isStandalone()?'Läuft bereits als App':'Zum Home-Bildschirm hinzufügen')}
-  </div>`
-  +(athlete?lgPrivacyBlockHTML():'')
-  +`<div class="section-label">Rechtliches</div>
-  <div class="rows mb-3">
-    ${lgLinkRow(LG_PRIVACY_URL,'shield','Datenschutz','Welche Daten, wozu, wer sie bekommt')}
-    ${lgLinkRow(LG_IMPRINT_URL,'info','Impressum','Wer diese App betreibt')}
-  </div>`);
-  if(athlete)lgSupportLoad();}
+// „Daten & Verbindungen" und „Hilfe" waren eigene Unter-Sheets. Ihre Zeilen stehen jetzt als
+// Abschnitte AUF der Profilseite – die beiden Namen bleiben trotzdem, weil die Suche sie als
+// Kurzweg kennt. Sie fuehren dorthin, wo die Sache steht, und markieren sie kurz.
+function openDataSheet(){return acProfileOpen({focus:'daten'});}
+function openHelpSheet(){return acProfileOpen({focus:'hilfe'});}
 
 // ===== A-II.4: EINWILLIGUNG, WER-SIEHT-WAS, KI-SCHALTER, HILFE-FREIGABE (Präfix lg) =====
 // Alles, was mit „wer darf was von mir sehen" zu tun hat, steht an EINER Stelle: Profil →
-// Daten & Verbindungen. Vorher war die Antwort darauf nirgends zu finden.
+// „Wer sieht was".
 
-// Eine Zeile, die auf eine echte Seite führt (kein onclick): die Rechtstexte müssen auch dann
-// funktionieren, wenn die App klemmt. target=_blank, damit die geöffnete App stehenbleibt.
-// Kein eigenes Pfeil-Symbol: app.css setzt den Chevron über .row.tap::after – ein zweiter stünde daneben.
+// Eine Zeile, die auf eine echte Seite fuehrt (kein onclick): die Rechtstexte muessen auch dann
+// funktionieren, wenn die App klemmt. target=_blank, damit die geoeffnete App stehenbleibt.
+// Bewusst von Hand gebaut und nicht ueber rowHTML(): der Helfer kennt nur <button>, und ein Knopf
+// mit window.open() waere fuer genau diesen Fall der falsche Baustein. Klassen, Aufbau und Chevron
+// sind Zeichen fuer Zeichen die der .row.tap – es entsteht keine zweite Zeilenform.
 function lgLinkRow(href,ic,label,sub){
   return `<a class="row tap" href="${href}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">
-    <div class="r-ic">${icon(ic,24)}</div><div class="rl">${label}${sub?`<small>${sub}</small>`:''}</div></a>`;}
+    <span class="r-ic">${icon(ic,24)}</span><span class="rl">${esc2(label)}${sub?`<small>${esc2(sub)}</small>`:''}</span>
+    <span class="chev" aria-hidden="true"></span></a>`;}
 
 // Untertitel der Einwilligungs-Zeile: Datum, wenn der Server es liefert – sonst der ehrliche Zustand.
 function lgConsentSub(){const u=ME||{};
-  // Erteilt, aber der Server verlangt eine neuere Fassung: „Erteilt am …" wäre hier eine Unwahrheit.
   if(u.consent_health_at&&typeof lgConsentMissing==='function'&&lgConsentMissing(u))return 'Neue Fassung – bitte bestätigen';
   if(u.consent_health_at)return 'Erteilt am '+fmtDate(u.consent_health_at);
   let pend=null;try{pend=localStorage.getItem('be_consent_pending');}catch(e){}
   return pend?'Auf diesem Gerät erteilt, noch nicht beim Server angekommen':'Noch nicht erteilt';}
-
-function lgPrivacyBlockHTML(){const u=ME||{};const ai=!!Number(u.ai_consent||0);
-  return `<div class="section-label">Deine Daten und wer sie sieht</div>
-  <div class="rows mb-2">
-    ${pfRow('lgOpenWhoSheet()','eye','Wer sieht was?','Du, dein Coach, der Betreiber – Zeile für Zeile')}
-    ${pfRow('lgOpenConsentSheet()','shield','Einwilligung',esc2(lgConsentSub()))}
-    ${pfRow('lgOpenSupportSheet()','help','Einblick für den Betreiber','<span id="pf_grantSub">Aus – nur mit deiner Freigabe</span>')}
-  </div>
-  <div class="section-label">KI-Analyse</div>
-  <div class="rows">
-    <div class="switch-row"><div class="r-ic">${icon('sparkles',24)}</div>
-      <div class="rl">KI-Analyse durch meinen Coach erlauben<small>Standard: aus</small></div>
-      <button type="button" class="tgl${ai?' on':''}" id="lg_aiTgl" role="switch" aria-checked="${ai?'true':'false'}" aria-label="KI-Analyse durch meinen Coach erlauben" onclick="lgAiToggle(this)"></button></div>
-  </div>
-  <p class="caption mt-2 mb-3">Eingeschaltet darf dein Coach eine Auswertung anfordern: dabei gehen Ziel, Erfahrung, Trainingstage, deine Check-in-Werte der letzten 14 Tage und deine letzten 90 Sätze an <b>Anthropic</b> (USA) – ohne deinen Namen und ohne Freitexte. Nach jeder Auswertung bekommst du eine Nachricht.</p>`;}
+function lgGrantSubText(){const min=lgGrantMinutesLeft();
+  if(LG_GRANT&&LG_GRANT.available===false)return 'In dieser Fassung noch nicht verfügbar';
+  return min>0?('Läuft noch '+fmtNum(min)+' Min.'):'Aus – nur mit deiner Freigabe';}
 
 // --- Schalter: KI-Analyse (DECISIONS F5, Standard AUS) ---
-// Eigene Route `POST /api/ai/consent` (A-II.2), NICHT PUT /api/profile: der Schalter ist eine
-// Einwilligung, kein Profilfeld – er wird protokolliert und darf nicht nebenbei mitgespeichert werden.
-// Wir übernehmen den Zustand aus der ANTWORT des Servers, nicht aus dem Klick: nur so steht der
-// Schalter nachher auf dem, was wirklich in der Datenbank steht.
-async function lgAiToggle(btn){
-  const on=!btn.classList.contains('on');
-  const paint=v=>{btn.classList.toggle('on',!!v);btn.setAttribute('aria-checked',String(!!v));};
-  paint(on);btn.classList.add('dis');
-  const r=await API.post('/ai/consent',{ai_consent:on});
-  btn.classList.remove('dis');
+// Eigene Route `POST /api/ai/consent`, NICHT PUT /api/profile: der Schalter ist eine Einwilligung,
+// kein Profilfeld – er wird protokolliert und darf nicht nebenbei mitgespeichert werden.
+// Wir uebernehmen den Zustand aus der ANTWORT des Servers, nicht aus dem Klick.
+async function lgAiSet(on,el){
+  const paint=v=>{if(el)el.checked=!!v;};
+  if(el)el.disabled=true;
+  const r=await API.post('/ai/consent',{ai_consent:!!on});
+  if(el)el.disabled=false;
   if(r.status===404){paint(!on);return toast('Dafür braucht der Server ein Update – bitte den Betreiber informieren.');}
   if(r.status!==200){paint(!on);return toast(r.data?.error||'Der Schalter wurde nicht geändert.');}
   const got=Number(r.data?.ai_consent||0);
   paint(got===1);if(ME)ME.ai_consent=got;
   toast(got?'KI-Analyse erlaubt ✓':'KI-Analyse aus – dein Coach bekommt keine mehr');}
+function lgAiToggle(el){return lgAiSet(el&&el.checked!==undefined?el.checked:!(el&&el.classList&&el.classList.contains('on')),el);}
 
-// --- Unter-Sheet: Wer sieht was ---
-// Die Tabelle sagt den Stand NACH dieser Welle (2.6.0): der Betreiber ist Betreiber, nicht Über-Coach.
+// --- Unterseite: Wer sieht was ---
+// Die Tabelle sagt den Stand NACH dieser Welle: der Betreiber ist Betreiber, nicht Ueber-Coach.
 // Sie wird bewusst hier gepflegt und nicht aus dem Server geholt – eine Tabelle, die sich selbst
-// schönrechnet, wäre wertlos. Stimmt eine Zeile nicht mehr, gehört sie hier korrigiert.
-// Kurze Zellen sind hier kein Stil, sondern Bedingung: auf 390 px Bildschirmbreite muss die Spalte
-// „Betreiber" SICHTBAR sein – sie ist die, wegen der diese Tabelle überhaupt existiert. Eine Tabelle,
-// bei der man erst seitwärts wischen muss, um die wichtigste Antwort zu sehen, beantwortet nichts.
+// schoenrechnet, waere wertlos. Stimmt eine Zeile nicht mehr, gehoert sie hier korrigiert.
 const LG_WHO_ROWS=[
   ['Name','ja','ja','Kürzel'],
   ['E-Mail-Adresse','ja','beim Zuordnen','nur per Suche *'],
@@ -930,84 +1244,78 @@ const LG_WHO_ROWS=[
   ['Mindset: Notizen, Reflexion','ja','nein','nein'],
   ['Nachrichten mit deinem Coach','ja','ja','nein'],
   ['Apple-Health-Schlüssel','ja','nein','nein'],
-  // B2: Das Passwort gehört in diese Tabelle, weil daran hängt, ob jemand IN dein Konto kommt.
-  // Lesen kann es niemand (es liegt nur als Prüfsumme da). Der Coach kann dir ein neues vergeben,
-  // der Betreiber seit 2.6.0 nicht mehr – er erzeugt höchstens einen Link, den du selbst einlöst.
   ['Dein Passwort','nur du','kann neues vergeben','nur Link **'],
   ['Anzahl Konten, Fehler, Laufzeiten','–','–','ja'],
-  // B1: Die Zeile, die diese Tabelle ehrlich macht. Der Betreiber kann eine vollständige Kopie der
-  // Datenbank ziehen – darin steht alles, was oben mit „nein" markiert ist. Ohne Sicherung gibt es
-  // keine Wiederherstellung, also bleibt der Weg; verschweigen darf ihn die Tabelle trotzdem nicht.
   ['Vollständige Sicherung','–','–','ja, protokolliert']
 ];
 function lgWhoCell(v){const t=String(v);
   const short=t==='ja'||t==='nein'||t==='–';
   const col=t==='ja'?'var(--green)':(t==='nein'||t==='–'?'var(--ink3)':'var(--ink2)');
-  return `<td style="padding:8px 4px;border-bottom:.5px solid var(--line);color:${col};font-weight:${short?'600':'400'};font-size:12px;line-height:1.3;vertical-align:top">${esc2(t)}</td>`;}
+  return `<td class="lg-who-c${short?' s':''}" style="color:${col}">${esc2(t)}</td>`;}
 function lgOpenWhoSheet(){
-  const head=['Daten','Du','Coach','Betreiber'].map((h,i)=>`<th scope="col" style="text-align:left;padding:6px 4px;border-bottom:.5px solid var(--line);color:var(--ink2);font-size:10px;text-transform:uppercase;letter-spacing:.04em;${i?'':'width:44%'}">${h}</th>`).join('');
-  const body=LG_WHO_ROWS.map(r=>`<tr><th scope="row" style="text-align:left;padding:8px 4px 8px 0;border-bottom:.5px solid var(--line);font-weight:500;font-size:12px;line-height:1.3;vertical-align:top">${esc2(r[0])}</th>${lgWhoCell(r[1])}${lgWhoCell(r[2])}${lgWhoCell(r[3])}</tr>`).join('');
-  openSheet('Wer sieht was',`
-    <p class="body mb-3">Drei Sichten: du, dein Coach und der Betreiber. Der Betreiber hält die App am Laufen –
-    in der App sieht er Zahlen und Zustände, keine Gesundheitsdaten. Zwei Ausnahmen stehen unten:
-    die Hilfe-Freigabe und die vollständige Sicherung.</p>
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:10px">
-      <table style="border-collapse:collapse;width:100%"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
-    </div>
-    <p class="caption mb-3">* Der Betreiber findet ein Konto nur, wenn er die E-Mail-Adresse genau eingibt – eine Liste aller Adressen gibt es nicht. Jede Suche steht im Protokoll.<br>
-    ** Dein Passwort kann niemand lesen – es liegt nur als Prüfsumme in der Datenbank. Kommst du nicht mehr hinein, erzeugt der Betreiber einen einmaligen Link (72 Stunden, einmal gültig); dein bisheriges Passwort bleibt gültig, bis du den Link benutzt, und das neue setzt du selbst. Dein Coach dagegen kann dir ein neues Passwort vergeben – du wirst dabei überall abgemeldet und bekommst eine Nachricht.</p>
-    <div class="note mb-3">Ein Coach sieht nur <b>seine</b> Athleten. Übernimmt dich ein Coach, bekommst du eine Nachricht darüber.</div>
-    <div class="note mb-3">Gibst du dem Betreiber die <b>Hilfe-Freigabe</b>, sieht er 30 Minuten lang so viel wie dein Coach – und jeder einzelne Zugriff wird protokolliert. Danach ist die Tür wieder zu.</div>
-    <div class="note mb-3">Damit nach einem Ausfall nichts verloren ist, zieht der Betreiber <b>Sicherungen</b> der ganzen Datenbank – eine Datei mit allem, auch mit deinen Daten. Sie wird verschlüsselt aufbewahrt, jede Kopie steht im Protokoll, und <b>du bekommst jedes Mal eine Nachricht</b>.</div>
-    ${lgLegalLinksHTML({align:'flex-start'})}`);}
+  const head=['Daten','Du','Coach','Betreiber'].map((h,i)=>`<th scope="col"${i?'':' class="k"'}>${h}</th>`).join('');
+  const body=LG_WHO_ROWS.map(r=>`<tr><th scope="row">${esc2(r[0])}</th>${lgWhoCell(r[1])}${lgWhoCell(r[2])}${lgWhoCell(r[3])}</tr>`).join('');
+  const ai=!!Number((ME||{}).ai_consent||0);
+  acSub('wersiehtwas','Wer sieht was',
+    `<p class="rows-f">Drei Sichten: du, dein Coach und der Betreiber. Der Betreiber hält die App am Laufen – in der App sieht er Zahlen und Zustände, keine Gesundheitsdaten. Zwei Ausnahmen stehen weiter unten: die Hilfe-Freigabe und die vollständige Sicherung.</p>
+    <div class="lg-who"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    <p class="rows-f">* Der Betreiber findet ein Konto nur, wenn er die E-Mail-Adresse genau eingibt – eine Liste aller Adressen gibt es nicht. Jede Suche steht im Protokoll.<br>
+    ** Dein Passwort kann niemand lesen – es liegt nur als Prüfsumme in der Datenbank. Kommst du nicht mehr hinein, erzeugt der Betreiber einen einmaligen Link (72 Stunden, einmal gültig); dein bisheriges Passwort bleibt gültig, bis du den Link benutzt, und das neue setzt du selbst. Dein Coach dagegen kann dir ein neues Passwort vergeben – du wirst dabei überall abgemeldet und bekommst eine Nachricht.</p>`
+    +groupHTML('KI-Analyse',[
+      rowHTML({icon:'sparkles',title:'KI-Analyse durch meinen Coach erlauben',sub:'Standard: aus',
+        switch:{name:'ai',on:ai},id:'lg_aiRow'})],
+      'Eingeschaltet darf dein Coach eine Auswertung anfordern: dabei gehen Ziel, Erfahrung, '
+      +'Trainingstage, deine Check-in-Werte der letzten 14 Tage und deine letzten 90 Sätze an '
+      +'Anthropic (USA) – ohne deinen Namen und ohne Freitexte. Nach jeder Auswertung bekommst du '
+      +'eine Nachricht.')
+    +groupHTML('Was daneben gilt',[
+      rowHTML({icon:'users',title:'Ein Coach sieht nur seine Athleten',sub:'Übernimmt dich ein Coach, bekommst du eine Nachricht darüber'}),
+      rowHTML({icon:'help',title:'Hilfe-Freigabe',sub:'Gibst du sie, sieht der Betreiber '+fmtNum(lgGrantMin())+' Minuten lang so viel wie dein Coach - im Profil unter „Einblick für den Betreiber"'}),
+      rowHTML({icon:'shield',title:'Sicherung der Datenbank',sub:'Eine Datei mit allem – verschlüsselt, protokolliert, du bekommst jedes Mal eine Nachricht'})],
+      'Damit nach einem Ausfall nichts verloren ist, zieht der Betreiber Sicherungen der ganzen '
+      +'Datenbank. Jeder einzelne Zugriff während einer Hilfe-Freigabe steht im Protokoll; danach '
+      +'ist die Tür wieder zu.')
+    +lgLegalLinksHTML({align:'flex-start'}),{onMount:acBindSwitches});}
 
-// --- Unter-Sheet: Einwilligung ---
-// Drei Zustände, nicht zwei: erteilt · gar nicht erteilt · erteilt, aber der Text hat sich seither
-// geändert (der Server antwortet dann ebenfalls 409, `reason:'version'`). Ohne den dritten Fall zeigte
-// die Karte einem solchen Konto nur „Du hast eingewilligt" und den Widerrufsknopf – eine Sackgasse:
-// die App hätte weiter nichts angenommen, und der einzige Knopf hätte es schlimmer gemacht.
+// --- Unterseite: Einwilligung ---
+// Drei Zustaende, nicht zwei: erteilt · gar nicht erteilt · erteilt, aber der Text hat sich seither
+// geaendert (der Server antwortet dann ebenfalls 409, `reason:'version'`).
 function lgOpenConsentSheet(){const u=ME||{};
   const stale=!!(u.consent_health_at&&typeof lgConsentMissing==='function'&&lgConsentMissing(u));
   const given=!!u.consent_health_at&&!stale;
-  openSheet('Einwilligung',`
-    <div class="note ${given?'ok':'warn'} mb-3">${given
-      ?`Du hast am <b>${esc2(fmtDate(u.consent_health_at))}</b> eingewilligt, dass die App deine Gesundheitsdaten für deinen Plan und deine Auswertung verarbeitet${u.consent_version?` (Fassung ${esc2(u.consent_version)})`:''}.`
-      :(stale
-        ?`Der Text der Einwilligung hat sich geändert. Bis du die neue Fassung bestätigst, speichert die App keine neuen Gesundheitswerte.`
-        :`Für deine Gesundheitsdaten liegt noch keine Einwilligung vor. Ohne sie kann die App keine neuen Werte speichern.`)}</div>
-    <p class="body mb-3">Das betrifft Gewicht, Schlaf, Puls, HRV, Körpermaße, Fotos und Stimmung – nach Artikel 9 DSGVO
-    besondere Daten, die es ohne dein ausdrückliches Ja nicht geben darf. Dazu deine Notizen (Check-in,
-    Mindset, Reflexion), soweit sie etwas über deine Gesundheit sagen.</p>
-    <div class="rows mb-3">${lgLinkRow(LG_PRIVACY_URL,'shield','Datenschutz','Der ganze Text: Zwecke, Empfänger, Fristen')}</div>
-    <div class="section-label">Widerruf</div>
-    <p class="body muted mb-3">Der Widerruf gilt ab sofort; was bis dahin geschah, bleibt rechtmäßig. Danach speichert
-    die App keine neuen Gesundheitswerte mehr – dein Konto und dein bisheriger Verlauf bleiben, bis du sie löschst.
-    Eine laufende Hilfe-Freigabe wird dabei geschlossen; die KI-Analyse ist ein eigener Schalter, den du im selben
-    Schritt mit abschalten kannst.</p>
-    ${given?`<button class="btn block sec" onclick="lgConsentRevokeAsk()">Einwilligung widerrufen</button>`
-      :`<button class="btn block" onclick="lgConsentGrant()">${stale?'Neue Fassung bestätigen':'Einwilligung erteilen'}</button>`}
-    <p class="caption mt-3">Ganz weg willst du? Profil → Konto → „Konto löschen“ entfernt alles in einem Zug.</p>`);}
-// Der Weg zurück. Ohne ihn wäre der Widerruf eine Einbahnstraße: Wer einmal widerruft (oder wessen
-// Konto aus der Zeit vor 2.6.0 stammt), käme nie wieder dazu, Werte einzutragen, und die App sagte
-// nur noch 409. Dieselbe Route wie im Onboarding – der Server vergibt die Fassung.
+  const kopf=given
+    ?rowHTML({icon:'check',title:'Erteilt',sub:'am '+fmtDate(u.consent_health_at)+(u.consent_version?' · Fassung '+u.consent_version:'')})
+    :(stale
+      ?rowHTML({icon:'alertTriangle',title:'Neue Fassung offen',sub:'Bis du sie bestätigst, speichert die App keine neuen Gesundheitswerte'})
+      :rowHTML({icon:'alertTriangle',title:'Noch nicht erteilt',sub:'Ohne sie kann die App keine neuen Gesundheitswerte speichern'}));
+  const akt=given
+    ?acActRow({icon:'x',title:'Einwilligung widerrufen',sub:'Gilt ab sofort – dein bisheriger Verlauf bleibt',tap:'lgConsentRevokeAsk()'})
+    :acActRow({icon:'check',title:stale?'Neue Fassung bestätigen':'Einwilligung erteilen',sub:'Danach speichert die App deine Werte wieder',tap:'lgConsentGrant()'});
+  acSub('einwilligung','Einwilligung',
+    groupHTML('Stand',[kopf,akt],
+      'Das betrifft Gewicht, Schlaf, Puls, HRV, Körpermaße, Fotos und Stimmung – nach Artikel 9 '
+      +'DSGVO besondere Daten, die es ohne dein ausdrückliches Ja nicht geben darf. Dazu deine '
+      +'Notizen (Check-in, Mindset, Reflexion), soweit sie etwas über deine Gesundheit sagen.')
+    +groupHTML('Nachlesen',[lgLinkRow(LG_PRIVACY_URL,'shield','Datenschutz','Der ganze Text: Zwecke, Empfänger, Fristen')],
+      'Der Widerruf gilt ab sofort; was bis dahin geschah, bleibt rechtmäßig. Danach speichert die '
+      +'App keine neuen Gesundheitswerte mehr – dein Konto und dein bisheriger Verlauf bleiben, bis '
+      +'du sie löschst. Eine laufende Hilfe-Freigabe wird dabei geschlossen; die KI-Analyse ist ein '
+      +'eigener Schalter, den du im selben Schritt mit abschalten kannst. Ganz weg willst du? '
+      +'Profil → „Konto löschen" entfernt alles in einem Zug.'));}
+// Der Weg zurueck. Ohne ihn waere der Widerruf eine Einbahnstrasse.
 async function lgConsentGrant(){
   const ok=await lgConsentSend();
   if(!ok)return toast('Das hat nicht geklappt – bitte erneut versuchen.');
   const me=await API.get('/me');if(me.status===200&&me.data&&me.data.user)ME=me.data.user;
-  closeAllSheets();toast('Einwilligung erteilt ✓');refreshProfileHub();}
-// Nachbesserung A-II: Der Dialog zählte nur Check-in, Maße, Fotos und Health-Import auf – und ließ
-// damit die zwei Dinge ungenannt, die den Widerruf erst vollständig machen. Gemessen an einem
-// Athleten mit `ai_consent=1` und offener Hilfe-Freigabe: nach dem Widerruf lief die Freigabe
-// unverändert weiter, und die KI-Auswertung des Coaches kam durch die Einwilligungs-Schranke
-// hindurch (nur der fehlende Schlüssel beim Betreiber stoppte die Übermittlung an Anthropic).
-// Jetzt sagt der Dialog beides – und tut beides:
-//   · die laufende Freigabe schließt der SERVER beim Widerruf selbst (DELETE /api/consent), sie
-//     steht deshalb als Tatsache da und nicht als Häkchen, das man abwählen könnte;
-//   · der KI-Schalter ist eine eigene Einwilligung (datenschutz.html Abschnitt 6: „einzeln und
-//     unabhängig davon abschalten") und bleibt deshalb eine Wahl – vorbelegt mit „mit abschalten",
-//     weil niemand seine Gesundheitsdaten zurückzieht und sie gleichzeitig in die USA schicken will.
-// Eigenes Sheet statt confirmSheet(): confirmSheet escapt seinen Text und kennt kein Häkchen –
-// und shell.js gehört einem anderen Paket.
+  toast('Einwilligung erteilt ✓');
+  popPage();refreshProfileHub();}
+// Nachbesserung A-II: Der Dialog zaehlte nur Check-in, Masse, Fotos und Health-Import auf – und
+// liess damit die zwei Dinge ungenannt, die den Widerruf erst vollstaendig machen:
+//   · die laufende Freigabe schliesst der SERVER beim Widerruf selbst (DELETE /api/consent);
+//   · der KI-Schalter ist eine eigene Einwilligung und bleibt deshalb eine Wahl – vorbelegt mit
+//     „mit abschalten", weil niemand seine Gesundheitsdaten zurueckzieht und sie gleichzeitig in
+//     die USA schicken will.
+// Eigenes Sheet statt confirmSheet(): confirmSheet escapt seinen Text und kennt kein Haekchen.
 function lgConsentRevokeAsk(){
   const ai=!!Number((ME||{}).ai_consent||0);
   const min=lgGrantMinutesLeft();
@@ -1023,40 +1331,30 @@ function lgConsentRevokeAsk(){
     <button class="btn block danger" onclick="lgConsentRevoke()">Ja, widerrufen</button>
     <button class="btn block sec mt-2" onclick="closeModal()">Abbrechen</button>`);}
 async function lgConsentRevoke(){
-  // Das Häkchen VOR dem ersten await lesen: danach kann das Sheet schon zu sein.
+  // Das Haekchen VOR dem ersten await lesen: danach kann das Sheet schon zu sein.
   const alsoAi=!!(document.getElementById('lg_revokeAi')||{}).checked;
   const r=await API.del('/consent',{});
   if(r.status===200){try{localStorage.removeItem('be_consent_pending');}catch(e){}
-    // Zweiter Aufruf statt eines Feldes im Widerruf: der KI-Schalter ist eine eigene Einwilligung
-    // mit eigener Route und eigenem Protokolleintrag (ai.consent.off). Scheitert er, wird das gesagt
-    // – ein stiller Fehlschlag wäre genau die Lücke, wegen der diese Nachbesserung entstand.
     let aiLeft=false;
     if(alsoAi){const a=await API.post('/ai/consent',{ai_consent:false});if(a.status!==200)aiLeft=true;}
-    // Die Freigabe hat der Server geschlossen. Der lokale Stand darf nicht „Läuft noch 25 Min."
-    // behalten, bis das Sheet das nächste Mal nachlädt.
     if(LG_GRANT&&typeof LG_GRANT==='object'){LG_GRANT.active=null;lgSupportPaint();}
     const me=await API.get('/me');if(me.status===200&&me.data&&me.data.user)ME=me.data.user;
     closeAllSheets();
     toast(aiLeft?'Einwilligung widerrufen – die KI-Analyse blieb an, bitte im Profil prüfen'
       :(alsoAi?'Einwilligung widerrufen · KI-Analyse aus':'Einwilligung widerrufen'));
-    refreshProfileHub();return;}
+    popPage();refreshProfileHub();return;}
   if(r.status===404)return toast('Dafür braucht der Server ein Update – bitte den Betreiber informieren.');
   toast(r.data?.error||'Das hat nicht geklappt – bitte erneut versuchen.');}
 
-// --- Unter-Sheet: Hilfe-Freigabe ---
-// Der Athlet öffnet dem Betreiber die Tür, 30 Minuten, jederzeit widerrufbar, jeder Zugriff protokolliert.
-// Die Routen entstehen in Paket A-II.2 (POST /api/support/grant, DELETE /api/support/revoke).
-// Kennt der Server sie noch nicht (404), sagt die Oberfläche das – statt einen Knopf anzubieten,
-// der nichts tut.
-// Stand: {active:<Freigabe|null>, minutes:30, reasons:{bug,data,login,other}, available:bool}
-// `available:false` heißt: der Server hat die Tabelle noch nicht – dann gibt es hier keinen Knopf,
-// der nichts tut, sondern einen Satz, der sagt warum.
-// Der Grund ist Pflicht (Server antwortet sonst 400): vier feste Auswahlmöglichkeiten, keine Freitexte.
+// --- Unterseite: Hilfe-Freigabe ---
+// Der Athlet oeffnet dem Betreiber die Tuer, 30 Minuten, jederzeit widerrufbar, jeder Zugriff
+// protokolliert. Kennt der Server die Routen noch nicht (404), sagt die Oberflaeche das – statt
+// einen Knopf anzubieten, der nichts tut.
 let LG_GRANT=null;            // null = noch nicht geladen
-let LG_GRANT_REASON='';       // gewählter Grund im Sheet
+let LG_GRANT_REASON='';       // gewaehlter Grund
 function lgGrantMin(){return (LG_GRANT&&+LG_GRANT.minutes>0)?+LG_GRANT.minutes:30;}
-// Die Gründe kommen vom Server (SUPPORT_REASONS). Die Ersatzliste steht bewusst IN der Funktion:
-// ein Objektliteral auf oberster Ebene mit dem Schlüssel `data` liest dup_check.py als zweite
+// Die Gruende kommen vom Server (SUPPORT_REASONS). Die Ersatzliste steht bewusst IN der Funktion:
+// ein Objektliteral auf oberster Ebene mit dem Schluessel `data` liest dup_check.py als zweite
 // Top-Level-Deklaration von `data` – ein falscher Alarm, den man sich sparen kann.
 function lgGrantReasons(){
   if(LG_GRANT&&LG_GRANT.reasons&&typeof LG_GRANT.reasons==='object')return LG_GRANT.reasons;
@@ -1070,40 +1368,48 @@ async function lgSupportLoad(){
   LG_GRANT=r.status===200?(r.data||{}):{available:false};
   lgSupportPaint();}
 function lgSupportPaint(){
-  const sub=document.getElementById('pf_grantSub');
-  if(sub){const min=lgGrantMinutesLeft();
-    sub.textContent=(LG_GRANT&&LG_GRANT.available===false)?'In dieser Fassung noch nicht verfügbar'
-      :(min>0?`Läuft noch ${fmtNum(min)} Min.`:'Aus – nur mit deiner Freigabe');}
-  const box=document.getElementById('lg_grantBox');
-  if(box)box.innerHTML=lgSupportBodyHTML();}
+  const row=document.getElementById('pf_grantRow');
+  if(row){const s=row.querySelector('.rl small');if(s)s.textContent=lgGrantSubText();}
+  acRepaint('freigabe',lgSupportHTML());}
 function lgSupportBodyHTML(){
   if(LG_GRANT===null)return `<div class="spinner"></div>`;
-  if(LG_GRANT.available===false)return `<div class="note warn">Diese Fassung des Servers kennt die Hilfe-Freigabe noch nicht. Bis dahin kommt der Betreiber nicht an deine Gesundheitsdaten – auch nicht auf Nachfrage.</div>`;
+  if(LG_GRANT.available===false)
+    return groupHTML('Stand',[rowHTML({icon:'shield',title:'Noch nicht verfügbar',
+      sub:'Diese Fassung des Servers kennt die Hilfe-Freigabe nicht'})],
+      'Bis dahin kommt der Betreiber nicht an deine Gesundheitsdaten – auch nicht auf Nachfrage.');
   const min=lgGrantMinutesLeft(),R=lgGrantReasons();
   if(min>0){const g=LG_GRANT.active||{};
-    return `<div class="note ok mb-3">Der Betreiber hat gerade Einblick – noch <b>${fmtNum(min)} Minuten</b>${g.reason&&R[g.reason]?` (Grund: ${esc2(R[g.reason])})`:''}. Danach schließt sich die Tür von selbst.</div>
-      <button class="btn block danger" onclick="lgSupportRevoke()">Freigabe sofort zurücknehmen</button>`;}
-  return `<div class="note mb-3">Gerade hat der Betreiber <b>keinen</b> Einblick in deine Daten.</div>
-    <div class="section-label">Worum geht es?</div>
-    <div class="chip-row wrap mb-3" id="lg_grantReasons">${Object.keys(R).map(k=>
-      `<button type="button" class="chip${LG_GRANT_REASON===k?' on':''}" data-v="${esc2(k)}" onclick="lgGrantPickReason('${esc(k)}')">${esc2(R[k])}</button>`).join('')}</div>
-    <button class="btn block sec" onclick="lgSupportGrant()">Betreiber für ${fmtNum(lgGrantMin())} Minuten Einblick geben</button>
-    <div id="lg_grantErr" class="hidden" style="color:var(--red-text);font-size:13px;margin-top:8px" role="alert"></div>`;}
+    return groupHTML('Stand',[
+      rowHTML({icon:'eye',title:'Der Betreiber hat gerade Einblick',
+        sub:(g.reason&&R[g.reason]?'Grund: '+R[g.reason]+' · ':'')+'danach schließt sich die Tür von selbst',
+        value:fmtNum(min)+' Min.'})],
+      'Jeder Zugriff in dieser Zeit steht im Protokoll.')
+      +groupHTML('',[rowHTML({title:'Freigabe sofort zurücknehmen',tap:'lgSupportRevoke()',danger:true})],
+      'Danach ist die Tür sofort zu - ohne auf die restlichen Minuten zu warten.');}
+  return groupHTML('Stand',[rowHTML({icon:'lock',title:'Gerade kein Einblick',
+      sub:'Der Betreiber sieht deine Gesundheitsdaten nicht'})],
+      'Sag kurz, worum es geht – das steht später im Protokoll.')
+    +`<div class="chip-row wrap" id="lg_grantReasons">${Object.keys(R).map(k=>
+      `<button type="button" class="chip${LG_GRANT_REASON===k?' on':''}" data-v="${esc2(k)}" onclick="lgGrantPickReason('${esc(k)}')">${esc2(R[k])}</button>`).join('')}</div>`
+    +groupHTML('',[acActRow({icon:'help',title:'Betreiber für '+fmtNum(lgGrantMin())+' Minuten Einblick geben',
+        sub:'Er sieht dann so viel wie dein Coach',tap:'lgSupportGrant()',id:'lg_grantGo'})],
+      'Ohne gewählten Grund geht es nicht – der Grund steht im Protokoll.')
+    +`<div id="lg_grantErr" class="hidden err" role="alert"></div>`;}
+function lgSupportHTML(){
+  return groupHTML('Was die Freigabe bedeutet',[
+    rowHTML({icon:'timer',title:'Sie läuft von selbst ab',sub:'Nach '+fmtNum(lgGrantMin())+' Minuten ist sie weg, ohne dass du etwas tun musst'}),
+    rowHTML({icon:'x',title:'Du kannst sie jederzeit beenden',sub:'Ein Tipp auf „Zurücknehmen" genügt'}),
+    rowHTML({icon:'fileSpreadsheet',title:'Jeder Zugriff wird protokolliert',sub:'Was der Betreiber in dieser Zeit ansieht, steht im Protokoll'})],
+    'Wenn etwas klemmt und nur der Betreiber es lösen kann, gibst du ihm hier für '
+    +fmtNum(lgGrantMin())+' Minuten Einblick.')
+    +`<div id="lg_grantBox">${lgSupportBodyHTML()}</div>`
+    +`<p class="rows-f">Ohne diese Freigabe sieht der Betreiber deine Gesundheitsdaten in der App nicht – es gibt keinen „als Nutzer anmelden"-Knopf, und dein Passwort kann er weder lesen noch setzen. Kommst du nicht mehr in dein Konto, erzeugt er dafür nur einen einmaligen Link; das neue Passwort setzt du selbst, und du bekommst darüber sofort eine Nachricht. Was es daneben gibt: die vollständige Sicherung der Datenbank für den Notfall – darüber bekommst du jedes Mal eine Nachricht.</p>`;}
 function lgGrantPickReason(k){LG_GRANT_REASON=String(k||'');
   document.querySelectorAll('#lg_grantReasons .chip').forEach(c=>c.classList.toggle('on',c.dataset.v===LG_GRANT_REASON));
   document.getElementById('lg_grantErr')?.classList.add('hidden');}
 function lgOpenSupportSheet(){
   if(LG_GRANT===null)lgSupportLoad();
-  openSheet('Einblick für den Betreiber',`
-    <p class="body mb-3">Wenn etwas klemmt und nur der Betreiber es lösen kann, kannst du ihm hier für
-    <b>${fmtNum(lgGrantMin())} Minuten</b> Einblick geben – er sieht dann so viel wie dein Coach.</p>
-    <div class="rows mb-3">
-      <div class="row"><div class="r-ic num">1</div><div class="rl">Die Freigabe läuft von selbst ab<small>Nach ${fmtNum(lgGrantMin())} Minuten ist sie weg, ohne dass du etwas tun musst</small></div></div>
-      <div class="row"><div class="r-ic num">2</div><div class="rl">Du kannst sie jederzeit sofort beenden<small>Ein Tipp auf „Zurücknehmen“ genügt</small></div></div>
-      <div class="row"><div class="r-ic num">3</div><div class="rl">Jeder Zugriff wird protokolliert<small>Was der Betreiber in dieser Zeit ansieht, steht im Protokoll</small></div></div>
-    </div>
-    <div id="lg_grantBox">${lgSupportBodyHTML()}</div>
-    <p class="caption mt-3">Ohne diese Freigabe sieht der Betreiber deine Gesundheitsdaten in der App nicht – es gibt keinen „als Nutzer anmelden“-Knopf, und dein <b>Passwort</b> kann er weder lesen noch setzen. Kommst du nicht mehr in dein Konto, erzeugt er dafür nur einen einmaligen Link; das neue Passwort setzt du selbst, und du bekommst darüber sofort eine Nachricht. Was es daneben gibt: die vollständige <b>Sicherung</b> der Datenbank für den Notfall – darüber bekommst du jedes Mal eine Nachricht.</p>`);}
+  acSub('freigabe','Einblick für den Betreiber',lgSupportHTML());}
 async function lgSupportGrant(){
   if(!LG_GRANT_REASON){const e=document.getElementById('lg_grantErr');
     if(e){e.textContent='Bitte sag kurz, worum es geht – das steht später im Protokoll.';e.classList.remove('hidden');}
@@ -1119,72 +1425,38 @@ async function lgSupportRevoke(){
     lgSupportPaint();toast('Freigabe zurückgenommen');refreshProfileHub();return;}
   if(r.status===404)return toast('Dafür braucht der Server ein Update – bitte den Betreiber informieren.');
   toast(r.data?.error||'Das hat nicht geklappt – bitte erneut versuchen.');}
-// A-V.3 (2.9.0): Dieses Sheet IST der Installations-Trichter aus BUILD-A5 5.1 – die „ruhige Karte
-// mit drei Bildern". Es gibt nur diesen einen Ort dafür (CRITIC K1): home.js öffnet ihn einmal, wenn
-// das erste Training abgeschlossen ist und die App nicht als PWA läuft (maybeShowInstallHint), das Profil
-// öffnet ihn jederzeit über „Als App installieren", und auf iOS führt auch der Push-Schalter
-// hierher – Web-Push gibt es dort nur für die installierte App.
-// Die drei Bilder kommen aus home.js (lpStepsHTML) und sind reine Inline-SVG: kein Netzabruf, im
-// Flugmodus da, in beiden Farbschemata lesbar.
+
+// --- Der Installations-Trichter (BUILD-A5 5.1) bleibt ein Sheet ---
+// Es ist eine abgeschlossene Nebenaufgabe mit drei Bildern und drei Schritten – man laesst sie
+// nicht halb erledigt liegen (3.4). Es gibt nur diesen einen Ort dafuer: home.js oeffnet ihn nach
+// dem ersten abgeschlossenen Training, das Profil ueber „Als App installieren", und auf iOS fuehrt
+// auch der Push-Schalter hierher – Web-Push gibt es dort nur fuer die installierte App.
 function openInstallSheet(){let h;
   const bilder=(typeof lpStepsHTML==='function')?lpStepsHTML():'';
   const anderer=(typeof lpOtherWayText==='function')?esc2(lpOtherWayText()):'';
   if(isStandalone())h=`<div class="note ok mb-4">BE INEVITABLE läuft auf diesem Gerät bereits als App.</div>`;
   else if(isIOS())h=`<p class="body mb-2">Ohne Browserleiste, offline nutzbar – und nur so kann die App dich überhaupt erinnern. Drei Schritte in Safari:</p>
-    ${bilder}
-    <div class="rows mb-3">
-      <div class="row"><div class="r-ic num">1</div><div class="rl">In Safari auf <b>Teilen</b> tippen<small>Das Quadrat mit dem Pfeil nach oben, unten in der Leiste</small></div></div>
-      <div class="row"><div class="r-ic num">2</div><div class="rl"><b>„Zum Home-Bildschirm"</b> wählen<small>Etwas weiter unten in der Liste</small></div></div>
-      <div class="row"><div class="r-ic num">3</div><div class="rl">Oben rechts <b>Hinzufügen</b><small>Danach die App vom Home-Bildschirm starten</small></div></div>
-    </div>
-    <p class="caption mb-4">${anderer}</p>`;
-  // 2.9.0 Fix-Runde A-V.3: Der Satz „nur so kann die App dich überhaupt erinnern" gilt NUR auf iOS.
-  // Android und Chrome am Rechner können Web-Push auch ohne Installation. Bis die Zeile unter dem
-  // Kopf auf allen Plattformen erschien, hat diesen Absatz praktisch niemand ausserhalb von iOS
-  // gesehen – jetzt schon, und dann darf er nicht das Falsche behaupten.
+    ${bilder}`
+    +groupHTML('',[
+      rowHTML({icon:'share',title:'In Safari auf „Teilen" tippen',sub:'Das Quadrat mit dem Pfeil nach oben, unten in der Leiste'}),
+      rowHTML({icon:'home',title:'„Zum Home-Bildschirm" wählen',sub:'Etwas weiter unten in der Liste'}),
+      rowHTML({icon:'check',title:'Oben rechts „Hinzufügen"',sub:'Danach die App vom Home-Bildschirm starten'})],anderer);
   else if(/android/i.test(navigator.userAgent))h=`<p class="body mb-2">Ohne Browserleiste, offline nutzbar, eigenes Symbol auf dem Startbildschirm. So geht es:</p>
-    ${bilder}
-    <div class="rows mb-3">
-      <div class="row"><div class="r-ic num">1</div><div class="rl">Browser-Menü öffnen<small>Die drei Punkte oben rechts</small></div></div>
-      <div class="row"><div class="r-ic num">2</div><div class="rl"><b>„App installieren"</b> oder <b>„Zum Startbildschirm"</b><small>Danach die App vom Startbildschirm öffnen</small></div></div>
-    </div>
-    <p class="caption mb-4">${anderer}</p>`;
+    ${bilder}`
+    +groupHTML('',[
+      rowHTML({icon:'more',title:'Browser-Menü öffnen',sub:'Die drei Punkte oben rechts'}),
+      rowHTML({icon:'check',title:'„App installieren" oder „Zum Startbildschirm"',sub:'Danach die App vom Startbildschirm öffnen'})],anderer);
   else h=`<p class="body mb-2">Ohne Browserleiste und als eigenes Fenster – so geht es am Rechner:</p>
-    ${bilder}
-    <p class="caption mb-4">${anderer}</p>`;
-  // Der Titel folgt der Plattform: einen „Startbildschirm" gibt es am Rechner nicht, und seit der
-  // Fix-Runde führt die Zeile unter dem Kopf auch dort hierher.
+    ${bilder}<p class="rows-f">${anderer}</p>`;
   const titel=(!isStandalone()&&!isIOS()&&!/android/i.test(navigator.userAgent))
     ?'Als App installieren':'Auf den Startbildschirm legen';
   openSheet(titel,h+`<button class="btn block sec" onclick="closeModal()">${isStandalone()?'Alles klar':'Später'}</button>`);}
-// --- Unter-Sheet: Konto ---
-function openAccountSheet(){const u=ME;const verified=!!u.email_verified;
-  openSheet('Konto',`<div class="rows mt-2 mb-3">
-    <div class="row"><div class="r-ic">${icon('mail',24)}</div><div class="rl">E-Mail<small>${esc2(u.email||'–')}</small></div><div class="rr">${u.email?(verified?'<span class="pill green">Bestätigt</span>':'<span class="pill amber">Unbestätigt</span>'):''}</div></div>
-    ${u.email&&!verified?pfRow('resendVerify()','send','E-Mail bestätigen','Bestätigungs-Mail erneut senden'):''}
-    ${pfRow('openChangePw()','lock','Passwort ändern','')}
-  </div>
-  ${u.email&&!verified?`<div class="note warn mb-3">Ohne bestätigte E-Mail funktionieren Passwort-Reset und Mails nicht. Schau auch im Spam-Ordner nach.</div>`:''}
-  <div class="section-label">Sitzungen</div>
-  <div class="rows mb-2">
-    ${pfRow('confirmLogoutAll()','devices','Alle Geräte abmelden','Andere Handys, Tablets und Browser rauswerfen – hier bleibst du angemeldet')}
-    ${pfRow('logout()','logOut','<span class="tone-red">Abmelden</span>','Nur dieses Gerät')}
-  </div>
-  <p class="caption mb-4">Auf einem geteilten Gerät (Familien-Tablet, Studio-PC): erst „Alle Geräte abmelden", dann „Abmelden" – so bleibt nirgends etwas von dir zurück.</p>
-  ${u.role==='admin'
-    ?`<p class="caption mb-3">Admin-Konten lassen sich nur über die Verwaltung löschen.</p>`
-    :`<div class="danger-block"><div class="h3 mb-1">Konto löschen</div><div class="meta mb-3">Löscht dein Konto mit allen Daten – endgültig. Dein Coach behält nichts von dir.</div>
-      <button class="btn danger block" onclick="openDeleteAccount()">${icon('trash',18)} Konto löschen …</button></div>`}
-  <div class="section-label">Rechtliches</div>
-  <div class="rows mb-2">
-    ${lgLinkRow(LG_PRIVACY_URL,'shield','Datenschutz','Welche Daten, wozu, wer sie bekommt')}
-    ${lgLinkRow(LG_IMPRINT_URL,'info','Impressum','Wer diese App betreibt')}
-  </div>
-  <div class="pf-version">Version ${esc2(APP_VERSION)}</div>`);}
-// „Alle Geräte abmelden": kurze Rückfrage, damit niemand aus Versehen das Tablet der Familie rauswirft.
+
+// „Alle Geraete abmelden": kurze Rueckfrage, damit niemand aus Versehen das Tablet der Familie rauswirft.
 function confirmLogoutAll(){confirmSheet('Alle Geräte abmelden','Jedes andere Gerät, auf dem du angemeldet bist, muss sich danach neu anmelden. Dieses Gerät bleibt angemeldet.',{label:'Alle anderen abmelden',danger:false,onYes:()=>logoutAll()});}
-// --- Konto selbst löschen (V4): Passwort + zweistufige Rückfrage, dann DELETE /api/me ---
-// Stufe 1 sagt, WAS weg ist, und bietet vorher den Export an. Stufe 2 ist die eigentliche, letzte Rückfrage.
+// --- Konto selbst loeschen (V4): Passwort + zweistufige Rueckfrage, dann DELETE /api/me ---
+// Stufe 1 sagt, WAS weg ist, und bietet vorher den Export an. Stufe 2 ist die letzte Rueckfrage.
+// Bleibt ein Sheet: eine Bestaetigung, die man nicht halb erledigt liegen laesst (3.4).
 function openDeleteAccount(){
   openSheet('Konto löschen',`<form id="delForm" onsubmit="deleteAccountStep2();return false" novalidate>
     <div class="note err mb-3"><b>Das ist endgültig.</b> Gelöscht werden dein Konto und ALLES darin: Trainingsplan und Sätze, Check-ins, Körpermaße, Fotos, Ernährungsprotokoll und Rezepte, Nachrichten, Mindset-Einträge, Gesundheitsdaten und Push-Abos. Es gibt keine Wiederherstellung – auch nicht durch den Betreiber.</div>
@@ -1194,8 +1466,8 @@ function openDeleteAccount(){
     <button class="btn block danger" type="submit">Weiter zur letzten Rückfrage</button>
     <button class="btn block sec mt-2" type="button" onclick="closeModal()">Abbrechen</button></form>`);
   setTimeout(()=>document.getElementById('del_pw')?.focus({preventScroll:true}),380);}
-// Das Passwort wandert für die Dauer der zweiten Rückfrage in eine Variable (nie in den Speicher des Geräts):
-// das Feld liegt nach dem Sheet-Wechsel nur noch als HTML im Stapel, sein Wert nicht. „Nein, zurück" leert sie.
+// Das Passwort wandert fuer die Dauer der zweiten Rueckfrage in eine Variable (nie in den Speicher
+// des Geraets): das Feld liegt nach dem Sheet-Wechsel nur noch als HTML im Stapel, sein Wert nicht.
 let _DEL_PW='';
 function deleteAccountStep2(){const pw=val('del_pw');
   if(!pw)return showFieldErr('delForm','Bitte dein Passwort eingeben.','del_pw');
@@ -1209,44 +1481,36 @@ async function doDeleteAccount(){
   const r=await API.del('/me',{password:pw},{raw:true});
   if(raw401(r))return;
   if(r.status===200){
-    // Der Server hat das Cookie gelöscht. Hier alles vom Konto vom Gerät räumen – auch die Outbox, es gibt
-    // kein Konto mehr, an das sie gesendet werden könnte.
     const uid=ME&&ME.id;ME=null;
     try{clearAccountStorage(uid);}catch(e){}
     try{sessionStorage.setItem('be_relogin','Dein Konto wurde gelöscht. Danke, dass du dabei warst.');}catch(e){}
     location.reload();return;}
   if(btn){btn.disabled=false;btn.textContent='Ja, mein Konto endgültig löschen';}
   if(r.status===404)return toast('Dafür braucht der Server ein Update – bitte den Betreiber informieren.');
-  // Falsches Passwort: zurück zur ersten Stufe, Meldung am Feld (das Feld ist nach dem Rücksprung leer)
   if(r.status===401){closeModal();setTimeout(()=>showFieldErr('delForm',r.data?.error||'Passwort falsch.','del_pw'),50);return;}
   toast(r.data?.error||'Löschen fehlgeschlagen – bitte erneut versuchen.');}
-// --- Unter-Sheet: Hilfe ---
-function openHelpSheet(){const athlete=ME.role==='athlete';
-  openSheet('Hilfe',`<div class="rows mt-2">
-    ${pfRow('resetHints()','refresh','Hinweise wieder anzeigen','Alle ausgeblendeten Info-Boxen zurückholen')}
-    ${athlete?pfRow('restartTour()','play','Einführung erneut ansehen','Die kurze Tour über die App'):''}
-  </div>`);}
 // --- Avatar ---
 function avatarPick(ev){const file=ev.target.files&&ev.target.files[0];if(!file)return;
   const reader=new FileReader();reader.onload=e=>{const img=new Image();img.onload=async()=>{
-    // quadratisch zuschneiden + auf 256px skalieren (klein halten)
+    // quadratisch zuschneiden + auf 256 px skalieren (klein halten)
     const size=256;const cv=document.createElement('canvas');cv.width=size;cv.height=size;
     const m=Math.min(img.width,img.height);const sx=(img.width-m)/2, sy=(img.height-m)/2;
     cv.getContext('2d').drawImage(img,sx,sy,m,m,0,0,size,size);
     const data=cv.toDataURL('image/jpeg',0.82);
     const r=await API.post('/avatar',{avatar:data});
     if(r.status===200){ME.has_avatar=true;_PF_AVATAR_URL=data;
-      const pv=document.getElementById('pf_avatar');if(pv){pv.textContent='';pv.style.backgroundImage=`url(${data})`;}
-      document.getElementById('pf_remove')?.classList.remove('hidden');applyAvatar();toast('Profilbild gespeichert ✓');}
+      if(typeof applyAvatar==='function')applyAvatar();
+      acRepaint('name',acNameHTML());refreshProfileHub();toast('Profilbild gespeichert ✓');}
     else toast(r.data?.error||'Fehler');
   };img.src=e.target.result;};reader.readAsDataURL(file);}
-// Entfernt nur das Bild und zeichnet den Avatar-Block neu – das Sheet bleibt offen
-async function removeAvatar(){const r=await API.post('/avatar',{avatar:null});
+async function removeAvatar(){
+  if(!ME||!ME.has_avatar)return toast('Zurzeit ist kein Bild gesetzt.');
+  const r=await API.post('/avatar',{avatar:null});
   if(r.status!==200)return toast('Fehler');
-  ME.has_avatar=false;_PF_AVATAR_URL=null;applyAvatar();
-  const pv=document.getElementById('pf_avatar');if(pv){pv.style.backgroundImage='';pv.textContent=(ME.name||'?').charAt(0).toUpperCase();}
-  document.getElementById('pf_remove')?.classList.add('hidden');toast('Profilbild entfernt');}
-// --- Passwort ändern (Formular, Passwort-Manager-freundlich, Inline-Fehler) ---
+  ME.has_avatar=false;_PF_AVATAR_URL=null;
+  if(typeof applyAvatar==='function')applyAvatar();
+  acRepaint('name',acNameHTML());refreshProfileHub();toast('Profilbild entfernt');}
+// --- Passwort aendern: bleibt ein Sheet (Formular mit Abbrechen und einem Speichern-Knopf) ---
 function openChangePw(){openSheet('Passwort ändern',`<form id="pwForm" onsubmit="saveNewPw();return false" novalidate>
     ${pwField({id:'pw_cur',label:'Aktuelles Passwort',autocomplete:'current-password',enterkeyhint:'next'})}
     ${pwField({id:'pw_new',label:'Neues Passwort',autocomplete:'new-password',placeholder:'mind. 8 Zeichen',enterkeyhint:'next',hint:true})}
@@ -1260,8 +1524,8 @@ async function saveNewPw(){const cur=val('pw_cur'),n1=val('pw_new'),n2=val('pw_n
   if(n1!==n2)return showFieldErr('pwForm','Die Passwörter stimmen nicht überein.','pw_new2');
   const btn=document.querySelector('#pwForm .btn');if(btn)btn.disabled=true;
   // raw: der Server meldet ein falsches aktuelles Passwort mit 401 – das ist keine verlorene Sitzung.
-  // Nach 200 hat DIESES Gerät in derselben Antwort ein frisches Cookie bekommen (V1): kein Neu-Anmelden hier,
-  // nur die anderen Geräte fliegen raus.
+  // Nach 200 hat DIESES Gerät in derselben Antwort ein frisches Cookie bekommen (V1): kein Neu-Anmelden
+  // hier, nur die anderen Geräte fliegen raus.
   const r=await API.post('/password',{current:cur,next:n1},{raw:true});
   if(raw401(r))return;
   if(r.status===200){closeModal();toast('Passwort geändert ✓ – andere Geräte müssen sich neu anmelden.');return;}
@@ -1303,7 +1567,7 @@ async function checkPendingShare(){const tok=localStorage.getItem('be_pending_sh
       <p class="body mb-3"><b>${esc2(d.sharedBy)}</b> hat eine Übung mit dir geteilt.</p>
       <div class="card mb-4"><div class="h3">${esc2(it.name||'Übung')}</div>
         <div class="meta mt-1">${esc2(it.muscle||'')}${it.muscle?' · ':''}${pl(it.target_sets||3,'Satz','Sätze')} · ${esc2(it.target_reps||'8-12')} Wdh.</div></div>
-      ${days.length?`<div class="section-label">Zu welchem Trainingstag hinzufügen?</div><div class="rows mb-3">`+
+      ${days.length?`<h2 class="rows-h">Zu welchem Trainingstag hinzufügen?</h2><div class="rows mb-3">`+
         days.map(dd=>`<div class="row tap" role="button" tabindex="0" onclick="acceptShare('${esc(tok)}',${+dd.id})"><div class="r-ic">${icon('dumbbell',24)}</div><div class="rl">${esc2(dd.name)}${Array.isArray(dd.exercises)?`<small>${pl(dd.exercises.length,'Übung','Übungen')}</small>`:''}</div></div>`).join('')+`</div>`:
         `<div class="note warn mb-3">Du hast noch keinen Trainingsplan – schließe zuerst das Onboarding ab.</div>`}
       <button class="btn block sec" onclick="declineShare()">Nein danke</button>`);
@@ -1350,68 +1614,79 @@ function findSimilarRecipes(kcal,mealType){
   setTimeout(()=>{if(kcal)toast('Ähnliche '+(mealType||'Mahlzeiten')+' nach Kalorien sortiert');},500);
 }
 
-// ===== APPLE HEALTH =====
+// ===== APPLE HEALTH (DESIGN-4 6.11: die Aufklapper entfallen) =====
 // openAppleHealth/importShortcutText/showImportPreview stehen NUR hier – analysis.js hat keine
-// gleichnamigen Definitionen mehr (2.7.0 geprüft). Was dort liegt und deshalb nachgeladen werden muss:
-// parseShortcutData, handleHealthFile, doHealthImport – siehe bootHealth*() weiter unten.
-// Eingabe zuerst, die einmalige Einrichtung eingeklappt; Status als .note.status (nie ausblendbar); Plural über pl().
-// Zwei Wege in EINEM Sheet: oben die automatische Übertragung (Kurzbefehl + Automation),
-// unten der Weg von Hand. Der Schlüssel kommt von GET /api/health/link.
-let _HL=null; // zuletzt geladener Stand des persönlichen Links
-async function openAppleHealth(){openSheet('Apple Health','<div class="spinner"></div>');
+// gleichnamigen Definitionen. Was dort liegt und deshalb nachgeladen werden muss: parseShortcutData,
+// handleHealthFile, doHealthImport – siehe bootHealth*() weiter unten.
+// Zwei Aenderungen gegenueber 3.0.2:
+//   1. Aus dem Sheet wird eine PUSH-SEITE. Die Einrichtung dauert laut eigener Anleitung zehn
+//      Minuten und man laesst sie halb erledigt liegen – das ist die Pruefrage aus 3.4.
+//   2. Die drei Aufklapper (.pf-details) sind WEG (G5/6.11). Ein Aufklapper versteckt; die
+//      Anleitung, die man genau hier braucht, stand hinter einem Dreieck. Sie steht jetzt offen da,
+//      als Abschnitt mit Ueberschrift, nummerierten Zeilen und Fusstext – ohne eine weitere Ebene
+//      aufzumachen (N3: die Seite ist schon Ebene 2).
+let _HL=null; // zuletzt geladener Stand des persoenlichen Links
+async function openAppleHealth(){acHealthOpen('<div class="spinner"></div>');
   const r=await API.get('/health/link');_HL=r.status===200?r.data:{enabled:false};
   drawAppleHealth();}
+function acHealthOpen(html){
+  if(typeof pushPage!=='function')return openSheet('Apple Health',html);
+  if(acRepaint('health',html))return;
+  let eltern=acParent();
+  try{if(typeof PUSH_STACK!=='undefined'){const t=PUSH_STACK[PUSH_STACK.length-1];
+    if(t&&t.key==='profil')eltern=t.title||'Profil';}}catch(e){}
+  pushPage('health','Apple Health',eltern,html,{sub:'Schlaf, Schritte, Puls und Gewicht vom iPhone'});}
 function drawAppleHealth(){const h=_HL||{enabled:false};
   const last=h.last?fmtDateTime(h.last):null;
-  openSheet('Apple Health',`
-  ${h.enabled?`
-    <div class="note ok mb-3">${icon('check',16)} Automatische Übertragung ist eingerichtet.${last?` Zuletzt: <b>${esc2(last)}</b>.`:' Noch nichts angekommen – starte den Kurzbefehl einmal von Hand.'}</div>
-    <div class="section-label">Dein persönlicher Link<span class="sl-r">nur für dich</span></div>
-    <div class="card sub sh-link" id="hlUrl">${esc2(h.url||'')}</div>
-    <div class="cluster mt-2">
-      <button class="btn sm" onclick="copyHealthLink()">${icon('copy',16)} Link kopieren</button>
-      <button class="btn sm sec" onclick="rotateHealthLink()">${icon('refresh',16)} Neu erzeugen</button>
-      <button class="btn sm ghost tone-red" onclick="disableHealthLink()">Abschalten</button>
-    </div>
-    <div class="caption mt-2">Der Link darf ausschließlich Gesundheitswerte schreiben – kein Login, keine Einsicht in deine Daten. Trotzdem: nicht weitergeben. „Neu erzeugen" macht den alten sofort ungültig.</div>
-    ${_shortcutSteps()}
-  `:`
-    <div class="note mb-3">Dein iPhone kann Schlaf, Schritte, Verbrauch und Trainings jede Nacht von selbst herüberschicken – über einen Kurzbefehl, ganz ohne dich.</div>
-    <button class="btn block" onclick="enableHealthLink()">${icon('zap',18)} Automatische Übertragung einrichten</button>
-    <div class="caption mt-2">Du bekommst einen persönlichen Link und eine Schritt-für-Schritt-Anleitung. Dauert einmalig etwa 10 Minuten.</div>
-  `}
-  <div class="section-label mt-4">Von Hand übertragen</div>
-  <div class="field"><label for="sc_text">Werte aus dem Kurzbefehl einfügen</label><textarea id="sc_text" rows="3" placeholder='{"days":{"2026-06-01":{"weight":75.5,"steps":8200,"sleep":7.5}}}'></textarea></div>
-  <button class="btn block sec" onclick="importShortcutText()">Übernehmen</button>
-  <input type="file" id="health_file" accept=".json,.txt,.xml,application/json,text/plain,text/xml" class="hidden" onchange="bootHealthFile(this)">
-  <button class="btn block ghost mt-2" onclick="document.getElementById('health_file').click()">${icon('upload',18)} Datei hochladen (JSON oder Export.xml)</button>
-  <div id="health_status" class="mt-3"></div>`);}
-// Die Anleitung steht bewusst im Sheet und nicht nur in der Doku: hier braucht man sie.
-function _shortcutSteps(){return `
-  <details class="pf-details mt-3" open><summary>Kurzbefehl einrichten (einmalig, ca. 10 Min.)</summary>
-    <div class="card sub body pf-steps">
-      1. <b>Kurzbefehle</b>-App öffnen → <b>+</b> (neuer Kurzbefehl).<br>
-      2. Aktion <b>„Gesundheitsdaten suchen"</b> hinzufügen, Typ <b>Schlafanalyse</b>, Zeitraum <b>heute</b>, danach <b>„Statistik berechnen" → Summe</b>. Ergebnis merken (Variable umbenennen in <b>sleep</b>, in Stunden: durch 60 teilen).<br>
-      3. Dasselbe für <b>Schritte</b> (Summe → <b>steps</b>), <b>Aktive Energie</b> (Summe → <b>active_kcal</b>), <b>Trainingsminuten</b> (Summe → <b>exercise_min</b>), <b>Ruhepuls</b> (Durchschnitt → <b>resting_hr</b>), <b>Herzfrequenzvariabilität</b> (Durchschnitt → <b>hrv</b>) und <b>Gewicht</b> (letzter Wert → <b>weight</b>).<br>
-      4. Aktion <b>„Wörterbuch"</b> anlegen mit genau diesen Schlüsseln:<br>
-      <code class="sh-code">sleep · steps · active_kcal · exercise_min · resting_hr · hrv · weight</code><br>
-      <b>hrv</b> nicht weglassen – die Herzfrequenzvariabilität ist ein Viertel deiner Bereitschaft.<br>
-      Werte = die Variablen aus 2./3. Was du nicht hast, lässt du einfach weg.<br>
-      5. Aktion <b>„Inhalte von URL abrufen"</b>: URL = <b>dein Link von oben</b>, Methode <b>POST</b>, Anfragetext <b>JSON</b>, Inhalt = das Wörterbuch aus 4.<br>
-      6. Kurzbefehl sichern, z.B. als „BE INEVITABLE Sync", und einmal starten – oben sollte danach „Zuletzt" stehen.
-    </div></details>
-  <details class="pf-details mt-2"><summary>Jede Nacht von selbst (Automation)</summary>
-    <div class="card sub body pf-steps">
-      Kurzbefehle-App → Reiter <b>Automation</b> → <b>+</b> → <b>Tageszeit</b> → z.B. <b>23:50</b>, täglich →
-      Kurzbefehl <b>„BE INEVITABLE Sync"</b> wählen → <b>„Sofort ausführen"</b> einschalten und <b>„Vor dem Ausführen fragen"</b> ausschalten.<br><br>
-      Danach passiert es von allein. Ohne Datum im Wörterbuch zählt der Tag, an dem gesendet wird.
-    </div></details>
-  <details class="pf-details mt-2"><summary>Trainings mitschicken (optional)</summary>
-    <div class="card sub body pf-steps">
-      Wer auch seine Einheiten übernehmen will, ergänzt im Kurzbefehl die Aktion <b>„Trainings suchen"</b> (Zeitraum heute) und schickt zusätzlich den Schlüssel <b>workouts</b> als Liste:<br>
-      <code class="sh-code">{"workouts":[{"date":"2026-09-08","kind":"Laufen","minutes":38,"kcal":410,"id":"…"}]}</code><br>
-      Das Feld <b>id</b> (die Trainings-UUID) sorgt dafür, dass dieselbe Einheit nie zweimal ankommt. Die Einheiten erscheinen unter <b>Training → Cardio</b>.
-    </div></details>`;}
+  let t='';
+  if(h.enabled){
+    t+=groupHTML('Automatische Übertragung',[
+      rowHTML({icon:'check',title:'Eingerichtet',
+        sub:last?('Zuletzt angekommen: '+last):'Noch nichts angekommen – starte den Kurzbefehl einmal von Hand',
+        value:'aktiv'}),
+      acActRow({icon:'copy',title:'Link kopieren',sub:'Im Kurzbefehl bei „Inhalte von URL abrufen" einsetzen',tap:'copyHealthLink()'}),
+      acActRow({icon:'refresh',title:'Link neu erzeugen',sub:'Macht den alten sofort ungültig',tap:'rotateHealthLink()'})],
+      'Dein persönlicher Link darf nur eines: Gesundheitswerte eintragen. Kein Login, keine '
+      +'Einsicht in deine Daten. Trotzdem: nicht weitergeben.');
+    t+=`<div class="card sub sh-link" id="hlUrl">${esc2(h.url||'')}</div>`;
+    t+=groupHTML('',[rowHTML({title:'Übertragung abschalten',tap:'disableHealthLink()',danger:true})],
+      'Dein iPhone kann danach nichts mehr schicken. Bereits übertragene Werte bleiben erhalten.');
+    t+=_shortcutSteps();
+  }else{
+    t+=groupHTML('Automatische Übertragung',[
+      acActRow({icon:'zap',title:'Jetzt einrichten',
+        sub:'Du bekommst einen persönlichen Link und eine Anleitung – einmalig etwa 10 Minuten',
+        tap:'enableHealthLink()'})],
+      'Dein iPhone kann Schlaf, Schritte, Verbrauch, Puls und Gewicht jede Nacht von selbst '
+      +'herüberschicken – über einen Kurzbefehl, ganz ohne dich.');
+  }
+  t+=`<h2 class="rows-h">Von Hand übertragen</h2>
+    <div class="field"><label for="sc_text">Werte aus dem Kurzbefehl einfügen</label><textarea id="sc_text" rows="3" placeholder='{"days":{"2026-06-01":{"weight":75.5,"steps":8200,"sleep":7.5}}}'></textarea></div>
+    <button class="btn block sec" onclick="importShortcutText()">Übernehmen</button>
+    <input type="file" id="health_file" accept=".json,.txt,.xml,application/json,text/plain,text/xml" class="hidden" onchange="bootHealthFile(this)">
+    <button class="btn block ghost mt-2" onclick="document.getElementById('health_file').click()">Datei hochladen (JSON oder Export.xml)</button>
+    <p class="rows-f">Beides geht auch ohne eingerichtete Übertragung: Text aus dem Kurzbefehl einfügen oder die Datei wählen, die dein iPhone exportiert hat. Vor dem Speichern zeigt die App, was sie gefunden hat.</p>
+    <div id="health_status"></div>`;
+  acHealthOpen(t);}
+// Die Anleitung steht OFFEN da – hier braucht man sie, und ein Aufklapper haette sie versteckt (G5).
+function _shortcutSteps(){
+  return groupHTML('Kurzbefehl einrichten',[
+    rowHTML({icon:'pencil',title:'Kurzbefehle-App öffnen, neuen Kurzbefehl anlegen',sub:'Das Plus oben rechts'}),
+    rowHTML({icon:'bed',title:'„Gesundheitsdaten suchen" → Schlafanalyse, heute',sub:'Danach „Statistik berechnen" → Summe; Variable umbenennen in sleep, in Stunden (durch 60 teilen)'}),
+    rowHTML({icon:'footprints',title:'Dasselbe für die übrigen Werte',sub:'Schritte → steps · Aktive Energie → active_kcal · Trainingsminuten → exercise_min · Ruhepuls → resting_hr (Durchschnitt) · Herzfrequenzvariabilität → hrv (Durchschnitt) · Gewicht → weight (letzter Wert)'}),
+    rowHTML({icon:'fileSpreadsheet',title:'Aktion „Wörterbuch" mit genau diesen Schlüsseln',sub:'sleep · steps · active_kcal · exercise_min · resting_hr · hrv · weight'}),
+    rowHTML({icon:'link',title:'„Inhalte von URL abrufen"',sub:'URL = dein Link von oben · Methode POST · Anfragetext JSON · Inhalt = das Wörterbuch'}),
+    rowHTML({icon:'check',title:'Sichern als „BE INEVITABLE Sync" und einmal starten',sub:'Oben sollte danach „Zuletzt angekommen" stehen'})],
+    'Lass weg, was du nicht hast – aber nicht hrv: die Herzfrequenzvariabilität ist ein Viertel '
+    +'deiner Bereitschaft.')
+  +groupHTML('Jede Nacht von selbst',[
+    rowHTML({icon:'timer',title:'Kurzbefehle → Automation → Tageszeit',sub:'z. B. 23:50, täglich'}),
+    rowHTML({icon:'zap',title:'Kurzbefehl „BE INEVITABLE Sync" wählen',sub:'„Sofort ausführen" an, „Vor dem Ausführen fragen" aus'})],
+    'Danach passiert es von allein. Ohne Datum im Wörterbuch zählt der Tag, an dem gesendet wird.')
+  +groupHTML('Trainings mitschicken (optional)',[
+    rowHTML({icon:'flame',title:'Aktion „Trainings suchen" ergänzen',sub:'Zeitraum heute – und den Schlüssel workouts als Liste mitschicken'}),
+    rowHTML({icon:'copy',title:'{"workouts":[{"date":"2026-09-08","kind":"Laufen","minutes":38,"kcal":410,"id":"…"}]}',sub:'Das Feld id (die Trainings-UUID) sorgt dafür, dass dieselbe Einheit nie zweimal ankommt'})],
+    'Die Einheiten erscheinen unter Training → Cardio.');}
 async function enableHealthLink(){const r=await API.post('/health/link',{});
   if(r.status!==200)return toast(r.data?.error||'Fehler');
   _HL=r.data;drawAppleHealth();toast('Link erstellt ✓');}
@@ -1482,10 +1757,20 @@ function bootHealthImport(days){
 }
 
 // ===== TOUR-SYSTEM (mehrseitig: eigene kurze Einführung je Tab) =====
+// DIE TOUR IST DIE EINZIGE STELLE, AN DER DIE APP NOCH ERKLÄRT – sie muss deshalb auf Elemente
+// zeigen, die es gibt, und sie beim Namen nennen, den sie tragen. Gemessen am laufenden Server
+// (d6fix-probe.mjs): `.today` und `#homeCheckin` standen nicht mehr im DOM (die Startseite heisst
+// seit D-2 `#homeNow` / `#homeGoals`), `#dietDayBadge` ebenso wenig (seit D-3 `#dtTagKopf`).
+// drawTourStep() ueberspringt fehlende Ziele stillschweigend – die Einfuehrung eines neuen Athleten
+// schrumpfte dadurch auf der Startseite von vier auf zwei Schritte, ohne dass es jemand sah.
+// Dauerhafte Kur: tools/sprache.mjs prueft in jedem Lauf jeden Tour-Selektor gegen das laufende
+// DOM der zugehoerigen Reiterwurzel und faellt auf ROT, sobald einer ins Leere zeigt.
+// (D-1 zieht seine Workout-Tour zur Laufzeit nach, training.js:2719ff – dieselbe Krankheit,
+// dort mit einer Kur, die nur diese eine Tour heilt.)
 const TOUR_DEFS={
   home:[
-    {sel:'.today',title:'Dein Tag',body:'Hier siehst du sofort, ob heute Training oder Ruhetag ist – und startest mit einem Tipp.',pos:'below'},
-    {sel:'#homeCheckin',title:'Schnell eintragen',body:'Gewicht, Schlaf, Schritte, Wasser – trag ein was du hast, der Rest bleibt leer. Dauert 10 Sekunden.',pos:'below'},
+    {sel:'#homeNow',title:'Dein Tag',body:'Hier siehst du sofort, ob heute Training oder Ruhetag ist – und startest mit einem Tipp.',pos:'below'},
+    {sel:'#homeGoals',title:'Schnell eintragen',body:'Unter „Heute offen" steht, was dein Tag noch braucht: Check-in, Ernährung, Supplements. Trag ein was du hast, der Rest bleibt leer.',pos:'below'},
     {sel:'#navBar',title:'Alles per Tab',body:'Training, Ernährung, Mindset und Analyse erreichst du jederzeit hier unten. Tippe dich ruhig durch.',pos:'above'},
     {sel:'#avatar',title:'Dein Profil',body:'Profil, Einstellungen, Push-Mitteilungen und Abmelden findest du hier oben.',pos:'below'}
   ],
@@ -1495,8 +1780,8 @@ const TOUR_DEFS={
     {sel:'#exlist',title:'Übungen loggen',body:'Tippe eine Übung an, trag Gewicht und Wiederholungen ein und bestätige den Satz mit dem Haken. Der farbige Hinweis sagt dir, ob du steigern solltest.',pos:'above'}
   ],
   diet:[
-    {sel:'#dietDayBadge',title:'Trainings- oder Ruhetag',body:'Oben siehst du, für welchen Tag die Werte gelten – an Trainingstagen brauchst du mehr Energie.',pos:'below'},
-    {sel:'#dietSeg',title:'Heute · Plan · Rezepte',body:'„Heute" zeigt was du gegessen hast, „Plan" deinen Ernährungsplan zum Anpassen, „Rezepte" die Datenbank.',pos:'below'},
+    {sel:'#dtTagKopf',title:'Trainings- oder Ruhetag',body:'Oben siehst du, für welchen Tag die Werte gelten – an Trainingstagen brauchst du mehr Energie.',pos:'below'},
+    {sel:'#dietSeg',title:'Tagebuch · Plan · Rezepte · Einkauf',body:'„Tagebuch" zeigt was du gegessen hast, „Plan" deinen Ernährungsplan zum Anpassen, „Rezepte" die Datenbank und „Einkauf" die Liste fürs Geschäft.',pos:'below'},
     {sel:'#dietBody',title:'Essen eintragen',body:'Trag Lebensmittel manuell ein, scanne einen Barcode oder übernimm Mahlzeiten aus deinem Plan.',pos:'above'}
   ],
   // Analyse: Segment oben, Schlaf-Diagramm unten (die alte Seitenüberschrift #trackerHead gibt es nicht mehr –
@@ -1572,15 +1857,27 @@ function maybeShowInstallHint(){
     if(!due)return;
     if(document.getElementById('iosInstallHint'))return;
     if(document.body.classList.contains('tour-active'))return; // nicht während der Einführungs-Tour
-    const bar=document.createElement('div');bar.id='iosInstallHint';bar.className='note install-hint';
+    const bar=document.createElement('div');bar.id='iosInstallHint';bar.className='install-hint';
     // A-V.3: Die ganze Zeile führt in den Trichter (drei Bilder + drei Schritte), nicht nur das Wort
     // „Anleitung" – ein 13-px-Link war die einzige Tuer zu dem, was auf dem iPhone über Erinnerungen
     // entscheidet. Der Grund steht dabei, und er stimmt je Plattform.
-    const txt=isIOS()
-      ?'Auf den Startbildschirm legen – nur so kann die App dich erinnern.'
-      :'Als App installieren – eigenes Fenster, schnellerer Start, Erinnerungen.';
-    bar.innerHTML=`<button type="button" class="fill" style="all:unset;flex:1;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px" onclick="openInstallSheet()"><span style="flex:1">${esc2(txt)}</span><span style="flex:0 0 auto;display:inline-flex" aria-hidden="true">${icon('chevronRight',16)}</span></button>
-      <button class="btn icon sm ghost" aria-label="Hinweis schließen" onclick="dismissInstallHint()">${icon('x',18)}</button>`;
+    // D-6 Fix-Runde (Befund D14): Bis hierher war das ein zweites, fremdes Element unter dem grossen
+    // Titel – ein `.note`-Kasten mit sieben rohen Inline-Werten (`all:unset;flex:1;…`), die K16/K22
+    // nie sehen konnten, weil sie im JavaScript standen, dazu ein rundes `.btn.icon.sm ghost`, also
+    // die in 5.1 geloeschte Knopfgroesse. Jetzt ist es EIN Abschnitt in der Sprache der App:
+    // Ueberschrift mit der Wortaktion „Später" (4.2 `.rows-h .a`, sie ersetzt das runde „×"),
+    // darunter genau EINE Zeile aus rowHTML(). Kein Inline-Stil, kein Symbolknopf ohne Wort (K11).
+    // Ueberschrift = WAS, Zeile = WIE auf DIESEM Geraet. Dieselben drei Plattformen wie in
+    // lpStepsHTML() (home.js), damit die Zeile und die drei Bilder dahinter dasselbe sagen.
+    const txt=isIOS()?'Auf den Startbildschirm legen'
+      :/android/i.test(navigator.userAgent)?'Über das Browser-Menü installieren'
+      :'Über die Adressleiste installieren';
+    const sub=isIOS()
+      ?'Nur so kann die App dich erinnern.'
+      :'Eigenes Fenster, schnellerer Start, Erinnerungen.';
+    bar.innerHTML=groupHTML('Als App installieren',
+      [rowHTML({icon:'download',title:txt,sub,tap:'openInstallSheet()'})],
+      null,{action:{label:'Später',tap:'dismissInstallHint()'}});
     const views=document.getElementById('views');
     if(views&&views.parentNode)views.parentNode.insertBefore(bar,views);else document.body.appendChild(bar);
   }catch(e){}
@@ -1599,7 +1896,9 @@ function dismissInstallHint(){
 // Home-Tour beim allerersten App-Start: erst wenn Home fertig gezeichnet ist UND ein Plan existiert
 // (ohne Plan zeigt Home nur den Einrichten-Banner). Wird von startApp() früh gerufen -> wartet auf das Rendering.
 let _tourWait=0;
-function _homeTourReady(){return !!(PLAN&&PLAN.days&&PLAN.days.length&&document.querySelector('.navbtn.on')?.dataset.p==='home'&&document.querySelector('#views .today,#views #homeCheckin'));}
+// Dieselben Selektoren wie TOUR_DEFS.home – sonst startet die Tour auf einer Seite, auf der ihr
+// erster Schritt nichts findet (vorher: `.today` / `#homeCheckin`, beide seit D-2 weg).
+function _homeTourReady(){return !!(PLAN&&PLAN.days&&PLAN.days.length&&document.querySelector('.navbtn.on')?.dataset.p==='home'&&document.querySelector('#views #homeNow,#views #homeGoals'));}
 function maybeStartTour(){
   if(!ME||ME.role!=='athlete')return; // Touren nur für Athleten
   if(ME.tour_done)return;            // bereits einmal pro Konto gesehen (geräteübergreifend)

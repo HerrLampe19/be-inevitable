@@ -1,288 +1,174 @@
-/* BE INEVITABLE – diet (Stage 2, WP3 Ernährung). Tokens/Komponenten kommen aus /app.css. */
+/* BE INEVITABLE – Ernährung (DESIGN-4 6.4–6.7, Paket D-3).
+   Tokens und Komponenten kommen aus /app.css. Diese Datei enthält NUR noch, was es im
+   Komponenten-Katalog nicht gibt: den Tageskopf, die Makro-Balkenzeile, die Häkchenzeile des
+   Einkaufswagens, die Suchfeld-Lupe, die Fertig-Leiste im Sheet, die Karte der Wochenanpassung
+   und den Strichcode-Sucher.
 
-/* Im Heute-Reiter gehört die waagrechte Wischbewegung dem Kalender, nicht dem Tabwechsel – das Attribut
+   WAS HIER ERSATZLOS WEGGEFALLEN IST (die Bauformen, die DESIGN-4 4.6 zur Löschung nennt):
+     .dt-datebar/.dt-arrow/.dt-day   die Datumsleiste als eigene Steuerebene  -> .dt-tagkopf IN der Karte
+     .chip.day(.train/.rest)         Tagtyp als eingefärbter Chip             -> Wort in der Ringzeile
+     .dt-mrings/.dt-mring            drei zusätzliche Ringe (K19)             -> .bar (5.7)
+     .diet-hero/.dh-head/.dh-bars    eigene Heldenkarte                        -> .card + .dt-ring
+     .dh-note                        Erklärung hinter einem ⓘ                  -> .rows-f (G8)
+     .next-meal/.nm-acts             Karte mit rotem Knopfpaar                 -> Gruppe aus .row
+     .meal/.meal-h/.meal-body/.fi    aufklappbare Mahlzeitkarte, 3 Zeilenformen-> .row + Mahlzeit-Sheet
+     .diet-seg-row                   zweites Segment + rundes „···"            -> Wortaktion in .rows-h
+     .plan-status                    eigene Statuszeile                        -> .rows-f
+     .dt-repeat/.dt-erow             waagrechte Chip-Reihe mit Rechtsklick     -> Gruppe „Wiederholen"
+     .cart-row/.cart-check           Häkchen rechts, 2 Taps                    -> .row.check, 1 Tap
+     .rc-acts/.rc-act                vier 66-px-Symbolkacheln                  -> Zeilen auf der Push-Seite
+     .lf-star                        42 Sternsymbole ohne Wort (K11)           -> Schalterzeile „Favorit"
+     .swap-diff                      eigene Wertspalte im Tausch-Sheet         -> .rl small
+     details.more/summary            Aufklapper im Rezeptformular (G5)         -> drei benannte Abschnitte
+   Keine dieser Funktionen ist verschwunden; jede hat einen Ort mit einem Wort bekommen. */
+
+/* Im Tagebuch gehört die waagrechte Wischbewegung dem Kalender, nicht dem Tabwechsel – das Attribut
    setzt _dietMark() und shell.js liest es (`[data-noswipe]`). Damit die Geste auch an einem leeren Tag
    trägt, reicht der Körper bis unter den Falz: sonst läge unter drei Zeilen Protokoll blanker Seitengrund,
-   dort griffe wieder der Tabwechsel, und dieselbe Bewegung täte zwei verschiedene Dinge – je nachdem, wie
-   weit oben der Finger aufsetzt. 60vh, damit die Tab-Leiste unten frei bleibt. */
+   dort griffe wieder der Tabwechsel, und dieselbe Bewegung täte zwei verschiedene Dinge. */
 #dietBody[data-noswipe]{min-height:60vh}
 
-/* ---- Datumsleiste (A-IV.4): „‹ Gestern ›" ----
-   Bewusst NICHT sticky: eine klebende Leiste kann den Primär-CTA darunter verdecken, und ein verdecktes
-   Ziel ist ein Bedienfehler, kein Schönheitsfehler. Sie steht im Fluss, ganz oben, und ist die erste
-   Aussage der Seite – „welcher Tag ist das hier?". Die Pfeile sind volle 44-px-Ziele (P7). */
-.dt-datebar{display:flex;align-items:center;gap:8px;margin:0 0 14px}
-.dt-arrow{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:44px;height:44px;
-  border-radius:14px;background:var(--surface2);color:var(--ink2);
-  transition:background var(--dur-fast) var(--ease),transform var(--dur-fast) var(--ease)}
-.dt-arrow:active:not(:disabled){transform:scale(.94);background:var(--surface3)}
-.dt-arrow:disabled{color:var(--ink-disabled,var(--ink3));background:transparent}
-/* Der mittlere Knopf trägt den Tag UND den Rückweg. An „heute" ist er still (kein Ziel, nichts zu tun);
-   an jedem anderen Tag hebt ihn die Fläche hervor, damit „zu heute" nicht gesucht werden muss. */
-.dt-day{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
-  min-height:44px;padding:5px 10px;border-radius:14px;background:var(--surface2)}
-.dt-day.now{background:transparent}
-.dt-day .dd-l{font:700 var(--t-base)/1.2 var(--font);color:var(--ink)}
-.dt-day .dd-s{font:500 var(--t-xs)/1.2 var(--font);color:var(--ink2)}
-.dt-day:not(.now):active{transform:scale(.98)}
+/* K23 (150 % Textgröße auf 320 px Breite). Das Segment heißt seit DESIGN-4 6.4 „Tagebuch" statt
+   „Heute" – vier längere Wörter in einer Reihe. `flex:1` allein rettet das nicht: ein Flex-Kind
+   schrumpft nicht unter seine Inhaltsbreite (min-width:auto). GEMESSEN: 356 px Inhalt in einem
+   320-px-Fenster, „Einkauf" stand 36 px draußen. Mit min-width:0 bricht das Wort um; die
+   Trefferfläche bleibt bei 44 px, weil .seg button sie als min-height trägt. */
+#dietSeg button{min-width:0;overflow-wrap:anywhere}
+/* Dasselbe für die Wortaktion im Abschnittskopf („Trainingstag zeigen", „Bearbeiten", „Filtern"):
+   sie steht rechts neben der Überschrift und darf bei großer Schrift umbrechen statt hinauszuragen.
+   GEMESSEN: 343 px in einem 320-px-Fenster auf dem Plan. */
+#dietBody .rows-h .a,.dt-sheet .rows-h .a{flex:0 1 auto;min-width:0;overflow-wrap:anywhere;text-align:right}
 
-/* ---- „Gestern wiederholen" + Vorlagen ---- */
-.dt-repeat{margin-top:8px}
-/* Vorschau- und Vorlagenzeilen: Lebensmittelnamen kommen aus Open Food Facts und von Hand – da steht auch
-   mal ein Wort ohne Leerzeichen über die ganze Zeile. Es darf über die kcal-Zahl rechts laufen. */
-.dt-erow .rl{min-width:0;overflow-wrap:anywhere}
-.dt-erow .rr{flex:0 0 auto;font-variant-numeric:tabular-nums}
+/* GRUPPENABSTAND. app.css gibt `.rows` bewusst noch kein margin-bottom (51 Fundstellen tragen dort
+   .mb-2/.mb-3/.mb-4). Diese Datei benutzt ausschließlich groupHTML() und braucht den Abstand deshalb
+   hier – eingegrenzt auf den Ernährungs-Reiter und auf die Sheets dieser Datei (.dt-sheet).
+   Die zweite Regel nimmt ihn zurück, wo ein Fußtext folgt: der Erklärtext klebt an seiner Gruppe. */
+#dietBody .rows,.dt-sheet .rows,#dietBody>.card,.dt-sheet>.card,
+#dietBody>.btn,.dt-sheet>.btn,#dietBody>.empty,.dt-sheet>.empty{margin-bottom:var(--s-6)}
+#dietBody .rows:has(+ .rows-f),.dt-sheet .rows:has(+ .rows-f),
+#dietBody>.card:has(+ .rows-f),.dt-sheet>.card:has(+ .rows-f){margin-bottom:0}
+/* Eine Überschrift direkt nach einem Fußtext braucht ihren eigenen Vorlauf nicht doppelt. */
+#dietBody .rows-f+.rows-h,.dt-sheet .rows-f+.rows-h{margin-top:var(--s-4)}
+/* Im Sheet gibt es keinen großen Titel, der den Anfang setzt: die erste Überschrift steht oben an. */
+.dt-sheet>.rows-h:first-child{margin-top:0}
 
-/* ---- Heute: Hero (Tagtyp-Chip · Kalorienring · Makro-Ringe) ---- */
-.diet-hero{margin-bottom:12px}
-.diet-hero .dh-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-/* Zahlen und Urteil („· über dem Ziel") brechen je für sich nicht um, dürfen aber gemeinsam auf zwei Zeilen */
-.diet-hero .dh-head .meta{font-variant-numeric:tabular-nums}
-.diet-hero .dh-head .meta>span{white-space:nowrap}
-.diet-hero .dh-main{display:flex;align-items:center;gap:18px}
-.diet-hero .dh-bars{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
-/* D1: „Startwert"-Zeile unter dem Ring. Sie gehört zum Ziel, darum steht sie IN der Hero-Karte und nicht als
-   eigene Notiz darunter – abgesetzt durch die Haarlinie, damit sie die Balken nicht optisch anfasst. */
-.diet-hero .dh-note{display:flex;align-items:flex-start;gap:8px;margin-top:14px;padding-top:12px;
-  border-top:.5px solid var(--hairline2);font-size:13px;line-height:1.45;color:var(--ink2)}
-.diet-hero .dh-note svg{flex:none;margin-top:1px;color:var(--ink3,var(--ink2))}
-/* D10: die einmalige Rückfrage „Übernehmen / Behalten" unter derselben Zeile. Die Knöpfe stehen auf einer
-   eigenen Zeile (44-px-Ziele, P7) und dürfen bei schmalen Geräten umbrechen; die Kleinzeile darunter sagt,
-   was „Übernehmen" wirklich ins Profil schreibt. */
-.diet-hero .dh-note .dt-ask-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
-.diet-hero .dh-note .dt-ask-acts .btn{min-height:44px}
-.diet-hero .dh-note .dt-ask-acts small{flex-basis:100%;font-size:12px;line-height:1.4;color:var(--ink2)}
-/* Tagtyp als Chip (ersetzt das 51-px-Badge über der Seite) */
-.chip.day{font-weight:600;cursor:default}
-.chip.day::before{content:none}
-/* B4: Der Chip war rot getönt, rot beschriftet UND rot umrandet – am gerenderten DOM 44 px hoch bei
-   217 px, also das größte und röteste Element über dem Falz dieser Ansicht. Gesagt hat er nur „heute
-   ist ein Trainingstag". Das ist ein Status, keine Handlung, und Rot gehört nach BUILD-A4 6.1 dem
-   einen CTA, dem aktiven Tab, dem Fokus und dem Fehler. A-IV.5 hat für das Vorgänger-Element
-   `.day-badge.train` (app.css) genau diese Entscheidung schon getroffen – der Chip hat sie beim
-   Umbau nicht mitgenommen. Jetzt derselbe Stil B („weich gewählt", app.css:42): Fläche --sel-soft
-   (auf der Seite --surface4), 1 px --sel-ring, Schrift --ink – gemessen 11,2:1 statt 4,6:1. Gegen
-   den Ruhetag-Chip (--surface3) liegt nur eine Flächenstufe, die Kante zieht der Ring. */
-.chip.day.train{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring)}
-.chip.day.rest{background:var(--surface3);color:var(--ink2)}
+/* ---- Die Tageskarte (6.4) ----------------------------------------------------------------
+   Der Tageskopf ist INHALT, keine Steuerebene: er steht in der Karte, die er beschreibt.
+   Drei Spalten mit `1fr auto 1fr`, damit der Tagesname in der Mitte steht, auch wenn rechts
+   nichts steht (nach vorn ist bei heute Schluss). */
+.dt-tag{padding:var(--s-4)}
+.dt-tagkopf{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;
+  gap:var(--s-2);padding-bottom:var(--s-3);border-bottom:.5px solid var(--hairline2)}
+.dt-step{display:inline-flex;align-items:center;gap:var(--s-1);min-height:var(--tap);
+  padding:0 var(--s-2);margin:0 calc(var(--s-2) * -1);border-radius:var(--r-sm);
+  font:600 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);justify-self:start;
+  overflow-wrap:anywhere;text-align:left}
+.dt-step.dt-next{justify-self:end;text-align:right}
+.dt-step .ic{flex:0 0 16px;width:16px;height:16px;color:var(--ink3)}
+.dt-step:active:not(:disabled){background:var(--surface2)}
+.dt-step:disabled{color:var(--ink-disabled,var(--ink3))}
+.dt-step-leer{display:block;min-height:var(--tap)}
+.dt-tag-m{min-width:0;text-align:center}
+.dt-tag-l{font:700 var(--t-md)/var(--lh-md) var(--font);color:var(--ink)}
+.dt-tag-s{font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);overflow-wrap:anywhere}
+/* Der Rückweg auf heute ist ein WORT, kein stummer Mittelknopf. Er steht nur da, wenn er etwas tut. */
+.dt-heute{display:flex;width:100%;align-items:center;justify-content:center;min-height:var(--tap);
+  margin-top:var(--s-2);border-radius:var(--r-sm);background:var(--surface3);
+  font:600 var(--t-base)/var(--lh-base) var(--font);color:var(--ink)}
+.dt-heute:active{opacity:.7}
 
-/* Makro-Ringe statt Balken-Warnung (A-IV.4 · Punkt 4).
-   Die Balken färbten jeden Wert über dem Ziel amber – bei einem Fettziel von 29 g war das JEDER normale
-   Tag. Ein Ring kennt diesen Zustand nicht: er ist voll. Wie weit darüber, sagt die ruhige Kleinzeile
-   darunter – in der normalen Textfarbe, nicht in einer Warnfarbe. */
-.dt-mrings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;text-align:center}
-.dt-mring{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0}
-.dt-mring .ring{display:block}
-.dt-mring .mr-l{font:600 var(--t-xs)/1.25 var(--font);color:var(--ink2);overflow-wrap:anywhere}
-/* „20 / 157 g" – dieselbe vollständige Angabe, die die Balken bis 2.7.0 trugen. Sie steht in --ink,
-   weil sie die Tatsache ist; die Folgerung darunter ist die leisere Zeile. */
-.dt-mring .mr-v{font:600 var(--t-xs)/1.25 var(--font);color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
-.dt-mring .mr-s{font:500 var(--t-xs)/1.25 var(--font);color:var(--ink2);font-variant-numeric:tabular-nums}
-/* Grün nur für „im Ziel". „26 g drüber" bleibt in normaler Textfarbe – sonst hieße dieselbe Farbe an
-   derselben Stelle zweierlei (P4: eine Farbe, eine Bedeutung). */
-.dt-mring.hit .mr-s{color:var(--green)}
-
-/* ---- Adaptive Ziele (B-I.4 · adp): die Wochenanpassung als Karte ----
-   Sie steht zwischen Hero und Plan-Karte und ist die einzige Stelle, an der ein Ziel seine Zahl ändern
-   kann – deshalb trägt sie die Zahl, die Herkunft und die Entscheidung untereinander, in genau dieser
-   Reihenfolge. Kein Akzentrot: der eine rote Knopf des Reiters gehört dem Eintragen (P4). Alle Schriften
-   ≥ 12 px (CRITIC K10), alle Trefferflächen ≥ 44 px (P7). */
-.adp-card .adp-nums{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;margin:10px 0 2px;
+/* Der EINE Ring (5.7). Neutral, mit dem Wort darunter statt einer Prozentzahl darin (G9). */
+.dt-ring{display:flex;flex-direction:column;align-items:center;gap:var(--s-1);
+  padding:var(--s-4) 0 var(--s-3)}
+/* EINE GRÖSSE, EINE ZEILENHÖHE (2.1). Die Zahl im Ring ist ein <text> im SVG und erbt sonst die
+   Fließtexthöhe des Körpers – gemessen stand 34 px damit auf zwei Zeilenhöhen (41 und 49). */
+.dt-ring .ring{display:block}
+.dt-ring .ring text{line-height:var(--lh-4xl)}
+.dt-ring-t{font:600 var(--t-base)/var(--lh-base) var(--font);color:var(--ink2)}
+.dt-ring-s{font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);text-align:center;
   font-variant-numeric:tabular-nums}
-/* Das alte Ziel bleibt lesbar stehen – durchgestrichen wäre es „falsch", und falsch war es nie. */
-.adp-card .adp-old{font:600 var(--t-md)/1.2 var(--font);color:var(--ink2)}
-.adp-card .adp-arrow{color:var(--ink3);font-size:var(--t-md)}
-.adp-card .adp-new{font:700 var(--t-xl)/1.15 var(--font);color:var(--ink)}
-/* Die Differenz ist eine Angabe, keine Wertung: dieselbe Textfarbe wie alles andere, kein Grün, kein Amber.
-   Ein Plus ist beim Aufbau gut und beim Abnehmen schlecht – die Farbe könnte es also gar nicht wissen. */
-.adp-card .adp-d{font:600 var(--t-sm)/1.2 var(--font);color:var(--ink2)}
-.adp-card .adp-mac{font-size:var(--t-sm);line-height:1.4;color:var(--ink2);font-variant-numeric:tabular-nums}
-/* Der Tagtyp-Satz („gilt für Trainingstage") ist eine Fußnote zur Zahl, keine zweite Aussage: eine Stufe
-   blasser als die Makros und ohne eigenen Abstand nach oben – er hängt an der Zeile darüber. */
-.adp-card .adp-day{margin-top:2px;color:var(--ink3,var(--ink2))}
-/* Der Begründungssatz vom Server – die Hauptaussage der Karte, deshalb in --ink. */
-.adp-card .adp-reason{margin-top:10px;font-size:var(--t-base);line-height:var(--lh-body);color:var(--ink)}
-/* P3: der Herkunftssatz. Abgesetzt durch die Haarlinie, damit er zur Zahl gehört und nicht zur Handlung. */
-.adp-card .adp-why{display:flex;align-items:flex-start;gap:8px;margin-top:10px;padding-top:10px;
-  border-top:.5px solid var(--hairline2);font-size:13px;line-height:1.45;color:var(--ink2)}
-.adp-card .adp-why svg{flex:none;margin-top:2px;color:var(--ink3,var(--ink2))}
-.adp-card .adp-state{margin-top:10px;font-size:13px;line-height:1.45;color:var(--ink2)}
-.adp-card .adp-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
-.adp-card .adp-acts .btn{min-height:44px}
-.adp-card .adp-acts small{flex-basis:100%;font-size:12px;line-height:1.4;color:var(--ink2)}
-/* „Wie das funktioniert" – der Weg zum Schalter. Leise (kein Knopf-Grund), aber volle 44 px hoch.
-   Die negativen Ränder holen die Höhe wieder heraus, die der Text allein nicht braucht. */
-.adp-more{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin:4px -6px -10px;padding:0 6px;
-  font:600 13px/1.2 var(--font);color:var(--ink2);background:none;border-radius:10px}
-.adp-more svg{flex:none;color:var(--ink3,var(--ink2))}
-.adp-more:active{color:var(--ink)}
-/* Bereits gesetzt (Modus „adaptiv", Coach hat freigegeben): dieselbe stille Kante wie bei der
-   vollständig eingetragenen Plan-Karte – eine Zustandsangabe, keine Feier. */
-.adp-card.done{box-shadow:inset 0 0 0 1px var(--green-tint)}
-/* `holding`: keine Entscheidung, nichts anzutippen – also keine Karte, sondern eine Statusnotiz.
-   Sie sagt die Wahrheit über die Woche und macht sie an einer Zahl fest. */
-.note.status.adp-hold{display:flex;align-items:flex-start;gap:8px}
-.note.status.adp-hold svg{flex:none;margin-top:2px;color:var(--ink3,var(--ink2))}
-.note.status.adp-hold .fill{flex:1;min-width:0}
-.note.status.adp-hold .adp-more{display:flex;margin:2px 0 -10px}
 
-/* Der Schalter im Sheet: das Kaestchen ist 28 px, die Zeile 65 px – angetippt wird die ganze Zeile
-   (das <input> steckt in einem <label>). Damit auch das Kaestchen SELBST volle 44 px traegt, bekommt es
-   dieselbe unsichtbare Vergroesserung, die app.css schon fuer `.btn.icon.sm` benutzt. Bewusst nur ueber
-   die Id: `.rcheck` steht in app.css und gehoert dieser Datei nicht – hier wird genau ein Element
-   angefasst, nicht die Komponente. Gemessen: 28×28 -> 44×44 (13-sonde-holding.png).
-   `position:relative` bringt `.rcheck` schon mit, `::after` traegt das Haekchen – `::before` ist frei. */
-#adp_sw::before{content:'';position:absolute;inset:-8px}
+/* Makros als Balken: „Balken = Anteil in einer Liste" (5.7). Kein Warnton bei Überschreitung –
+   ein Tag über dem Fettziel ist ein normaler Tag (STRATEGY P6). Grün heißt nur „getroffen". */
+/* Kein Sammel-Container um die drei Balken: jede Hülle, die 28-200 px hoch und breiter als der halbe
+   Bildschirm ist, zählt als eigene Zeilenform (K6). Drei gleiche Geschwister reichen. */
+.dt-macro{padding-top:var(--s-3);border-top:.5px solid var(--hairline2)}
+.dt-macro+.dt-macro{border-top:none;padding-top:0;margin-top:var(--s-3)}
+.dt-macro-h{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s-2);
+  margin-bottom:var(--s-1)}
+.dt-macro .dm-l{font:500 var(--t-base)/var(--lh-base) var(--font);color:var(--ink)}
+.dt-macro .dm-v{font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);text-align:right;
+  font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 
-/* ---- „Laut Plan als Nächstes" (Heute + Plan) ---- */
-.next-meal{margin-bottom:12px}
-.next-meal .caption{white-space:nowrap}
-.next-meal .meta{margin-top:4px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.next-meal .nm-acts{display:flex;align-items:center;gap:8px;margin-top:14px}
-.next-meal .nm-acts .btn.block{flex:1;width:auto;min-height:48px}
-.next-meal.done{box-shadow:inset 0 0 0 1px var(--green-tint)}
-.next-meal.done .h3{color:var(--green)}
+/* ---- Adaptive Ziele (B-I.4 · adp) ----
+   Die Wochenanpassung ist eine GRUPPE aus Zeilen geworden (siehe diet.js adpCard) – sie braucht
+   deshalb kein eigenes CSS mehr. Was blieb, ist der Rest im Sheet „Ziele automatisch anpassen":
+   dort steht der Begründungssatz des Servers als Fließtext. */
+.adp-card{padding:var(--s-4);margin-bottom:var(--s-6)}
+.adp-card .adp-reason{font:400 var(--t-md)/var(--lh-body) var(--font);color:var(--ink)}
 
-/* ---- Protokoll (Gruppen nach Slot) ---- */
-#dietBody .section-label.tight{margin-top:12px}
-#dietBody .section-label .sl-r{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink2)}
-/* Menü an der Gruppenzeile („Frühstück · 745 kcal · ⋯"): Vorlage speichern / noch einmal eintragen.
-   Die Zeile richtet ihre Teile an der Schriftlinie aus – der Knopf muss sich davon lösen, sonst hängt
-   sein 44-px-Ziel schief in der Zeile. Der Abstand nach oben schrumpft, weil der Knopf höher ist als der
-   Text: ohne das würde jede Gruppenüberschrift die Liste um 10 px auseinanderziehen. */
-#dietBody .section-label:has(.sl-menu){align-items:center;margin-top:16px;margin-bottom:6px}
-#dietBody .section-label .sl-menu{flex:0 0 auto;align-self:center;margin:-6px -4px -6px 0;color:var(--ink3)}
-#dietBody .rows .row .rr{font-variant-numeric:tabular-nums}
-/* Ohne Netz eingetragen: die Zeile zählt schon mit, wartet aber noch in der Outbox. Kein neuer Farbton –
-   die Pille „wird nachgetragen" sagt es, die Kante links macht die Gruppe auf einen Blick unterscheidbar.
-   Bewusst ohne .tap: die Zeile ist nicht antippbar, also darf sie auch nicht danach aussehen. */
-#dietBody .rows .row.food-pending{box-shadow:inset 2px 0 0 var(--hairline2)}
-#dietBody .rows .row.food-pending .rr{color:var(--ink3)}
-#dietBody .rows .row.food-pending .pill{margin-left:2px}
-
-/* ---- Essen hinzufügen: Suche, Portions-Karte, Fertig-Leiste ---- */
-.lf-search{margin-bottom:12px}
+/* ---- Essen eintragen: Suchfeld, Mengenkarte, Fertig-Leiste ---- */
+.lf-search{margin-bottom:var(--s-3)}
 .lf-searchwrap{position:relative;display:flex;align-items:center}
-.lf-searchwrap>.ic{position:absolute;left:14px;width:18px;height:18px;color:var(--ink3);pointer-events:none}
-.lf-searchwrap input{padding-left:42px}
-.lf-chosen{margin-bottom:12px}
-.lf-chosen .field:last-of-type{margin-bottom:8px}
-/* Sticky-Leiste am Sheet-Fuß: laufende Summe + „Fertig" */
-/* `display:flex` hier ist gleich spezifisch wie das `[hidden]{display:none}` der Grundlagen und steht
-   später – ohne die Zeile darunter blieb die Leiste also IMMER stehen, auch bevor irgendetwas eingetragen
-   war: „0 Einträge · 0 kcal" samt rotem „Fertig" über der Liste, in der man gerade erst sucht. Eine
-   Summe, die noch nichts zusammenzählt, und ein zweiter roter Knopf neben dem Primär-CTA. */
+.lf-searchwrap>.ic{position:absolute;left:var(--s-3);width:18px;height:18px;color:var(--ink3);pointer-events:none}
+.lf-searchwrap input{padding-left:calc(var(--s-4) + 26px)}
+.lf-chosen{padding:var(--s-4);margin-bottom:var(--s-3)}
+.lf-chosen .field:last-of-type{margin-bottom:0}
+/* Sticky-Leiste am Sheet-Fuß: laufende Summe + „Fertig".
+   `display:flex` ist gleich spezifisch wie `[hidden]{display:none}` und steht später – ohne die
+   Zeile darunter bliebe die Leiste immer stehen, auch bevor etwas eingetragen war. */
 .lf-done[hidden]{display:none}
-.lf-done{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:12px;
-  margin:16px -16px calc(-20px - var(--safe-b));padding:12px 16px calc(12px + var(--safe-b));
+.lf-done{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:var(--s-3);
+  margin:var(--s-4) calc(var(--s-4) * -1) calc(-20px - var(--safe-b));
+  padding:var(--s-3) var(--s-4) calc(var(--s-3) + var(--safe-b));
   background:var(--surface2);border-top:.5px solid var(--hairline2);
-  font:600 var(--t-sm)/1.3 var(--font);color:var(--ink2)}
+  font:600 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
 .lf-done .btn{flex:0 0 auto}
-#lf_list{max-height:none} /* kein verschachteltes Scrollfeld mehr – das Sheet scrollt */
-/* Favoriten-Stern in der Lebensmittel-Liste: aus = nur Kontur in Grau, an = gefüllt.
-   Die 44-px-Trefferfläche kommt aus .btn.icon.sm::before (app.css) – der Stern selbst darf klein bleiben.
-   A-V.5 (DEFER-A4, Übergabe von A-IV.5): der Stern ist gefüllt jetzt `--amber-text`, nicht `--red-text`.
-   Rot gehört in diesem Haus dem CTA, dem aktiven Tab, dem Fokus und dem Fehler (BUILD-A4 6.1) – ein
-   Favorit ist nichts davon, er ist „markiert", und dafür ist Amber die Konvention (so wie die Flamme im
-   Wochenrückblick seit 2.4.0). `--amber-text` (#ffb340) ist wie `--red-text` die HELLE Fassung des
-   Tons: das Flächen-Rot/-Amber wäre auf dunklem Grund zu dunkel für die 3:1, die ein Symbol als
-   Bedeutungsträger braucht (BUILD-A4 6.2 trennt genau diese beiden Token). */
-.lf-star{color:var(--ink3)}
-.lf-star.on{color:var(--amber-text)}
-.lf-star.on .ic{fill:currentColor}
-.lf-star:active{transform:scale(.9)}
-
-/* ---- Plan: Kopfzeile, Sanity-Zeile, Mahlzeiten-Karten (einklappbar) ---- */
-.diet-seg-row{display:flex;align-items:center;gap:8px;margin-bottom:16px}
-.diet-seg-row .seg{flex:1;min-width:0;margin-bottom:0}
-.diet-seg-row .btn.icon{flex:0 0 auto}
-.plan-status{margin:-8px 4px 16px;font-variant-numeric:tabular-nums}
-/* Jede Angabe („Ziel 2.975 kcal", „Eiweiß 166 / 173 g") bleibt für sich in einer Zeile – umbrochen wird
-   zwischen den Angaben, nicht mitten in einer Zahl. */
-.plan-status>span{white-space:nowrap}
-/* D10: „Dein gespeichertes Ziel … passt nicht mehr zum aktuellen Gewicht". Text und Schaltfläche stehen
-   nebeneinander, brechen aber auf schmalen Geräten untereinander – die Schaltfläche behält ihre 44 px. */
-.note.dt-ask{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.note.dt-ask .fill{flex:1;min-width:180px}
-.note.dt-ask .btn{flex:0 0 auto}
-.meal-h{cursor:pointer;align-items:flex-start}
-.meal:not(.open) .meal-h{border-bottom:none}
-.meal-h .ml{flex:1;min-width:0}
-.meal-h .ml .n{display:inline-flex;align-items:center;gap:4px}
-.meal-h .ml .n.ok{color:var(--green)}
-.meal-h .ml .prev-line{color:var(--ink3);margin-top:3px}
-.meal.open .meal-h .ml .prev-line{display:none}
-.meal-h .kc{flex:0 0 auto;font-variant-numeric:tabular-nums}
-.meal-chev{flex:0 0 auto;display:flex;align-items:center;color:var(--ink3);transition:transform var(--dur) var(--ease)}
-.meal.open .meal-chev{transform:rotate(180deg)}
-.meal-body{max-height:0;overflow:hidden;transition:max-height var(--dur-slow) var(--ease)}
-.meal.open .meal-body{max-height:1600px}
-.meal.done .meal-h .ml .t{color:var(--ink2)}
-.meal .fi .fn{overflow-wrap:anywhere}
-.meal .fi .fi-mac{color:var(--ink2);margin-top:2px}
-.meal .fi .fmac{font-variant-numeric:tabular-nums}
-.meal-acts{padding:12px 16px 14px;gap:8px}
-/* Coach-Blick: ohne Aktionsleiste endet die Karte mit der letzten Zutat – etwas Luft nach unten */
-.meal.open .meal-body>.fi:last-child{padding-bottom:16px}
-
-/* ---- Tauschen-Sheet: kcal + beide Differenzen ---- */
-.swap-diff{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right}
-.swap-diff b{font:600 var(--t-base)/1.2 var(--font);color:var(--ink);font-variant-numeric:tabular-nums}
-.swap-diff .caption{font-variant-numeric:tabular-nums}
+#lf_list{max-height:none} /* kein verschachteltes Scrollfeld – das Sheet scrollt */
 
 /* ---- Rezepte ---- */
-.rc-search{margin-bottom:8px}
-.rc-thumb{flex:0 0 auto;width:44px;height:44px;border-radius:10px;background:var(--surface3);overflow:hidden}
-.rc-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.rc-photo{display:block;width:100%;max-height:220px;object-fit:cover;border-radius:16px;margin-bottom:14px}
-.rc-acts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-.rc-act{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:66px;padding:8px 4px;
-  border-radius:12px;background:var(--surface3);color:var(--ink2);font:600 var(--t-xs)/1.2 var(--font);
-  transition:transform var(--dur-fast),background var(--dur-fast)}
-.rc-act .ic{width:22px;height:22px}
-.rc-act:active{transform:scale(.96);background:var(--surface4)}
-.sheet .rc-act{background:var(--surface4)}
-.rc-text{white-space:pre-line;font-size:var(--t-base);line-height:var(--lh-body);color:var(--ink2);margin-bottom:16px}
-.rc-text b{color:var(--ink)}
-/* „Mehr Angaben" im Rezept-Formular */
-details.more>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;
-  font:600 var(--t-base)/1.2 var(--font);color:var(--ink2);cursor:pointer}
-details.more>summary::-webkit-details-marker{display:none}
-details.more>summary::after{content:'';flex:0 0 18px;width:18px;height:18px;background:currentColor;transition:transform var(--dur) var(--ease);
-  -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat;
-  mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") center/contain no-repeat}
-details.more[open]>summary::after{transform:rotate(180deg)}
+.rc-search{margin-bottom:var(--s-2)}
+.rc-photo{display:block;width:100%;max-height:220px;object-fit:cover;border-radius:var(--r);
+  margin-bottom:var(--s-4)}
+/* Zutaten und Zubereitung stehen als Fließtext IN einer Zeile der Gruppe: derselbe Rahmen, dieselbe
+   Einrückung wie überall – nur ohne feste Zeilenhöhe, weil hier ein Absatz steht und keine Angabe. */
+.row.rc-text{display:block;white-space:pre-line;font:400 var(--t-md)/var(--lh-body) var(--font);
+  color:var(--ink);min-height:0;padding:var(--s-4)}
+.row.rc-text b{font-weight:600}
+.rc-filtergrp{margin-bottom:var(--s-4)}
 
-/* ---- Einkaufswagen ---- */
-.cart-row{cursor:pointer}
-.cart-row:active{background:var(--surface2)}
-.cart-check{flex:0 0 auto;width:26px;height:26px;border-radius:9px;background:var(--surface3);box-shadow:inset 0 0 0 1.5px var(--hairline2);
-  display:flex;align-items:center;justify-content:center;color:#fff}
-.cart-row.done .cart-check{background:var(--green);box-shadow:none}
-.cart-row.done .rl{color:var(--ink3);text-decoration:line-through}
+/* ---- Einkauf: die Häkchenzeile (6.7) ------------------------------------------------------
+   Das Muster von Apple Erinnerungen: Häkchen LINKS in der Zeile, EIN Tap. Bis 3.0.2 saß das
+   Häkchen links als Anzeige und die Handlung lag hinter einem „···" rechts – zwei Taps für die
+   häufigste Handlung im Supermarkt. Alles außer dem Kästchen ist die normale `.row`. */
+.row.check{cursor:pointer}
+.row.check:active{background:var(--surface2)}
+.cb{appearance:none;-webkit-appearance:none;flex:0 0 24px;width:24px;height:24px;border-radius:50%;
+  box-shadow:inset 0 0 0 1.5px var(--ink3);position:relative;background:transparent;cursor:pointer;
+  /* 44-px-Trefferregion um ein 24-px-Kästchen, ohne die Zeilenhöhe zu ändern */
+  margin:calc((var(--tap) - 24px) / -2) 0;padding:calc((var(--tap) - 24px) / 2) 0;
+  background-clip:content-box;transition:background var(--dur-fast) var(--ease)}
+.cb:checked{background:var(--green);box-shadow:none;background-clip:content-box}
+.cb:checked::after{content:'';position:absolute;inset:calc((var(--tap) - 24px) / 2) 0;
+  background:var(--bg);
+  -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>") center/14px no-repeat;
+  mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>") center/14px no-repeat}
+.row.check.done .rl{color:var(--ink3)}
 
-/* ---- Barcode-Scanner ---- */
-.bc-cam{position:relative;border-radius:14px;overflow:hidden;background:#000;margin-bottom:12px}
+/* ---- Strichcode-Sucher ---- */
+.bc-cam{position:relative;border-radius:var(--r-sm);overflow:hidden;background:#000;margin-bottom:var(--s-3)}
 .bc-cam video{display:block;width:100%;max-height:300px;object-fit:cover;background:#000}
+/* Die Suchlinie ist der einzige Ort dieser Datei, an dem Rot eine Fläche ist – sie zeigt, WO der
+   Strichcode hin muss, und das ist hier die Hauptsache (5.7, `.bar.accent`-Ausnahme). */
 .bc-line{position:absolute;left:8%;right:8%;top:50%;height:2px;border-radius:2px;background:var(--red);
   box-shadow:0 0 12px var(--red);animation:bcScan 1.9s ease-in-out infinite}
 @keyframes bcScan{0%,100%{transform:translateY(-56px)}50%{transform:translateY(56px)}}
-.bc-status{font-size:var(--t-sm);color:var(--ink2);text-align:center;margin-bottom:14px;line-height:var(--lh-snug)}
+.bc-status{font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);text-align:center;
+  margin-bottom:var(--s-4)}
 
-/* Auf dem Telefon (<= 520 px) stehen Kalorienring und Makro-Ringe UNTEREINANDER. Nebeneinander blieben für
-   drei Ringe samt Beschriftung keine 80 px je Spalte – „Kohlenhydrate" bräche dann in jeder Zeile um.
-   Untereinander bekommt jede Makro-Spalte ein volles Drittel der Kartenbreite. Auf dem Desktop (540-px-
-   Spalte) ist nebeneinander richtig: dort ist der Platz da. Vorher lag die Grenze bei 360 px – das galt
-   noch den Balken, die auch in 120 px lesbar waren. */
-@media(max-width:520px){
-  .diet-hero .dh-main{flex-direction:column;align-items:stretch;gap:14px}
-  .diet-hero .dh-main>.fixed{align-self:center}
-  .diet-hero .dh-bars{width:100%}
-}
-/* Sehr schmal (<= 340 px): enger zusammenrücken – aber die Schrift bleibt bei 12 px. Eine frühere
-   Fassung ging hier auf 11 px herunter; das ist genau die Grenze, die CRITIC K10 als Mindestmaß
-   festhält (a11y.mjs meldet alles darunter). Platz macht der Abstand, nicht die Lesbarkeit. */
+/* Sehr schmal (<= 340 px): der Tageskopf bricht auf zwei Zeilen um, statt die Wörter zu quetschen.
+   Die Schrift bleibt, wo sie ist – Platz macht der Abstand, nicht die Lesbarkeit (CRITIC K10). */
 @media(max-width:340px){
-  .dt-mrings{gap:2px}
-  .dt-mring .mr-l{overflow-wrap:anywhere;hyphens:auto}
+  .dt-tagkopf{grid-template-columns:1fr 1fr;row-gap:var(--s-2)}
+  .dt-tag-m{grid-column:1 / -1;order:-1}
 }

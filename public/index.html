@@ -112,7 +112,12 @@
   <!-- Landmarken (header/nav/main): ohne sie hat ein Screenreader keinen Sprungpunkt und liest die Hülle
        bei jedem Tabwechsel von vorn. Klassen und IDs bleiben unverändert – das CSS greift über .hdr/.nav/#views. -->
   <header class="hdr">
-    <div class="title"><span id="hdrTitle">Home</span></div>
+    <!-- G1/G2 (DESIGN-4 3.2): der kompakte Titel traegt IMMER dasselbe Wort wie der Reiter und wie der
+         grosse Titel der Seite - nie den App-Namen. `sunk` ist der Startzustand fuer den Fall, dass
+         die Seite noch keinen grossen Titel hat (oder /app.js noch nicht laeuft): dann steht der
+         kompakte Titel sofort da. Sobald mountLargeTitle() einen grossen Titel findet, nimmt es die
+         Klasse weg und setzt sie erst wieder, wenn der grosse Titel nach oben aus dem Bild scrollt. -->
+    <div class="title"><span id="hdrTitle" class="sunk">Heute</span></div>
     <div class="acts">
       <!-- Offline/Outbox-Zustand: von core.js (syncBadge) ein- und ausgeblendet, sonst leer und unsichtbar -->
       <button class="pill amber sync-state hidden" id="syncState" aria-live="polite" onclick="if(typeof openOutbox==='function')openOutbox()"></button>
@@ -126,6 +131,14 @@
   </header>
   <div id="ctxBar" class="ctx-bar"></div>
   <main id="views"></main>
+  <!-- PUSH-EBENE (DESIGN-4 3.3). Eine echte zweite Ebene, die seitlich hereinkommt, die Reiterleiste
+       STEHEN LAESST und oben einen Zurueck-Knopf mit dem Namen des ELTERNBILDSCHIRMS traegt (G3).
+       Gezeichnet wird sie von pushPage()/popPage() in shell.js; leer und `hidden`, solange niemand
+       tiefer gegangen ist. Sie liegt INNERHALB von #appView, damit `inert` beim Oeffnen eines Sheets
+       (shell.js A11_INERT) sie automatisch mitnimmt - ein Sheet legt sich ueber alles.
+       aria-live="off": der Inhalt wird beim Wechsel komplett ersetzt, vorgelesen wird der Titel
+       ueber den Fokussprung in _renderPush(), nicht ueber eine Live-Region. -->
+  <div id="pushView" class="push" hidden aria-live="off"></div>
   <nav class="nav" id="navBar" aria-label="Hauptnavigation"></nav>
 </div>
 

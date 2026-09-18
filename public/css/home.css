@@ -1,319 +1,144 @@
-/* BE INEVITABLE – home (Stage 2, WP1). Tokens/Komponenten kommen aus /app.css; hier nur, was Home eigen ist. */
+/* BE INEVITABLE – Startseite „Heute" (DESIGN-4 6.1, Welle D-2).
+   Tokens, Zeilen (.rows/.row/.rows-h/.rows-f), Knöpfe und Pillen kommen aus /app.css.
+   Hier steht NUR, was die Startseite eigen hat: die Jetzt-Karte und die eine Abhak-Zeile.
 
-/* ---------- Wortmarke im Header (Home-Tab) ---------- */
-.hdr .title .wordmark{font:700 15px/1.2 var(--font-head,inherit);letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
+   WAS AUS DIESER DATEI ERSATZLOS VERSCHWUNDEN IST (319 → rund 90 Zeilen):
+     .hg / .hg-row / .hg-l / .hg-v / .hg-b / .hg-ic / .hg-r   die fünf Ringe („HEUTE 0/5")
+     .hg-streak / .hg-st / .hg-jok / .hg-supp / .hm-h         die Tages-Karte
+     .hm-last                                                 „Zuletzt" als eigene Kartenform
+     .hm-more / .hm-sw                                        die fünf grauen Pillen am Seitenende
+     .h-prog / .h-seg / .h-seg-t                              der Fortschritts-Streifen
+     .quick.mini .qcard                                       die vier „Mehr"-Kacheln
+     .rdy / .rdy-n / .rdy-tx / .rdy-go                        die Bereitschaftszeile
+     .today .eyebrow / .daytype.dt-b / .today .chip-row …     die alte Jetzt-Karte
+     .hm-narrow + die 320-px-Sonderregeln                     die Ersatz-Chips für schmale Geräte
+     .hdr .title .wordmark                                    toter Code seit Welle 2 (G1)
+     .row.h-tap, .h-sep, #homeFood .ring-card                 Zeilenformen, die `.row` jetzt trägt
+   Gemessen waren das 17 Zeilenformen und 12 Schriftpaare auf EINEM Bildschirm (tools/sprache.mjs).
+   Jede dieser Formen sagte dasselbe wie die `.row` daneben – nur mit anderen Zahlen. */
 
-/* ---------- Jetzt-Karte ---------- */
-/* Die Kopfzeile trägt links den Gruß, rechts „Tag ändern"; der Gruß darf kürzen statt umzubrechen. */
-.today .eyebrow{display:flex;align-items:baseline;gap:5px;min-width:0}
-.today .eyebrow .t-hi{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.today .eyebrow .t-date{flex:0 0 auto;white-space:nowrap}
-.today .between>.btn.sm{flex:0 0 auto;padding:0 10px}
-.today .chip-row{margin-left:-2px;padding-left:2px;padding-top:2px;padding-bottom:2px}
-/* Nur der Innenabstand ist hier Home-Sache. Die HÖHE kommt seit 2.8.0 aus dem Design-System
-   (`app.css` .chip: `min-height:44px`) und wird hier nicht mehr kleiner gesetzt – die Begründung
-   steht ausführlich bei `#homePage .today .chip-row .chip`. Die 34 px, die hier standen, trafen
-   die Mindset-Seite („… Min", `#mindMinChip`) mit demselben Fehler wie die Startseite. */
-.today .chip-row .chip{padding:0 13px}
-.today .note.warn{font-size:13px}
-/* Auf der Startseite sitzt die Karte enger: jeder Pixel hier hebt die „Heute geschafft"-Ringe nach oben.
-   (Nur #homePage – die Mindset-Seite nutzt dieselbe .today-Karte und behält ihre Maße.) */
-/* Der Kartenfuß zahlt 6 px der 24 px zurück, die die ehrlichen 44-px-Chips kosten. Das letzte
-   Element der Karte ist eine Chip-Zeile, und ihre Pillen tragen jetzt selbst 6 px mehr Luft unter
-   dem Text als die alten 32-px-Pillen: 8 px unter der Pille plus 6 px in ihr sind optisch dieselben
-   14 px wie vorher – der Abstand vom letzten Wort zur Kartenkante bleibt gleich. */
-#homePage .today{padding:16px 18px 8px;margin-bottom:12px}
-#homePage .today .daytype{font-size:var(--t-3xl);margin-top:2px}
-/* Der Tagesname als Knopf: sieht aus wie die Überschrift, die er ist, und trägt das Chevron als
-   einziges Zeichen dafür, dass er sich antippen lässt. 44-px-Trefferfläche per ::before, weil die
-   Zeile selbst nur rund 31 px hoch ist (a11y.mjs). */
-.today .daytype.dt-b{display:flex;align-items:center;gap:4px;width:100%;padding:0;border:0;
-  background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;position:relative}
-.today .daytype.dt-b .ic{flex:0 0 auto;width:20px;height:20px;color:var(--ink3);margin-top:3px}
-.today .daytype.dt-b::before{content:'';position:absolute;inset:-7px -8px}
-.today .daytype.dt-b:active{opacity:.72}
-#homePage .today .meta{margin-top:2px;font-size:14px}
-#homePage .today>.btn.block{margin-top:8px}
-/* 6 px statt 8 px: genau die Lücke, die `.chip-row.wrap` waagrecht zwischen zwei Pillen lässt
-   (`gap:6px`) – senkrecht und waagrecht derselbe Abstand. Zusammen mit dem Kartenfuß, dem Knopf
-   darüber und der Bereitschaftszeile sind das die 24 px, die die 44-px-Chips kosten. */
-#homePage .today .chip-row{margin-top:6px;padding-top:2px;padding-bottom:0}
-/* Stehen zwei Chip-Zeilen untereinander (Kurzwege + Rhythmus), rücken sie enger zusammen: jede
-   Pille trägt seit den echten 44 px selbst 6 px Luft über und unter dem Text, ein zweites Mal
-   dieselbe Luft zwischen den Zeilen wäre doppelt. 2 px hier + 6 px in der Pille darüber + 6 px in
-   der Pille darunter sind optisch die 14 px, die vorher 8 px Rand zwischen zwei 32-px-Pillen waren.
-   Genau diese 6 px sind die zweite Hälfte der 24 px, die die ehrlichen Chips kosten. */
-#homePage .today .chip-row+.chip-row{margin-top:2px}
-#homePage .today .chip-row.wrap{gap:6px}
-/* Die neun Chips der Jetzt-Karte sind 44 px HOCH – nicht nur 44 px gemeint.
-   Hier standen bis zu dieser Nachbesserung `min-height:32px` und dazu
-   `#homePage .today .chip-row .chip::before{inset:-6px -3px}`. Diese Rechnung stammt aus 2.7.0, wo
-   `app.css` für `.chip,.daychip,.fpill` ein `::before{content:'';position:absolute;inset:-4px}`
-   erzeugte und `home.css` nur dessen `inset` verstellte – 32 px sichtbar, 44 px Trefferfläche.
-   In 2.8.0 gibt es dieses Pseudo-Element nicht mehr: A-IV.5 hat es durch echte `min-height:44px`
-   in `app.css` ersetzt (`grep -n "chip::before" public/app.css` = 0 Treffer; im Vorher-Stand
-   `backup-2.7.0/public/app.css` steht es noch). Ein `inset` ohne `content` erzeugt nichts.
-   Gemessen am laufenden Server: `getComputedStyle(chip,'::before').content` = `none`,
-   `position` = `static`, Trefferhöhe per `elementFromPoint` 33 px statt 44 – ein Rückschritt
-   gegenüber 2.7.0, ausgerechnet auch für „Power-Atmung", den ersten Tap des Priming-Wegs.
-   (Gegenprobe im selben Lauf: `.hg-jok` hat ein echtes `content:""` und misst dort 45 px.)
-   Kein zweiter Nachbau also: die Höhe kommt aus dem Design-System, hier bleibt der Innenabstand.
-   Sichtbare Fläche und Trefferfläche sind damit dieselbe – kein Ziel ragt mehr in die Lücke zum
-   Nachbarn (BUILD-A4 6.8 „ohne Überlappung"), und `a11y.mjs` misst dieselbe Zahl, die der Finger
-   trifft. Die 24 px, um die die zwei Zeilen dadurch wachsen, holt die Seite weiter unten zurück
-   (`.today`-Fuß, `.hg-streak`, `.card.hm-day`, `.hm-more`) – die 1.000-px-Zusage bleibt. */
-#homePage .today .chip-row .chip{padding:0 12px}
-/* Rhythmus-Leiste: die Chips tragen jetzt Wochentag + Klartext („Mo · Pull") statt „Mo Pul" und dürfen
-   dafür breiter werden – die Leiste scrollt ohnehin. Der Mask-Fade von app.css beginnt dort schon bei
-   88 % und blendete den letzten Chip auch dann aus, wenn Platz war (RATE-shell-home N3, H2); hier bleiben
-   davon die letzten 16 px. Eine Ellipse fängt Tagesnamen ab, die auch gekürzt noch zu lang sind. */
-#homePage .today .chip-row.rhythm{mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent);
-  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent)}
-/* `display:block` (nötig für die Ellipse) schaltet die Flex-Zentrierung von `.chip` aus – hier trägt
-   die Zeilenhöhe den Text mittig, sie muss also mit der Chip-Höhe mitwachsen. Bei 32 px klebte die
-   Beschriftung sonst oben im 44 px hohen Chip. */
-#homePage .today .chip-row.rhythm .chip{max-width:60vw;overflow:hidden;text-overflow:ellipsis;display:block;line-height:44px}
-/* ---------- Bereitschaft: EINE Zeile in der Jetzt-Karte ---------- */
-/* Anatomie wie eine .row (Zahl · Titel · Satz · Chevron), aber im Kartengrund abgesetzt wie eine .note.
-   Der Satz darf auf schmalen Geräten auf zwei Zeilen umbrechen – abgeschnitten sagt er nichts mehr. */
-.today .rdy{display:flex;align-items:center;gap:8px;width:100%;min-height:48px;margin-top:8px;
-  padding:5px 12px;border:0;border-radius:12px;background:var(--surface2);color:inherit;text-align:left;
-  cursor:pointer;transition:background var(--dur,.2s) var(--ease,ease)}
-.today .rdy:active{background:var(--surface3)}
-.today .rdy .rdy-n{flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:34px;
-  font:700 22px/1 var(--font);letter-spacing:-.02em}
-.today .rdy .rdy-tx{flex:1;min-width:0}
-.today .rdy .rdy-tx b{display:block;font:600 15px/1.3 var(--font);color:var(--ink)}
-/* Der Satz darf umbrechen – abgeschnitten sagt er nichts mehr. Drei Zeilen sind die Reißleine für
-   den längsten Fall („Heute leicht: …") auf 320 px; auf normalen Geräten sind es zwei. */
-.today .rdy .rdy-tx small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-  font-size:12.5px;line-height:1.35;color:var(--ink2);margin-top:1px}
-.today .rdy .rdy-go{flex:0 0 auto;display:flex;color:var(--ink3)}
+/* ---------- 1 · Die Jetzt-Karte (.card.lg aus app.css) ----------
+   Drei Elemente, keine Zeile darin (DESIGN-4 5.3): der Tag, der Grund, die eine Aktion.
+   `gap` statt Margen an den Kindern, damit ein fehlender Grund keine Lücke hinterlässt. */
+.card.lg.hm-now{display:flex;flex-direction:column;gap:var(--s-2);margin:0;padding:var(--s-4) var(--s-6)}
+/* Begruendete Abweichung von 5.3 (.card.lg = 24 px ringsum): oben und unten 16 px.
+   Die drei Elemente der Karte tragen ihre Luft selbst – der Tagesknopf und die Grundzeile sind
+   44 px hoch bei 22 px Text, der Primaerknopf 52 px bei 20 px Text. 24 px ueber einem 44-px-Kasten
+   sind optisch 35 px; waagrecht bleiben die 24 px, weil dort nichts dazwischenliegt.
+   NACHBESSERUNG S1/B1: Der Selektor hiess `.hm-now` – eine Klasse gegen `.card.lg` mit ZWEI
+   Klassen. Er hat nie gewonnen, und die Karte stand die ganze Zeit auf 24 px (nachgemessen:
+   getComputedStyle padding = 24px ringsum). Die Regel tut jetzt, was ihr Kommentar sagt: 16 px
+   senkrecht, gemessen 16 px weniger Seitenhoehe. */
 
-/* Mindset-Status: eine Zeile, Trefferfläche bleibt über 44 px (::before der Zeile) */
-#homeMind .row{min-height:48px}
-/* Abschnittsköpfe auf der Startseite dichter – es sind fünf davon */
-#homePage .section-label{margin:16px 4px 8px}
+/* Der letzte Fusstext der Seite braucht keinen Abstand nach unten, und die Seite darunter kein
+   eigenes Polster: `body.has-nav` traegt bereits Reiterleiste + var(--s-4) (gemessen 80 px), also
+   16 px Luft unter dem letzten Wort – genau der Abstand, den jede andere Gruppe auch bekommt.
+   Die 16 px Seitenpolster oben und an den Seiten bleiben; nur unten waeren sie doppelt.
+   Das ist die einzige Seite mit einem Hoehenbudget (9.4), und 16 px Luft sind hier 16 px. */
+#homePage>.rows-f:last-child{margin-bottom:0}
+#homePage{padding-bottom:0}
 
-/* ---------- A-IV.1 (2.8.0): die eine Tages-Karte ----------
-   Abschnittskopf IN der Karte statt darüber. Fünf `section-label` à 40 px sind auf einer Seite,
-   die unter 1.000 px bleiben soll, ein Fünftel des Platzes – und sie sagen nichts, was nicht
-   ohnehin in der Karte steht. */
-/* B2-Entscheidung, Teil 2: 8 -> 6 px unter dem Kartenkopf. Er ist 12 px hoch und steht in
-   Versalien - 6 px trennen ihn hinreichend von den Ringen darunter. */
-.hm-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px}
-.hm-h-t{font:600 12px/1.2 var(--font);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
-.hm-h-n{font:600 12px/1.2 var(--font);color:var(--ink2);white-space:nowrap}
+/* Der Tagesname IST der Knopf: was man ändert, tippt man auch an – das Chevron ist das einzige
+   Zeichen dafür.
+   NACHBESSERUNG D3+D2 (Chevron-Orte): Der Knopf war `inline-flex` und nur so breit wie sein Text –
+   gemessen klebte sein Chevron 147 px vom rechten Rand, mitten in der Karte, während alle anderen
+   auf demselben Bildschirm bei 32 px (Zeilen) bzw. 40 px (`.hm-why`) standen. A27/G7: damit man
+   eine Seite überfliegen kann, muss das Zeichen an EINEM Ort stehen, nicht nur EINE Bedeutung
+   haben. Jetzt volle Kartenbreite mit dem Chevron rechts – Zeichen für Zeichen wie `.hm-why`
+   direkt darunter, also beide bei 40 px. Eine Zeile wird die Karte dadurch nicht (5.3): sie hat
+   keine Symbolspalte, keine Trennlinie und keinen Wert rechts – nur denselben Anschlag.
+   44 px Mindesthöhe als echtes `min-height`, nicht als `::before`-Kur – eine Trefferfläche, die an
+   einer Schriftgröße hängt, ist keine (a11y.mjs hat genau das in Welle 1 gemeldet). */
+.hm-day{display:flex;align-items:center;gap:var(--s-2);width:100%;
+  min-height:var(--tap);padding:0;background:none;border:0;color:inherit;text-align:left}
+.hm-day-t{flex:1;min-width:0;font:600 var(--t-md)/var(--lh-md) var(--font);color:var(--ink);
+  letter-spacing:var(--track);overflow-wrap:break-word}
+/* Der Widerspruch „Sätze an einem Ruhetag" steht hier – an dem Knopf, der ihn auflöst. */
+.hm-day-t small{display:block;margin-top:1px;font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
+.hm-day .chev{flex:0 0 16px;width:16px;height:16px;background:var(--ink3);
+  -webkit-mask:var(--chev-mask);mask:var(--chev-mask)}
+button.hm-day{cursor:pointer}
+button.hm-day:active{opacity:.72}
 
-/* „Zuletzt": eine Karte, eine Zeile, ein Ziel (der Tag im Kalender). */
-/* B2-Entscheidung, Teil 2: 56 -> 52 px Mindesthoehe, 10 -> 8 px Innenabstand. Die Karte traegt zwei
-   Textzeilen (15 px fett + 12,5 px) neben einem 36-px-Symbol; gemessen ist ihr Inhalt 37,5 px hoch,
-   die 56 px waren also Mindesthoehe ohne Inhalt darin. Antippbar bleibt die ganze Karte, 52 px liegen
-   weiter ueber den 44 px aus BUILD-A4 6.8. */
-.hm-last{display:flex;align-items:center;gap:12px;padding:8px 14px;min-height:52px}
-.hm-last .r-ic{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:36px;height:36px;
-  border-radius:10px;background:var(--surface2);color:var(--ink2)}
-.hm-last .fill{flex:1;min-width:0}
-.hm-last b{display:block;font:600 15px/1.3 var(--font);color:var(--ink);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hm-last small{display:block;font-size:12.5px;line-height:1.35;color:var(--ink2);margin-top:1px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hm-last .rr{flex:0 0 auto;display:flex;color:var(--ink3)}
-.hm-last.tap{cursor:pointer;transition:background var(--dur,.2s) var(--ease,ease)}
-.hm-last.tap:active{background:var(--surface2)}
-/* Der Platzhalter `.hm-sk` ist mit der Nachbesserung entfallen: „Zuletzt" kommt seit `lastWorkout`
-   im Home-Aggregat mit dem ersten Bild, es gibt keinen Nachlauf mehr, auf den zu warten wäre. */
+/* Der Grund (DESIGN-4 6.1: „Grund ≤ 8 Wörter · Wenn-dann-Aktion", Teil 8 „Warum gerade das?").
+   Er trägt die Bereitschaft als Wort samt Zahl und führt in einem Tipp in ihre Erklärung.
+   Umbruch statt Kürzung: ein Satz, der abgeschnitten ist, sagt nichts mehr (G11). */
+.hm-why{display:flex;align-items:flex-start;gap:var(--s-2);width:100%;min-height:var(--tap);
+  padding:0;background:none;border:0;color:var(--ink2);text-align:left;
+  font:400 var(--t-base)/var(--lh-base) var(--font)}
+.hm-why-t{flex:1;min-width:0;overflow-wrap:break-word}
+.hm-why b{color:var(--ink);font-weight:600}
+.hm-why .chev{flex:0 0 16px;width:16px;height:16px;margin-top:2px;background:var(--ink3);
+  -webkit-mask:var(--chev-mask);mask:var(--chev-mask)}
+button.hm-why{cursor:pointer}
+button.hm-why:active{opacity:.72}
+/* Ohne Ziel (krank gemeldet, Onboarding): derselbe Satz, kein Chevron, keine Trefferfläche. */
+.hm-why.static{min-height:0;display:block}
 
-/* „Mehr" als Chip-Zeile: dieselben Wege, rund 70 px weniger Seite als die vier Kacheln.
-   Fünf Chips MIT Symbol brauchen gemessen 512 px, die Seite hat 358 – der fünfte („Startseite",
-   der Rückweg aus BUILD-A4 3.7) stand damit komplett ausserhalb des Bildes. Ein Schalter, den man
-   nicht sieht, ist so gut wie keiner. Umgebrochen kostet die Zeile 56 px, und die Seite hat bei
-   985 px nur 15 px Luft bis zur 1.000-px-Zusage (accent.mjs).
-   Also wird die Zeile schmaler statt länger: ohne Symbol, mit engerem Innenabstand braucht sie
-   gemessen 334 px – alle fünf Wege sichtbar, 24 px Reserve, kein Weg entfernt und die Zeile bleibt
-   44 px hoch (a11y.mjs). Die vier Wortmarken tragen sich selbst; genau dieselbe Entscheidung wie
-   bei den Rhythmus-Chips darüber, die auch ohne Symbol auskommen. */
-/* B2-Entscheidung, Teil 2: die 2+2 px Innenabstand der Zeile entfallen. Die Chips darin sind selbst
-   44 px hoch - die Zeile braucht keine zusaetzliche Luft, um ihr Tippziel zu erreichen. */
-.hm-more{margin-top:2px;padding-top:0;padding-bottom:0;gap:6px;flex-wrap:nowrap}
-.hm-more .chip{padding:0 10px;font-size:13px}
-/* Rückweg im klassischen Pfad: ein unaufdringlicher Weg zurück zur neuen Fassung. */
-.hm-sw{display:flex;justify-content:center;margin:4px 0 8px}
+/* ---------- 2 · Die eine Abhak-Zeile ----------
+   Ein Tipp auf die Supplement-Zeile hakt die nächste offene Einnahme ab (tools/tapcount.mjs,
+   Fluss `supp`: 1 Tap, Grundlinie 1 – das Tap-Veto lässt hier keinen zweiten zu).
+   Deshalb trägt genau DIESE Zeile kein Chevron: „›" bedeutet genau eines, nämlich „führt weiter"
+   (G7/A27) – und diese Zeile führt nirgendwohin, sie hakt ab. Die Bauform bleibt die `.row` aus
+   `rowHTML()`; es kommt keine zweite Zeilenform dazu, nur ein Zeichen weniger.
+   Was der Tipp bewirkt, steht in der Unterzeile der Zeile UND im Fußtext der Gruppe (G8). */
+#homeSuppRow>.chev{display:none}
 
-/* ---------- „Heute geschafft": Ringe + Streak ---------- */
-.hg-row{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;align-items:start;margin:0 -6px}
-.hg{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0;min-height:44px;padding:1px 0;
-  background:none;border:0;color:inherit;cursor:pointer;transition:transform var(--dur-fast,.12s)}
-.hg:active{transform:scale(.94)}
-.hg-r{position:relative;display:inline-flex;align-items:center;justify-content:center}
-.hg-ic{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ink2)}
-.hg-b{position:absolute;right:-2px;bottom:-2px;width:16px;height:16px;border-radius:50%;background:var(--green);color:#000;
-  display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--surface)}
-.hg-b .ic{width:11px;height:11px;stroke-width:3}
-.hg-l{font-size:12px;line-height:1.2;color:var(--ink2);text-align:center;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hg-l.done{color:var(--ink);font-weight:600}
-/* Der Wert unter dem Ring (2.8.0). Mit den Karten „Ernährung" und „Supplements" wäre sonst auch
-   die ZAHL verschwunden und der Ring eine Ampel ohne Messwert – 695 kcal sagen mehr als „offen".
-   12 px ist die Untergrenze aus CRITIC K10; gekürzt wird an der Ellipse, nie am Wert vorbei. */
-.hg-v{margin-top:-1px;font:600 12px/1.2 var(--font);color:var(--ink);max-width:100%;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* 8 + 6 statt 10 + 8: die Haarlinie trennt hier, nicht der Abstand – und die vier Pixel sind
-   der Rest der 24 px, die die ehrlichen 44-px-Chips in der Jetzt-Karte darüber kosten. Ohne sie
-   wäre die Startseite mit Rhythmus-Leiste 4 px höher als vor dieser Nachbesserung; so ist sie
-   es nicht (gemessen: 1.047 px vorher, 1.043 px nachher, `a41b-*.json`). */
-.hg-streak{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:6px;border-top:.5px solid var(--hairline2);font-size:14px}
-/* Die Flamme trug bis 2.7.0 Marken-Rot und zählte damit in accent.mjs als zwei der fünf roten
-   Elemente über dem Falz mit. Rot ist Marke, nicht Status (STRATEGY-25 P6) – eine laufende Serie
-   ist ein Erfolg, also Bernstein/Grün, nie die Markenfarbe. */
-.hg-streak .ic{flex:0 0 auto;color:var(--ink2)}
-/* Der Tagesstand der Folge als eigene Marke rechts – sonst bricht die Zeile auf 390 px um. */
-.hg-st{flex:0 0 auto;font:600 12.5px/1 var(--font);white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
-/* Der Haken in dieser Marke traegt die Statusfarbe (.tone-green), nicht das --ink2 der Zeile:
-   `.hg-streak .ic` eine Zeile hoeher wuerde ihn sonst grau faerben. */
-.hg-st .ic{color:inherit}
-/* Die Tages-Karte sitzt enger als eine normale .card: sie traegt fuenf Ringe, die Folge und
-   hoechstens eine offene Einnahme – und muss mit allem zusammen unter 300 px bleiben. */
-/* 12 statt 14 px: die Karte trägt fünf Ringe, die Folge und höchstens eine offene Einnahme und
-   soll mit allem zusammen unter 300 px bleiben – zwei Pixel Rand sind dafür der billigste Posten,
-   den die Seite hat. */
-.card.hm-day{padding:12px}
-/* Genau EINE offene Einnahme, abhakbar in einem Tap – der Einstieg, den die vierzeilige
-   Supplement-Liste vorher bei y = 1.304 px versteckte (tapcount `supp`: 915 px Scrollweg). */
-/* B2-Entscheidung, Teil 2: 8 -> 6 px ueber der Trennlinie, 6 -> 4 px im Zeileninnern. Die 44 px der
-   Zeile selbst bleiben unangetastet - sie ist der Ein-Tap-Einstieg, den `tapcount.mjs` als Fluss
-   `supp` misst; schmaler wird nur die Luft um sie herum. */
-.hg-supp{margin-top:6px;padding-top:2px;border-top:.5px solid var(--hairline2)}
-.hg-supp .row{min-height:44px;padding:4px 0}
-/* Zweite Zeile nur bei Joker-Tagen („davon 30 mit Check-in, 1 vom Joker gerettet") – eigene Zeile, weil
-   die erste sonst bei 320 px auf drei Zeilen umbricht und der Joker-Knopf nach unten rutscht. */
-.hg-streak .fill small{display:block;margin-top:2px;font-size:12px;line-height:1.3;color:var(--ink2)}
-.hg-jok{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 8px;border-radius:999px;
-  background:var(--surface2);color:var(--ink2);font:600 13px/1 var(--font);white-space:nowrap;position:relative}
-.hg-jok::before{content:'';position:absolute;inset:-6px}
-.hg-jok .ic{width:15px;height:15px}
+/* ---------- Ein allein stehender Ring in einem zentrierten Block ----------
+   `.ring` ist `display:block` (app.css:654), damit er in einer Zeile nicht auf der Schriftlinie
+   sitzt. In `.center` (das nur `text-align:center` setzt) bleibt er dadurch links kleben – mit dem
+   Umstieg der beiden Sheets auf `ringHTML` faellt das auf, weil die Beschriftung darunter mittig
+   steht und der Ring daneben. Kein Sonderfall der Startseite, sondern die fehlende Haelfte von
+   `.center`; sie gehoert nach app.css und ist dorthin angemeldet (FIX-D5-D-2.md). */
+.center>.ring{margin-inline:auto}
 
-/* ---------- Ganze Zeile antippbar, aber ohne Chevron (Abhak-Zeilen, Tag-Picker) ---------- */
-.row.h-tap{cursor:pointer;transition:background var(--dur,.2s) var(--ease,ease)}
+/* ---------- Abhak- und Optionszeilen IN DEN SHEETS ----------
+   Tag ändern · Supplements · Nachtragen. Sie tragen `.row` aus app.css und einen Haken statt eines
+   Chevrons (Optionsliste, DESIGN-4 5.2/A32) – deshalb nur Zeigefinger und Druckzustand hier.
+   Die Sheets selbst baut DESIGN-4 nicht neu; ihr Umbau auf rowHTML steht in DEFER-D5.md. */
+.row.h-tap{cursor:pointer;transition:background var(--dur) var(--ease)}
 .row.h-tap:active{background:var(--surface2)}
-.row .rl.done>span,.row .rl.done{color:var(--ink3)}
+.row .rl.done,.row .rl.done>span{color:var(--ink3)}
 .row .rl.done{text-decoration:line-through;text-decoration-color:var(--ink3)}
 .row .rl.done small{text-decoration:none;color:var(--ink3)}
 
-/* ---------- Trennlinie innerhalb einer Karte (z. B. „Nächste Mahlzeit") ---------- */
-.h-sep{margin-top:12px;padding-top:12px;border-top:.5px solid var(--hairline2)}
-/* D1: „Startwert"-Zeile unter dem Ernährungsring – gleiche Schriftgröße und Farbe wie im Ernährungs-Tab */
-.h-note{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.45;color:var(--ink2)}
-.h-note svg{flex:none;margin-top:1px;color:var(--ink3,var(--ink2))}
-
-/* ---------- Ernährungs-Ring-Zeile ---------- */
-#homeFood .ring-card{cursor:pointer;gap:16px}
-#homeFood .ring-card .ic{flex:0 0 auto}
-
-/* ---------- Fortschritt: eine Karte, drei antippbare Segmente ---------- */
-.card.h-prog{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:0;overflow:hidden}
-/* B2-Entscheidung, Teil 2: 64 -> 56 px Mindesthoehe, 10 -> 8 px Innenabstand. Gemessen traegt ein
-   Segment 45 px Inhalt (15-px-Titel, 12-px-Bildunterschrift, 6-px-Balken, zwei 2-px-Luecken); die
-   Hoehe wird jetzt vom Inhalt getragen statt von einer Mindesthoehe, die 19 px Luft darueberlegte.
-   Das Segment bleibt mit rund 61 px klar ueber den 44 px - es ist selbst ein Tippziel. */
-.h-seg{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:56px;padding:8px 10px;
-  text-align:left;background:none;border:0;border-right:.5px solid var(--hairline2);color:inherit;cursor:pointer;
-  transition:background var(--dur,.2s) var(--ease,ease)}
-.h-seg:last-child{border-right:0}
-.h-seg:active{background:var(--surface2)}
-.h-seg-t{font:600 15px/1.2 var(--font);letter-spacing:-.01em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.h-seg .caption{max-width:100%}
-.h-seg .bar{display:block;width:100%;margin-top:auto}
-
-/* ---------- „Mehr"-Kacheln: vier in einer Reihe (Icon + Wort) ---------- */
-.quick .qcard .ic{color:var(--ink2)}
-#homePage .quick.mini{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-#homePage .quick.mini .qcard{align-items:center;justify-content:center;gap:6px;min-height:76px;padding:12px 4px;text-align:center}
-#homePage .quick.mini .qcard .ic{margin-bottom:0}
-#homePage .quick.mini .qcard .t{font-size:13px;line-height:1.2;letter-spacing:0}
+/* Trennlinie und erklärender Satz innerhalb einer Karte (Ernährungs-Hinweise im Sheet). */
+.h-sep{margin-top:var(--s-3);padding-top:var(--s-3);border-top:.5px solid var(--hairline2)}
+.h-note{display:flex;align-items:flex-start;gap:var(--s-2);
+  font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
+.h-note svg{flex:none;margin-top:1px;color:var(--ink3)}
 
 /* ---------- Coach-Kontext auf der Startseite ---------- */
 .coach-note{border-left:3px solid var(--red)}
 
-/* ---------- Onboarding-Regler (Markup in core.js – beides gehört WP1, app.css ist eingefroren) ----------
-   Ein nacktes <input type=range> mit accent-color zeichnet in Chrome eine weiße Spur auf schwarzem Grund
-   und ist nur 16 px hoch. Gleiche Anatomie wie .wheel-slider im Mindset: 44 px Trefferfläche, roter
-   Füllstand über --pct, 26-px-Griff. */
-.onb-range{-webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;margin:0 0 8px;display:block;--pct:40%}
+/* ---------- Quelle eines vorbelegten Check-in-Werts ----------
+   „zuletzt Di", „von deiner Uhr", „dein Schlafziel". Ein vorbelegter Wert WIRD gespeichert – dann
+   muss danebenstehen, woher er kommt (DESIGN-4 5.6/P3). Lebt im Check-in-Sheet. */
+.field .fh{display:block;margin-top:3px;font:400 var(--t-xs)/var(--lh-xs) var(--font);color:var(--ink3)}
+
+/* ---------- Onboarding-Regler (Markup in core.js) ----------
+   Ein nacktes <input type=range> mit accent-color zeichnet in Chrome eine weiße Spur auf schwarzem
+   Grund und ist nur 16 px hoch. Gleiche Anatomie wie .wheel-slider im Mindset: 44 px Trefferfläche,
+   roter Füllstand über --pct, 26-px-Griff. */
+.onb-range{-webkit-appearance:none;appearance:none;width:100%;height:var(--tap);background:transparent;
+  margin:0 0 var(--s-2);display:block;--pct:40%}
 .onb-range:focus{outline:none}
-.onb-range:focus-visible{outline:2px solid var(--red);outline-offset:2px;border-radius:8px}
+.onb-range:focus-visible{outline:2px solid var(--red);outline-offset:2px;border-radius:var(--r-sm)}
 .onb-range::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--red) var(--pct),var(--surface3) var(--pct))}
 .onb-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--red);margin-top:-9px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
 .onb-range::-moz-range-track{height:8px;border-radius:4px;background:var(--surface3)}
 .onb-range::-moz-range-progress{height:8px;border-radius:4px;background:var(--red)}
 .onb-range::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--red);box-shadow:0 2px 6px rgba(0,0,0,.45)}
 
-/* Fünf Ringe nebeneinander machen jede Spalte schmal – bis 2.8.0 schrumpfte die Beschriftung dafür
-   auf 11 px. Das ist unter der Untergrenze aus CRITIC K10 (12 px im Dunkelmodus), und nötig war es
-   auch nicht: die zwei Punkt Schriftgröße kauft die engere Laufweite zurück, und die Seite wächst
-   dabei um 2 px (985 → 987).
-   Die Laufweite steht bei −.02em, nicht bei −.01em. Bei −.01em ist „Supplements" auf 390 px gemessen
-   68 px breit in einer 67-px-Spalte – EIN Pixel zu viel, und die Ellipse machte aus dem Wort
-   „Suppleme…". Ein Pixel ist kein Grund, ein Wort abzuschneiden: bei −.02em sind es 66 px, das Wort
-   steht ganz da (nachgemessen an `scrollWidth` gegen `clientWidth`, `a41-lbl.out`). Damit tragen
-   Beschriftung und Wert darunter dieselbe Laufweite – vorher waren es zwei verschiedene. */
-.hg-row:has(.hg:nth-child(5)) .hg-l{font-size:12px;letter-spacing:-.02em}
-.hg-row:has(.hg:nth-child(5)) .hg-v{font-size:12px;letter-spacing:-.02em}
-
-/* Quelle des vorbelegten Check-in-Werts („zuletzt Di", „von deiner Uhr", „dein Schlafziel").
-   Ein vorbelegter Wert WIRD gespeichert – dann muss danebenstehen, woher er kommt. */
-.field .fh{display:block;margin-top:3px;font-size:12px;line-height:1.25;color:var(--ink3,var(--ink2))}
-
-/* ---------- Ein-Tap-Einstiege auf sehr schmalen Geräten (< 360 px) ----------
-   Die Ringzeile IST auf der neuen Startseite der Einstieg zu „Essen loggen" und „Check-in"
-   (BUILD-A4 3.1). Das trägt, solange sie im ersten Bild steht – auf 390 × 844 tut sie das
-   (gemessen y = 530…615 bei Falz 844, Tab-Leiste ab 781). Auf 320 × 568 nicht: dort liegt sie
-   bei y = 587…673, also UNTER dem Falz (568) und komplett hinter der Tab-Leiste (Oberkante 505).
-   In 2.7.0 standen an dieser Stelle Chips bei y = 383 und y = 421 – der Einstieg war da.
-   BUILD-A4 Abschnitt 3 ist an dieser Stelle bindend („je ein Ein-Tap-Einstieg für ‚Essen loggen'
-   und ‚Check-in' bleibt über dem Falz"), also stehen beide unter 360 px wieder als Chip in der
-   Jetzt-Karte. `.hm-narrow` blendet sie ab 360 px aus: dort ist und bleibt der Ring der einzige
-   Einstieg, es entsteht keine zweite Stelle für dasselbe Thema (CRITIC K3). */
-#homePage .hm-narrow{display:none}
-
-@media (max-width:359px){
-  /* Die beiden 11-px-Regeln für .hg-l/.hg-v standen hier bis 2.8.0 und sind ersatzlos weg. Sie waren
-     zweierlei: unter der 12-px-Untergrenze (CRITIC K10) und wirkungslos – bei fünf Ringen gewinnt
-     ohnehin `.hg-row:has(.hg:nth-child(5)) .hg-l`, und bei weniger Ringen ist auf 320 px reichlich
-     Platz. Gemessen auf 320 px: „Supplements" wird mit 11 px wie mit 12 px abgeschnitten (68 px Text
-     in 53 px Spalte) – die kleinere Schrift kaufte also nichts, sie kostete nur Lesbarkeit. */
-  .h-seg{padding:10px 8px}
-  .h-seg-t{font-size:14px}
-  /* Die Kurzweg-Zeile scrollt hier, statt umzubrechen. Zwei Gründe, beide gemessen auf 320 px:
-     · Umgebrochen kostet sie 72 px statt 34 – und sie wächst von 34 auf 72, sobald der zweite
-       Mindset-Chip nachkommt. Die Ringzeile stand dadurch erst über dem Falz und rutschte rund
-       zwei Sekunden später darunter. Gescrollt ist die Höhe von der Zahl der Chips unabhängig.
-     · Nur so sind die beiden wiederhergestellten Einstiege gratis: sie kosten keine zweite Zeile.
-     Die 44-px-Trefferhöhe steckt seit dieser Nachbesserung im Chip selbst (`min-height` aus
-     `app.css`), nicht mehr in einem `::before`. Der Innenabstand des Scroll-Kastens darf deshalb
-     wieder auf die 2 px der übrigen Chip-Zeilen zurück – er hielt vorher nur die unsichtbare
-     Erweiterung im Kasten und kostete hier 8 px Seitenhöhe, ohne einen Finger zu tragen.
-     Der Mask-Fade endet 16 px vor der Kante, wie bei der Rhythmus-Leiste darunter – bei den 88 %
-     aus app.css wäre auf 254 px Zeilenbreite ein 30-px-Streifen blass. */
-  #homePage .today .chip-row.wrap{flex-wrap:nowrap;overflow-x:auto;padding-top:2px;padding-bottom:2px;
-    mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent);
-    -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 16px),transparent)}
-  /* 10 statt 12 px Innenabstand: „Essen loggen" und „Check-in" nebeneinander brauchen 255 px in
-     einer 251 px breiten Karte – vier Pixel, die den zweiten Einstieg sonst anschneiden. */
-  #homePage .today .chip-row.wrap .chip{padding:0 10px}
-  #homePage .today .chip-row.wrap .chip.hm-narrow{display:inline-flex}
-  #homePage .today .chip-row.wrap.hm-narrow{display:flex}
-}
-
 /* ---------- B-I.5: Divergenz-Hinweis (Bereitschafts-Sheet, Analyse) ----------
    Bauform bewusst wie `.ana-wk-focus` und `.ana-next`: Symbol, eine fette Aussage, darunter das
    Ursachen-ANGEBOT. Neutral getönt – kein Rot, kein Gelb. Das ist Absicht und keine Sparsamkeit:
    Eine Divergenz ist keine Warnung, sondern eine Information („Werte ruhig, du fühlst dich schlecht"),
-   und ein Alarm erzeugt nachweislich Angst und Arztkontakte ([Q34], Rosman 2024). Die Farbe wäre
-   zudem eines der drei roten Elemente über dem Falz, die das Budget nicht hergibt (accent.mjs). */
-.wk2-div{display:flex;gap:8px;align-items:flex-start;padding:12px 14px;border-radius:12px;
-  background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline);
-  font-size:var(--t-sm);line-height:1.4;color:var(--ink2)}
+   und ein Alarm erzeugt nachweislich Angst und Arztkontakte ([Q34], Rosman 2024). */
+.wk2-div{display:flex;gap:var(--s-2);align-items:flex-start;padding:var(--s-3) var(--s-4);
+  border-radius:var(--r-sm);background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline);
+  font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
 .wk2-div .ic{flex:0 0 auto;margin-top:2px;color:var(--ink2)}
 .wk2-div>div{min-width:0}
 .wk2-div b{color:var(--ink);font-weight:600}
-.wk2-div .wk2-why{display:block;margin-top:2px;font-size:var(--t-xs);color:var(--ink3)}
+.wk2-div .wk2-why{display:block;margin-top:2px;font:400 var(--t-xs)/var(--lh-xs) var(--font);color:var(--ink3)}

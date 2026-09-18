@@ -61,7 +61,14 @@ function anaToneCls(t){return {green:'tone-green',amber:'tone-amber',red:'tone-r
 //     verschiebt (M10b: genau daran scheitert WHOOP in der Nutzerkritik).
 //  3. AUSSAGESATZ: Über jedem Diagramm steht EIN Satz, der sagt, was die Kurve bedeutet. Ohne ihn ist ein
 //     Diagramm eine Hausaufgabe für den Leser.
-const AN2_RANGES=[{k:'4w',lbl:'4 Wochen',short:'4 W',days:28},{k:'3m',lbl:'3 Monate',short:'3 M',days:91},{k:'1j',lbl:'1 Jahr',short:'1 J',days:365}];
+// D-4 (DESIGN-4 3.6 / 6.9 / R12): `short` ("4 W") wird nicht mehr gebraucht – die Chip-Reihe, die
+// diese Kurzform trug, ist die zweite Steuerebene und faellt (G4). `wort` ist die Fassung fuer den
+// Untertitel des grossen Titels und fuer den Wert rechts in der Zeitraum-Zeile: ein ausgeschriebener
+// Zeitraum statt „3 M" (G9).
+const AN2_RANGES=[
+  {k:'4w',lbl:'4 Wochen',wort:'letzte 4 Wochen',zeigt:'Zeigt die letzten vier Wochen',days:28},
+  {k:'3m',lbl:'3 Monate',wort:'letzte 3 Monate',zeigt:'Zeigt die letzten drei Monate',days:91},
+  {k:'1j',lbl:'1 Jahr',  wort:'letztes Jahr',  zeigt:'Zeigt die letzten zwölf Monate',days:365}];
 let AN2_RANGE=(function(){try{const v=localStorage.getItem('be_an2_range');if(AN2_RANGES.some(r=>r.k===v))return v;}catch(e){}return '3m';})();
 function an2Range(){return AN2_RANGES.find(r=>r.k===AN2_RANGE)||AN2_RANGES[1];}
 function an2From(){return anaAddDays(today(),-(an2Range().days-1));}
@@ -70,10 +77,77 @@ function an2Window(rows,key){const from=an2From();return (rows||[]).filter(r=>r&
 // Wie viele Tage Check-ins geholt werden müssen, damit das Fenster überhaupt gefüllt werden kann.
 // Nie weniger als das bisherige 120-Tage-Fenster: die Tabellen und Durchschnitte darunter leben davon.
 function an2CiDays(){return Math.max(ANA_CI_DAYS,an2Range().days+7);}
-function an2ChipsHTML(){const cur=an2Range().k;
-  return `<div class="chip-row an2-range" role="group" aria-label="Zeitraum des Diagramms">`
-    +AN2_RANGES.map(x=>`<button class="chip${x.k===cur?' on':''}" aria-pressed="${x.k===cur?'true':'false'}" aria-label="Zeitraum ${x.lbl}" onclick="an2SetRange('${x.k}')">${x.short}</button>`).join('')
-    +`</div>`;}
+// ===== D-4 · EINE STEUEREBENE, EIN ZEITRAUM IN WOERTERN (DESIGN-4 3.6, 6.9, 6.10, R12) =====
+// Bis 3.0.2 standen drei Steuerebenen uebereinander: Reiterleiste · Segment (Koerper/Training/Woche)
+// · Zeitraum-Chips (4 W / 3 M / 1 J). Gemessen: `ebenen:["Segment","Chip-Reihe"]` in
+// tracker-koerper UND tracker-training, also zwei Ebenen unter dem Titel bei einem Limit von einer
+// (K3). Dazu waren „4 W" und „3 M" Kuerzel ohne Erklaerung (G9).
+// Der Zeitraum wandert deshalb an genau zwei Orte, beide ohne eigene Steuerebene:
+//   1. in den UNTERTITEL des grossen Titels („Koerper · letzte 3 Monate") – dort beantwortet er
+//      „wie viel sehe ich?" ohne einen einzigen Tap (3.6, „Wohin die zweite Ebene wandert", Weg 1);
+//   2. in eine ZEILE mit Wert rechts („Zeitraum · letzte 3 Monate ›"), die eine Optionsliste
+//      oeffnet (5.2, Zustand „gewaehlt (Optionsliste)").
+// Die Chip-Reihe `.an2-range` ist damit ersatzlos geloescht.
+const AN5_SEG={koerper:'Körper',training:'Training',woche:'Woche'};
+// Der Untertitel des grossen Titels. Er nennt IMMER zuerst die Sicht (dasselbe Wort wie im Segment,
+// G2) und danach den Zeitraum, den die Zahlen darunter wirklich abdecken. Im Segment „Woche" ist der
+// Zeitraum die betrachtete Woche selbst – der Zeitraum-Chip galt dort noch nie.
+function an5Sub(){const t=renderTracker.tab;
+  if(t==='woche'){const st=ANA_WEEK_START;if(!st)return AN5_SEG.woche;
+    return AN5_SEG.woche+' · '+an5WeekRange(st);}
+  return (AN5_SEG[t]||AN5_SEG.koerper)+' · '+an2Range().wort;}
+// Zeitraum einer Woche als Wort: „14. – 20. September" bzw. „28. Sept. – 4. Okt."
+function an5WeekRange(start){const end=anaAddDays(start,6);
+  return start.slice(5,7)===end.slice(5,7)
+    ? `${+start.slice(8,10)}. – ${fmtDate(end,{month:'long'})}`
+    : `${fmtDate(start)} – ${fmtDate(end)}`;}
+// Den Untertitel in den grossen Titel schreiben, den diese Ansicht selbst mitbringt.
+// Die Huelle (shell.js `ensureLargeTitle`) setzt nur dann einen Titel ein, wenn die Seite keinen hat –
+// ab hier hat sie einen, und der Uebergangsmechanismus ruehrt ihn nicht mehr an (DONE-D4-huelle 2.2).
+function an5SetTitle(){const h=document.querySelector('#views .page.on > .lg-title')
+    ||document.querySelector('#views .page > .lg-title');
+  if(!h)return;
+  let s=h.querySelector('small');
+  if(!s){s=document.createElement('small');h.appendChild(s);}
+  s.textContent=an5Sub();}
+// Die Zeitraum-Zeile. Sie steht in dem Abschnitt, dessen Zahlen sie bestimmt – nicht oben auf der
+// Seite. `sub` sagt, WOFUER der Zeitraum gilt; ohne das waere der Wert rechts eine Einstellung ohne
+// Gegenstand.
+function an5RangeRow(sub){return rowHTML({icon:'calendar',title:'Zeitraum',sub:sub||'Gilt für die Zahlen auf dieser Seite',
+  value:an2Range().wort,tap:'an5RangeSheet()'});}
+// Die Optionsliste (5.2): eine Zeile je Zeitraum, die gewaehlte traegt das Wort „ausgewählt" rechts.
+// Kein Segment, keine Chips – eine Liste, weil eine Liste die Form fuer „waehle genau eines" ist.
+// Der Wrapper `#an5Zeitraum` nimmt den Zeilen ihr Chevron: eine Optionsliste fuehrt nirgendwohin,
+// sie waehlt (G7 – „das Chevron bedeutet genau eines: fuehrt weiter"). Das gewaehlte Wort rechts ist
+// das zweite Signal neben der Fuellung (A47).
+function an5RangeSheet(){const cur=an2Range().k;
+  openSheet('Zeitraum','<div id="an5Zeitraum">'+groupHTML('',AN2_RANGES.map(r=>rowHTML({
+      title:r.lbl,sub:r.k===cur?'':r.zeigt,
+      value:r.k===cur?'ausgewählt':'',tap:`an5RangePick('${r.k}')`})),
+    'Der Zeitraum gilt für die Kurven und für die Zahlen je Woche. Er bleibt gespeichert, bis du ihn wieder änderst.',{inset:false})+'</div>');}
+function an5RangePick(k){closeModal();an2SetRange(k);an5SetTitle();
+  // Eine offene Kennzahl-Seite zeigt dieselbe Kurve – sie wird mitgezogen, sonst stuende dort der
+  // alte Zeitraum unter einem neuen Untertitel.
+  if(typeof an5MetricRedraw==='function')an5MetricRedraw();}
+// ===== D-4 · DER BALKEN IN DER ZEILE (DESIGN-4 5.7) =====
+// „Ring = Tagesziel. Balken = Anteil in einer Liste. Zahl = alles andere." Die Saetze je
+// Muskelgruppe sind der Musterfall fuer den Balken – 5.7 nennt sie woertlich. `rowHTML()` kennt aber
+// nur Text, Pille und Wert; ein Balken ist keines davon, und eine zweite Zeilenform waere ein
+// Abnahmefehler (K6). Deshalb wird der Balken NACHTRAEGLICH in die fertige Zeile gesetzt, an genau
+// der Stelle, an der `rowHTML()` den Titelblock schliesst. Findet sich der Anker nicht (weil der
+// Helfer sich einmal aendert), bleibt die Zeile unveraendert – dann fehlt der Balken, und sonst
+// nichts. Dasselbe Vorgehen wie `an2WithBand()` beim Diagramm: lieber kein Zusatz als ein falscher.
+// Der Anker ist das Ende des Titelblocks `.rl`. Sein Inhalt (Titel, Unterzeile) laeuft durch esc2()
+// und kann deshalb kein `</span>` enthalten – das erste `</span>` hinter `<span class="rl">` ist
+// immer sein eigenes. Der Balken landet damit UNTER der Unterzeile und ueber die volle Breite der
+// Titelspalte, nicht als dritte Spalte neben dem Wert.
+const AN5_RL='<span class="rl">';
+function an5RowBar(row,pct,cls){
+  if(!row)return '';
+  const a=row.indexOf(AN5_RL);if(a<0)return row;
+  const i=row.indexOf('</span>',a+AN5_RL.length);if(i<0)return row;
+  const w=Math.max(0,Math.min(100,Math.round(+pct||0)));
+  return row.slice(0,i)+`<span class="bar an5-bar${cls?' '+cls:''}" aria-hidden="true"><i style="width:${w}%"></i></span>`+row.slice(i);}
 // Umschalten: neu malen reicht, solange die Daten schon da sind. Erst ein größeres Fenster als das
 // geladene macht eine neue Anfrage nötig – dann steht kurz der Ladezustand da, statt eine Kurve zu
 // zeigen, die nur so aussieht, als reichte sie ein Jahr zurück.
@@ -128,9 +202,10 @@ function an2SelfEnsure(){
   if(AN2_SELF_BUSY||!VIEW_USER||typeof wk2SelfSeries!=='function')return;
   if(anaEntry('self')&&!anaStale('self'))return;
   AN2_SELF_BUSY=true;
+  // D-4: Der Verlauf steht jetzt auf der Kennzahl-Seite, nicht mehr im Koerper-Segment – also wird
+  // genau die neu gezeichnet, wenn der Selbstbericht ankommt.
   wk2SelfSeries(VIEW_USER,21).then(list=>{AN2_SELF_BUSY=false;anaStore('self',list||[]);
-    if(renderTracker.tab==='koerper'&&ANA_METRIC==='readiness'&&document.getElementById('anaBody')){
-      const d=anaCached('checkins');if(d)anaPaintKoerper(d);}})
+    if(AN5_PAGE==='readiness')an5MetricRedraw();})
     .catch(e=>{AN2_SELF_BUSY=false;});}
 // {ready,…} bzw. null – dieselbe Rechnung wie auf der Startseite (wk2Calib in home.js).
 function an2Calib(R,checkins){return (typeof wk2Calib==='function')?wk2Calib(R,checkins):null;}
@@ -182,7 +257,8 @@ function an2Say(rows,o){o=o||{};const d=o.dec||0,u=o.unit||'';
   return {tone:'muted',txt:band?`Zuletzt ${num(v)} – in deinem üblichen Bereich (${rng}).`:`Zuletzt ${num(v)} am ${fmtDate(last.date)}.`};}
 // Der Satz als Zeile über dem Diagramm (derselbe Baustein wie über den Muskel-Balken)
 // Trend-Zeile einer Kachel: der eigene Bereich, sonst der mitgegebene Ersatztext
-function an2Trend(band,d,u,fallback){return {cls:'',html:`<span class="muted-2">${esc2(band?an2BandText(band,d,u):(fallback||''))}</span>`};}
+// (Die frühere Funktion `an2Trend` stand hier: die Trendzeile einer Kachel. Die Kacheln gibt es nicht mehr – der
+//  eigene Bereich steht als Unterzeile in der Zeile, in Woertern statt in einem HTML-Schnipsel.)
 function an2SayHTML(say){if(!say||!say.txt)return '';
   const ic=say.tone==='green'?'check':say.tone==='amber'?'alertTriangle':'info';
   return `<div class="an2-say ${anaToneCls(say.tone)}">${icon(ic,16)}<span>${esc2(say.txt)}</span></div>`;}
@@ -223,14 +299,19 @@ function anaSleepGoal(p){const set=+(p&&p.sleep_goal);if(set>0)return set;
 function anaGoals(){const p=(VIEW_USER===ME.id)?ME:(VIEW_USER_PROFILE||ME||{});
   return {sleep:anaSleepGoal(p),steps:+p.steps_goal||10000,water:+p.water_goal||3,goal:p.goal||ME.goal||'health',start:+p.start_weight||null,days:+p.days_per_week||3};}
 
-// --- Tab-Einstieg: Segmente Körper / Training / Woche (Titel trägt der Header) ---
+// --- Tab-Einstieg: grosser Titel + die EINE Steuerebene (Segment Körper / Training / Woche) ---
+// D-4: Die Ansicht bringt ihren grossen Titel jetzt SELBST mit (DESIGN-4 3.2 / G1). Bis hierher
+// setzte ihn die Huelle nachtraeglich ein (`ensureLargeTitle`) und die Unterzeile blieb leer, weil
+// der Zeitraum noch in den Chips stand. Beides faellt zusammen weg: der Titel steht im Markup, und
+// seine Unterzeile traegt Sicht und Zeitraum („Körper · letzte 3 Monate").
 function renderTracker(v,opts){opts=opts||{};if(typeof opts==='string')opts={tab:opts};
   if(opts.tab)renderTracker.tab=opts.tab;
   const t=renderTracker.tab==='training'?'training':renderTracker.tab==='woche'?'woche':'koerper';
   // go() hat den View-Cache bereits gemalt -> DOM behalten, nur Daten auffrischen (kein Flackern).
   // Die Prüfung muss ALLE drei Segmente kennen, sonst wird das Gerüst beim Zurückkehren neu gebaut.
-  const reuse=!!(opts.cached&&v.querySelector('#anaBody')&&v.querySelector('#anaSeg')&&v.querySelector(`#an_${t==='training'?'t':t==='woche'?'w':'k'}.on`));
+  const reuse=!!(opts.cached&&v.querySelector('#anaBody')&&v.querySelector('#anaSeg')&&v.querySelector('.lg-title')&&v.querySelector(`#an_${t==='training'?'t':t==='woche'?'w':'k'}.on`));
   if(!reuse)v.innerHTML=`<div class="page on${opts.cached?'':' first'}">
+    <h1 class="lg-title">Analyse<small></small></h1>
     <div class="seg" id="anaSeg" data-tour="anaSeg">
       <button id="an_k" onclick="anaTab('koerper')">Körper</button>
       <button id="an_t" onclick="anaTab('training')">Training</button>
@@ -238,12 +319,14 @@ function renderTracker(v,opts){opts=opts||{};if(typeof opts==='string')opts={tab
     </div>
     <div id="anaBody" data-tour="trackerBody"></div></div>`;
   anaTab(t,{entry:true,keep:reuse});
+  if(typeof mountLargeTitle==='function')try{mountLargeTitle();}catch(e){}
   if(typeof maybeStartTabTour==='function')try{maybeStartTabTour('tracker',{deferred:true});}catch(e){}}
 // Der Woche-Knopf wird defensiv behandelt (altes View-Cache-HTML kennt ihn noch nicht) –
 // Körper und Training bleiben Pflicht, ohne sie ist das Gerüst nicht das erwartete.
 function anaTab(t,o){t=(t==='training')?'training':(t==='woche')?'woche':'koerper';renderTracker.tab=t;
   const k=document.getElementById('an_k'),tr=document.getElementById('an_t'),wo=document.getElementById('an_w');if(!k||!tr)return;
   k.classList.toggle('on',t==='koerper');tr.classList.toggle('on',t==='training');if(wo)wo.classList.toggle('on',t==='woche');
+  an5SetTitle();
   if(t==='training')drawAnaTraining(o);else if(t==='woche')drawAnaWeek(o);else drawAnaKoerper(o);}
 
 // Ohne Athleten-Kontext (Coach kommt über go('athletes') hierher, VIEW_USER=null) ehrlich bleiben:
@@ -271,7 +354,7 @@ async function drawAnaKoerper(o){o=o||{};const box=document.getElementById('anaB
   if(!VIEW_USER)return void(box.innerHTML=anaNoAthleteHTML());
   const have=anaEntry('checkins');
   if(have)anaPaintKoerper(have.data);
-  else if(!o.keep||!box.children.length)box.innerHTML=`<div class="skeleton lg"></div><div class="tiles mt-3"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>${skeleton(2,'lg')}`;
+  else if(!o.keep||!box.children.length)box.innerHTML=`<div class="skeleton lg"></div>${skeleton(4,'sm')}`;
   // Die Bereitschaft (Kachel + 14-Tage-Verlauf) hängt am selben Zeichner: ~1 KB, gemeinsam mit den
   // Check-ins geholt und im selben 60-s-Takt aufgefrischt. Fehlt die Route (älterer Server), bleibt die
   // Kachel schlicht weg – anaFetch liefert dann null.
@@ -292,14 +375,22 @@ async function drawAnaKoerper(o){o=o||{};const box=document.getElementById('anaB
   if(drawAnaKoerper.widened!==VIEW_USER)drawAnaKoerper.widened=null;
   if(before!==snap())anaPaintKoerper(data);}
 
+// ===== D-4 · KOERPER: eine Hauptaussage, vier Abschnitte, keine Kachelwand =====
+// Vorher (gemessen, `tracker-koerper`): 2.377 px hoch, 16 Zeilenformen, 0 `.rows-h`, 0 `.rows-f`,
+// zwei Steuerebenen, 5 abgeschnittene Unterzeilen, bis zu acht Kacheln, von denen sieben nur
+// Umschalter fuer EIN Diagramm waren, und darunter dasselbe Diagramm noch einmal als Karte.
+// Nachher nach DESIGN-4 6.9: grosser Titel mit dem Zeitraum als Unterzeile, das Segment, die EINE
+// Hauptaussage (Gewicht mit Kurve), die eine Primaeraktion, dann vier Abschnitte aus derselben
+// Zeile: Werte · Einträge · Maße & Fotos · Verbindungen. Jede Gruppe traegt ihren Fusstext – den
+// Erklaerungsort der App (G8).
 function anaPaintKoerper(checkins){const box=document.getElementById('anaBody');if(!box)return;
   checkins=(checkins||[]).slice().sort((a,b)=>a.date<b.date?1:-1); // neueste zuerst
   const g=anaGoals(),tdy=today(),canEdit=!coachView();
+  an5SetTitle();
   let h='';
   if(!checkins.length){
     h+=emptyState({icon:'scale',title:'Noch keine Check-ins',text:'Gewicht, Schlaf, Schritte und Wasser – ab dem ersten Eintrag entsteht hier deine Kurve.',btn:canEdit?{label:'Check-in eintragen',onclick:"anaOpenCheckin('"+tdy+"')"}:null});
-    if(canEdit)h+=`<div class="center mb-4"><button class="btn sm sec" onclick="openIntegrations()">${icon('apple',14)} Gesundheitsdaten importieren</button></div>`;
-    h+=anaPhysHTML();box.innerHTML=h;anaTourTarget();return;}
+    h+=an5PhysHTML()+an5LinkHTML();box.innerHTML=h;anaTourTarget();return;}
   const ws=checkins.filter(c=>c.weight>0);
   // „Ø 14 Tage" hieß bis 2.7.0 „Ø der letzten 14 EINTRÄGE" (`slice(0,n)`) – bei Lücken reichte das
   // Fenster still Wochen zurück (Befund M8). Gemittelt wird jetzt über die letzten n KALENDERTAGE.
@@ -309,97 +400,167 @@ function anaPaintKoerper(checkins){const box=document.getElementById('anaBody');
     const mean=xs=>xs.length?xs.reduce((a,c)=>a+ +c[key],0)/xs.length:null;
     const win=have.filter(c=>anaDayDiff(tdy,c.date)<=n-1);
     return win.length?mean(win):mean(have.slice(0,n));};
-  // Letzter gemessener Wert einer Kennzahl (die Liste ist absteigend sortiert)
-  const lastOf=key=>{const c=checkins.find(x=>x[key]!=null&&+x[key]>0);return c?+c[key]:null;};
-  // Der eigene Bereich im gewählten Zeitraum – die Zahl daneben, die aus 58 ms eine Einordnung macht.
-  const bandOf=key=>an2Band(an2Window(checkins).filter(c=>c[key]!=null&&+c[key]>0).map(c=>+c[key]));
-  // Werte aus der Uhr (Apple Health). Sie erscheinen nur, wenn wirklich welche da sind –
-  // ohne verbundene Uhr bleibt die Ansicht so schlank wie vorher.
   const avg={aSleep:avgOf('sleep'),aSteps:avgOf('steps'),aWater:avgOf('water'),
     aBurn:avgOf('active_kcal'),aRhr:avgOf('resting_hr',14),aHrv:avgOf('hrv',14)};
   const tr=anaWeekTrend(ws);
-  h+=anaHeroHTML(checkins,ws,g,avg,tr,canEdit);
-  // Kacheln SIND die Diagramm-Auswahl: angetippt wechselt darunter EIN Diagramm.
-  // Vorher standen bis zu sieben Diagramme untereinander – die Seite war dreimal so lang,
-  // und man hat trotzdem immer nur eines angesehen.
-  // Nachbesserung A-IV.6 (Befund B8 · CRITIC K3): Die GEWÄHLTE Kachel wiederholt keinen Wert mehr.
-  // Gemessen auf `tracker`: der Hero nannte „78,4 kg" und „↗ +0,1 kg/Woche · 7-Tage-Schnitt vs.
-  // Vorwoche", rund 300 px darunter stand in der ersten Kachel wortgleich „78,4 kg / Gewicht /
-  // ↗ +0,1 kg/Woche". Dieselbe Aussage zweimal auf einem Bildschirm ist genau das Rauschen, wegen
-  // dessen A-IV.1 auf der Startseite Karten entfernen musste. Die gewählte Kachel ist jetzt nur noch
-  // das, was sie in diesem Moment ist: die Auswahlmarke. Beschriftung + Haken, kein Wert, kein Delta –
-  // der Wert steht groß im Hero bzw. im Kartenkopf des Diagramms, das genau diese Kachel gerade zeigt.
-  // Die NICHT gewählten Kacheln behalten Wert und Delta: sie sind die Übersicht, aus der man wählt,
-  // und dort wiederholt sich nichts. Trefferfläche, Rolle und `aria-pressed` bleiben unverändert –
-  // der Tap-Weg zu jedem Diagramm ist derselbe wie vorher (Veto `tapcount.mjs`).
-  // Still wird die Kachel aber NUR, wenn ihr Wert wirklich woanders auf demselben Bildschirm steht:
-  // beim Gewicht immer (der Hero nennt es groß, auch wenn im Zeitraum keine Wiegung liegt), bei der
-  // Bereitschaft immer (ihre Karte nennt die Zahl auch ohne Verlauf). Bei allen anderen Kennzahlen
-  // zeigt die Karte unter zwei Werten im Zeitraum nur „Zu wenig Daten" und hat gar keine Kopfzeile –
-  // dann behält die Kachel ihren Wert. Sonst hätte diese Nachbesserung die Doppelung gegen ein
-  // Verschwinden getauscht, und das ist der schlechtere Fehler.
-  const anaEchoed=key=>key==='weight'||key==='readiness'
-    ||an2Window(checkins).filter(c=>c[key]!=null&&+c[key]>0).length>=2;
-  const tile=(key,label,val,unit,t)=>{const on=ANA_METRIC===key,still=on&&anaEchoed(key);
-    return `<button class="tile tap${on?' on':''}" aria-pressed="${on?'true':'false'}" onclick="anaMetric('${key}')" aria-label="${label} – Diagramm ${on?'wird angezeigt':'anzeigen'}">`
-      +(still?`<div class="v an2-sel">${icon('check',22)}</div>`:`<div class="v">${val}${unit?`<em> ${unit}</em>`:''}</div>`)
-      +`<div class="l">${label}</div>`
-      +`<div class="trend ${still?'':t.cls}">${still?'<span class="muted-2">unten im Diagramm</span>':t.html}</div></button>`;};
-  const goalTrend=(v,goal,unit,d)=>v==null?{cls:'',html:'<span class="muted-2">noch keine Werte</span>'}:v>=goal?{cls:'up',html:icon('check',14)+' Ziel erreicht'}:{cls:'amber',html:`Ziel ${fmtNum(goal,d)}${unit?' '+unit:''} · −${fmtNum(goal-v,d)}${unit?' '+unit:''}`};
-  let wT={cls:'',html:'<span class="muted-2">Trend ab 2 Einträgen</span>'};
-  if(tr){const v=Math.round(tr.perWeek*10)/10;wT={cls:anaTrendCls(v,g.goal,true),html:`${icon(v>0.05?'trendUp':v<-0.05?'trendDown':'trendFlat',14)} ${v>0?'+':''}${fmtNum(v,1)} kg/Woche`};}
-  // Nur Kacheln zeigen, für die es Werte gibt (Uhr-Werte fehlen ohne verbundene Uhr komplett)
-  const has=key=>checkins.some(c=>c[key]!=null&&+c[key]>0);
-  // Bereitschaft als Kachel im selben Wechsler (SPEC-23 A: „in der Analyse als Kachel mit Verlauf") –
-  // nur, wenn es eine Zahl gibt. Ohne Uhr-Werte (needsHealth) steht unten ohnehin „Gesundheitsdaten verbinden".
-  // Seit A-I.1 kann die Bereitschaft `score:null` liefern, obwohl Werte da sind (z. B. nur Trainings-
-  // last, kein Erholungsteil für heute). Die Kachel verschwindet dann NICHT – sie sagt „Noch keine
-  // Daten". Sonst fehlt die Bereitschaft ausgerechnet an dem Tag, an dem man wissen will, warum.
-  // Ohne jeden Uhr- oder Schlafwert der letzten sieben Tage (needsHealth) bleibt sie weiterhin weg;
-  // dort steht unten „Gesundheitsdaten verbinden".
-  const R=anaCached('readiness');const hasR=!!(R&&(R.score!=null||!R.needsHealth));
-  ANA_TILES=['weight'].concat(hasR?['readiness']:[]).concat(['sleep','steps','water','active_kcal','resting_hr','hrv'].filter(has));
-  if(!ANA_TILES.includes(ANA_METRIC))ANA_METRIC='weight';
-  const tileFor={
-    weight:()=>tile('weight','Gewicht',ws[0]?fmtNum(ws[0].weight,1):'–',ws[0]?'kg':'',wT),
-    // Ton wie auf der Startseite (grün/amber/rot); eine Zahl aus nur EINER Quelle (thin) heißt „geschätzt".
-    readiness:()=>{const solo=(typeof _readySolo==='function')?_readySolo(R):'';
-      if(R.score==null)return tile('readiness','Bereitschaft','–','',{cls:'',html:`<span class="muted-2">${esc2(R.label||'Noch keine Daten')}</span>`});
-      // B-I.5: Unter sieben Nächten steht hier der Kalibrierzustand statt der Zahl – und zwar mit den
-      // Nächten selbst als Wert. Das ist die einzige Zahl, die an dieser Stelle gedeckt ist.
-      const cal=an2Calib(R,checkins);
-      if(cal&&!cal.ready&&cal.have>0)return tile('readiness','Bereitschaft',`${fmtNum(cal.have)}/${fmtNum(cal.need)}`,'Nächte',
-        {cls:'',html:`<span class="muted-2">${esc2(wk2CalibText(cal))}</span>`});
-      const cls=R.tone==='green'?'up':R.tone==='amber'?'amber':R.tone==='red'?'down':'';
-      return tile('readiness','Bereitschaft',fmtNum(R.score),'',{cls,html:esc2(R.label||'')+(solo?' · geschätzt':'')});},
-    sleep:()=>tile('sleep','Ø Schlaf',avg.aSleep!=null?fmtNum(avg.aSleep,1):'–',avg.aSleep!=null?'h':'',goalTrend(avg.aSleep,g.sleep,'h',1)),
-    steps:()=>tile('steps','Ø Schritte',avg.aSteps!=null?fmtNum(Math.round(avg.aSteps)):'–','',goalTrend(avg.aSteps,g.steps,'',0)),
-    water:()=>tile('water','Ø Wasser',avg.aWater!=null?fmtNum(avg.aWater,1):'–',avg.aWater!=null?'L':'',goalTrend(avg.aWater,g.water,'L',1)),
-    // Uhr-Werte: der ZULETZT gemessene Wert, daneben der eigene Bereich – nicht ein Durchschnitt ohne
-    // Maßstab. „HRV 58 ms" ist eine Zahl, „HRV 58 ms · dein Bereich 50–62" ist eine Einordnung (P4).
-    active_kcal:()=>tile('active_kcal','Ø Verbrauch',fmtNum(Math.round(avg.aBurn||0)),'kcal',an2Trend(bandOf('active_kcal'),0,'kcal','aktiv, aus der Uhr')),
-    resting_hr:()=>tile('resting_hr','Ruhepuls',fmtNum(Math.round(lastOf('resting_hr')||avg.aRhr||0)),'bpm',an2Trend(bandOf('resting_hr'),0,'bpm','Ø 14 Tage '+fmtNum(Math.round(avg.aRhr||0))+' bpm')),
-    hrv:()=>tile('hrv','HRV',fmtNum(Math.round(lastOf('hrv')||avg.aHrv||0)),'ms',an2Trend(bandOf('hrv'),0,'ms','Ø 14 Tage '+fmtNum(Math.round(avg.aHrv||0))+' ms')),
-  };
-  h+=`<div class="tiles" id="anaTiles">${ANA_TILES.map(k=>tileFor[k]()).join('')}</div>`;
-  if(checkins.length<2)h+=`<div class="note mb-4">Mehr Auswertungen erscheinen, sobald du ein paar Tage Check-ins gemacht hast.</div>`;
-  h+=`<div id="anaChartBox">${anaChartHTML(checkins,g,avg)}</div>`;
-  h+=anaPhysHTML();
-  h+=`<div class="section-label">Check-in Historie${canEdit?`<span class="sl-r"><button class="btn sm sec" onclick="anaOpenCheckin()">${icon('plus',14)} Nachtragen</button></span>`:''}</div><div id="histlist" class="ana-hist"></div>`;
-  if(canEdit)h+=`<button class="btn sec mt-4" onclick="openIntegrations()">${icon('apple',18)} Gesundheitsdaten verbinden</button>`;
+  // 1 · DIE HAUPTAUSSAGE. Gewicht, Tempo, Urteil und Kurve in EINER Karte statt in zweien, die
+  //     einander widersprachen („Trend 78,4 kg" stand im Kartenkopf UND rund 300 px darüber im Hero).
+  h+=an5WeightHTML(checkins,ws,g,tr,canEdit,tdy);
+  // 2 · DIE WERTE. Aus acht Kacheln, die ein Diagramm umschalteten, wird eine Liste: jede Zeile
+  //     nennt Wort, Zahl, Einheit und Einordnung und führt auf die Seite mit dem Verlauf (6.9/R12).
+  h+=an5ValuesHTML(checkins,avg,g);
+  // 3 · DIE EINTRÄGE. „Nachtragen" ist die Wortaktion im Kopf (5.1), der Zeitraum die erste Zeile.
+  h+=`<h2 class="rows-h">Einträge${canEdit?`<button type="button" class="a" onclick="anaOpenCheckin()">Nachtragen</button>`:''}</h2>`
+    +`<div class="rows inset" id="histlist"></div>`
+    +`<p class="rows-f">Jede Zeile ist ein Tag mit Check-in. Rechts steht das Gewicht dieses Tages, darunter die übrigen Werte`
+    +`${canEdit?' – tippe eine Zeile an, um sie zu ändern':''}. Der Zeitraum bestimmt, wie weit Liste und Kurve zurückreichen.</p>`;
+  // 4 + 5 · Maße, Fotos und Verbindungen standen bei y = 1.082 bzw. y = 1.779 als Kacheln am Ende
+  //     (R12: 12 von 31 Aktionen unter dem Falz). Jetzt sind es zwei benannte Abschnitte.
+  h+=an5PhysHTML()+an5LinkHTML();
   box.innerHTML=h;loadHist(checkins);anaTourTarget();}
 
+// --- Die eine Held-Karte: Gewicht -------------------------------------------------------------
+// Reihenfolge der Antworten: Wo stehe ich? In welche Richtung? Passt das zum Ziel? Und erst danach
+// der Verlauf. Der Fusstext darunter sagt, wie die Linie entsteht und warum sie bei Lücken
+// unterbrochen ist – das war bis hierher eine `.caption` IN der Karte (S#22, G8).
+function an5WeightHTML(checkins,ws,g,tr,canEdit,tdy){
+  const lw=ws[0],hasToday=checkins.some(c=>c.date===tdy);
+  const w=anaWeightCard(checkins,g);   // {say,svg,foot} – svg/foot fehlen bei zu wenig Daten
+  let sagt;
+  if(tr){const v=Math.round(tr.perWeek*10)/10;
+    sagt=`${v>0?'+':v<0?'':'±'}${fmtNum(v,1)} kg pro Woche · ${tr.kind==='avg'?'Schnitt der letzten 7 Tage gegen die 7 davor':'seit '+fmtDate(ws[ws.length-1].date)}`;}
+  else sagt='Die Richtung steht ab dem zweiten Gewichtseintrag hier';
+  let urteil='';
+  if(g.start&&lw){const v=anaWeightVerdict(Math.round((lw.weight-g.start)*10)/10,g.goal);
+    urteil=`<div class="an5-verdict">${esc2(v.text)} <span class="an5-quiet">· Start ${fmtNum(g.start,1)} kg</span></div>`;}
+  const h=`<h2 class="rows-h">Gewicht</h2>`
+    +`<div class="card lg an5-hero" id="anaHero">`
+    +`<div class="an5-big">${lw?`${fmtNum(lw.weight,1)}<em>kg</em>`:'<em>noch nicht gewogen</em>'}</div>`
+    +`<div class="an5-l">${lw?'zuletzt gewogen '+esc2(fmtDate(lw.date,{weekday:'long'})):'Trag dein erstes Gewicht ein'}</div>`
+    +`<div class="an5-d">${esc2(sagt)}</div>${urteil}`
+    +(w&&w.say?`<p class="an5-say">${esc2(w.say)}</p>`:'')
+    +(w&&w.svg?w.svg:`<p class="an5-say an5-quiet">Ab zwei Wiegungen im gewählten Zeitraum erscheint hier die Kurve.</p>`)
+    +`</div>`
+    +`<p class="rows-f">${esc2((w&&w.foot)||'Punkte sind deine Wiegungen, die Linie ist der geglättete Verlauf über sieben Tage. Liegen mehr als sieben Tage ohne Wiegung dazwischen, ist die Linie unterbrochen – eine durchgezogene Linie über leere Tage wäre eine Behauptung.')}</p>`;
+  // DIE EINE PRIMAERAKTION DIESES BILDSCHIRMS (G10/K10). Sie steht unter der Hauptaussage und
+  // beantwortet „was tue ich hier?" – nicht als graue Pille in einer Kartenecke (5.1 „.btn.sm wird
+  // ersatzlos gelöscht"), sondern als der eine rote Knopf. Im Coach-Blick gibt es sie nicht: er
+  // trägt für seinen Athleten nichts ein.
+  if(!canEdit)return h;
+  return h+`<button class="btn an5-cta" onclick="anaOpenCheckin('${tdy}')">${icon('pencil',18)} ${hasToday?'Check-in von heute ändern':'Check-in für heute eintragen'}</button>`;}
+
+// --- Abschnitt „Werte": aus acht Kacheln wird eine Liste ---------------------------------------
+// Jede Zeile: das WORT (nicht das Kürzel), die Zahl mit Einheit rechts und in der Unterzeile die
+// Einordnung – Ziel und Abstand, wo es ein Ziel gibt, sonst der eigene Bereich (P4). Der Tap führt
+// auf eine eigene Seite mit dem Verlauf; sie trägt einen Titel und einen benannten Zurück-Weg.
+// „HRV" heißt hier ausgeschrieben Herzratenvariabilität (R15/G9); der Fusstext erklärt sie.
+const AN5_METRICS=[
+  {k:'readiness',ic:'sparkles',name:'Bereitschaft',unit:'',dec:0},
+  {k:'sleep',ic:'moon',name:'Schlaf',unit:'h',dec:1,goal:'sleep',avg:'aSleep'},
+  {k:'steps',ic:'footprints',name:'Schritte',unit:'',dec:0,goal:'steps',avg:'aSteps'},
+  {k:'water',ic:'droplet',name:'Wasser',unit:'L',dec:1,goal:'water',avg:'aWater'},
+  {k:'active_kcal',ic:'flame',name:'Aktiver Verbrauch',unit:'kcal',dec:0,avg:'aBurn'},
+  {k:'resting_hr',ic:'heart',name:'Ruhepuls',unit:'bpm',dec:0},
+  {k:'hrv',ic:'zap',name:'Herzratenvariabilität',unit:'ms',dec:0},
+];
+function an5Metric(k){return AN5_METRICS.find(x=>x.k===k)||null;}
+function an5ValuesHTML(checkins,avg,g){
+  const has=key=>checkins.some(c=>c[key]!=null&&+c[key]>0);
+  const lastOf=key=>{const c=checkins.find(x=>x[key]!=null&&+x[key]>0);return c?+c[key]:null;};
+  const bandOf=key=>an2Band(an2Window(checkins).filter(c=>c[key]!=null&&+c[key]>0).map(c=>+c[key]));
+  const R=anaCached('readiness');
+  const hasR=!!(R&&(R.score!=null||!R.needsHealth));
+  // Dieselbe Auswahl wie bisher – nur ohne „Gewicht": das Gewicht ist die Hauptaussage darüber und
+  // braucht keinen zweiten Platz (Befund B8, Doppelung).
+  ANA_TILES=(hasR?['readiness']:[]).concat(['sleep','steps','water','active_kcal','resting_hr','hrv'].filter(has));
+  if(!ANA_TILES.length)return '';
+  const wert=(v,d,u)=>v==null?'':fmtNum(v,d||0)+(u?' '+u:'');
+  const zeile=key=>{const m=an5Metric(key);if(!m)return '';
+    const tap=`an5OpenMetric('${key}')`;
+    if(key==='readiness'){
+      const cal=an2Calib(R,checkins);
+      if(cal&&!cal.ready&&cal.have>0)
+        return rowHTML({icon:m.ic,title:m.name,sub:wk2CalibText(cal),value:`${fmtNum(cal.have)} von ${fmtNum(cal.need)} Nächten`,tap});
+      if(R.score==null)return rowHTML({icon:m.ic,title:m.name,sub:R.label||'',value:'noch keine Daten',tap});
+      const solo=(typeof _readySolo==='function')?_readySolo(R):'';
+      return rowHTML({icon:m.ic,title:m.name,sub:(R.label||'')+(solo?' · geschätzt aus '+solo:''),value:fmtNum(R.score)+' von 100',tap});}
+    let v,sub;
+    if(m.goal){const ziel=+g[m.goal];v=avg[m.avg];
+      const fehlt=(v!=null&&ziel)?Math.round((ziel-v)*100)/100:null;
+      sub='Ziel '+wert(ziel,m.dec,m.unit)
+        +(fehlt==null?'':fehlt>0?' · es fehlen '+wert(fehlt,m.dec,m.unit):' · Ziel erreicht');}
+    else{const b=bandOf(key);
+      v=m.avg?avg[m.avg]:lastOf(key);
+      sub=b?an2BandText(b,m.dec,m.unit):(m.avg?'Schnitt der letzten 7 Tage':'zuletzt gemessen');}
+    if(v==null)return rowHTML({icon:m.ic,title:m.name,sub:'noch nicht eingetragen',tap});
+    return rowHTML({icon:m.ic,title:m.name,sub,value:wert(m.dec?Math.round(v*10)/10:Math.round(v),m.dec,m.unit),tap});};
+  const rows=ANA_TILES.map(zeile);
+  // Der „Nächste Schritt" war bis hierher ein grauer Kasten in der Held-Karte. Er bleibt als Zeile –
+  // ohne Chevron, denn er führt nirgendwohin: er sagt, welches Ziel am weitesten entfernt ist (G7).
+  rows.push(rowHTML({icon:'target',title:'Nächster Schritt',sub:anaNextStep(avg,g)}));
+  return groupHTML('Werte',rows,
+    'Der Schnitt geht über die letzten sieben Kalendertage; liegt darin kein Wert, zählen die letzten sieben Einträge. '
+    +'„Dein Bereich" ist die mittlere Hälfte deiner eigenen Werte im gewählten Zeitraum – keine Norm und kein Ziel. '
+    +'Die Herzratenvariabilität misst den Abstand zwischen zwei Herzschlägen; höhere Werte gehen meist mit besserer Erholung einher. '
+    +'Tippe eine Zeile an, um ihren Verlauf zu sehen.');}
+
+// --- Kennzahl-Seite (Push-Seite, Eltern: Analyse) ----------------------------------------------
+// Bis 3.0.2 wechselte ein Tipp auf eine Kachel das EINE Diagramm weiter unten auf derselben Seite –
+// ohne Titel, ohne Rückweg, und die Seite blieb 2.377 px lang. Jetzt bekommt jede Kennzahl einen
+// eigenen Bildschirm mit Namen und benanntem Zurück-Knopf (DESIGN-4 3.3, N1/N4).
+let AN5_PAGE=null;
+function an5OpenMetric(k){const m=an5Metric(k);if(!m||typeof pushPage!=='function')return;
+  ANA_METRIC=k;AN5_PAGE=k;
+  // Die Bereitschaft holt ihren Selbstbericht erst, wenn jemand sie wirklich ansieht (B-I.5).
+  if(k==='readiness')an2SelfEnsure();
+  pushPage('ana-'+k,m.name,'Analyse',`<div id="an5MetricBody">${an5MetricBodyHTML(k)}</div>`,{sub:an2Range().wort});}
+// Neu zeichnen, ohne die Ebene neu aufzubauen (sonst springt sie nach oben und legt eine zweite an).
+function an5MetricRedraw(){if(!AN5_PAGE)return;
+  const el=document.getElementById('an5MetricBody');
+  if(!el){AN5_PAGE=null;return;}
+  el.innerHTML=an5MetricBodyHTML(AN5_PAGE);}
+function an5MetricBodyHTML(k){const m=an5Metric(k);if(!m)return '';
+  const cis=(anaCached('checkins')||[]).slice().sort((a,b)=>a.date<b.date?1:-1);
+  const g=anaGoals();
+  const vorher=ANA_METRIC;ANA_METRIC=k;
+  let chart='';AN5_LEG='';
+  try{chart=anaChartHTML(cis,g,{});}catch(e){console.error('[analysis] Kennzahl-Seite',e);}
+  finally{ANA_METRIC=vorher;}
+  const rows=[an5RangeRow('Gilt für diese Kurve und für die Zahlen im Körper-Bereich')];
+  if(k==='readiness'&&typeof openReadiness==='function')
+    rows.push(rowHTML({icon:'info',title:'Woraus die Bereitschaft entsteht',sub:'Schlaf, Erholung und die Last der letzten Tage',tap:'openReadiness()'}));
+  const foot=({
+    readiness:'Die Bereitschaft fasst Schlaf, Erholung und die Last der letzten Tage zu einer Zahl zwischen 0 und 100 zusammen. Unter sieben Nächten steht hier der Kalibrierstand statt einer Zahl – aus drei Nächten lässt sich kein Übliches ableiten.',
+    sleep:'Gezählt wird die Schlafdauer aus deinem Check-in oder aus der verbundenen Gesundheits-App. Das Ziel kommt aus deinem Profil; ohne eigenes Ziel leitet es der Server aus deinem Median der letzten 14 Nächte ab.',
+    steps:'Gezählt werden die Schritte des ganzen Tages. Das Ziel steht in deinem Profil und lässt sich dort ändern.',
+    water:'Getrunkene Menge in Litern aus deinem Check-in. Das Ziel steht in deinem Profil.',
+    active_kcal:'Aktiver Verbrauch heißt: die Kalorien, die über deinen Grundumsatz hinausgehen. Die Zahl kommt aus der verbundenen Uhr, nicht aus einer Schätzung der App.',
+    resting_hr:'Der Ruhepuls ist die niedrigste Herzfrequenz eines Tages, meist im Schlaf gemessen. Ein hoher Wert ist hier das Warnzeichen, ein niedriger das gute – umgekehrt zu allen anderen Werten auf dieser Seite.',
+    hrv:'Die Herzratenvariabilität (HRV) misst, wie stark der Abstand zwischen zwei Herzschlägen schwankt. Höhere Werte gehen meist mit besserer Erholung einher. Der Wert ist stark persönlich – vergleichbar ist er nur mit deinem eigenen Bereich, nie mit dem anderer.',
+  })[k]||'';
+  return chart+groupHTML('Zeitraum',rows,(AN5_LEG?AN5_LEG+' ':'')+foot);}
 // Das eine Diagramm zur gewählten Kachel (WP0-Engine: schöne Ticks, Ziel-Label, gleitender Schnitt).
 // Neu in 2.8.0: über der Karte die Zeitraum-Chips, in der Karte ein Aussagesatz und hinter der Kurve
 // der eigene Bereich als Band. Die Reihenfolge ist Absicht – erst die Aussage, dann die Zahlen.
+let AN5_LEG='';   // Legende der zuletzt gebauten Kurve – Fusstext der Kennzahl-Seite, nicht Kartentext
 function anaChartHTML(checkins,g,avg){
+  AN5_LEG='';
   // Die Reihe folgt dem gewählten Zeitraum (vorher fest: die letzten 30 Einträge, Befund M10).
   const series=key=>an2Window(checkins).filter(c=>c[key]!=null&&+c[key]>0).reverse().map(c=>({date:c.date,value:+c[key]}));
-  const card=(title,v,svg,extra,say)=>`${an2ChipsHTML()}<div class="chart-card" id="anaChart"><div class="ch-h"><div class="t">${title}</div><div class="v">${v}</div></div>${an2SayHTML(say)}${svg}${extra||''}</div>`;
+  // D-4: Ohne die Zeitraum-Chips davor – der Zeitraum steht im Untertitel der Seite und als Zeile
+  // darunter (3.6). Und ohne Kartentitel: die Karte steht auf einer Seite, die so heißt wie sie
+  // (G1/G2) – der Titel zweimal übereinander wäre genau die Doppelung, gegen die D-4 antritt.
+  // `v` ist bereits fertiges HTML (die Aufrufer haben Serverdaten durch esc2() geschickt).
+  const card=(title,v,svg,extra,say)=>`<div class="chart-card" id="anaChart"><div class="ch-h"><div class="t">${v}</div></div>${an2SayHTML(say)}${svg}${extra||''}</div>`;
   // „7-Tage-Schnitt" war hier ein Versprechen, das der Motor nicht hält: _rolling() mittelt die letzten
   // sieben WERTE, nicht sieben Tage (Befund M8). Der Text sagt jetzt, was gerechnet wird.
-  const leg=(b,goal)=>`<div class="caption mt-2">Dicke Linie = Schnitt der letzten 7 Werte · dünne Linie = Tageswerte${goal!=null?' · gestrichelt = Ziel':''}${b?' · graues Band = die mittlere Hälfte deiner Werte im Zeitraum':''}</div>`;
-  const few=`${an2ChipsHTML()}<div class="chart-card" id="anaChart"><div class="caption center">Zu wenig Daten im gewählten Zeitraum – ab 2 Einträgen erscheint hier die Kurve.</div></div>`;
+  // D-4/G8: Die Legende gehoert nicht als `.caption` mit Gleichheitszeichen in die Karte, sondern als
+  // ganzer Satz in den Fusstext unter der Gruppe. `anaChartHTML` legt sie hier ab; die Kennzahl-Seite
+  // haengt sie vor ihre eigene Erklaerung.
+  const leg=(b,goal)=>{AN5_LEG='Die dicke Linie ist der Schnitt der letzten sieben Werte, die dünne zeigt die Tageswerte'
+    +(goal!=null?', die gestrichelte dein Ziel':'')
+    +(b?'. Das graue Band ist die mittlere Hälfte deiner Werte im Zeitraum':'')+'.';return '';};
+  const few=`<div class="chart-card" id="anaChart"><div class="caption center">Zu wenig Daten im gewählten Zeitraum – ab 2 Einträgen erscheint hier die Kurve. Über die Zeile „Zeitraum" darunter kannst du weiter zurückschauen.</div></div>`;
   // Bereitschaft: der 14-Tage-Verlauf aus GET /readiness (derselbe wie im Sheet der Startseite), darunter
   // der Weg zu den Teilwerten. openReadiness gehört home.js – ohne sie fehlt nur der Knopf, nicht die Kurve.
   if(ANA_METRIC==='readiness'){const R=anaCached('readiness')||{};
@@ -413,14 +574,16 @@ function anaChartHTML(checkins,g,avg){
     if(cal&&!cal.ready&&cal.have>0)
       return card('Bereitschaft',`${fmtNum(cal.have)} von ${fmtNum(cal.need)} Nächten`,
         `<div class="caption mt-2 mb-2">${esc2(wk2CalibWhy(cal))} ${esc2(wk2CalibSteer())}</div>${divHTML}`,
-        typeof openReadiness==='function'?`<div class="between mt-2"><span class="caption"></span><button class="btn sm sec fixed" onclick="openReadiness()">Details</button></div>`:'',
+        '',
         {tone:'muted',txt:wk2CalibText(cal)});
     const hist=(R.history||[]).filter(x=>x&&x.date&&x.score!=null).map(x=>({date:x.date,value:+x.score}));
     const solo=(typeof _readySolo==='function')?_readySolo(R):'';
     // Die Handlungs-Aussage (R.headline) steht seit 2.8.0 ÜBER der Kurve – hier bleibt nur der Hinweis
     // auf eine Einzelquelle. Vorher stand derselbe Satz zweimal in derselben Karte.
     const txt=solo?`Geschätzt aus ${solo} – für eine belastbare Einschätzung fehlen noch Werte.`:'';
-    const extra=`<div class="between mt-2"><span class="caption">${esc2(txt)}</span>${typeof openReadiness==='function'?`<button class="btn sm sec fixed" onclick="openReadiness()">Details</button>`:''}</div>`;
+    // D-4 (5.1): Die graue Pille „Details" entfaellt. Der Weg zu den Teilwerten steht als benannte
+    // Zeile „Woraus die Bereitschaft entsteht" unter der Karte (an5MetricBodyHTML).
+    const extra=txt?`<div class="caption mt-2">${esc2(txt)}</div>`:'';
     // Ohne heutige Zahl (score:null) nennt die Kopfzeile den Grund statt eines Strichs; der Verlauf
     // der Vortage bleibt stehen, er ist ja echt.
     const head=R.score==null?esc2(R.label||'Noch keine Daten'):`${fmtNum(R.score)}${R.label?' · '+esc2(R.label):''}`;
@@ -452,7 +615,7 @@ function anaChartHTML(checkins,g,avg){
   // Die Kopfzeile mittelt ueber GENAU die Werte, die im Bild stehen – und sagt das auch. Vorher stand
   // dort der 14-Tage-Schnitt ueber einer Kurve, die drei Monate zeigte: zwei Zahlen, ein Wort „Ø".
   const mean=rows.reduce((a,r)=>a+ +r.value,0)/rows.length;
-  const head=`Ø ${fmtNum(defs.d?Math.round(mean*10)/10:Math.round(mean),defs.d)}${defs.u?' '+defs.u:''} in ${an2Range().lbl}${defs.goal!=null?` · ${defs.gl()}`:''}`;
+  const head=`Ø ${fmtNum(defs.d?Math.round(mean*10)/10:Math.round(mean),defs.d)}${defs.u?' '+defs.u:''} · ${an2Range().wort}${defs.goal!=null?` · ${defs.gl()}`:''}`;
   return card(defs.t,head,svg,leg(!!band,defs.goal),say);}
 // ===== GEWICHTSKURVE: Lücken, Trendlinie, ehrliche Kopfzeile (RECHEN-REVIEW D33, Befund B22) =====
 // Vorher zog die Kurve eine gerade Strecke über jede Pause – 53 Tage ohne eine einzige Wiegung sahen
@@ -505,12 +668,18 @@ function an2WeightSay(checkins,g,seg,ema){
   if(goal==='fatloss')return v<0?{tone:'green',txt:`Dein Gewicht ${dir} um ${speed} – das passt zur Definition.`}
     :{tone:'amber',txt:`Dein Gewicht ${dir} um ${speed} – in der Definition sollte es nach unten gehen.`};
   return {tone:'muted',txt:`Dein Gewicht ${dir} um ${speed}.`};}
+// D-4: Diese Funktion baut keine Karte mehr, sondern liefert ihre DREI Teile: den einen Satz
+// (`say`), die Kurve (`svg`) und den Fusstext (`foot`). Zusammengesetzt werden sie in
+// `an5WeightHTML()` – dort, wo auch die Zahl steht. Vorher gab es zwei Karten uebereinander, die
+// dieselbe Zahl nannten („78,4 kg" im Hero, „Trend 78,4 kg" im Kartenkopf 300 px darunter), und die
+// Legende stand als `.caption` IN der Karte statt als Fusstext unter der Gruppe (G8).
 function anaWeightCard(checkins,g){
-  // Zeitraum aus den Chips statt „die letzten 90 Einträge" (Befund M10).
+  // Zeitraum aus der Zeitraum-Zeile statt „die letzten 90 Einträge" (Befund M10).
   const pts=an2Window(checkins||[]).filter(c=>c&&+c.weight>0&&c.date).map(c=>({t:Date.parse(c.date+'T00:00'),v:+c.weight,date:c.date}))
     .filter(p=>!isNaN(p.t)&&!isNaN(p.v)).sort((a,b)=>a.t-b.t);
-  const wrap=(head,body,cap,say)=>`${an2ChipsHTML()}<div class="chart-card" id="anaChart"><div class="ch-h"><div class="t">Gewicht</div><div class="v">${head}</div></div>${an2SayHTML(say)}${body}${cap?`<div class="caption mt-2">${cap}</div>`:''}</div>`;
-  if(pts.length<2)return `${an2ChipsHTML()}<div class="chart-card" id="anaChart"><div class="caption center">Zu wenig Daten im gewählten Zeitraum – ab 2 Wiegungen erscheint hier die Kurve.</div></div>`;
+  const wrap=(head,body,cap,say)=>({head,svg:body,foot:cap,say:say&&say.txt?say.txt:''});
+  if(pts.length<2)return {head:'',svg:'',say:'',
+    foot:'Ab zwei Wiegungen im gewählten Zeitraum entsteht hier die Kurve. Über die Zeile „Zeitraum" im Abschnitt Einträge kannst du weiter zurückschauen.'};
   const segs=anaSegments(pts),last=segs[segs.length-1],prev=segs.length>1?segs[segs.length-2]:null;
   const gapDays=prev?Math.round((last[0].t-prev[prev.length-1].t)/864e5):0;
   // Kopfzeile: geglättete Enden des LETZTEN zusammenhängenden Abschnitts. Ein Abschnitt aus einer
@@ -533,8 +702,10 @@ function anaWeightCard(checkins,g){
   const deltaTxt=Math.abs(delta)<0.05?'unverändert':`${delta>0?'+':''}${fmtNum(delta,1)} kg`;
   const head=last.length<2?`${fmtNum(last[0].v,1)} kg am ${fmtDate(last[0].date)}`
     :`Trend ${fmtNum(trend,1)} kg · ${deltaTxt} ${spanTxt}`;
-  let cap=`Punkte = deine Wiegungen · Linie = Trend über ${fmtNum(ANA_EMA_N)} Tage · die Veränderung vergleicht diese Linie am Anfang und am Ende`;
-  if(gapDays)cap+=` · zwischen ${fmtDate(prev[prev.length-1].date)} und ${fmtDate(last[0].date)} ${pl(gapDays,'Tag','Tage')} ohne Wiegung – dort ist die Linie unterbrochen`;
+  // D-4/G8: aus der `.caption` in der Karte wird der Fusstext unter der Gruppe – ganze Saetze statt
+  // einer Legende aus Gleichheitszeichen.
+  let cap=`Die Punkte sind deine Wiegungen, die Linie ist der geglättete Verlauf über ${fmtNum(ANA_EMA_N)} Tage. Die Veränderung vergleicht diese Linie am Anfang und am Ende des Abschnitts, nicht zwei einzelne Wiegungen.`;
+  if(gapDays)cap+=` Zwischen ${fmtDate(prev[prev.length-1].date)} und ${fmtDate(last[0].date)} liegen ${pl(gapDays,'Tag','Tage')} ohne Wiegung – dort ist die Linie unterbrochen, weil eine durchgezogene Linie über leere Tage eine Behauptung wäre.`;
   // Der eine Satz über der Kurve: Richtung, Tempo und – das ist der Punkt – ob das zum Ziel passt.
   // Die Kachel daneben nennt dieselbe Wochenrate; beide kommen aus anaWeekTrend, damit sie sich nicht
   // widersprechen können (genau das war Befund M1: Kopfzeile „+15,4 kg", Kachel „+0,1 kg/Woche").
@@ -570,12 +741,9 @@ function anaWeightCard(checkins,g){
   </svg>`;
   return wrap(head,svg,cap,say);}
 
-// Kachel angetippt: nur die Kachelreihe und das Diagramm neu zeichnen (kein Sprung, kein Neuladen)
-function anaMetric(key){
-  if(!ANA_TILES.includes(key))return;
-  ANA_METRIC=key;
-  const data=anaCached('checkins');
-  if(data)anaPaintKoerper(data);}
+// Die frühere Funktion `anaMetric` hat die Kachelreihe und das eine Diagramm darunter umgeschaltet. Beides gibt es
+// nicht mehr: die Kennzahl fuehrt auf eine eigene Seite (an5OpenMetric). Der Name bleibt als
+// Weiterleitung stehen, weil ihn aeltere Deep-Links und die Suche kennen koennen.
 
 // Gewichtstrend: 7-Tage-Schnitt vs. die 7 Tage davor (sonst Spanne erster/letzter Eintrag auf eine Woche umgerechnet)
 function anaWeekTrend(ws){if(!ws||ws.length<2)return null;const t=today();
@@ -584,9 +752,8 @@ function anaWeekTrend(ws){if(!ws||ws.length<2)return null;const t=today();
   if(A.length&&B.length)return {perWeek:mean(A)-mean(B),kind:'avg'};
   const days=Math.max(1,anaDayDiff(ws[0].date,ws[ws.length-1].date));
   return {perWeek:(ws[0].weight-ws[ws.length-1].weight)/Math.max(1,days/7),kind:'span',days};}
-// Trend-Farbe hängt vom Ziel ab: Aufbau = plus ist gut, Definition = minus ist gut
-function anaTrendCls(v,goal,tile){const g=tile?'up':'tone-green',a=tile?'amber':'tone-amber';
-  if(Math.abs(v)<=0.05)return '';if(goal==='muscle')return v>0?g:a;if(goal==='fatloss')return v<0?g:a;return '';}
+// (Die frühere Funktion `anaTrendCls` stand hier: die Trendfarbe einer Kachel. A47 verlangt ohnehin ein WORT und nicht
+//  nur eine Farbe – das Wort steht jetzt im Satz unter der Zahl, die Farbklasse faellt ersatzlos.)
 // weightVerdict(diff,goal) -> {text,tone}: Home-Funktion (WP1) wenn vorhanden, sonst gleiche Logik lokal
 function anaWeightVerdict(diff,goal){
   if(typeof weightVerdict==='function'){try{const v=weightVerdict(diff,goal);if(v&&v.text)return v;}catch(e){}}
@@ -614,28 +781,58 @@ function anaNextStep(avg,g){const c=[];
   const worst=c.filter(x=>x.rel>0.01).sort((a,b)=>b.rel-a.rel)[0];
   if(worst)return worst.txt;
   return (c.length>1?'Ziele erreicht: ':'Ziel erreicht: ')+c.map(x=>x.k).join(', ')+' – weiter so.';}
-function anaHeroHTML(checkins,ws,g,avg,tr,canEdit){const lw=ws[0];const tdy=today();
-  const hasToday=checkins.some(c=>c.date===tdy);
-  let trendHtml='<span class="muted-2">Trend ab dem zweiten Gewichtseintrag</span>';
-  if(tr){const v=Math.round(tr.perWeek*10)/10;const ic=v>0.05?'trendUp':v<-0.05?'trendDown':'trendFlat';
-    trendHtml=`<span class="ana-trend ${anaTrendCls(v,g.goal)}">${icon(ic,16)} ${v>0?'+':''}${fmtNum(v,1)} kg/Woche</span><span class="muted-2"> · ${tr.kind==='avg'?'7-Tage-Schnitt vs. Vorwoche':'seit '+fmtDate(ws[ws.length-1].date)}</span>`;}
-  let verdictHtml='';
-  if(g.start&&lw){const v=anaWeightVerdict(Math.round((lw.weight-g.start)*10)/10,g.goal);verdictHtml=`<div class="ana-verdict ${anaToneCls(v.tone)}">${esc2(v.text)} <span class="muted-2 caption">(Start ${fmtNum(g.start,1)} kg)</span></div>`;}
-  return `<div class="card lg ana-hero" id="anaHero">
-    <div class="between"><div class="eyebrow">${lw?'Gewicht · '+fmtDate(lw.date,{weekday:'short'}):'Körper'}</div>${(!hasToday&&canEdit)?`<button class="btn sm sec" onclick="anaOpenCheckin('${tdy}')">${icon('plus',14)} Heute eintragen</button>`:''}</div>
-    <div class="ana-big">${lw?`<span class="num-xl">${fmtNum(lw.weight,1)}</span><em>kg</em>`:`<span class="num-xl">–</span><em>kein Gewicht eingetragen</em>`}</div>
-    <div class="body mt-1">${trendHtml}</div>${verdictHtml}
-    <div class="ana-next mt-3">${icon('target',16)}<div><b>Nächster Schritt</b><br>${anaNextStep(avg,g)}</div></div></div>`;}
-function anaPhysHTML(){let h=`<div class="section-label">Maße &amp; Fotos</div>`;
-  if(isBeginner()&&!coachView())h+=infoBox('koerper_beginner','Für den Anfang reicht dein Gewicht. Wenn du weiter bist, kannst du hier auch Körpermaße und Fortschrittsfotos festhalten – beides hilft deinem Coach.');
-  h+=`<div class="quick mb-4">
-      <button class="qcard" onclick="openMeasure()">${icon('ruler',24)}<div class="t">Körpermaße</div><div class="d">Taille, Arm, Brust …</div></button>
-      <button class="qcard" onclick="openPhotos()">${icon('camera',24)}<div class="t">Fortschrittsfotos</div><div class="d">Dein Verlauf in Bildern</div></button>
-    </div>`;return h;}
+// --- Abschnitt „Maße & Fotos" (DESIGN-4 6.9 / R12 / R17) --------------------------------------
+// Vorher: zwei Kacheln bei y = 1.082, die Unterzeile der ersten abgeschnitten („Taille, Arm,
+// Brust …") – und „Fotos vergleichen" lag drei Ebenen tief in einem Sheet im Sheet (R17).
+// Nachher: drei Zeilen mit VOLLSTÄNDIGER Unterzeile (G11) direkt unter dem Gewichtsverlauf.
+function an5PhysHTML(){
+  const rows=[
+    rowHTML({icon:'ruler',title:'Körpermaße',sub:'Taille, Brust, Arm, Hüfte, Oberschenkel und Körperfett',tap:'openMeasure()'}),
+    rowHTML({icon:'camera',title:'Fortschrittsfotos',sub:'Alle zwei Wochen ein Bild – gleiche Pose, gleiches Licht',tap:'openPhotos()'}),
+    rowHTML({icon:'eye',title:'Vorher und Nachher',sub:'Zwei Aufnahmen derselben Pose nebeneinander vergleichen',tap:'an5Compare()'}),
+  ];
+  let foot='Maße und Fotos zeigen, was die Waage nicht zeigt: wo sich etwas verändert hat. Beides ist freiwillig.';
+  if(isBeginner()&&!coachView())foot='Für den Anfang reicht dein Gewicht. Wenn du weiter bist, halte hier auch Körpermaße und Fortschrittsfotos fest – beides hilft deinem Coach. Fotos sehen nur du und dein zugewiesener Coach.';
+  return groupHTML('Maße & Fotos',rows,foot);}
 
-// --- Check-in Historie: letzte 7 Zeilen, antippbar (Bearbeiten/Nachtragen), „Mehr anzeigen" in Stufen ---
-// Die vollständige Liste (ohne Fenster) holt erst der Tipp auf „Mehr anzeigen" – eigener Cache-Schlüssel,
-// damit das Segment weiterhin mit dem kleinen Fenster (anaCheckinPath) auskommt.
+// --- Abschnitt „Verbindungen" -----------------------------------------------------------------
+// „Gesundheitsdaten verbinden" stand bei y = 1.779 als vollbreiter Knopf ganz unten (R12). Jetzt
+// eine Zeile mit Wert rechts – sie beantwortet „ist etwas verbunden?" ohne Tap (A28).
+function an5LinkHTML(){
+  const hl=an5LinkHTML.stand;
+  return groupHTML('Verbindungen',[rowHTML({icon:'apple',title:'Gesundheitsdaten',
+      sub:'Apple Health, Health Connect, Fitbit und Garmin',
+      pill:hl===true?{text:'verbunden',tone:'green'}:hl===false?{text:'nicht verbunden',tone:'neutral'}:null,
+      tap:'openIntegrations()'})],
+    'Ist eine Gesundheits-App verbunden, kommen Schlaf, Schritte, Verbrauch und Puls von selbst in deine Auswertung – du trägst sie dann nicht mehr von Hand ein.');}
+// Der Stand des persönlichen Links wird NICHT eigens abgefragt: `openIntegrations()` holt ihn beim
+// Öffnen ohnehin und legt ihn hier ab. Ohne diesen Stand bleibt die Pille weg – eine Pille, die rät,
+// wäre schlechter als keine (A47).
+an5LinkHTML.stand=null;
+
+// --- „Vorher / Nachher" ohne Umweg über das Foto-Raster (R17) ---------------------------------
+// Bis 3.0.2 führte der Vergleich über: Analyse → Kachel Fotos (Sheet) → Knopf im Sheet → Sheet im
+// Sheet. Jetzt ist es EINE Zeile. Die Foto-Liste, die `an2CompareOpen()` braucht, wird hier geholt –
+// dieselbe Anfrage, die `openPhotos()` auch stellt, nur ohne dessen Bildschirm dazwischen.
+async function an5Compare(){const uid=VIEW_USER;if(!uid)return;
+  openSheet('Vorher / Nachher','<div class="spinner"></div>');
+  const r=await API.get(phPath(uid));
+  if(!sheetOpen())return;
+  if(r.status!==200){openSheet('Vorher / Nachher',stlNotLoaded('Fortschrittsfotos',r.status,'an5Compare()'));return;}
+  const list=r.data?.photos||[];
+  openPhotos.uid=uid;openPhotos.list=list;openPhotos.shown=0;
+  openPhotos.more=list.length===PH_PAGE&&r.data?.more!==false&&r.data?.hasMore!==false;
+  if(list.length<2){openSheet('Vorher / Nachher',emptyState({icon:'camera',
+    title:list.length?'Erst ein Foto':'Noch keine Fotos',
+    text:'Zum Vergleichen braucht es zwei Bilder derselben Pose – gleicher Abstand, gleiches Licht, gleiche Tageszeit.',
+    btn:{label:'Fortschrittsfotos öffnen',onclick:'openPhotos()'}}));return;}
+  an2CompareOpen();}
+
+// --- Check-in Historie: eine Gruppe aus der einen Zeile ----------------------------------------
+// Die vollständige Liste (ohne Fenster) holt erst der Tipp auf die letzte Zeile – eigener
+// Cache-Schlüssel, damit das Segment weiterhin mit dem kleinen Fenster (anaCheckinPath) auskommt.
+// D-4 (5.1): Aus der grauen Pille „Mehr anzeigen" am Listenende wird die LETZTE ZEILE der Gruppe
+// („Alle 42 Einträge ansehen ›"), aus „Nachtragen" die Wortaktion im Abschnittskopf.
 const ANA_HIST_STEP=50;
 async function anaCheckinsAll(){const c=anaEntry('checkins_all');if(c&&!anaStale('checkins_all'))return c.data;
   return anaFetch('checkins_all','/checkins/'+VIEW_USER,d=>d.checkins||[]);}
@@ -646,39 +843,50 @@ async function loadHist(checkins){const el=document.getElementById('histlist');i
   const n=+loadHist.shown||0;
   if(n>7){const all=await anaCheckinsAll();if(!document.getElementById('histlist'))return;if(all&&all.length>=h.length)h=all;}
   h=h.slice().sort((a,b)=>a.date<b.date?1:-1);
-  if(!h.length){el.innerHTML=emptyState({icon:'calendar',title:'Noch keine Einträge',text:'Dein erster Check-in erscheint hier.'});return;}
-  const show=Math.max(7,Math.min(n||7,h.length));loadHist.shown=show>7?show:0;
-  // Solange nur das Fenster geladen ist, ist die Gesamtzahl unbekannt – dann steht keine Zahl am Knopf.
-  el.innerHTML=`<div class="rows" id="histrows">${h.slice(0,show).map(anaHistRow).join('')}</div>`+loadHist.btn(show,h.length,n>7);}
-// Der Knopf unter der Liste: „50 weitere anzeigen (noch N)" bzw. „Weniger anzeigen".
-loadHist.btn=function(shown,total,exact){if(total<=7)return '';
-  const rest=total-shown;
-  return `<div class="cluster mt-3" id="histmore">${(rest>0||!exact)?`<button class="btn sm sec" onclick="loadHistMore()">${exact?fmtNum(Math.min(ANA_HIST_STEP,rest))+' weitere anzeigen (noch '+fmtNum(rest)+')':'Mehr anzeigen'}</button>`:''}${shown>7?`<button class="btn sm sec" onclick="loadHist.shown=0;loadHist()">Weniger anzeigen</button>`:''}</div>`;};
-// Nächste Stufe anhängen: insertAdjacentHTML statt innerHTML, damit die stehenden Zeilen nicht neu geparst
-// werden. Vorher schrieb „Alle anzeigen" bis zu 1.100 Zeilen (196 KB HTML, ~6.600 Knoten) in EINEM Stück.
-async function loadHistMore(){const rows=document.getElementById('histrows');if(!rows)return;
-  const btn=document.querySelector('#histmore .btn');if(btn)btn.disabled=true;
+  // Die Zeitraum-Zeile ist die erste Zeile der Gruppe (6.9) – sie steht auch dann da, wenn die
+  // Liste leer ist: dann ist genau sie die Antwort auf „warum sehe ich nichts?".
+  const kopf=an5RangeRow('Wie weit Liste und Kurve zurückreichen');
+  if(!h.length){el.innerHTML=kopf+rowHTML({icon:'calendar',title:'Noch keine Einträge',sub:'Dein erster Check-in erscheint hier'});return;}
+  const show=Math.max(AN5_HIST_VOR,Math.min(n||AN5_HIST_VOR,h.length));loadHist.shown=show>AN5_HIST_VOR?show:0;
+  el.innerHTML=kopf+h.slice(0,show).map(anaHistRow).join('')+loadHist.rest(show,h.length,n>7);}
+// Die letzte Zeile der Gruppe. Solange nur das Fenster geladen ist, ist die Gesamtzahl unbekannt –
+// dann steht keine Zahl darin, sondern das, was sie tut.
+const AN5_HIST_VOR=5;   // so viele Tage stehen ohne Tap da – der Rest ist eine Zeile entfernt
+loadHist.rest=function(shown,total,exact){
+  if(total<=shown&&exact)return '';
+  const rest=total-shown;let h='';
+  if(rest>0||!exact)h+=rowHTML({icon:'calendar',
+    title:exact?`Alle ${fmtNum(total)} Einträge ansehen`:'Ältere Einträge ansehen',
+    sub:exact?`${fmtNum(shown)} von ${fmtNum(total)} stehen hier · die nächsten ${fmtNum(Math.min(ANA_HIST_STEP,rest))} kommen dazu`:'Lädt die vollständige Liste nach',
+    tap:'loadHistMore()'});
+  if(shown>AN5_HIST_VOR)h+=rowHTML({icon:'chevronDown',title:`Wieder auf ${fmtNum(AN5_HIST_VOR)} Einträge kürzen`,tap:'loadHist.shown=0;loadHist()'});
+  return h;};
+// Nächste Stufe anhängen: insertAdjacentHTML statt innerHTML, damit die stehenden Zeilen nicht neu
+// geparst werden. Vorher schrieb „Alle anzeigen" bis zu 1.100 Zeilen (196 KB HTML) in EINEM Stück.
+async function loadHistMore(){const el=document.getElementById('histlist');if(!el)return;
   const all=(await anaCheckinsAll())||anaCached('checkins')||[];
-  if(!document.getElementById('histrows'))return;
+  if(!document.getElementById('histlist'))return;
   const h=all.slice().sort((a,b)=>a.date<b.date?1:-1);
-  const from=rows.children.length,to=Math.min(h.length,from+ANA_HIST_STEP);
-  rows.insertAdjacentHTML('beforeend',h.slice(from,to).map(anaHistRow).join(''));
-  loadHist.shown=to;
-  const more=document.getElementById('histmore');if(more)more.outerHTML=loadHist.btn(to,h.length,true);}
-// Zeile: links Datum + die Nebenwerte klein darunter, rechts das Gewicht (bleibt einzeilig, auch auf schmalen Geräten)
+  const from=Math.max(AN5_HIST_VOR,+loadHist.shown||AN5_HIST_VOR),to=Math.min(h.length,from+ANA_HIST_STEP);
+  loadHist.shown=to>AN5_HIST_VOR?to:0;
+  el.innerHTML=an5RangeRow('Wie weit Liste und Kurve zurückreichen')
+    +h.slice(0,to).map(anaHistRow).join('')+loadHist.rest(to,h.length,true);}
+// Eine Zeile je Tag: links das Datum und darunter ALLE übrigen Werte des Tages, rechts das Gewicht.
+// D-4/G11: Die Unterzeile wird nicht mehr nach drei Werten abgeschnitten („· +1 Wert") und nicht
+// mehr per `text-overflow` gekappt – sie bricht um. Gemessen waren das 5 von 5 sichtbaren Zeilen mit
+// abgeschnittener Beschriftung (K8). G9: statt eines Gedankenstrichs steht da, was wirklich fehlt.
 function anaHistRow(c){const parts=[];
   if(c.sleep!=null)parts.push(fmtNum(c.sleep,1)+' h Schlaf');
   if(c.steps!=null)parts.push(fmtNum(Math.round(c.steps))+' Schritte');
   if(c.active_kcal!=null)parts.push(fmtNum(Math.round(c.active_kcal))+' kcal aktiv');
-  if(c.water!=null)parts.push(fmtNum(c.water,1)+' L');
-  const tap=!coachView();
-  // Seit die Uhr mitliefert, passen nicht mehr alle Werte in eine Zeile – drei reichen, den Rest
-  // zeigt das Sheet. Vorher wurde stumpf abgeschnitten und der letzte Wert war nie zu sehen.
-  // Der Rest wird benannt: ein nacktes „· +1" am Zeilenende liest sich wie eine abgeschnittene Zahl.
-  // Kurz gehalten, weil die Zeile einzeilig bleibt und sonst selbst wieder abgeschnitten würde.
-  const more=parts.length-3;
-  const sub=parts.slice(0,3).join(' · ')+(more>0?' · +'+more+(more===1?' Wert':' Werte'):'');
-  return `<div class="row${tap?' tap':''}"${tap?` role="button" tabindex="0" onclick="anaOpenCheckin('${c.date}')"`:''}><div class="rl">${fmtDate(c.date,{weekday:'short'})}<small>${sub||'nur Gewicht'}</small>${c.coach_notes?`<small class="tone-red">Coach: ${esc2(c.coach_notes)}</small>`:''}</div><div class="rr">${c.weight!=null?fmtNum(c.weight,1)+' kg':'–'}</div></div>`;}
+  if(c.water!=null)parts.push(fmtNum(c.water,1)+' L Wasser');
+  if(c.resting_hr!=null)parts.push(fmtNum(Math.round(c.resting_hr))+' bpm Ruhepuls');
+  if(c.weight==null)parts.push('Gewicht noch nicht eingetragen');
+  let sub=parts.join(' · ')||'nur das Gewicht';
+  if(c.coach_notes)sub+=' · Anmerkung deines Coachs: '+c.coach_notes;
+  return rowHTML({icon:'calendar',title:fmtDate(c.date,{weekday:'long'}),sub,
+    value:c.weight!=null?fmtNum(c.weight,1)+' kg':'',
+    tap:coachView()?null:`anaOpenCheckin('${c.date}')`});}
 // Erster Tag der letzten 7 ohne Check-in (für „Nachtragen"), sonst heute
 function anaMissingDate(){const cis=anaCached('checkins')||[];const tdy=today();
   for(let i=0;i<7;i++){const iso=anaAddDays(tdy,-i);if(!cis.some(c=>c.date===iso))return iso;}return tdy;}
@@ -717,7 +925,7 @@ async function drawAnaTraining(o){o=o||{};const b=document.getElementById('anaBo
   const keys=['analytics','insights','monthly','cardio'];
   const have=anaEntry('analytics');
   if(have)anaPaintTraining();
-  else if(!o.keep||!b.children.length)b.innerHTML=`<div class="tiles"><div class="skeleton"></div><div class="skeleton"></div></div>${skeleton(3)}`;
+  else if(!o.keep||!b.children.length)b.innerHTML=`<div class="skeleton lg"></div>${skeleton(4,'sm')}`;
   if(have&&!keys.some(k=>anaStale(k,o)))return;
   const snap=()=>JSON.stringify(keys.concat(['setlogs',an2MuscleKey()]).map(anaCached));
   const before=snap();
@@ -912,53 +1120,159 @@ function anaMuscleMsg(st){
     next:`Sobald eine Woche abgeschlossen ist, steht hier, welche Gruppe zu kurz kommt. ${corr}`};
   return {tone:'green',txt:`Jede Gruppe liegt bei mindestens ${fmtNum(ANA_MUSC_LO)} Sätzen pro Woche.`,
     next:`Lass die Verteilung so und steigere lieber das Gewicht. ${corr}`};}
-function anaMuscleHTML(a){
+// ===== D-4 · TRAINING: Sätze je Muskelgruppe statt Tonnage, sechs benannte Abschnitte =====
+// Vorher (gemessen, `tracker-training`): 3.306 px, 17 Zeilenformen, 0 `.rows-h`, 0 `.rows-f`, zwei
+// Steuerebenen, und als Leitzahl „20,4 t Volumen diese Woche" – eine Zahl, die die Beinpresse
+// belohnt und verschweigt, dass seit 88 Tagen kein Zug-Satz stattfand (DESIGN-4 6.10, Befund B22).
+// Nachher: die Einsicht als Hauptaussage, dann Sätze je Muskelgruppe, dann die Belege.
+// „t" kommt in keiner Zeile mehr vor; wo Volumen bleibt, heißt es „20.383 kg bewegt" (R15).
+function anaPaintTraining(){const b=document.getElementById('anaBody');if(!b)return;
+  const a=anaCached('analytics'),INS=anaCached('insights'),MG=anaCached('monthly'),cardio=anaCached('cardio');
+  an5SetTitle();
+  const empty=!a||!a.totals||!a.totals.totalSets;
+  const wk=anaWeek(a,INS);let h='';
+  if(empty){
+    h+=emptyState({icon:'dumbbell',title:'Noch keine Trainingsdaten',text:'Sobald Sätze eingetragen sind, siehst du hier, welche Muskelgruppe zu kurz kommt und wie sich jede Übung entwickelt.',btn:coachView()?null:{label:'Training starten',onclick:"renderWorkout.tab='kraft';go('workout')"}});
+    h+=an5GoalsHTML(INS,MG,cardio,wk);b.innerHTML=h;return;}
+  h+=an5TrainLeadHTML(a);      // 1 · die eine Aussage über dem Falz
+  // DIE EINE PRIMAERAKTION (G10/K10). Die Auswertung endet immer bei derselben Handlung: den Plan
+  // aendern. Sie steht deshalb direkt unter der Einsicht und traegt das Wort dafuer – im Coach-Blick
+  // fuehrt sie zum Plan des Athleten, nicht zum eigenen.
+  if(!coachView())h+=`<button class="btn an5-cta" onclick="renderWorkout.tab='kraft';go('workout')">${icon('dumbbell',18)} Trainingsplan öffnen</button>`;
+  h+=an5MuscleHTML(a);         // 2 · Sätze je Muskelgruppe (6.10, die Leitzahl)
+  h+=an5WeekNowHTML(a,wk);     // 3 · diese Woche in drei Zeilen
+  h+=an5ExercisesHTML(a);      // 4 · Übungen
+  h+=an5GoalsHTML(INS,MG,cardio,wk); // 5 · Ziele & Erfolge
+  h+=an5TrainRangeHTML(a);     // 6 · Zeitraum und Wochen-Verlauf
+  b.innerHTML=h;}
+
+// --- 1 · Die Hauptaussage --------------------------------------------------------------------
+// Zeile 1 sagt, WAS ist. Zeile 2 sagt, was daraus folgt. Mehr steht nicht in der Karte – die Zahl,
+// auf der beides beruht, steht als Balken direkt darunter und kann dort nachgeprüft werden.
+function an5TrainLeadHTML(a){const st=anaMuscleStats(a);if(!st||!st.rows.length)return '';
+  const msg=anaMuscleMsg(st);if(!msg||!msg.txt)return '';
+  // msg.txt und msg.next enthalten bereits durch esc2() gelaufene Muskelnamen – ein zweites esc2
+  // machte daraus „&amp;".
+  return `<div class="card lg an5-hero"><p class="an5-say">${msg.txt}</p>`
+    +(msg.next?`<p class="an5-quiet">${msg.next}</p>`:'')+`</div>`;}
+
+// --- 2 · Sätze je Muskelgruppe ----------------------------------------------------------------
+// Die eine Zeile, dazu der Balken aus 5.7 („Balken = Anteil in einer Liste") und die eine Marke für
+// „hier musst du hinschauen" aus 5.10 – mit einem WORT, nie nur als Farbe (A47).
+function an5MuscleHTML(a){
   const st=anaMuscleStats(a);
-  // Ohne zählbare Sätze bleibt die Tonnage – dann aber mit dem Etikett, das sie verdient.
+  // Ohne zählbare Sätze bleibt die bewegte Last – dann aber mit dem Etikett, das sie verdient.
   if(!st||!st.rows.length){const ms=(a&&a.muscles)||[];if(!ms.length)return '';
     const max=Math.max(...ms.map(m=>+m.volume||0))||1;
-    return `<div class="section-label">Volumen nach Muskelgruppe<span class="sl-r">gesamt</span></div><div class="card">`
-      +ms.map(m=>`<div class="ana-muscle"><div class="between meta"><span>${esc2(m.muscle)}</span><span>${anaTons(m.volume)}</span></div><div class="bar"><i style="width:${Math.round((+m.volume||0)/max*100)}%"></i></div></div>`).join('')
-      +`<div class="caption mt-3">Volumen = Gewicht × Wiederholungen über die gesamte Zeit. Es sagt nichts darüber, wie viele harte Sätze eine Gruppe bekommen hat, und zählt Übungen mit dem eigenen Körpergewicht mit 0 kg.</div></div>`;}
-  // Der Aussagesatz steht seit 2.8.0 OBEN im Segment (anaTrainLeadHTML) – „erst die Einsicht, dann die
-  // Zahl". Zweimal derselbe Satz auf einem Bildschirm liest sich wie zwei verschiedene Befunde.
-  // Ohne abgeschlossene Woche gibt es keinen Schnitt (`perWeek==null`): dann steht der Stand der
-  // laufenden Woche da, neutral gefärbt – und ausdrücklich nicht als „zu wenig".
-  const bar=r=>{const pw=r.perWeek,w=pw==null?0:Math.min(100,Math.round(pw/ANA_MUSC_HI*100));
-    const cls=pw==null?'unknown':r.sets===0?'zero':pw<ANA_MUSC_LO?'low':pw<=ANA_MUSC_HI?'ok':'high';
-    return `<div class="bar corr ${cls}"><i style="width:${w}%"></i></div>`;};
-  const val=r=>!r.sets?'0 Sätze':r.perWeek==null?pl(r.thisWeek||r.sets,'Satz','Sätze')+' diese Woche':fmtNum(r.perWeek,1)+' Sätze/Woche';
-  // Die laufende Woche steht als eigene Zahl daneben: sie zählt im Schnitt bewusst NICHT mit, und eine
-  // Zahl, die man nicht sieht, kann man nicht nachrechnen.
-  const row=r=>`<div class="ana-muscle"><div class="between meta"><span>${esc2(r.muscle)}</span><span>${val(r)}</span></div>${bar(r)}
-    <div class="caption">${r.none?`${pl(r.sets,'Satz','Sätze')} aus Übungen ohne Muskelgruppe – trag sie in der Übung nach, dann zählen sie oben mit.`
-      :r.sets?`${pl(r.sets,'Satz','Sätze')} in ${pl(st.days,'Tag','Tagen')}${r.perWeek==null?'':' · diese Woche '+fmtNum(r.thisWeek||0)}${r.vol?' · '+fmtNum(r.vol)+' kg bewegt':''}`:'nichts eingetragen'}</div></div>`;
-  // Gruppen ohne einen einzigen Satz bekommen keinen eigenen Balken (sechs leere Balken untereinander
-  // sagen weniger als eine Zeile), aber sie werden vollständig benannt – das ist der eigentliche Befund.
-  // Auch hier gilt die Reihenfolge nach Gewicht statt nach Alphabet (A-IV.6).
+    return groupHTML('Bewegte Last je Muskelgruppe',ms.map(m=>an5RowBar(
+        rowHTML({title:m.muscle,sub:'seit dem ersten Training',value:fmtNum(Math.round(+m.volume||0))+' kg'}),
+        (+m.volume||0)/max*100)),
+      'Bewegte Last ist Gewicht mal Wiederholungen über die gesamte Zeit. Sie sagt nichts darüber, wie viele harte Sätze eine Gruppe bekommen hat, und zählt Übungen mit dem eigenen Körpergewicht mit 0 kg. Sobald in deinen Übungen Muskelgruppen hinterlegt sind, steht hier stattdessen die Zahl der Sätze pro Woche.');}
+  const marke=r=>r.sets===0?{text:'nichts eingetragen',tone:'neutral'}
+    :r.perWeek==null?{text:'erste Woche läuft',tone:'neutral'}
+    :r.perWeek<ANA_MUSC_LO?{text:'zu wenig',tone:'amber'}
+    :r.perWeek<=ANA_MUSC_HI?{text:'im Korridor',tone:'green'}
+    :{text:'über dem Korridor',tone:'neutral'};
+  const bal=r=>r.perWeek==null?'unknown':r.sets===0?'zero':r.perWeek<ANA_MUSC_LO?'low':r.perWeek<=ANA_MUSC_HI?'ok':'';
+  const wert=r=>!r.sets?'0 Sätze'
+    :r.perWeek==null?pl(r.thisWeek||r.sets,'Satz','Sätze')
+    :fmtNum(r.perWeek,1)+' Sätze/Woche';
+  const unter=r=>r.none
+    ?`aus Übungen ohne hinterlegte Muskelgruppe – trag sie in der Übung nach, dann zählen sie oben mit`
+    :!r.sets?'in diesem Zeitraum kein einziger Satz'
+    :`im Schnitt · ${fmtNum(r.sets)} in ${pl(st.days,'Tag','Tagen')}`
+      +(r.perWeek==null?'':' · diese Woche '+fmtNum(r.thisWeek||0));
+  const rows=st.rows.filter(r=>r.sets>0).map(r=>an5RowBar(
+    rowHTML({title:r.muscle,sub:unter(r),value:wert(r),pill:marke(r)}),
+    r.perWeek==null?0:Math.min(100,r.perWeek/ANA_MUSC_HI*100),bal(r)));
+  // Gruppen ohne einen einzigen Satz bekommen keinen eigenen Balken (sechs leere Balken sagen
+  // weniger als eine Zeile), aber sie werden VOLLSTÄNDIG benannt – das ist der eigentliche Befund.
   const zero=an2ByWeight(st.rows.filter(r=>r.sets===0&&!r.none));
-  return `<div class="section-label">Sätze je Muskelgruppe<span class="sl-r">${st.doneWeeks?'Ø je abgeschlossener Woche · '+pl(st.doneWeeks,'Woche','Wochen'):'laufende Woche'}</span></div>
-    <div class="card">
-    ${st.rows.filter(r=>r.sets>0).map(row).join('')}
-    ${zero.length?`<div class="ana-zero">Ohne einen Satz in diesem Zeitraum: ${zero.map(r=>esc2(r.muscle)).join(', ')}.</div>`:''}
-    <div class="caption mt-3">Balkenbreite bis ${fmtNum(ANA_MUSC_HI)} Sätze pro Woche, der Strich steht bei ${fmtNum(ANA_MUSC_LO)}. Zwischen ${fmtNum(ANA_MUSC_LO)} und ${fmtNum(ANA_MUSC_HI)} harten Sätzen je Woche liegt die übliche Orientierung für Muskelaufbau – keine feste Regel. Gezählt wird der Schnitt der ${st.doneWeeks?pl(st.doneWeeks,'abgeschlossenen Woche','abgeschlossenen Wochen'):'abgeschlossenen Wochen'} – die laufende Woche bleibt draußen, sonst stünde jeder Montag als Rückstand da. Gezählt werden Arbeitssätze; Aufwärmsätze zählen nicht mit. Jeder Satz zählt auf genau eine Gruppe – der Bizeps beim Rudern ist darin nicht enthalten.${st.partial?' Gezählt wird der Zeitraum, den dein Satzprotokoll vollständig abdeckt.':''}${st.src==='logs'?' Die bewegten Kilogramm lassen Übungen mit dem eigenen Körpergewicht außen vor.':''}</div></div>`;}
-// ===== „ERST DIE EINSICHT, DANN DIE ZAHL" (A-IV.6) =====
-// Das Trainings-Segment begann mit zwei Kacheln, vier Streifen, einem Diagramm und einer Übungsliste –
-// und sagte in keiner Zeile, was davon zu tun ist (RATE-25-analysis M4: „nur Zahlen, keine Einsicht").
-// Ganz oben steht deshalb EIN Satz über die Verteilung der Sätze auf die Muskelgruppen: die Frage, die
-// eine Trainingsauswertung beantworten muss. Tonnage beantwortet sie nicht – sie belohnt die Beinpresse
-// und verschweigt, dass seit Wochen kein Zug-Training stattfand (Befund B22).
-// Die Karte ist kein zusätzlicher Weg: sie zeigt denselben Satz, der vorher über den Balken stand, nur
-// dort, wo er gelesen wird. Kein Tap kommt dazu.
-// Zeile 1 sagt, WAS ist. Zeile 2 sagt, was daraus folgt. Mehr steht nicht in der Karte – die Zahl, auf
-// der beides beruht, steht zwei Bildschirme weiter unten als Balken und kann dort nachgeprüft werden.
-function anaTrainLeadHTML(a){const st=anaMuscleStats(a);if(!st||!st.rows.length)return '';
-  const msg=anaMuscleMsg(st);if(!msg||!msg.txt)return '';
-  const sub=msg.next||'';
-  // msg.txt und msg.next enthalten bereits durch esc2() gelaufene Muskelnamen – ein zweites esc2
-  // machte daraus „&amp;". Im Coach-Blick gehören die Sätze dem Athleten, nicht dem Leser.
-  return `<div class="card an2-lead ${anaToneCls(msg.tone)}">${icon(msg.tone==='green'?'check':'alertTriangle',20)}
-    <div><div class="eyebrow">${coachView()?'Sätze':'Deine Sätze'} der letzten ${pl(st.days,'Tag','Tage')}</div><b>${msg.txt}</b>${sub?`<div class="meta mt-1">${sub}</div>`:''}</div></div>`;}
+  if(zero.length)rows.push(rowHTML({title:'Ohne einen einzigen Satz',
+    sub:zero.map(r=>r.muscle).join(', '),pill:{text:pl(zero.length,'Gruppe','Gruppen'),tone:'amber'}}));
+  return groupHTML('Sätze je Muskelgruppe',rows,
+    `Der Korridor liegt bei ${fmtNum(ANA_MUSC_LO)} bis ${fmtNum(ANA_MUSC_HI)} harten Sätzen je Muskelgruppe und Woche – eine Orientierung aus der Trainingslehre, keine feste Regel. `
+    +`Der Balken misst gegen ${fmtNum(ANA_MUSC_HI)} Sätze, der Strich in der Mitte steht bei ${fmtNum(ANA_MUSC_LO)}. `
+    +`Gezählt wird der Schnitt der ${st.doneWeeks?pl(st.doneWeeks,'abgeschlossenen Woche','abgeschlossenen Wochen'):'abgeschlossenen Wochen'}; die laufende Woche bleibt draußen, sonst stünde jeder Montag als Rückstand da. `
+    +`Aufwärmsätze zählen nicht mit. Jeder Satz zählt auf genau eine Gruppe – der Bizeps beim Rudern und der Trizeps beim Bankdrücken sind darin nicht enthalten.`
+    +(st.partial?' Gezählt wird der Zeitraum, den dein Satzprotokoll vollständig abdeckt.':'')
+    +(st.src==='logs'?' Die bewegten Kilogramm lassen Übungen mit dem eigenen Körpergewicht außen vor.':''));}
+
+// --- 3 · Diese Woche --------------------------------------------------------------------------
+// Aus zwei Kacheln („2/4 Trainings diese Woche" · „20,4 t Volumen diese Woche") und einer grauen
+// Zeile „Gesamt: 17 Trainingstage · 188 Sätze · 139 t" werden drei Zeilen und ein Fusstext. Die
+// laufende Woche bekommt kein Urteil und keine Richtung, sondern den Stand (P4).
+function an5WeekNowHTML(a,wk){const tw=wk.tw,lw=wk.lw;
+  const tag=((new Date(today()+'T00:00:00').getDay()+6)%7)+1,laeuft=tag<7;
+  const offen=Math.max(0,wk.target-tw.sessions);
+  const rows=[
+    rowHTML({icon:'calendar',title:'Einheiten',
+      sub:`von ${pl(wk.target,'geplanten Einheit','geplanten Einheiten')}${laeuft?` · Tag ${fmtNum(tag)} von 7`:''}`,
+      value:fmtNum(tw.sessions),
+      pill:tw.sessions>=wk.target?{text:'Wochenziel erreicht',tone:'green'}
+        :laeuft?{text:offen===1?'noch eine offen':`noch ${fmtNum(offen)} offen`,tone:'neutral'}
+        :{text:offen===1?'eine gefehlt':`${fmtNum(offen)} gefehlt`,tone:'amber'}}),
+  ];
+  // Die Satzzahl der laufenden Woche steht nicht in jeder Antwort – eine 0 waere dort keine Zahl,
+  // sondern eine Behauptung (G9). Dann bleibt die Zeile weg.
+  if(tw.sets!=null)rows.push(rowHTML({icon:'dumbbell',title:'Sätze',sub:'Arbeitssätze dieser Woche, ohne Aufwärmsätze',value:fmtNum(tw.sets)}));
+  rows.push(rowHTML({icon:'scale',title:'Bewegte Last',
+      sub:`Gewicht mal Wiederholungen${lw.volume?` · Vorwoche ${fmtNum(Math.round(lw.volume))} kg`:''}`,
+      value:fmtNum(Math.round(tw.volume||0))+' kg'}));
+  const T=(a&&a.totals)||{};
+  return groupHTML('Diese Woche',rows,
+    `Insgesamt stehen ${pl(T.totalSessions||0,'Trainingstag','Trainingstage')}, ${pl(T.totalSets||0,'Satz','Sätze')} und ${fmtNum(Math.round(T.totalVolume||0))} kg bewegte Last in deinem Protokoll. `
+    +'Übungen mit dem eigenen Körpergewicht zählen dabei 0 kg – die App kennt dein Körpergewicht in der Übung nicht.'
+    +(laeuft?' Solange die Woche läuft, steht hier der Stand und kein Urteil: Tag 1 von 7 ist kein Einbruch.':''));}
+
+// --- 4 · Übungen ------------------------------------------------------------------------------
+// Die Zeile beantwortet, was ein Athlet vor dem Satz wissen will, ohne einen einzigen Tap: wann
+// zuletzt, mit welchem Gewicht, wie viele Wiederholungen. „e1RM" heißt ausgeschrieben
+// „geschätztes Maximum" (R15/G9); der Fusstext erklärt, wie es entsteht.
+function an5ExercisesHTML(a){
+  const exs=(a.exercises||[]).map(e=>({...e,gain:Math.round(((+e.lastWeight||0)-(+e.firstWeight||0))*10)/10}))
+    .sort((x,y)=>{const nx=x.sessions<2,ny=y.sessions<2;if(nx!==ny)return nx?1:-1;return y.gain-x.gain;});
+  if(!exs.length)return groupHTML('Übungen',[rowHTML({icon:'dumbbell',title:'Noch keine Übung mit Sätzen',sub:'Ab dem ersten protokollierten Satz steht hier jede Übung mit ihrer Entwicklung'})],'');
+  const vari=anaExVariants(exs); // gleichnamige Übungen unterscheidbar machen
+  let e1=false;
+  const rows=exs.map(e=>{
+    const v=vari[e.id]||'';
+    const teile=[];
+    if(e.lastDate&&+e.lastWeight>0)teile.push(`zuletzt ${fmtDate(e.lastDate,{weekday:'short'})} · ${fmtNum(e.lastWeight,1)} kg`+(+e.repsAtTop>0?` × ${fmtNum(e.repsAtTop)}`:''));
+    teile.push(pl(e.sessions,'Einheit','Einheiten'));
+    if(e.muscle)teile.push(e.muscle);
+    // Das geschätzte Maximum erscheint ab Stufe 2 – für einen Einsteiger ist es ein Rätsel.
+    if(an2Level()>=2&&e.best1rm){teile.push('geschätztes Maximum '+fmtNum(e.best1rm)+' kg');e1=true;}
+    const wert=e.sessions<2?'neu':e.gain>0?`+${fmtNum(e.gain,1)} kg`:e.gain<0?`${fmtNum(e.gain,1)} kg`:'unverändert';
+    return rowHTML({title:e.name+(v?' · '+v:''),sub:teile.join(' · '),value:wert,
+      tap:`anaExHistory(${e.id},'${esc(e.name+(v?' · '+v:''))}')`});});
+  let foot='Sortiert nach Fortschritt: oben steht, was am meisten zugelegt hat. „102,5 kg × 10" heißt: 102,5 Kilogramm mit zehn Wiederholungen im schwersten Arbeitssatz. Die Zahl rechts ist die Veränderung deines Arbeitsgewichts seit der ersten Einheit, nicht die Last eines einzelnen Satzes.';
+  if(e1)foot+=' Das geschätzte Maximum rechnet aus deinem besten Arbeitssatz hoch, was du einmal schaffen würdest – geschätzt, nicht gemessen, und nur innerhalb derselben Übung vergleichbar.';
+  return groupHTML('Übungen',rows,foot);}
+
+// --- 5 · Ziele & Erfolge ----------------------------------------------------------------------
+// Vier `.stat-strip` (eine eigene Zeilenform mit eigenem Chevron) werden vier `.row` (4.6).
+// Kürzel wie „2/4" und „13/35" stehen ausgeschrieben da (G9).
+function an5GoalsHTML(INS,MG,cardio,wk){
+  const rows=[];
+  rows.push(rowHTML({icon:'target',title:'Monatsziel',
+    sub:(MG&&MG.parts)?(MG.allReached?'Alle Teilziele dieses Monats erreicht':`${fmtNum(MG.reachedCount)} von ${fmtNum(MG.parts.length)} Teilzielen geschafft`):'Drei Teilziele je Monat',
+    value:(MG&&MG.parts&&MG.allReached)?'erreicht':'',tap:'openMonthlyGoal()'}));
+  const serie=INS&&INS.streaks&&INS.streaks.weekGoal;
+  rows.push(rowHTML({icon:'calendar',title:'Wochenziel',
+    sub:`${fmtNum(wk.tw.sessions)} von ${pl(wk.target,'geplanten Einheit','geplanten Einheiten')} diese Woche`
+      +(serie?` · ${pl(serie,'Woche','Wochen')} in Folge geschafft`:''),
+    tap:"renderWorkout.tab='kraft';go('workout')"}));
+  if(INS){const list=INS.achievements||[];
+    rows.push(rowHTML({icon:'star',title:`Level ${fmtNum(INS.level||1)} · ${INS.levelTitle||'Rookie'}`,
+      sub:`${fmtNum(list.filter(x=>x.done).length)} von ${fmtNum(list.length)} Erfolgen · ${fmtNum(INS.xp||0)} Erfahrungspunkte`,
+      tap:'openAchievements()'}));}
+  const cw=anaCardioWeek(cardio);
+  rows.push(rowHTML({icon:'heart',title:'Cardio diese Woche',
+    sub:cw.n?`${pl(cw.n,'Einheit','Einheiten')}${cw.km?' · '+fmtNum(cw.km,1)+' km':''} · ${fmtNum(Math.round(cw.kcal))} kcal`:'Noch keine Einheit eingetragen',
+    value:cw.n?fmtNum(cw.min)+' min':'',tap:"renderWorkout.tab='cardio';go('workout')"}));
+  return groupHTML('Ziele & Erfolge',rows,
+    'Erfahrungspunkte gibt es für Sätze, Check-ins, Cardio, Fotos und Maße – am meisten für neue Bestleistungen. Das Monatsziel setzt die App aus deinem Rhythmus; dein Coach kann es überschreiben.');}
 
 // ===== DIE WOCHENREIHE IST EIN KALENDER, KEINE LISTE VON TRAININGSWOCHEN (A-IV.6) =====
 // `GET /api/analytics` baut `weeks` aus einer Gruppierung über die Trainingstage: eine Woche OHNE
@@ -1026,73 +1340,42 @@ function an2VolumeSay(weeks,running){
   if(Math.abs(pct)<10)return {tone:'muted',txt:`${wk}: ${anaTons(v)} – so viel wie im Schnitt der ${nRef}.`};
   return {tone:pct>0?'green':'amber',txt:`${wk}: ${anaTons(v)} – ${fmtNum(Math.abs(pct))} % ${pct>0?'mehr':'weniger'} als im Schnitt der ${nRef}.`};}
 
-function anaPaintTraining(){const b=document.getElementById('anaBody');if(!b)return;
-  const a=anaCached('analytics'),INS=anaCached('insights'),MG=anaCached('monthly'),cardio=anaCached('cardio');
-  const empty=!a||!a.totals||!a.totals.totalSets;
-  const wk=anaWeek(a,INS);let h='';
-  if(!empty){const tw=wk.tw,lw=wk.lw;const dv=(tw.volume||0)-(lw.volume||0);
-    // Die laufende Woche ist keine fertige Woche. Bis 2.7.0 stellte diese Kachel am Montag „2,0 t" neben
-    // „Vorwoche 27,3 t", malte den Pfeil nach unten und tönte ihn amber – ein Einbruch von 92 %, der
-    // keiner ist, sondern Tag 1 von 7. Genau diese Art Fehlalarm soll die Welle abstellen (P4): solange
-    // die Woche läuft, gibt es keinen Ton und keine Richtung, sondern den Stand („Tag 1 von 7"). Der
-    // Aussagesatz über der Kurve rechnet schon seit dieser Version nur mit abgeschlossenen Wochen
-    // (`an2VolumeSay`) – die Kachel folgt jetzt derselben Regel, statt ihr zu widersprechen.
-    const wkDay=((new Date(today()+'T00:00:00').getDay()+6)%7)+1,wkRun=wkDay<7;
-    const vCls=(wkRun||!lw.volume)?'':(dv>0?'up':dv<0?'amber':'');
-    const vIc=wkRun?'trendFlat':(dv>0?'trendUp':dv<0?'trendDown':'trendFlat');
-    const vTxt=wkRun?`Tag ${wkDay} von 7 · Vorwoche ${anaTons(lw.volume)}`:`Vorwoche ${anaTons(lw.volume)}`;
-    h+=`<div class="tiles" id="anaTiles">
-      <div class="tile"><div class="v">${fmtNum(tw.sessions)}<em> / ${fmtNum(wk.target)}</em></div><div class="l">Trainings diese Woche</div><div class="trend ${tw.sessions>=wk.target?'up':''}">${tw.sessions>=wk.target?icon('check',14)+' Wochenziel erreicht':`${pl(wk.target-tw.sessions,'Training','Trainings')} offen`}</div></div>
-      <div class="tile"><div class="v">${anaTons(tw.volume)}</div><div class="l">Volumen diese Woche</div><div class="trend ${vCls}">${icon(vIc,14)} ${vTxt}</div></div>
-    </div>
-    <div class="meta mb-3 ana-lifetime">Gesamt: ${pl(a.totals.totalSessions,'Trainingstag','Trainingstage')} · ${pl(a.totals.totalSets,'Satz','Sätze')} · ${anaTons(a.totals.totalVolume)}</div>`;
-    h+=anaTrainLeadHTML(a);}
-  // Ohne Trainingsdaten steht der Handlungsaufruf oben, die Ziele darunter
-  if(empty){h+=emptyState({icon:'dumbbell',title:'Noch keine Trainingsdaten',text:'Sobald Sätze eingetragen sind, erscheinen hier Volumen, Häufigkeit und der Verlauf jeder Übung.',btn:coachView()?null:{label:'Training starten',onclick:"renderWorkout.tab='kraft';go('workout')"}});
-    h+=anaGoalsStrip(INS,MG,cardio,wk);b.innerHTML=h;return;}
-  h+=anaGoalsStrip(INS,MG,cardio,wk);
-  // Wochen-Volumen (laufende Woche als hohler Punkt) – Zeitraum aus den Chips (vorher: immer alles).
-  if(a.weeks&&a.weeks.length>=2){
-    // `nw` ist die Zahl der KALENDERWOCHEN, die der Chip verspricht (4 W = 4, 3 M = 13, 1 J = 52) –
-    // mit `an2WeekSeries()` steht darunter jetzt auch genau diese Zahl von Punkten, Lücken inbegriffen.
-    const nw=Math.max(2,Math.round(an2Range().days/7));
-    const weeks=an2WeekSeries(a,nw);
-    if(weeks.length>=2){
-    const cur=weeks[weeks.length-1];const running=cur.week===anaMonday(today());
-    const gaps=weeks.filter(w=>w.gap).length;
-    h+=an2ChipsHTML();
-    h+=`<div class="chart-card" id="chart-volume"><div class="ch-h"><div class="t">Wochen-Volumen</div><div class="v">${running?'läuft: ':'zuletzt '}${anaTons(cur.volume)}</div></div>${an2SayHTML(an2WeekSay(a))}${lineChart(weeks.map(w=>({date:w.week,value:w.volume/1000})),'t',{partialLast:running,tickFmt:v=>fmtNum(v,Number.isInteger(v)?0:1)+' t'})}<div class="caption mt-2">Gewicht × Wiederholungen pro Woche · Übungen mit dem eigenen Körpergewicht zählen dabei 0 kg${running?' · hohler Punkt = laufende Woche':''}${gaps?` · ${pl(gaps,'Woche','Wochen')} ohne Training stehen als 0`:''}</div></div>`;}}
-  // Übungen: nach Fortschritt sortiert, Drilldown
-  const exs=(a.exercises||[]).map(e=>({...e,gain:Math.round(((+e.lastWeight||0)-(+e.firstWeight||0))*10)/10}))
-    .sort((x,y)=>{const nx=x.sessions<2,ny=y.sessions<2;if(nx!==ny)return nx?1:-1;return y.gain-x.gain;});
-  h+=`<div class="section-label">Übungen<span class="sl-r">nach Fortschritt</span></div>`;
-  const vari=anaExVariants(exs); // gleichnamige Übungen unterscheidbar machen
-  // e1RM erscheint ab Stufe 2. Wird es überhaupt gezeigt, steht die Erklärung EINMAL unter der Liste –
-  // nicht „(geschätzt)" hinter jeder der acht Zeilen. Gemessen bei 390 px kostete der Zusatz je Zeile
-  // eine dritte Textzeile (Umbruch), also acht zusätzliche Zeilen für dieselbe eine Auskunft.
-  let anyE1=false;
-  if(exs.length){h+='<div class="rows">'+exs.map(e=>{
-      const t=e.sessions<2?`<span class="muted-2">neu</span>`:e.gain>0?`<span class="trend up">${icon('trendUp',14)} +${fmtNum(e.gain,1)} kg</span>`:e.gain<0?`<span class="trend amber">${icon('trendDown',14)} ${fmtNum(e.gain,1)} kg</span>`:`<span class="muted-2">${icon('trendFlat',14)} stabil</span>`;
-      const v=vari[e.id]||'';const full=e.name+(v?' · '+v:'');
-      // „zuletzt Fr., 11. Sept. · 92,5 kg × 8" statt „9 Einheiten · Quads": lastDate, lastWeight und
-      // repsAtTop liegen seit 2.1 in der Antwort und standen auf keinem Bildschirm (Befund M4/M10).
-      // Das ist die Zeile, die ein Athlet vor dem Satz wissen will – und sie kostet keinen Tap.
-      const last=(e.lastDate&&+e.lastWeight>0)?`zuletzt ${fmtDate(e.lastDate,{weekday:'short'})} · ${fmtNum(e.lastWeight,1)} kg${+e.repsAtTop>0?' × '+fmtNum(e.repsAtTop):''}`:'';
-      // „1RM ~110 kg" ist für einen Einsteiger ein Rätsel (Befund Anfänger: unerklärte Fachbegriffe).
-      const e1=(an2Level()>=2&&e.best1rm)?' · e1RM ~'+fmtNum(e.best1rm)+' kg':'';
-      if(e1)anyE1=true;
-      const meta=pl(e.sessions,'Einheit','Einheiten')+(e.muscle?' · '+esc2(e.muscle):'')+e1;
-      // Zwei Zeilen nur, wenn es zwei zu sagen gibt: ohne letzten Satz (neue Übung) bleibt es bei einer,
-      // statt „undefined" darunterzuschreiben.
-      const sub=last?`<small>${last}</small><small class="muted-2">${meta}</small>`:`<small>${meta}</small>`;
-      return `<div class="row tap" role="button" tabindex="0" onclick="anaExHistory(${e.id},'${esc(full)}')"><div class="rl">${esc2(e.name)}${v?` <span class="ana-vari">${esc2(v)}</span>`:''}${sub}</div><div class="rr">${t}</div></div>`;}).join('')+'</div>';}
-  else h+='<div class="note">Noch keine Übungen mit Sätzen.</div>';
-  if(anyE1)h+=`<div class="caption mt-2">e1RM = geschätztes Einer-Maximum, aus deinem besten Satz gerechnet – nicht gemessen. Die Zahl neben der Übung ist die Veränderung deines Arbeitsgewichts.</div>`;
-  // Sätze je Muskelgruppe statt Tonnage als Leitzahl (D17); ohne zählbare Sätze bleibt die Tonnage,
-  // dann aber ehrlich beschriftet.
-  h+=anaMuscleHTML(a);
-  if(coachView())h+=`<div class="note mt-4">Als Coach siehst du hier dieselben Zahlen wie dein Athlet – nutze Volumen-Trend und Übungsverlauf, um den Plan gezielt anzupassen.</div>`;
-  b.innerHTML=h;}
+
+// --- 6 · Zeitraum und Wochen-Verlauf ----------------------------------------------------------
+function an5TrainRangeHTML(a){
+  const rows=[an5RangeRow('Gilt für die Sätze je Muskelgruppe und für den Wochen-Verlauf')];
+  if(a&&a.weeks&&a.weeks.length>=2){
+    const ser=an2WeekSeries(a,Math.max(2,Math.round(an2Range().days/7)));
+    const cur=ser.length?ser[ser.length-1]:null;
+    rows.push(rowHTML({icon:'chartLine',title:'Wochen-Verlauf',
+      sub:cur?(cur.week===anaMonday(today())?'laufende Woche':'zuletzt abgeschlossene Woche')+`: ${fmtNum(Math.round(cur.volume||0))} kg bewegt`:'Bewegte Last Woche für Woche',
+      tap:'an5OpenWeeks()'}));}
+  return groupHTML('Zeitraum',rows,
+    'Der Zeitraum bestimmt, wie weit die Zahlen auf dieser Seite zurückreichen. Er gilt auch im Bereich Körper und bleibt gespeichert, bis du ihn wieder änderst.');}
+
+// --- Push-Seite „Wochen-Verlauf" (Eltern: Analyse) --------------------------------------------
+// Die Volumenkurve war bis 3.0.2 die zweitgrößte Fläche im Trainings-Segment und trug als einzige
+// Zahl „t" – ein Kürzel ohne Erklärung. Sie bleibt (G5: nichts verschwindet), aber sie ist nicht
+// mehr die Leitzahl: sie bekommt einen eigenen Bildschirm mit Namen, Rückweg und Fusstext.
+function an5OpenWeeks(){const a=anaCached('analytics');if(!a||typeof pushPage!=='function')return;
+  AN5_PAGE=null;
+  pushPage('ana-weeks','Wochen-Verlauf','Analyse',an5WeeksBodyHTML(a),{sub:an2Range().wort});}
+function an5WeeksBodyHTML(a){
+  const nw=Math.max(2,Math.round(an2Range().days/7));
+  const weeks=an2WeekSeries(a,nw);
+  if(weeks.length<2)return emptyState({icon:'chartLine',title:'Zu wenig Wochen',text:'Ab zwei Wochen mit Training entsteht hier die Kurve.'});
+  const cur=weeks[weeks.length-1],laeuft=cur.week===anaMonday(today());
+  const luecken=weeks.filter(w=>w.gap).length;
+  return `<div class="chart-card"><div class="ch-h"><div class="t">${laeuft?'laufende Woche':'zuletzt'}: ${fmtNum(Math.round(cur.volume||0))} kg</div></div>`
+    +an2SayHTML(an2WeekSay(a))
+    +lineChart(weeks.map(w=>({date:w.week,value:w.volume/1000})),'t',{partialLast:laeuft,tickFmt:v=>fmtNum(v,Number.isInteger(v)?0:1)+' t'})
+    +`</div>`
+    +groupHTML('Zeitraum',[an5RangeRow('Wie viele Wochen die Kurve zeigt')],
+      'Ein Punkt ist eine Kalenderwoche. Gerechnet wird Gewicht mal Wiederholungen; „1 t" auf der Achse sind 1.000 kg bewegte Last. '
+      +'Übungen mit dem eigenen Körpergewicht zählen dabei 0 kg. '
+      +(laeuft?'Der hohle Punkt ganz rechts ist die laufende Woche – sie ist noch nicht fertig. ':'')
+      +(luecken?`${pl(luecken,'Eine Woche','Wochen')} ohne Training stehen als 0 im Bild, statt dass die Linie quer darüber zieht. `:'')
+      +'Die bewegte Last sagt nichts darüber, welche Muskelgruppe wie viele harte Sätze bekommen hat – dafür steht der Abschnitt „Sätze je Muskelgruppe".');}
 // Ein Plan darf dieselbe Übung mehrfach enthalten (z. B. „Leg Press" zweimal an einem Tag). In der Liste
 // wären die Zeilen sonst nicht auseinanderzuhalten -> Zusatz nur bei Namensgleichheit: der Trainingstag aus
 // dem Plan (wenn er eindeutig ist), sonst eine stabile Nummer („Variante 2", nach Übungs-ID sortiert).
@@ -1105,20 +1388,9 @@ function anaExVariants(exs){const cnt={};(exs||[]).forEach(e=>{cnt[e.name]=(cnt[
     out[e.id]=uniqueDay?dn:'Variante '+n;});
   return out;}
 
-// „Ziele & Erfolge": Monatsziel · Wochenziel · Level/Erfolge · Cardio – alles aus dem Analyse-Tab erreichbar
-function anaGoalsStrip(INS,MG,cardio,wk){
-  // Kein eigener onkeydown mehr: der eigene Handler kannte nur Enter, nicht die Leertaste – die scrollte
-  // stattdessen die Seite. Der delegierte Auslöser in shell.js (A-II.5) macht beides und genau einmal;
-  // sein Schutz Nr. 2 ([onkeydown]) hätte ihn hier sonst übersprungen (A-II.6).
-  const strip=(ic,t,s,oc)=>`<div class="stat-strip" role="button" tabindex="0" onclick="${oc}"><div class="si">${icon(ic,24)}</div><div class="sc"><div class="st">${t}</div><div class="ss">${s}</div></div><div class="sx">${icon('chevronRight',18)}</div></div>`;
-  let h=`<div class="section-label">Ziele &amp; Erfolge</div>`;
-  h+=strip('target','Monatsziel',(MG&&MG.parts)?(MG.allReached?'Erreicht – stark':`${fmtNum(MG.reachedCount)} von ${fmtNum(MG.parts.length)} geschafft`):'Öffnen','openMonthlyGoal()');
-  const streak=INS&&INS.streaks&&INS.streaks.weekGoal;
-  h+=strip('calendar','Wochenziel',`${fmtNum(wk.tw.sessions)}/${fmtNum(wk.target)} Trainings${streak?` · ${pl(streak,'Woche','Wochen')} in Folge`:''}`,"renderWorkout.tab='kraft';go('workout')");
-  if(INS){const list=INS.achievements||[];h+=strip('star',`Level ${fmtNum(INS.level||1)} · ${esc2(INS.levelTitle||'Rookie')}`,`${fmtNum(list.filter(x=>x.done).length)}/${fmtNum(list.length)} Erfolge · ${fmtNum(INS.xp||0)} XP`,'openAchievements()');}
-  const cw=anaCardioWeek(cardio);
-  h+=strip('heart','Cardio diese Woche',cw.n?`${fmtNum(cw.min)} min${cw.km?' · '+fmtNum(cw.km,1)+' km':''} · ${fmtNum(Math.round(cw.kcal))} kcal`:'Noch keine Einheit',"renderWorkout.tab='cardio';go('workout')");
-  return h;}
+// (Die frühere Funktion anaGoalsStrip stand hier: vier `.stat-strip` mit eigenem Chevron und eigener Zeilenhoehe.
+//  DESIGN-4 4.6 macht daraus `.row` – der Ersatz heisst `an5GoalsHTML()` und steht oben im
+//  Trainings-Abschnitt, bei den anderen fuenf Gruppen.)
 
 // Übungs-Verlauf aus der Analyse: Gewicht + Wiederholungen (lineChart2) und die letzten Einheiten als Zeilen.
 // (openExHistory in training.js bleibt für den Trainings-Tab; hier die Analyse-Variante mit denselben Daten.)
@@ -1142,7 +1414,7 @@ async function anaExHistory(exId,name){name=name||'Übung';openSheet(name,'<div 
     return same?`${fmtNum(ss[0].weight,1)} kg × ${ss.map(x=>fmtNum(x.reps)).join('/')}`:ss.map(x=>`${fmtNum(x.weight,1)}×${fmtNum(x.reps)}`).join(' · ');};
   let h=`<div class="card grid-3 center mb-3">
       <div><div class="num-md">${fmtNum(best,1)}<em class="meta"> kg</em></div><div class="caption">Bestleistung</div></div>
-      <div><div class="num-md ${diff>0?'tone-green':diff<0?'tone-amber':''}">${diff>0?'+':''}${fmtNum(diff,1)}<em class="meta"> kg</em></div><div class="caption">seit Beginn</div></div>
+      <div><div class="num-md">${diff>0?'+':''}${fmtNum(diff,1)}<em class="meta"> kg</em></div><div class="caption">seit Beginn</div></div>
       <div><div class="num-md">${fmtNum(sess.length)}</div><div class="caption">${sess.length===1?'Einheit':'Einheiten'}</div></div></div>`;
   if(sess.length>=2){
     // Beide Achsen vorgeben: lineChart2 leitet die rechte Beschriftung aus den linken Linien ab – ohne
@@ -1151,10 +1423,13 @@ async function anaExHistory(exId,name){name=name||'Übung';openSheet(name,'<div 
     if(typeof _axis5==='function'){const A1=_axis5(sess.map(s=>s.top),0.5),A2=_axis5(sess.map(s=>s.reps),1);
       o={domain1:A1.domain,step1:A1.step,tickFmt1:v=>fmtNum(v,Number.isInteger(v)?0:1),
          domain2:A2.domain,step2:A2.step,tickFmt2:v=>fmtNum(Math.round(v))};}
-    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Top-Gewicht und Wiederholungen</div><div class="v">${fmtNum(lastS.top,1)} kg × ${fmtNum(lastS.reps)} zuletzt</div></div>${lineChart2(sess.map(s=>({date:s.date,v1:s.top,v2:s.reps})),'Gewicht','kg','Wdh.','',o)}</div>`;}
+    h+=`<div class="chart-card"><div class="ch-h"><div class="t">Top-Gewicht und Wiederholungen</div><div class="v">${fmtNum(lastS.top,1)} kg × ${fmtNum(lastS.reps)} zuletzt</div></div>${lineChart2(sess.map(s=>({date:s.date,v1:s.top,v2:s.reps})),'Gewicht','kg','Wiederh.','',o)}</div>`;}
   else h+=`<div class="note mb-3">Erste Einheit: ${fmtNum(first.top,1)} kg × ${fmtNum(first.reps)} am ${fmtDate(first.date,{month:'long'})} – ab der zweiten Einheit erscheint hier die Kurve.</div>`;
   h+=an2E1rmHTML(sess,r.data);
-  h+=`<div class="section-label">Letzte Einheiten</div><div class="rows">`+sess.slice(-3).reverse().map(s=>`<div class="row"><div class="rl">${fmtDate(s.date,{weekday:'short'})}<small>${setsTxt(s)}</small></div><div class="rr">${fmtNum(s.top,1)} kg × ${fmtNum(s.reps)}</div></div>`).join('')+`</div>`;
+  h+=groupHTML('Letzte Einheiten',sess.slice(-3).reverse().map(s=>rowHTML({icon:'calendar',
+      title:fmtDate(s.date,{weekday:'long'}),sub:setsTxt(s),
+      value:`${fmtNum(s.top,1)} kg × ${fmtNum(s.reps)}`})),
+    'Rechts steht der schwerste Arbeitssatz des Tages mit seinen Wiederholungen, darunter alle Sätze dieses Tages. Aufwärmsätze sind nicht dabei.');
   openSheet(name,h);}
 // ===== B-I.5 · e1RM-VERLAUF JE ÜBUNG, MIT BENANNTER FORMEL =====
 // Bis 2.9.0 stand das geschätzte Einer-Maximum als EINE Zahl neben der Übung („e1RM ~97 kg", ab
@@ -1184,9 +1459,12 @@ function an2E1rmHTML(sess,data){
   const rows=(sess||[]).filter(s=>s&&s.e1rm>0).map(s=>({date:s.date,value:s.e1rm,reps:s.reps,top:s.top}));
   const formula=String((data&&data.formula)||AN2_E1RM_FORMULA);
   const maxReps=+((data&&data.repsMax))>0?+data.repsMax:AN2_E1RM_MAXREPS;
-  const foot=`<div class="caption mt-2">e1RM = geschätztes Einer-Maximum nach ${esc2(formula)}: Gewicht × (1 + Wiederholungen ÷ 30). Gerechnet aus deinem besten Arbeitssatz je Trainingstag, nur bis ${fmtNum(maxReps)} Wiederholungen – darüber wird die Formel unbrauchbar. Aufwärmsätze zählen nicht. Die Zahl ist geschätzt, nicht gemessen, und nur innerhalb dieser Übung vergleichbar.</div>`;
+  // D-4/G8: aus der `.caption` in der Karte wird der Fusstext unter der Gruppe – und aus dem
+  // Kuerzel „e1RM" das Wort „geschätztes Maximum" (R15). Die Formel steht weiter darin: wer sie
+  // kennt, findet sie; wer sie nicht kennt, braucht sie nicht zu kennen.
+  const foot=`<p class="rows-f">Das geschätzte Maximum sagt, welches Gewicht du voraussichtlich genau einmal schaffen würdest. Gerechnet wird es nach ${esc2(formula)}: Gewicht × (1 + Wiederholungen ÷ 30), aus deinem besten Arbeitssatz je Trainingstag und nur bis ${fmtNum(maxReps)} Wiederholungen – darüber wird die Formel unbrauchbar. Aufwärmsätze zählen nicht. Die Zahl ist geschätzt, nicht gemessen, und nur innerhalb dieser Übung vergleichbar.</p>`;
   // Kein einziger schätzbarer Satz (alles über der Grenze): das ist eine Auskunft, kein leerer Kasten.
-  if(!rows.length)return `<div class="note mb-3">Für diese Übung gibt es noch keinen e1RM: geschätzt wird nur aus Arbeitssätzen bis ${fmtNum(maxReps)} Wiederholungen.</div>`;
+  if(!rows.length)return `<div class="note mb-3">Für diese Übung gibt es noch kein geschätztes Maximum: geschätzt wird nur aus Arbeitssätzen bis ${fmtNum(maxReps)} Wiederholungen.</div>`;
   const last=rows[rows.length-1],first=rows[0];
   const best=rows.reduce((a,b)=>b.value>a.value?b:a);
   // Richtung aus dem MEDIAN der ersten und der letzten drei schätzbaren Einheiten, nicht aus
@@ -1196,7 +1474,7 @@ function an2E1rmHTML(sess,data){
   const med=xs=>(typeof wk2Median==='function')?wk2Median(xs):xs.slice().sort((a,b)=>a-b)[Math.floor(xs.length/2)];
   const k=Math.min(3,Math.floor(rows.length/2))||1;
   const d=Math.round((med(rows.slice(-k).map(r=>r.value))-med(rows.slice(0,k).map(r=>r.value)))*10)/10;
-  if(rows.length<2)return `<div class="note mb-3">e1RM ${fmtNum(last.value,1)} kg aus ${fmtNum(last.top,1)} kg × ${fmtNum(last.reps)} – ab der zweiten schätzbaren Einheit erscheint hier der Verlauf.</div>${foot}`;
+  if(rows.length<2)return `<div class="note mb-3">Geschätztes Maximum ${fmtNum(last.value,1)} kg aus ${fmtNum(last.top,1)} kg × ${fmtNum(last.reps)} – ab der zweiten schätzbaren Einheit erscheint hier der Verlauf.</div>${foot}`;
   // Der eine Satz über der Kurve – Richtung und Tempo, nicht noch einmal die Zahl aus der Kopfzeile.
   const seit=`seit ${fmtDate(first.date,{month:'long'})}`;
   const say=Math.abs(d)<0.5
@@ -1210,9 +1488,9 @@ function an2E1rmHTML(sess,data){
   // (2,5 kg Scheibe) noch als Schritt und nicht als Absturz erscheint.
   const vs=rows.map(r=>r.value),lo=Math.min(...vs),hi=Math.max(...vs),o={avg:0};
   if(hi-lo<5){const c=(hi+lo)/2,d0=Math.max(0,Math.floor((c-5)/5)*5);o.domain=[d0,d0+10];o.step=5;}
-  return `<div class="chart-card mb-3"><div class="ch-h"><div class="t">e1RM-Verlauf</div><div class="v">${head}</div></div>`
+  return `<h2 class="rows-h">Geschätztes Maximum</h2><div class="chart-card"><div class="ch-h"><div class="t">${head}</div></div>`
     +an2SayHTML(say)+metricChart(rows,'kg',null,null,o)
-    +`<div class="caption mt-2">Punkte = bester Arbeitssatz je Trainingstag, zuletzt ${fmtNum(last.top,1)} kg × ${fmtNum(last.reps)}.</div>${foot}</div>`;}
+    +`</div>${foot.replace('<p class="rows-f">','<p class="rows-f">Jeder Punkt ist der beste Arbeitssatz eines Trainingstages, zuletzt '+fmtNum(last.top,1)+' kg mit '+pl(last.reps,'Wiederholung','Wiederholungen')+'. ')}`;}
 
 // Sätze einzelner Trainingstage (für die Zeilen „Letzte Einheiten"): pro Datum eine kleine, ungekappte Abfrage.
 async function anaExSets(exId,dates){const out={};
@@ -1259,7 +1537,11 @@ async function drawAnaWeek(o){o=o||{};const b=document.getElementById('anaBody')
   // aufzublitzen und ein schneller zweiter Tipp in eine Woche führt, die es nie gab.
   const first=anaCache().weekFirst||null;
   // Beim Wochenwechsel bleibt die Kopfzeile stehen und nur der Rumpf lädt – sonst springt die Ansicht.
-  if(!have&&(!o.keep||!b.children.length))b.innerHTML=anaPaintWeek.head(start,(first&&start<=first)?null:anaAddDays(start,-7),start<mon?anaAddDays(start,7):null)+skeleton(3,'lg');
+  // D-4: Die Kopfzeile mit den zwei Pfeilknoepfen gibt es nicht mehr – die angezeigte Woche steht im
+  // Untertitel des grossen Titels, und der wird sofort gesetzt. Im Ladezustand stehen deshalb nur
+  // Platzhalter in der Form dessen, was kommt (5.11).
+  an5SetTitle();
+  if(!have&&(!o.keep||!b.children.length))b.innerHTML=skeleton(3,'lg');
   if(have&&!anaStale(key,o))return;
   const before=have?JSON.stringify(have.data):null;
   // Hier absichtlich ohne anaFetch(): der Statuscode wird gebraucht. Ein 400 heißt „so weit reicht der
@@ -1344,25 +1626,8 @@ function wk2Adherence(n,srv){
 // gestellt hat (Befund B8). Die Karte trägt deshalb NUR das, was neu ist: den Prozentsatz, das Band und
 // den Satz, woher beides kommt. Im Gegenzug entfallen unten die Zeile „Trainings 4 / 3" und der Zusatz
 // „davon 0 Tage im Kalorienziel" – beide stehen jetzt hier, mit Einordnung statt nur als Zahl.
-function wk2BalanceHTML(w,isCur,srv){
-  const c=wk2Compliance(w.training,srv),a=wk2Adherence(w.nutrition,srv);
-  if(!c&&!a)return '';
-  const row=(lbl,pct,tone,band,why)=>`<div class="wk2-bal-r">
-      <div class="wk2-bal-t">${lbl}<small>${esc2(why)}</small></div>
-      <div class="wk2-bal-v"><b>${fmtNum(pct)} %</b><span class="wk2-bal-b ${anaToneCls(tone)}">${esc2(band)}</span></div></div>`;
-  let h='';
-  // In der LAUFENDEN Woche ist jedes Band eine Zwischenbilanz – am Dienstag „43 % · unter dem Plan" zu
-  // melden wäre derselbe Fehlalarm, den die Volumen-Kachel im Trainings-Segment abgestellt hat (P4).
-  // Dann steht der Stand da, aber ohne Urteil und ohne Ton.
-  const day=((new Date(today()+'T00:00:00').getDay()+6)%7)+1;
-  const pv=w.prev||{};
-  if(c){const prevPct=(pv.sessions!=null&&c.planned>0)?Math.round(+pv.sessions/c.planned*100):null;
-    h+=row('Training',c.pct,isCur?'':c.tone,isCur?`Tag ${fmtNum(day)} von 7`:c.label,
-      `Anteil der ${pl(c.planned,'geplanten Einheit','geplanten Einheiten')} · als getroffen gilt ein Korridor von 80–120 %`
-      +(prevPct!=null?` · Vorwoche ${fmtNum(prevPct)} %`:''));}
-  if(a)h+=row('Ernährung',a.pct,isCur?'':a.tone,isCur?`Tag ${fmtNum(day)} von 7`:a.label,
-    `${fmtNum(a.logged)} von 7 Tagen protokolliert${a.onTarget!=null?` · davon ${pl(a.onTarget,'Tag','Tage')} im Kalorienziel (±5 %)`:''}`);
-  return `<div class="card wk2-bal">${h}</div>`;}
+// (Die frühere Funktion wk2BalanceHTML stand hier: eine eigene Kartenform mit eigener Zeile `.wk2-bal-r`.
+//  DESIGN-4 4.6/6.10 macht daraus eine Gruppe aus der einen Zeile – `an5BalanceHTML()`.
 
 // --- Rekorde der Woche und offene Beschwerden ---------------------------------------------------
 // Beide Listen kommen von außen und werden nur gezeigt, wenn sie wirklich da sind:
@@ -1376,12 +1641,15 @@ function wk2BalanceHTML(w,isCur,srv){
 //    dieselbe Beschwerde wären genau die Doppelung, vor der CRITIC K3 warnt.
 function wk2PrRows(w,ex){const list=(ex&&ex.prs)||w.prList||(ex&&ex.records)||null;
   if(!Array.isArray(list)||!list.length)return '';
-  return `<div class="section-label">Rekorde dieser Woche</div><div class="rows">`+list.slice(0,8).map(p=>{
-    const nm=esc2(String(p.exercise||p.name||'Übung'));
-    const val=(+p.weight>0)?`${fmtNum(p.weight,1)}<em> kg</em>${+p.reps>0?` × ${fmtNum(p.reps)}`:''}`:(+p.e1rm>0?`${fmtNum(p.e1rm,1)}<em> kg e1RM</em>`:'–');
+  return groupHTML('Bestleistungen dieser Woche',list.slice(0,8).map(p=>{
+    const val=(+p.weight>0)?`${fmtNum(p.weight,1)} kg${+p.reps>0?` × ${fmtNum(p.reps)}`:''}`
+      :(+p.e1rm>0?`${fmtNum(p.e1rm,1)} kg geschätzt`:'');
     const before=(+p.prev>0)?`vorher ${fmtNum(p.prev,1)} kg`:(+p.before>0?`vorher ${fmtNum(p.before,1)} kg`:'');
-    const when=p.date?fmtDate(p.date,{weekday:'short'}):'';
-    return `<div class="row"><div class="rl">${nm}<small>${[when,before].filter(Boolean).join(' · ')}</small></div><div class="rr"><span class="v">${val}</span></div></div>`;}).join('')+`</div>`;}
+    const when=p.date?fmtDate(p.date,{weekday:'long'}):'';
+    return rowHTML({icon:'trophy',title:String(p.exercise||p.name||'Übung'),
+      sub:[when,before].filter(Boolean).join(' · '),value:val});}),
+    'Eine Bestleistung ist ein Satz, der schwerer war als alles, was in dieser Übung vorher protokolliert wurde. '
+    +'Steht dort „geschätzt", war der Rekord kein Einzelsatz, sondern das aus deinem besten Arbeitssatz hochgerechnete Maximum.');}
 // Beschwerden für BEIDE Rollen aus derselben Quelle, in zwei Tonlagen:
 //  · Der Wochenbericht des Servers liefert `complaints:{week,open,latest:[{date,exercise}]}` – bewusst
 //    ohne Freitext (Datensparsamkeit, SEC-23). Das reicht für den Bericht: WAS offen ist und WIE VIELE.
@@ -1395,13 +1663,21 @@ function wk2FlagRows(flags,srv){
   const open=(co&&+co.open>0)?+co.open:list.length;
   if(!open)return '';
   const names=[...new Set(list.map(f=>String(f.exercise||'Übung')))].slice(0,3).join(', ');
-  if(!coachView())return `<div class="section-label">Beschwerden</div><div class="rows"><div class="row"><div class="rl">${pl(open,'offene Beschwerde','offene Beschwerden')}<small>${esc2(names)||'zu deinen Übungen'} · liegt bei deinem Coach</small></div><div class="rr"></div></div></div>`;
+  if(!coachView())return groupHTML('Beschwerden',
+    [rowHTML({icon:'alertTriangle',title:pl(open,'offene Beschwerde','offene Beschwerden'),
+      sub:(names||'zu deinen Übungen')+' · liegt bei deinem Coach'})],
+    'Eine Beschwerde ist eine Anmerkung, die du an einem Satz hinterlassen hast. Dein Coach sieht sie in seiner Übersicht und meldet sich dazu.');
   return wk2FlagCoachHTML(open,names);}
 // Der Knopf führt genau dorthin, wo die Beschwerde bearbeitet wird (Coach-Dashboard, Paket B-I.6) –
 // `openDashboard` gehört coach.js und wird defensiv aufgerufen: fehlt es, bleibt die Athletenliste.
 function wk2FlagCoachHTML(open,names){
-  return `<div class="section-label">Beschwerden</div><div class="rows"><div class="row"><div class="rl">${pl(open,'offene Beschwerde','offene Beschwerden')}<small>${esc2(names)||'zu den Übungen dieses Athleten'}${open>3?' …':''}</small></div>`
-    +`<div class="rr"><button class="btn sm sec" onclick="typeof openDashboard==='function'?openDashboard(VIEW_USER):go('athletes')">Bearbeiten</button></div></div></div>`;}
+  // D-4 (5.1): Aus der grauen Pille „Bearbeiten" rechts in der Zeile wird die Zeile selbst – sie
+  // sagt, wohin sie fuehrt, und ist auf ganzer Breite zu treffen statt auf 70 px.
+  return groupHTML('Beschwerden',
+    [rowHTML({icon:'alertTriangle',title:pl(open,'offene Beschwerde','offene Beschwerden'),
+      sub:(names||'zu den Übungen dieses Athleten')+(open>3?' und weitere':''),
+      tap:"typeof openDashboard==='function'?openDashboard(VIEW_USER):go('athletes')"})],
+    'Bearbeitet werden Beschwerden im Dashboard – dort steht der Freitext, den dein Athlet am Satz hinterlassen hat.');}
 // Beistellungen des Wochenberichts (Rekorde, Beschwerden) – eine Anfrage je Woche, nie auf dem
 // kritischen Pfad: die Zahlen stehen längst, wenn sie ankommt, und ein Fehlschlag ändert nichts.
 // Gibt es die Route nicht (älterer Server, Paket B-I.2 noch nicht ausgeliefert), wird sie in dieser
@@ -1419,9 +1695,12 @@ async function an2WeekExtra(start){const k='wr:'+start;
     if(f.status===200&&f.data&&Array.isArray(f.data.notes))out.flags=f.data.notes;}
   return anaStore(k,out);}
 
-// Eine Zeile des Rückblicks. label/val/sub/cmp sind FERTIGES HTML – Serverdaten müssen vorher
-// durch esc2(), Zahlen durch fmtNum(). Der Vergleich steht unter dem Wert, nicht daneben (320 px).
-function _weekRow(label,val,sub,cmp){return `<div class="row ana-wk-row"><div class="rl">${label}${sub?`<small>${sub}</small>`:''}</div><div class="rr"><span class="v">${val}</span>${cmp?`<span class="wk-cmp">${cmp}</span>`:''}</div></div>`;}
+// Eine Zeile des Rückblicks. D-4: aus `_weekRow` (eigene Zeilenform `.ana-wk-row` mit zweizeiligem
+// rechten Block) wird die EINE Zeile aus 4.5. Der Vergleich mit der Vorwoche wandert dabei aus dem
+// rechten Block in die Unterzeile – rechts steht genau eine Zahl, wie in jeder anderen Liste der App.
+// label/sub sind KLARTEXT (rowHTML escapet selbst); Zahlen kommen durch fmtNum().
+function an5WeekRow(icon,label,val,sub,cmp){
+  return rowHTML({icon,title:label,sub:[sub,cmp].filter(Boolean).join(' · '),value:val});}
 
 // Die Konsistenz-Zeile des Wochenrückblicks – dieselbe EINE Mechanik wie auf der Startseite
 // (CRITIC K10, BUILD-A5 5.6). Gerechnet und formuliert wird sie NICHT hier, sondern in lpWeekLine()
@@ -1449,139 +1728,180 @@ function anaWeekConsistency(w,isCur){
   if(!line)return null;
   return {main:line.main,detail:isCur?line.detail:'',hit:line.hit};}
 
-// Erst was gut lief (highlights), dann die EINE Sache für nächste Woche (focus), dann die Zahlen –
-// eine Wand aus Kennzahlen liest niemand zweimal.
+
+// ===== D-4 · WOCHE: drei Aussagen, dann die Belege (DESIGN-4 6.10) =====
+// Vorher: eine Kopfzeile mit zwei Symbolknöpfen ohne Wort (`‹` / `›`, K11), darunter eine Meta-Zeile,
+// eine Highlight-Karte, eine Fokus-Karte, eine Bilanz-Karte mit eigener Zeilenform und fünf Blöcke –
+// 13 Zeilenformen auf einem Bildschirm. Nachher: EINE Held-Karte mit genau drei Aussagen
+// (Konsequenz · ein Fortschritt · eine Einsicht), dann Gruppen aus derselben Zeile, und der
+// Wochenwechsel als benannter Abschnitt „Vergangene Wochen" statt als zwei Pfeilknöpfe.
 function anaPaintWeek(w){const b=document.getElementById('anaBody');if(!b)return;w=w||{};
   const t=w.training||{},n=w.nutrition||{},bo=w.body||{},he=w.health||{},mi=w.mindset||{},pv=w.prev||{};
   // Fehlt ein Navigationsfeld ganz (ältere Antwort), rechnen wir die Nachbarwoche selbst. Ein
   // ausdrückliches null ist dagegen eine Aussage des Servers: davor liegt nichts (vor der ersten Woche
-  // des Kontos), danach liegt die Zukunft. Dann bleibt der Knopf weg – sonst blättert man endlos in
-  // Wochen, in denen nichts stand und in denen sich auch nichts mehr eintragen lässt.
+  // des Kontos), danach liegt die Zukunft.
   const st=w.start||ANA_WEEK_START,pS=(w.prevStart!==undefined)?w.prevStart:anaAddDays(st,-7),
     nS=(w.nextStart!==undefined)?w.nextStart:(st<anaMonday(today())?anaAddDays(st,7):null);
   // Laufende Woche? Der Server sagt es (current); fehlt das Feld, entscheidet der Montag von heute.
-  // Diese eine Antwort trägt Kopfzeile UND Leertext – beide dürfen sich nicht widersprechen.
   const isCur=(w.current!==undefined)?!!w.current:(st>=anaMonday(today()));
-  // Kommende Wochen sind über die Knöpfe nicht erreichbar, über einen alten Zwischenstand aber schon.
-  // Für sie gilt weder „noch leer" noch „nichts eingetragen" – da war schlicht noch nichts.
   const isFut=!isCur&&st>anaMonday(today());
-  let h=anaPaintWeek.head(st,pS,nS,isCur);
-  // null heißt „nicht bekannt" – eine 0 an dieser Stelle wäre schlicht gelogen.
-  const vT=(v,d,u)=>v==null?'<span class="muted-2">keine Daten</span>':`${fmtNum(v,d)}${u?`<em> ${u}</em>`:''}`;
-  const cmp=(now,was,d,u)=>(now==null||was==null)?'':`${icon(now>was?'trendUp':now<was?'trendDown':'trendFlat',12)} Vorwoche ${fmtNum(was,d)}${u?' '+u:''}`;
-  // Zählwerte gegen eine fertige Vorwoche: in der LAUFENDEN Woche ist jede Richtung gelogen. Am Montag
-  // stand hier „1 Training ↘ Vorwoche 3" – der Pfeil nach unten für den ersten von sieben Tagen.
-  // Durchschnitte (Ø Kalorien, Ø Schlaf) dürfen weiter vergleichen, die sind auch nach einem Tag
-  // vergleichbar; Summen und Zählungen bekommen bis Sonntag nur den Bezugswert ohne Richtung.
-  const cmpN=(now,was,d,u)=>(now==null||was==null)?''
-    :isCur?`${icon('trendFlat',12)} Vorwoche ${fmtNum(was,d)}${u?' '+u:''}`:cmp(now,was,d,u);
-  const blk=(label,rows)=>rows?`<div class="section-label">${label}</div><div class="rows">${rows}</div>`:'';
-  // Fehlt in einem Bereich JEDER Wert, bleibt der Block ganz weg – „keine Daten" dreimal untereinander
-  // ist keine Information. Fehlt nur ein einzelner Wert, steht dort „keine Daten".
-  const some=(...v)=>v.some(x=>x!=null);
-  // 2.9.0: EINE Konsistenz-Mechanik (CRITIC K10). Bis hierher stand an dieser Stelle die TAGES-Serie
-  // („32 Tage in Folge – davon 31 mit Check-in, 1 vom Joker gerettet"), während die Startseite EINEN
-  // Tipp weiter über denselben Datenstand „1 von 4 geplanten Einheiten" sagte – zwei Zählungen
-  // nebeneinander, die der Leser selbst zusammenreimen musste. Jetzt trägt auch der Rückblick die
-  // Wochen-Konsistenz, aus derselben Funktion (lpWeekLine, home.js) wie die Startseite.
-  // `w.streak`/`w.streakFrozen` schickt der Server weiterhin – hier zeichnet sie niemand mehr.
-  const wkc=anaWeekConsistency(w,isCur);
-  if(wkc||w.xp)h+=`<div class="ana-wk-meta">${wkc?`${icon(wkc.hit?'check':'calendar',14)} ${esc2(wkc.main)}${wkc.detail?`<span class="sep">·</span>${esc2(wkc.detail)}`:''}`:''}${wkc&&w.xp?'<span class="sep">·</span>':''}${w.xp?`${fmtNum(w.xp)} XP`:''}</div>`;
+  an5SetTitle();
+  const ex=anaCached('wr:'+(st||''))||null;
   // mi.skipped zählt mit: eine Woche mit lauter abgebrochenen Ritualen ist nicht leer – dort war
   // jemand da, nur zu kurz. „Noch nichts eingetragen" wäre an dieser Stelle falsch.
   const any=[t.sessions,t.sets,n.daysLogged,bo.weightEnd,he.avgSleep,he.avgSteps,he.avgBurn,mi.primings,mi.evenings,mi.breathing,mi.skipped,mi.challengeDays].some(v=>v!=null&&+v>0)||!!mi.wheel;
-  // Der Leertext hängt am Zustand: in einer vergangenen Woche lässt sich nichts mehr nachtragen –
-  // „Sobald du etwas einträgst" wäre dort ein Versprechen, das die App nicht einlösen kann.
-  if(!any){b.innerHTML=h+(isFut
+  if(!any){b.innerHTML=(isFut
     ?emptyState({icon:'calendar',title:'Diese Woche liegt noch vor dir',text:'Der Rückblick entsteht, während die Woche läuft.'})
     :isCur
     ?emptyState({icon:'calendar',title:'Diese Woche ist noch leer',text:'Sobald du etwas einträgst, entsteht hier dein Rückblick.'})
-    :emptyState({icon:'calendar',title:'Nichts eingetragen',text:'In dieser Woche ist kein Training, kein Essen und kein Check-in aufgezeichnet.'}));return;}
-  const hl=(w.highlights||[]).filter(Boolean).slice(0,3);
-  if(hl.length)h+=`<div class="card ana-wk-hl">${hl.map(s=>`<div class="wk-hl">${icon('check',18)}<span>${esc2(s)}</span></div>`).join('')}</div>`;
-  if(w.focus&&w.focus.title)h+=`<div class="card ana-wk-focus">${icon('target',20)}<div><div class="eyebrow">Für nächste Woche</div><b>${esc2(w.focus.title)}</b>${w.focus.why?`<div class="meta mt-1">${esc2(w.focus.why)}</div>`:''}</div></div>`;
-  // B-I.5: die zwei Korridore, bevor die Zahlen kommen (M15).
-  const ex=anaCached('wr:'+(st||''))||null;
-  h+=wk2BalanceHTML(w,isCur,ex);
+    :emptyState({icon:'calendar',title:'Nichts eingetragen',text:'In dieser Woche ist kein Training, kein Essen und kein Check-in aufgezeichnet.'}))
+    +an5WeeksNavHTML(st,pS,nS);return;}
+  let h=an5WeekHeroHTML(w,isCur,ex);
+  h+=an5BalanceHTML(w,isCur,ex);
+  // null heißt „nicht bekannt" – eine 0 an dieser Stelle wäre schlicht gelogen (G9).
+  const vT=(v,d,u)=>v==null?'noch nicht eingetragen':`${fmtNum(v,d)}${u?' '+u:''}`;
+  const cmp=(now,was,d,u)=>(now==null||was==null)?'':`Vorwoche ${fmtNum(was,d)}${u?' '+u:''}`;
+  // Zählwerte gegen eine fertige Vorwoche: in der LAUFENDEN Woche ist jede Richtung gelogen.
+  const some=(...v)=>v.some(x=>x!=null);
   const ts=(t.topSets||[])[0];
-  // Die Zeile „Trainings 4 / 3" entfällt, SOBALD die Bilanz-Karte die Compliance trägt – dieselbe
-  // Zahl zweimal auf einem Bildschirm (Befund B8). Ohne hinterlegten Rhythmus gibt es kein Band,
-  // dann bleibt die Zeile die einzige Stelle, an der die Einheiten stehen, und sie bleibt.
+  // Die Zeile „Einheiten" entfällt, SOBALD die Bilanz-Gruppe die Compliance trägt – dieselbe Zahl
+  // zweimal auf einem Bildschirm (Befund B8). Ohne hinterlegten Rhythmus gibt es kein Band, dann
+  // bleibt die Zeile die einzige Stelle, an der die Einheiten stehen.
   let r=wk2Compliance(t,ex)?''
-    :_weekRow('Trainings',t.sessions==null?vT(null):`${fmtNum(t.sessions)}${t.planned?`<em> / ${fmtNum(t.planned)}</em>`:''}`,'',cmpN(t.sessions,pv.sessions));
-  r+=_weekRow('Sätze',vT(t.sets))
-    // Volumen in KILOGRAMM, nicht in Tonnen: der Highlight-Satz oben im SELBEN Bild sagt „48.230 kg
-    // bewegt in 112 Sätzen" (logic.js/weekHighlights), und die Wochenmail nennt dieselbe Zahl ebenfalls
-    // in kg. Zwei Einheiten für dieselbe Zahl auf einem Bildschirm muss der Leser selbst zusammenrechnen.
-    // (Die Kacheln im Segment „Training" bleiben bei anaTons – dort steht keine kg-Zahl daneben.)
-    // volumeKg ist 0, nicht null, wenn eine Woche nur aus Körpergewichtsübungen bestand: „0 kg" wäre
-    // dann die einzige Zahl über ein Training, das stattgefunden hat – deshalb dort Klartext.
-    +_weekRow('Volumen',t.volumeKg==null?vT(null)
+    :an5WeekRow('calendar','Einheiten',vT(t.sessions),t.planned?`von ${pl(t.planned,'geplanten Einheit','geplanten Einheiten')}`:'',cmp(t.sessions,pv.sessions));
+  r+=an5WeekRow('dumbbell','Sätze',vT(t.sets),'Arbeitssätze, ohne Aufwärmsätze','')
+    // Bewegte Last in KILOGRAMM, nicht in Tonnen: der Highlight-Satz oben im SELBEN Bild sagt
+    // „48.230 kg bewegt in 112 Sätzen", und die Wochenmail nennt dieselbe Zahl ebenfalls in kg.
+    // Zwei Einheiten für dieselbe Zahl muss der Leser sonst selbst umrechnen (R15).
+    +an5WeekRow('scale','Bewegte Last',t.volumeKg==null?vT(null)
       :(+t.volumeKg>0?vT(t.volumeKg,0,'kg')
-      :(+t.sets>0?'<span class="muted-2">nur Körpergewicht</span>':vT(0,0,'kg'))));
+      :(+t.sets>0?'nur Körpergewicht':vT(0,0,'kg'))),'Gewicht mal Wiederholungen','');
   // Steht die Rekord-LISTE darunter, ist die gezählte Zeile darüber dieselbe Aussage ohne Inhalt.
   const prHTML=wk2PrRows(w,ex);
-  if(+t.prs>0&&!prHTML)r+=_weekRow('Bestleistungen',fmtNum(t.prs),ts?`stärkster Satz: ${esc2(ts.exercise)}`:'');
-  else if(ts&&!(+t.prs>0))r+=_weekRow('Stärkster Satz',`${fmtNum(ts.weight,1)}<em> kg</em> × ${fmtNum(ts.reps)}`,esc2(ts.exercise));
-  if(some(t.sessions,t.sets,t.volumeKg,t.prs)||ts)h+=blk('Training',r);
-  // Rekorde als LISTE, sobald der Server sie mitliefert – bis dahin bleibt die Zahl oben stehen (M10).
+  if(+t.prs>0&&!prHTML)r+=an5WeekRow('trophy','Bestleistungen',fmtNum(t.prs),ts?`stärkster Satz: ${ts.exercise}`:'','');
+  else if(ts&&!(+t.prs>0))r+=an5WeekRow('trophy','Stärkster Satz',`${fmtNum(ts.weight,1)} kg × ${fmtNum(ts.reps)}`,ts.exercise,'');
+  if(some(t.sessions,t.sets,t.volumeKg,t.prs)||ts)h+=groupHTML('Training',[r],
+    'Gezählt werden Arbeitssätze aus dem Satzprotokoll dieser Woche. Übungen mit dem eigenen Körpergewicht zählen 0 kg bewegte Last – die App kennt dein Körpergewicht in der Übung nicht.');
   h+=prHTML;
   h+=wk2FlagRows(ex&&ex.flags,ex);
-  // „davon", weil im Zusatz eine ANDERE Zahl steht als im Wert der Zeile (protokollierte Tage gegen Tage
-  // im Ziel) – ohne das Wort liest sich die kleinere Zahl wie ein Widerspruch zur größeren darüber.
-  // Wortlaut „im Kalorienziel" wie im Highlight-Satz oben (logic.js/weekHighlights): zwei Namen für
-  // dieselbe Zahl auf einem Bildschirm liest niemand als dieselbe Zahl. Das „±5 %" sagt, dass „im Ziel"
-  // eine Spanne ist und kein Punkt – WELCHES Ziel gemessen wird, entscheidet der Server (weekView) und
-  // steht bewusst nicht hier: sonst veraltet der Satz beim nächsten Eingriff dort.
-  // „Tage protokolliert 6 / 7" und „davon 0 Tage im Kalorienziel" stehen beide in der Bilanz-Karte –
-  // dort mit Prozentsatz und Band statt als nackte Zahl. Trägt die Karte sie, entfällt die Zeile hier;
-  // trägt sie keine (kein Protokoll in der Woche), bleibt die Zeile die einzige Auskunft.
+  // „Tage protokolliert" und „davon x Tage im Kalorienziel" stehen beide in der Bilanz-Gruppe – dort
+  // mit Prozentsatz und Band statt als nackte Zahl. Trägt sie die Zahlen, entfällt die Zeile hier.
   r=(wk2Adherence(n,ex)?''
-    :_weekRow('Tage protokolliert',n.daysLogged==null?vT(null):`${fmtNum(n.daysLogged)}<em> / 7</em>`,n.onTargetDays!=null?`davon ${pl(n.onTargetDays,'Tag','Tage')} im Kalorienziel (±5 %)`:''))
-    +_weekRow('Ø Kalorien',vT(n.avgKcal,0,'kcal'),n.targetKcal?`Ziel ${fmtNum(n.targetKcal)} kcal`:'',cmp(n.avgKcal,pv.avgKcal,0,'kcal'))
-    +_weekRow('Ø Eiweiß',vT(n.avgProtein,0,'g'),n.targetProtein?`Ziel ${fmtNum(n.targetProtein)} g`:'');
-  if(some(n.daysLogged,n.avgKcal,n.avgProtein))h+=blk('Ernährung',r);
-  r=_weekRow('Gewicht',vT(bo.weightEnd,1,'kg'),bo.weightStart!=null?`zu Wochenbeginn ${fmtNum(bo.weightStart,1)} kg`:'')
-    +_weekRow('Veränderung',bo.delta==null?vT(null):`${bo.delta>0?'+':''}${fmtNum(bo.delta,1)}<em> kg</em>`,'',cmpN(bo.delta,pv.weightDelta,1,'kg'));
-  // Die Wochenrate liefert der Server erst ab vier Tagen Messspanne (sonst null) – genau dafür wurde sie
-  // abgesichert. Ohne diese Zeile stünde sie in der Antwort und auf keinem Bildschirm. Der Zusatz sagt,
-  // dass es eine Hochrechnung ist: aus ein paar Wiegetagen wird hier eine ganze Woche.
-  if(bo.perWeek!=null)r+=_weekRow('Ø pro Woche',`${bo.perWeek>0?'+':''}${fmtNum(bo.perWeek,1)}<em> kg</em>`,'aus den Wiegetagen dieser Woche hochgerechnet');
-  if(some(bo.weightEnd,bo.weightStart,bo.delta))h+=blk('Körper',r);
-  // A-IV.6 (P4): „Ø Ruhepuls 50 bpm" ist eine Zahl ohne Maßstab – 50 ist für den einen gut und für den
-  // anderen hoch. Daneben steht deshalb der eigene Bereich (an2WeekBand). Er kommt aus den Check-ins,
-  // die das Körper-Segment ohnehin geladen hat: keine zusätzliche Anfrage, kein zusätzlicher Tap.
-  // Wer direkt in den Wochenrückblick springt, hat sie noch nicht – dann bleibt die Zeile wie bisher.
-  r=_weekRow('Ø Schlaf',vT(he.avgSleep,1,'h'),'',cmp(he.avgSleep,pv.avgSleep,1,'h'))
-    +_weekRow('Ø Schritte',vT(he.avgSteps),an2WeekBand('steps',0,''));
-  // Uhr-Werte nur zeigen, wenn es sie gibt – ohne verbundene Uhr wäre das eine Reihe leerer Zeilen.
-  if(he.avgBurn!=null)r+=_weekRow('Ø Verbrauch',vT(he.avgBurn,0,'kcal'),an2WeekBand('active_kcal',0,'kcal')||'aktiv, aus der Uhr');
-  if(he.avgRhr!=null)r+=_weekRow('Ø Ruhepuls',vT(he.avgRhr,0,'bpm'),an2WeekBand('resting_hr',0,'bpm'));
-  if(he.avgHrv!=null)r+=_weekRow('Ø HRV',vT(he.avgHrv,0,'ms'),an2WeekBand('hrv',0,'ms'));
-  if(some(he.avgSleep,he.avgSteps,he.avgBurn,he.avgRhr,he.avgHrv))h+=blk('Gesundheit',r);
-  const mal=v=>v==null?vT(null):`${fmtNum(v)}<em> ×</em>`;
-  r=_weekRow('Priming',mal(mi.primings))+_weekRow('Abendreflexion',mal(mi.evenings));
-  if(mi.breathing!=null)r+=_weekRow('Atemübungen',mal(mi.breathing));
-  // Abgebrochene Rituale zählt der Server nicht mehr als erledigt (Regel „vollwertig" im Mindset-Modul).
-  // Ohne diese Zeile stünde bei einer Woche voller kurzer Durchläufe nur „0 ×" – und niemand wüsste warum.
-  if(mi.skipped)r+=_weekRow('Abgebrochen',mal(mi.skipped),'zu kurz – zählt nicht für Streak und XP');
-  if(mi.challengeDays!=null)r+=_weekRow('Challenge',pl(mi.challengeDays,'Tag','Tage'));
-  if(mi.wheel)r+=_weekRow('Rad des Lebens','<span class="pill green">ausgefüllt</span>');
-  if(some(mi.primings,mi.evenings,mi.breathing,mi.skipped,mi.challengeDays)||mi.wheel)h+=blk('Mindset',r);
+    :an5WeekRow('utensils','Tage protokolliert',n.daysLogged==null?vT(null):`${fmtNum(n.daysLogged)} von 7`,
+      n.onTargetDays!=null?`davon ${pl(n.onTargetDays,'Tag','Tage')} im Kalorienziel (±5 %)`:'',''))
+    +an5WeekRow('flame','Kalorien im Schnitt',vT(n.avgKcal,0,'kcal'),n.targetKcal?`Ziel ${fmtNum(n.targetKcal)} kcal`:'',cmp(n.avgKcal,pv.avgKcal,0,'kcal'))
+    +an5WeekRow('meat','Eiweiß im Schnitt',vT(n.avgProtein,0,'g'),n.targetProtein?`Ziel ${fmtNum(n.targetProtein)} g`:'','');
+  if(some(n.daysLogged,n.avgKcal,n.avgProtein))h+=groupHTML('Ernährung',[r],
+    '„Im Schnitt" heißt: über die Tage dieser Woche, an denen du etwas protokolliert hast. Ein Tag ohne Eintrag zählt nicht als Nulltag – er zählt gar nicht.');
+  r=an5WeekRow('scale','Gewicht am Wochenende',vT(bo.weightEnd,1,'kg'),bo.weightStart!=null?`zu Wochenbeginn ${fmtNum(bo.weightStart,1)} kg`:'','')
+    +an5WeekRow('trendUp','Veränderung',bo.delta==null?vT(null):`${bo.delta>0?'+':''}${fmtNum(bo.delta,1)} kg`,'vom Wochenbeginn zum Wochenende',
+      (bo.delta!=null&&pv.weightDelta!=null&&!isCur)?`Vorwoche ${pv.weightDelta>0?'+':''}${fmtNum(pv.weightDelta,1)} kg`:'');
+  // Die Wochenrate liefert der Server erst ab vier Tagen Messspanne (sonst null).
+  if(bo.perWeek!=null)r+=an5WeekRow('chartLine','Hochgerechnet pro Woche',`${bo.perWeek>0?'+':''}${fmtNum(bo.perWeek,1)} kg`,'aus den Wiegetagen dieser Woche hochgerechnet','');
+  if(some(bo.weightEnd,bo.weightStart,bo.delta))h+=groupHTML('Körper',[r],
+    'Gewogen wird morgens und nüchtern, sonst vergleicht die Zahl zwei verschiedene Zustände. Eine einzelne Woche sagt wenig – der Verlauf im Bereich Körper sagt mehr.');
+  // „Ø Ruhepuls 50 bpm" ist eine Zahl ohne Maßstab – 50 ist für den einen gut und für den anderen
+  // hoch. Daneben steht deshalb der eigene Bereich (an2WeekBand), aus den ohnehin geladenen Check-ins.
+  r=an5WeekRow('moon','Schlaf im Schnitt',vT(he.avgSleep,1,'h'),'',cmp(he.avgSleep,pv.avgSleep,1,'h'))
+    +an5WeekRow('footprints','Schritte im Schnitt',vT(he.avgSteps),an2WeekBand('steps',0,''),'');
+  if(he.avgBurn!=null)r+=an5WeekRow('flame','Aktiver Verbrauch im Schnitt',vT(he.avgBurn,0,'kcal'),an2WeekBand('active_kcal',0,'kcal')||'aus der verbundenen Uhr','');
+  if(he.avgRhr!=null)r+=an5WeekRow('heart','Ruhepuls im Schnitt',vT(he.avgRhr,0,'bpm'),an2WeekBand('resting_hr',0,'bpm'),'');
+  if(he.avgHrv!=null)r+=an5WeekRow('zap','Herzratenvariabilität im Schnitt',vT(he.avgHrv,0,'ms'),an2WeekBand('hrv',0,'ms'),'');
+  if(some(he.avgSleep,he.avgSteps,he.avgBurn,he.avgRhr,he.avgHrv))h+=groupHTML('Gesundheit',[r],
+    '„Dein Bereich" ist die mittlere Hälfte deiner eigenen Werte der letzten 90 Tage – keine Norm und kein Ziel. Die Herzratenvariabilität misst den Abstand zwischen zwei Herzschlägen; höhere Werte gehen meist mit besserer Erholung einher.');
+  const mal=v=>v==null?vT(null):`${fmtNum(v)} ×`;
+  r=an5WeekRow('sun','Priming',mal(mi.primings),'Morgenritual','')
+    +an5WeekRow('moon','Abendreflexion',mal(mi.evenings),'Abendritual','');
+  if(mi.breathing!=null)r+=an5WeekRow('wind','Atemübungen',mal(mi.breathing),'','');
+  // Abgebrochene Rituale zählt der Server nicht mehr als erledigt. Ohne diese Zeile stünde bei einer
+  // Woche voller kurzer Durchläufe nur „0 ×" – und niemand wüsste warum.
+  if(mi.skipped)r+=an5WeekRow('ban','Abgebrochen',mal(mi.skipped),'zu kurz – zählt nicht für Serie und Erfahrungspunkte','');
+  if(mi.challengeDays!=null)r+=an5WeekRow('flame','Challenge',pl(mi.challengeDays,'Tag','Tage'),'','');
+  if(mi.wheel)r+=rowHTML({icon:'wheel',title:'Rad des Lebens',pill:{text:'ausgefüllt',tone:'green'}});
+  if(some(mi.primings,mi.evenings,mi.breathing,mi.skipped,mi.challengeDays)||mi.wheel)h+=groupHTML('Mindset',[r],
+    'Eine Sitzung zählt erst als vollwertig, wenn du sie wirklich durchgezogen hast – sechsmal „Überspringen" in einer Sekunde ist kein Ritual.');
+  h+=an5WeeksNavHTML(st,pS,nS);
   b.innerHTML=h;}
-// Kopfzeile mit Zeitraum und Wochenwechsel. Hängt als Eigenschaft an anaPaintWeek, damit der
-// Ladezustand dieselbe Zeile zeigt wie das fertige Bild – ohne einen weiteren globalen Namen.
-anaPaintWeek.head=function(start,prev,next,cur){const end=anaAddDays(start,6);
-  const range=start.slice(5,7)===end.slice(5,7)
-    ? `${+start.slice(8,10)}. – ${fmtDate(end,{month:'long'})}`
-    : `${fmtDate(start)} – ${fmtDate(end)}`;
-  const back=Math.round(anaDayDiff(anaMonday(today()),start)/7);
-  // back < 0 = eine Woche, die noch nicht war. „Diese Woche" wäre dort schlicht falsch.
-  const sub=cur?'Diese Woche':back===0?'Diese Woche':back===1?'Letzte Woche':back>1?`vor ${pl(back,'Woche','Wochen')}`
-    :back===-1?'Nächste Woche':`in ${pl(-back,'Woche','Wochen')}`;
-  // Ohne Ziel kein Knopf, aber ein Platzhalter – sonst rutscht der Zeitraum aus der Mitte.
-  const nav=(s,ic,lbl)=>s?`<button class="btn icon sm sec" onclick="anaWeekNav('${esc(s)}')" aria-label="${lbl}">${icon(ic,20)}</button>`:'<span class="wk-sp" aria-hidden="true"></span>';
-  return `<div class="ana-wknav">${nav(prev,'chevronLeft','Vorherige Woche')}<div class="wk-t"><b>${esc2(range)}</b><small>${sub}</small></div>${nav(next,'chevronRight','Nächste Woche')}</div>`;};
+
+// --- Die eine Held-Karte: drei Aussagen, mehr nicht (6.10) ------------------------------------
+// (a) die Konsequenz als Band, (b) EIN Fortschritt, (c) EINE Einsicht mit Handlung.
+// Unter fünf Tagen mit Daten steht statt der Einsicht, dass die Grundlage fehlt – eine Einsicht aus
+// zwei Tagen wäre erfunden (DESIGN-4 6.10, Fußtext).
+function an5WeekHeroHTML(w,isCur,ex){
+  const c=wk2Compliance(w.training||{},ex);
+  const wkc=anaWeekConsistency(w,isCur);
+  const zeilen=[];
+  if(wkc)zeilen.push(`<p class="an5-say">${esc2(wkc.main)}${c&&!isCur?` · ${esc2(c.label)}`:''}</p>`);
+  else if(c)zeilen.push(`<p class="an5-say">${fmtNum(c.done)} von ${pl(c.planned,'geplanten Einheit','geplanten Einheiten')}${isCur?'':' · '+esc2(c.label)}</p>`);
+  const hl=(w.highlights||[]).filter(Boolean);
+  if(hl.length)zeilen.push(`<p class="an5-quiet">${esc2(hl[0])}</p>`);
+  const tage=an5WeekDataDays(w);
+  if(tage!=null&&tage<5)zeilen.push(`<p class="an5-quiet">Zu wenig Daten diese Woche – ${tage===1?'ein Tag mit Eintrag reicht':`${fmtNum(tage)} Tage mit Einträgen reichen`} nicht für eine Einsicht.</p>`);
+  else if(w.focus&&w.focus.title)zeilen.push(`<p class="an5-quiet"><b>Für nächste Woche: ${esc2(w.focus.title)}</b>${w.focus.why?' '+esc2(w.focus.why):''}</p>`);
+  if(!zeilen.length)return '';
+  return `<div class="card lg an5-hero">${zeilen.join('')}</div>`
+    +`<p class="rows-f">Oben steht, was die Woche gebracht hat, darunter die eine Sache für die nächste. `
+    +`Die Zahlen, auf denen beides beruht, stehen in den Gruppen darunter${w.xp?` · ${fmtNum(w.xp)} Erfahrungspunkte in dieser Woche`:''}.</p>`;}
+// Tage MIT Daten in der betrachteten Woche – oder null, wenn die Check-ins nicht geladen sind.
+// Lieber keine Zahl als eine geratene: der Rückblick lässt sich auch direkt öffnen (Deep-Link aus
+// der Sonntags-Nachricht), und dann liegt die Check-in-Liste noch gar nicht im Speicher.
+function an5WeekDataDays(w){const st=w&&w.start||ANA_WEEK_START;if(!st)return null;
+  const ci=anaCached('checkins_all')||anaCached('checkins');
+  if(!Array.isArray(ci)||!ci.length)return null;
+  const end=anaAddDays(st,6);
+  const oldest=ci[ci.length-1]&&ci[ci.length-1].date;
+  if(!oldest||oldest>st)return null;   // die Liste reicht nicht bis in diese Woche
+  const tage=new Set(ci.filter(c=>c&&c.date>=st&&c.date<=end).map(c=>c.date));
+  ((w.training||{}).days||[]).forEach(d=>{if(d>=st&&d<=end)tage.add(d);});
+  return tage.size;}
+
+// --- Die Bilanz als Gruppe statt als eigene Kartenform ----------------------------------------
+// Zwei Korridore, bevor die Zahlen kommen (M15). Bis 3.0.2 trug das eine eigene Bauform
+// (`.wk2-bal-r` mit eigenem rechten Block); jetzt ist es die eine Zeile mit Wert und Marke.
+function an5BalanceHTML(w,isCur,srv){
+  const c=wk2Compliance(w.training,srv),a=wk2Adherence(w.nutrition,srv);
+  if(!c&&!a)return '';
+  const tag=((new Date(today()+'T00:00:00').getDay()+6)%7)+1;
+  const pv=w.prev||{};
+  const rows=[];
+  if(c){const vor=(pv.sessions!=null&&c.planned>0)?Math.round(+pv.sessions/c.planned*100):null;
+    rows.push(rowHTML({icon:'dumbbell',title:'Training',
+      sub:`${fmtNum(c.done)} von ${pl(c.planned,'geplanten Einheit','geplanten Einheiten')}`+(vor!=null?` · Vorwoche ${fmtNum(vor)} %`:''),
+      value:fmtNum(c.pct)+' %',
+      pill:isCur?{text:`Tag ${fmtNum(tag)} von 7`,tone:'neutral'}:{text:c.label,tone:c.tone}}));}
+  if(a)rows.push(rowHTML({icon:'utensils',title:'Ernährung',
+    sub:`${fmtNum(a.logged)} von 7 Tagen protokolliert`+(a.onTarget!=null?` · davon ${pl(a.onTarget,'Tag','Tage')} im Kalorienziel (±5 %)`:''),
+    value:fmtNum(a.pct)+' %',
+    pill:isCur?{text:`Tag ${fmtNum(tag)} von 7`,tone:'neutral'}:{text:a.label,tone:a.tone}}));
+  return groupHTML('Bilanz',rows,
+    'Beim Training zählt der Anteil der geplanten Einheiten; als getroffen gilt ein Korridor von 80 bis 120 Prozent – 90 Prozent vom Plan sind kein Versagen. '
+    +'Bei der Ernährung zählt, an wie vielen der sieben Tage du überhaupt protokolliert hast. '
+    +(isCur?'Solange die Woche läuft, steht hier der Stand ohne Urteil: am Dienstag sind 43 Prozent kein Rückstand, sondern Dienstag.':'Beide Bänder ordnen ein, sie warnen nicht.'));}
+
+// --- Wochenwechsel als benannter Abschnitt statt zweier Pfeilknöpfe ---------------------------
+// Die beiden runden Symbolknöpfe `‹` und `›` waren Symbolknöpfe ohne Wort im Inhaltsbereich (K11)
+// und zugleich eine zweite Steuerebene unter dem Titel. Beides fällt: die angezeigte Woche steht im
+// Untertitel des großen Titels, und der Wechsel ist eine Liste benannter Wochen (3.6, Weg 1).
+function an5WeeksNavHTML(st,prev,next){
+  if(!st)return '';
+  const mon=anaMonday(today()),erste=anaCache().weekFirst||null;
+  const liste=[];
+  // Von der jüngsten erreichbaren Woche aus zurück: die laufende (bzw. die angezeigte, falls sie in
+  // der Zukunft liegt) und die sechs davor. Die angezeigte Woche ist immer dabei.
+  let w=(st>mon)?st:mon;
+  for(let i=0;i<5;i++){liste.push(w);w=anaAddDays(w,-7);}
+  if(!liste.includes(st))liste.push(st);
+  liste.sort().reverse();
+  const rows=liste.filter(iso=>!erste||iso>=erste).map(iso=>{
+    const zurueck=Math.round(anaDayDiff(mon,iso)/7);
+    const wann=zurueck===0?'Diese Woche':zurueck===1?'Letzte Woche':zurueck>1?`vor ${pl(zurueck,'Woche','Wochen')}`
+      :zurueck===-1?'Nächste Woche':`in ${pl(-zurueck,'Woche','Wochen')}`;
+    if(iso===st)return rowHTML({icon:'calendar',title:an5WeekRange(iso),sub:wann,value:'angezeigt'});
+    return rowHTML({icon:'calendar',title:an5WeekRange(iso),sub:wann,tap:`anaWeekNav('${iso}')`});});
+  if(!rows.length)return '';
+  let foot='Der Rückblick einer Woche entsteht am Sonntagabend. Weiter zurück als bis zur ersten Woche deines Kontos führt die Liste nicht.';
+  if(prev===null)foot='Das ist die erste Woche deines Kontos – weiter zurück gibt es nichts zu berichten.';
+  return groupHTML('Vergangene Wochen',rows,foot);}
 
 // ===== CARDIO-EINHEIT (Sheet; die Cardio-Liste wohnt im Trainings-Tab, training.js) =====
 const CARDIO_KINDS=['Laufen','Joggen','Rad','Spinning','Rudern','Gehen','Wandern','Schwimmen','Crosstrainer','Stepper','Seilspringen','HIIT','Crossfit'];
@@ -1630,19 +1950,34 @@ async function confirmCardio(){const kind=val('c_kind');
   anaRefreshIfVisible();}
 
 // ===== GESUNDHEITS-INTEGRATIONEN (Hub) =====
+// D-4: dieselben vier Zeilen, aber aus `rowHTML()` – und die Erklaerung, die vorher als `.note`
+// darueber und als `.caption` darunter stand, jetzt als Fusstext unter der Gruppe (G8).
+// Der Schalter ist die Schalterzeile aus 5.5: der Zeilentext IST die Beschriftung (A29).
 async function openIntegrations(){const on=!!(ME&&ME.health_reminder);const own=!coachView();
-  // Status des persönlichen Links gleich mitladen: „aktiv" oder „einrichten" steht dann direkt in der Zeile.
+  // Status des persönlichen Links gleich mitladen: „aktiv" oder „einrichten" steht dann direkt in der
+  // Zeile – und die Analyse-Seite darunter erfaehrt ihn mit, ohne selbst zu fragen.
   let hl=null;if(own){try{const r=await API.get('/health/link');if(r.status===200)hl=r.data;}catch(e){}}
-  openSheet('Gesundheitsdaten',`
-  <div class="note mb-3">Verbinde deine Gesundheits-App, damit Schlaf, Schritte, Verbrauch und Trainings von selbst in deine Auswertung fließen – ohne alles von Hand einzutragen.</div>
-  <div class="rows">
-    <div class="row tap" role="button" tabindex="0" onclick="openAppleHealth()"><div class="r-ic">${icon('apple',24)}</div><div class="rl">Apple Health<small>${hl?.enabled?'Automatisch – iPhone schickt die Werte selbst':'Automatisch per Kurzbefehl · oder von Hand'}</small></div><div class="rr">${hl?.enabled?'<span class="pill green">aktiv</span>':'<span class="pill neutral">einrichten</span>'}</div></div>
-    <div class="row soon"><div class="r-ic">${icon('heart',24)}</div><div class="rl">Health Connect<small>Android · Google Fit</small></div><div class="rr"><span class="pill neutral">kommt bald</span></div></div>
-    <div class="row soon"><div class="r-ic">${icon('timer',24)}</div><div class="rl">Fitbit<small>Tracker und Smartwatches</small></div><div class="rr"><span class="pill neutral">kommt bald</span></div></div>
-    <div class="row soon"><div class="r-ic">${icon('zap',24)}</div><div class="rl">Garmin Connect<small>Sportuhren</small></div><div class="rr"><span class="pill neutral">kommt bald</span></div></div>
-  </div>
-  ${(own&&!hl?.enabled)?`<div class="rows mt-4"><div class="switch-row"><div class="rl">Wöchentlich erinnern<small>Neue Daten importieren</small></div><button class="tgl${on?' on':''}" id="health_rem" role="switch" aria-checked="${on?'true':'false'}" aria-label="Wöchentlich erinnern" onclick="toggleHealthReminder(!this.classList.contains('on'))"></button></div></div>`:''}
-  <div class="caption mt-3">${hl?.enabled?'Die wöchentliche Erinnerung entfällt – dein iPhone schickt die Werte von selbst.':'Kein passendes Gerät? Du kannst alle Werte jederzeit auf der Startseite oder in der Check-in Historie eintragen.'}</div>`);}
+  if(own)an5LinkHTML.stand=!!(hl&&hl.enabled);
+  const rows=[
+    rowHTML({icon:'apple',title:'Apple Health',
+      sub:hl&&hl.enabled?'Dein iPhone schickt die Werte von selbst':'Automatisch per Kurzbefehl – oder von Hand',
+      pill:hl&&hl.enabled?{text:'aktiv',tone:'green'}:{text:'einrichten',tone:'neutral'},tap:'openAppleHealth()'}),
+    rowHTML({icon:'heart',title:'Health Connect',sub:'Android und Google Fit',pill:{text:'kommt bald',tone:'neutral'}}),
+    rowHTML({icon:'timer',title:'Fitbit',sub:'Tracker und Smartwatches',pill:{text:'kommt bald',tone:'neutral'}}),
+    rowHTML({icon:'zap',title:'Garmin Connect',sub:'Sportuhren',pill:{text:'kommt bald',tone:'neutral'}}),
+  ];
+  let h=groupHTML('Verbinden',rows,
+    'Ist eine Gesundheits-App verbunden, fließen Schlaf, Schritte, Verbrauch und Puls von selbst in deine Auswertung – du trägst sie dann nicht mehr von Hand ein. '
+    +(hl&&hl.enabled?'Die wöchentliche Erinnerung entfällt, solange dein iPhone die Werte selbst schickt.'
+      :'Kein passendes Gerät? Du kannst alle Werte jederzeit im Check-in eintragen.'));
+  if(own&&!(hl&&hl.enabled))h+=groupHTML('',[rowHTML({icon:'bell',title:'Wöchentlich an den Import erinnern',
+      switch:{name:'health_rem',on},id:'health_rem_row'})],
+    'Einmal pro Woche eine Erinnerung, neue Gesundheitsdaten zu importieren. Sie kommt nur, solange nichts automatisch übertragen wird.');
+  openSheet('Gesundheitsdaten',h);
+  // Der Schalter wirkt SOFORT (5.5) – deshalb haengt der Handler am Element, nicht an einem
+  // „Speichern"-Knopf, den es in diesem Sheet nicht gibt.
+  const sw=document.querySelector('#health_rem_row input.sw');
+  if(sw)sw.addEventListener('change',()=>toggleHealthReminder(sw.checked));}
 
 // ----- Apple Health über Kurzbefehl -----
 // Das Sheet selbst (openAppleHealth), das Einlesen des Textfeldes (importShortcutText) und die Vorschau
@@ -1722,7 +2057,11 @@ async function doHealthImport(days){const say=html=>{const el=document.getElemen
 async function toggleHealthReminder(on){const r=await API.post('/health-reminder',{enabled:on});
   if(r.status!==200)return toast(r.data?.error||'Fehler');
   if(ME)ME.health_reminder=on?1:0;
-  const t=document.getElementById('health_rem');if(t){t.classList.toggle('on',!!on);t.setAttribute('aria-checked',on?'true':'false');if(t.type==='checkbox')t.checked=!!on;}
+  // D-4: Der Schalter ist jetzt ein `input.sw` in einer Schalterzeile (5.5) – er traegt seinen
+  // Zustand selbst. Der alte `.tgl`-Knopf mit role="switch" wird weiterhin bedient, falls ihn eine
+  // andere Datei noch zeichnet.
+  const t=document.getElementById('health_rem');if(t){t.classList.toggle('on',!!on);if(t.getAttribute('role')==='switch')t.setAttribute('aria-checked',on?'true':'false');if(t.type==='checkbox')t.checked=!!on;}
+  const sw=document.querySelector('#health_rem_row input.sw');if(sw)sw.checked=!!on;
   toast(on?'Erinnerung aktiviert ✓':'Erinnerung deaktiviert');}
 
 // ===== KÖRPERMASSE =====
@@ -1747,7 +2086,9 @@ function anaMeasureHTML(list){const canEdit=!coachView();let h='';
   }else h+=`<div class="note mb-3">Maße deines Athleten – nur zur Ansicht. Eintragen kann sie nur er selbst.</div>`;
   const withData=MEASURE_FIELDS.filter(([k])=>list.some(m=>m[k]!=null));
   if(withData.length){if(!openMeasure.sel||!withData.some(([k])=>k===openMeasure.sel))openMeasure.sel=withData[0][0];
-    h+=`<div class="section-label">Verlauf</div><div class="chip-row" id="ms_chips">${withData.map(([k])=>`<button class="chip${k===openMeasure.sel?' on':''}" data-k="${k}" onclick="measureSel('${k}')">${anaMeasureLabel(k)}</button>`).join('')}</div><div id="ms_hist">${anaMeasureHist(list,openMeasure.sel)}</div>`;}
+    // Die Chip-Reihe ist hier die EINE Steuerebene des Sheets (3.6: Filter, > 4 Eintraege,
+    // waagrecht scrollbar) – darueber steht kein Segment, darunter keine zweite Reihe.
+    h+=`<h2 class="rows-h">Verlauf</h2><div class="chip-row" id="ms_chips">${withData.map(([k])=>`<button class="chip${k===openMeasure.sel?' on':''}" data-k="${k}" onclick="measureSel('${k}')">${esc2(anaMeasureLabel(k))}</button>`).join('')}</div><div id="ms_hist">${anaMeasureHist(list,openMeasure.sel)}</div>`;}
   else if(!canEdit)h+=emptyState({icon:'ruler',title:'Noch keine Maße',text:'Dein Athlet hat noch keine Körpermaße eingetragen.'});
   return h;}
 function anaMeasureHist(list,k){const lbl=anaMeasureLabel(k),u=anaMeasureUnit(k);
@@ -1755,8 +2096,11 @@ function anaMeasureHist(list,k){const lbl=anaMeasureLabel(k),u=anaMeasureUnit(k)
   if(asc.length>=2){const d=Math.round((asc[asc.length-1][k]-asc[0][k])*10)/10;
     h+=`<div class="chart-card mt-3"><div class="ch-h"><div class="t">${lbl}</div><div class="v">${fmtNum(asc[asc.length-1][k],1)} ${u} · ${d>0?'+':''}${fmtNum(d,1)} ${u} seit ${fmtDate(asc[0].date)}</div></div>${metricChart(asc.map(m=>({date:m.date,value:+m[k]})),u)}</div>`;}
   else h+=`<div class="caption mt-3 mb-3">Ab dem zweiten Eintrag erscheint hier die Kurve.</div>`;
-  h+=`<div class="rows">`+rows.slice(0,8).map((m,i)=>{const prev=rows[i+1];const d=prev?Math.round((m[k]-prev[k])*10)/10:null;
-    return `<div class="row"><div class="rl">${fmtDate(m.date,{weekday:'short'})}</div><div class="rr">${fmtNum(m[k],1)} ${u}${d!=null?` <span class="pill neutral">${d>0?'+':''}${fmtNum(d,1)}</span>`:''}</div></div>`;}).join('')+`</div>`;
+  h+=groupHTML('',rows.slice(0,8).map((m,i)=>{const prev=rows[i+1];const d=prev?Math.round((m[k]-prev[k])*10)/10:null;
+      return rowHTML({title:fmtDate(m.date,{weekday:'long'}),
+        sub:d==null?'erster Eintrag':`${d>0?'+':d<0?'':'±'}${fmtNum(d,1)} ${u} gegenüber dem Eintrag davor`,
+        value:`${fmtNum(m[k],1)} ${u}`});}),
+    `Gemessen wird ${lbl.toLowerCase()==='körperfett'?'in Prozent':'in Zentimetern'}, immer an derselben Stelle und am besten morgens – sonst vergleicht die Zahl zwei verschiedene Zustände.`);
   return h;}
 function measureSel(k){openMeasure.sel=k;const el=document.getElementById('ms_hist');if(el)el.innerHTML=anaMeasureHist(openMeasure.list||[],k);
   document.querySelectorAll('#ms_chips .chip').forEach(c=>c.classList.toggle('on',c.dataset.k===k));}
@@ -1801,7 +2145,8 @@ async function openPhotos(uid){uid=uid||VIEW_USER;const readOnly=(uid!==ME.id);
   // Der Vergleich ist der eigentliche Grund, warum jemand Fortschrittsfotos macht – er steht deshalb
   // ÜBER dem Raster und nicht hinter einem Foto (A-IV.6; RATE-25-analysis M3).
   if(list.length>1)h+=`<button class="btn sec block mb-3" onclick="an2CompareOpen()">${icon('eye',18)} Vorher / Nachher vergleichen</button>`;
-  if(list.length){h+=`<div class="section-label">${readOnly?'Fotos':'Deine Fotos'}<span class="sl-r" id="ph_count"></span></div><div class="ph-grid" id="ph_grid"></div><div id="ph_more"></div>`;}
+  if(list.length){h+=`<h2 class="rows-h">${readOnly?'Fotos':'Deine Fotos'}<span class="a" id="ph_count"></span></h2><div class="ph-grid" id="ph_grid"></div><div id="ph_more"></div>`
+    +`<p class="rows-f">Gleiche Pose, gleiches Licht, gleiche Tageszeit – nur dann vergleicht das nächste Bild wirklich mit diesem. Deine Fotos sehen nur du und dein zugewiesener Coach.</p>`;}
   else h+=emptyState({icon:'camera',title:'Noch keine Fotos',text:readOnly?'Der Athlet hat noch keine Fotos hochgeladen.':'Dein erstes Foto ist dein Startpunkt – mach es heute.'});
   openSheet('Fortschrittsfotos',h);
   if(list.length)phShowMore();}
@@ -1814,8 +2159,8 @@ function phShowMore(){const grid=document.getElementById('ph_grid');if(!grid)ret
   const cnt=document.getElementById('ph_count');if(cnt)cnt.textContent=pl(list.length,'Foto','Fotos')+(openPhotos.more?' geladen':'');
   const rest=list.length-to;
   const more=document.getElementById('ph_more');
-  if(more)more.innerHTML=rest>0?`<button class="btn sm sec mt-3" onclick="phShowMore()">Weitere Fotos anzeigen (noch ${fmtNum(rest)})</button>`
-    :(openPhotos.more?`<button class="btn sm sec mt-3" id="ph_older" onclick="phLoadOlder()">Ältere Fotos laden</button>`:'');
+  if(more)more.innerHTML=rest>0?`<button class="btn sec mt-3" onclick="phShowMore()">Weitere ${fmtNum(Math.min(PH_PAGE,rest))} Fotos anzeigen</button>`
+    :(openPhotos.more?`<button class="btn sec mt-3" id="ph_older" onclick="phLoadOlder()">Ältere Fotos laden</button>`:'');
   anaLoadThumbs(list.slice(from,to),uid);}
 // Nächste Seite vom Server (hinter dem ältesten geladenen Foto). Ein Server ohne Blätterung antwortet mit
 // derselben Liste – kein neues Foto heißt dann: es gibt keine weiteren.
@@ -1864,7 +2209,8 @@ async function viewPhoto(id,uid){uid=uid||VIEW_USER;const meta=(openPhotos.list|
   const p=r.data.photo;const own=uid===ME.id;viewPhoto.cur=p;
   openSheet(fmtDate(p.date,{weekday:'long',month:'long'}),`<img id="ph_view" class="ph-view" alt="Fortschrittsfoto">
     <div class="between mt-3"><span class="meta">${({front:'Vorne',side:'Seite',back:'Hinten'})[p.pose]||''}</span>
-      <div class="cluster"><button class="btn sm sec" onclick="closeModal()">Zurück</button>${own?`<button class="btn sm danger" onclick="delPhoto(${p.id})">${icon('trash',14)} Löschen</button>`:''}</div></div>`);
+      </div>${own?groupHTML('',[rowHTML({title:'Foto löschen',danger:true,tap:`delPhoto(${p.id})`})],
+        'Direkt nach dem Löschen kannst du es in der Meldung noch rückgängig machen.'):''}`);
   const im=document.getElementById('ph_view');if(im)im.src=p.image;} // src als Property, nie in den HTML-String
 // Löschen mit Bestätigung + Rückgängig (Bilddaten sind aus viewPhoto bekannt und werden neu hochgeladen)
 function delPhoto(id){const p=(viewPhoto.cur&&viewPhoto.cur.id===id)?viewPhoto.cur:null;const uid=openPhotos.uid||VIEW_USER;
@@ -1961,7 +2307,7 @@ function an2CmpDeltaHTML(){const A=AN2_CMP.rows[AN2_CMP.a],B=AN2_CMP.rows[AN2_CM
 // Das wird gesagt – und nachladbar gemacht, statt es zu verschweigen.
 function an2CompareMoreHTML(){if(!openPhotos.more)return '';
   return `<div class="center an2-cmp-hint"><div class="caption mb-2">Verglichen wird innerhalb der geladenen Fotos.</div>
-    <button class="btn sm sec" id="an2cmpOlder" onclick="an2CompareOlder()">Ältere Fotos laden</button></div>`;}
+    <button class="btn sec" id="an2cmpOlder" onclick="an2CompareOlder()">Ältere Fotos laden</button></div>`;}
 // Erst das Vorschaubild (es liegt schon in der Liste), dann das Vollbild – so steht nie ein graues Loch da.
 async function an2CompareLoad(){const uid=AN2_CMP.uid,rows=AN2_CMP.rows;if(rows.length<2)return;
   await Promise.all(['a','b'].map(async side=>{const p=rows[AN2_CMP[side]];if(!p)return;
@@ -2025,15 +2371,22 @@ async function openAchievements(){openSheet('Erfolge','<div class="spinner"></di
   const catOf=a=>(CATS.find(([,re])=>re.test(String(a.id||'')))||['Weitere'])[0];
   const sortFn=(a,b)=>{if(a.done!==b.done)return a.done?-1:1;const pa=a.target?a.progress/a.target:0,pb=b.target?b.progress/b.target:0;return pb-pa;};
   const next=list.filter(a=>!a.done&&a.target>0&&a.progress>0).sort((a,b)=>(b.progress/b.target)-(a.progress/a.target)).slice(0,3);
-  const row=(a,bar)=>`<div class="row ach${a.done?' done':''}"><div class="r-ic">${an2AchIcon(a)}</div><div class="rl">${esc2(a.title)}<small>${esc2(a.desc)}${(!a.done&&a.target)?` · ${fmtNum(a.progress)}/${fmtNum(a.target)}`:''}</small>${bar?`<div class="bar mt-2"><i style="width:${Math.min(100,Math.round(a.progress/a.target*100))}%"></i></div>`:''}</div><div class="rr">${a.done?`<span class="pill green">${icon('check',12)} erreicht</span>`:`<span class="muted-2">${icon('lock',16)}</span>`}</div></div>`;
-  let h=`<div class="card ach-head mb-3"><div class="between"><div class="h3">${icon('star',18)} Level ${fmtNum(I.level||1)} · ${esc2(I.levelTitle||'Rookie')}</div><span class="pill neutral">${fmtNum(done)}/${fmtNum(list.length)}</span></div>
-    <div class="meta mt-1">${fmtNum(I.xp||0)} XP · nächstes Level bei ${fmtNum(lp.next||100)} XP</div>
+  // D-4: die eine Zeile, das eine Wort. „3/10" wird „3 von 10 geschafft" (G9), und der Balken sitzt
+  // ueber `an5RowBar()` in der Titelspalte statt als eigene Zeilenform daneben (5.7).
+  const row=(a,bar)=>{const z=rowHTML({icon:(a&&a.iconName)||AN2_ACH_ICONS[String(a&&a.id||'')]||'medal',
+      title:a.title,
+      sub:a.desc+((!a.done&&a.target)?` · ${fmtNum(a.progress)} von ${fmtNum(a.target)} geschafft`:''),
+      pill:a.done?{text:'erreicht',tone:'green'}:{text:'offen',tone:'neutral'}});
+    return bar&&a.target?an5RowBar(z,a.progress/a.target*100):z;};
+  let h=`<div class="card ach-head mb-3"><div class="between"><div class="h3">${icon('star',18)} Level ${fmtNum(I.level||1)} · ${esc2(I.levelTitle||'Rookie')}</div><span class="pill neutral">${fmtNum(done)} von ${fmtNum(list.length)}</span></div>
+    <div class="meta mt-1">${fmtNum(I.xp||0)} Erfahrungspunkte · nächstes Level bei ${fmtNum(lp.next||100)}</div>
     <div class="bar mt-2"><i style="width:${Math.max(0,Math.min(100,+lp.pct||0))}%"></i></div>
-    <div class="caption mt-2">XP gibt es für alles: Sätze, Check-ins, Cardio, Fotos, Maße – und am meisten für neue Rekorde.</div></div>`;
-  if(next.length)h+=`<div class="section-label">Als Nächstes</div><div class="rows">${next.map(a=>row(a,true)).join('')}</div>`;
+    </div><p class="rows-f">Erfahrungspunkte gibt es für Sätze, Check-ins, Cardio, Fotos und Maße – am meisten für neue Bestleistungen.</p>`;
+  if(next.length)h+=groupHTML('Als Nächstes',next.map(a=>row(a,true)),
+    'Die drei Erfolge, denen du gerade am nächsten bist. Der Balken zeigt, wie weit du auf dem Weg dorthin bist.');
   const groups={};list.forEach(a=>{const c=catOf(a);(groups[c]=groups[c]||[]).push(a);});
   [...CATS.map(c=>c[0]),'Weitere'].forEach(c=>{const g=groups[c];if(!g||!g.length)return;const gd=g.filter(a=>a.done).length;
-    h+=`<div class="section-label">${c}<span class="sl-r">${fmtNum(gd)}/${fmtNum(g.length)}</span></div><div class="rows">${g.slice().sort(sortFn).map(a=>row(a,false)).join('')}</div>`;});
+    h+=groupHTML(`${c} · ${fmtNum(gd)} von ${fmtNum(g.length)} erreicht`,g.slice().sort(sortFn).map(a=>row(a,false)),'');});
   if(!list.length)h+=emptyState({icon:'medal',title:'Noch keine Erfolge',text:'Mit dem ersten Check-in und dem ersten Training geht es los.'});
   openSheet('Erfolge',h);}
 
@@ -2106,27 +2459,30 @@ async function openMonthlyGoal(){openSheet('Monatsziel','<div class="spinner"></
   const monthName=cap(new Date(m.month+'-01T00:00:00').toLocaleDateString('de-DE',{month:'long',year:'numeric'}));
   const open=(m.parts||[]).length-(m.reachedCount||0);
   let h=`<div class="center mb-4"><div class="caption">${monthName}${m.custom?' · vom Coach gesetzt':''}</div>
-    <div class="mg-ic">${icon(m.allReached?'trophy':'target',40)}</div>
+    <div class="mg-ic">${icon(m.allReached?'trophy':'target',36)}</div>
     <div class="h2 mt-2">${m.allReached?'Monatsziel erreicht':fmtNum(m.reachedCount)+' von '+fmtNum((m.parts||[]).length)+' geschafft'}</div>
     <div class="meta mt-1">${m.allReached?'Stark durchgezogen – das zahlt sich aus.':'Noch '+pl(open,'Ziel','Ziele')+' bis zur Auszeichnung.'}</div></div>`;
-  h+=`<div class="stack-sm">`+(m.parts||[]).map(p=>`<div class="card mg-part">
-    <div class="mg-ring">${ring(Math.max(0,Math.min(100,+p.pct||0))/100,{size:54,color:p.reached?'var(--green)':'var(--red)'})}<div class="mg-ring-ic">${p.reached?icon('check',20):icon(p.iconName||'target',20)}</div></div>
-    <div class="fill"><div class="h3">${esc2(p.label)}</div>
-      <div class="meta">${fmtNum(p.done)} / ${fmtNum(p.target)}${p.reached?' <span class="tone-green">erreicht</span>':''}</div>
-      <div class="bar${p.reached?' green':''} mt-2"><i style="width:${Math.max(0,Math.min(100,+p.pct||0))}%"></i></div></div></div>`).join('')+`</div>`;
+  // D-4 (5.7/K19): Aus drei Ringen – zwei davon ROT gefuellt, was 5.7 ausdruecklich verbietet –
+  // werden drei Zeilen mit Balken. „3 / 10" heisst ausgeschrieben „3 von 10 geschafft" (G9).
+  h+=groupHTML('',(m.parts||[]).map(p=>an5RowBar(rowHTML({
+      icon:p.reached?'check':(p.iconName||'target'),title:p.label,
+      sub:`${fmtNum(p.done)} von ${fmtNum(p.target)} geschafft`,
+      pill:p.reached?{text:'erreicht',tone:'green'}:{text:fmtNum(Math.round(+p.pct||0))+' %',tone:'neutral'}}),
+      Math.max(0,Math.min(100,+p.pct||0)),p.reached?'ok':'')),
+    'Das Monatsziel setzt die App aus deinem Rhythmus der letzten Wochen; dein Coach kann es überschreiben. Erreicht ist es, wenn alle Teilziele stehen.');
   if((ME.role==='coach'||ME.role==='admin')&&COACH_CONTEXT&&typeof openEditMonthly==='function'){const t=k=>((m.parts||[]).find(p=>p.key===k)||{}).target||0;
     h+=`<button class="btn sec mt-4" onclick="openEditMonthly('${m.month}',${t('trainings')},${t('checkins')},${t('volume')})">${icon('target',18)} Ziel für diesen Athleten anpassen</button>`;}
-  if(m.history&&m.history.length){h+=`<div class="section-label">Geschaffte Monate</div><div class="cluster">`+
+  if(m.history&&m.history.length){h+=`<h2 class="rows-h">Geschaffte Monate</h2><div class="cluster">`+
     m.history.map(x=>`<span class="pill neutral">${icon(x.custom?'medal':'trophy',12)} ${cap(new Date(x.month+'-01T00:00:00').toLocaleDateString('de-DE',{month:'short',year:'2-digit'}))}</span>`).join('')+`</div>`;}
   openSheet('Monatsziel',h);
   if(m.justClaimed&&m.award&&uid===ME.id)setTimeout(()=>celebrateMonthly(m.award,m.bonusXp),400);}
 
 function celebrateMonthly(award,bonusXp){award=award||{};
   openSheet('Monatsziel erreicht',`<div class="center mg-cel">
-    <div class="mg-cel-ic">${esc2(award.icon||'🏆')}</div>
+    <div class="mg-cel-ic">${icon('trophy',36)}</div>
     <div class="h1 mt-2">${esc2(award.title||'Monatsziel erreicht')}</div>
     <div class="meta mt-2">${esc2(award.desc||'')}</div>
-    <div class="mt-3"><span class="pill red mg-xp">+${fmtNum(bonusXp||0)} XP</span></div>
+    <div class="mt-3"><span class="pill green mg-xp">+${fmtNum(bonusXp||0)} Erfahrungspunkte</span></div>
     <button class="btn block mt-4" onclick="closeModal()">Weiter so</button>
   </div>`);}
 // (Der frühere Coach-Einstieg ins Monatsziel stand hier: er setzte COACH_CONTEXT/VIEW_USER ohne Nav-Aufbau

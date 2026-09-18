@@ -17,16 +17,19 @@
 .gs-wrap input::-webkit-search-decoration,
 .gs-wrap input::-webkit-search-results-button{-webkit-appearance:none;appearance:none}
 
-/* Die erste Überschrift steht direkt unter dem Feld – die 24 px aus .section-label wären hier zu viel */
-#gsBody>.section-label:first-child{margin-top:var(--s-2)}
+/* Die erste Überschrift steht direkt unter dem Feld – die 24 px aus .rows-h wären hier zu viel */
+#gsBody>.rows-h:first-child{margin-top:var(--s-2)}
 #gsBody{padding-bottom:var(--s-2)}
 
-/* Trefferzeile: .row liefert bereits 56 px Höhe und den Chevron. Hier wird nur dafür gesorgt, dass
-   lange Übungs- und Rezeptnamen bis hinunter zu 320 px Breite abschneiden statt umzubrechen. */
+/* Trefferzeile: .row liefert bereits 56 px Höhe, den Chevron und das Umbruchverhalten.
+   HIER STAND BIS ZUR D-6-FIX-RUNDE DAS GEGENTEIL: `overflow:hidden;text-overflow:ellipsis;
+   white-space:nowrap` an `.gs-hit .rl>span` und `.gs-hit .rl small`, mit dem erklärten Vorsatz
+   „abschneiden statt umzubrechen". DESIGN-4 7.16 verbietet ellipsis an `.rl` wörtlich (G11/K8), und
+   gemessen wurde es auch: bei 390 px schnitt die Regel „Tofu-Gemüse-Wok mit Erdnusssauce" (277/262 px)
+   und „Reiswaffeln mit Erdnussbutter & Banane" (302/262 px) ab. Ausgerechnet dort, wo man hingeht,
+   WEIL man etwas nicht findet, war der Name unvollständig. Die Regel ist ersatzlos weg – der Name
+   bricht jetzt um wie überall sonst in der App. */
 .gs-rows{margin-bottom:var(--s-1)}
-.gs-hit .rl{overflow:hidden}
-.gs-hit .rl>span,
-.gs-hit .rl small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Sprungziel kurz aufleuchten lassen (Übung im Trainingstag), damit man sie in einer langen Liste
    sofort findet. Der Ring liegt außen an, verschiebt also nichts. */

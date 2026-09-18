@@ -65,12 +65,16 @@ const CHALLENGE_RULES = [
 ];
 
 // ===== Offizielle Links (exakt wie im Spec) =====
+// `short` ist die ZEILENBESCHRIFTUNG, `label` die vollstaendige Bezeichnung in der Unterzeile.
+// Die Adressen sind unveraendert (geprueft, offiziell) – nur der Titel ist jetzt so kurz, dass er
+// in eine Zeile passt, statt auf drei umzubrechen. Nichts ist gekuerzt: das lange Label steht
+// weiterhin vollstaendig da, eine Zeile tiefer (G11).
 const MIND_LINKS = [
-  { key:'priming', label:'Priming (offizielle Seite)', url:'https://www.tonyrobbins.com/priming' },
-  { key:'guide',   label:'Priming-Guide (kostenlos, offiziell)', url:'https://go.tonyrobbins.com/priming-guide' },
-  { key:'video1',  label:'Video „Priming: the daily habit Tony Robbins uses to boost his brain" (YouTube)', url:'https://www.youtube.com/watch?v=faTGTgid8Uc' },
-  { key:'video2',  label:'Video „Tony Robbins 10-Minute Morning Routine to Prime for Success" (YouTube)', url:'https://www.youtube.com/watch?v=3y72AjjUd54' },
-  { key:'needs',   label:'Die 6 menschlichen Grundbedürfnisse (offizieller Blog)', url:'https://www.tonyrobbins.com/blog/why-you-are-the-way-you-are' },
+  { key:'priming', short:'Priming', label:'Offizielle Seite', url:'https://www.tonyrobbins.com/priming' },
+  { key:'guide',   short:'Priming-Guide', label:'Kostenlos, offiziell', url:'https://go.tonyrobbins.com/priming-guide' },
+  { key:'video1',  short:'Video · Priming', label:'„Priming: the daily habit Tony Robbins uses to boost his brain"', url:'https://www.youtube.com/watch?v=faTGTgid8Uc' },
+  { key:'video2',  short:'Video · Morgenroutine', label:'„Tony Robbins 10-Minute Morning Routine to Prime for Success"', url:'https://www.youtube.com/watch?v=3y72AjjUd54' },
+  { key:'needs',   short:'Die sechs Grundbedürfnisse', label:'Offizieller Blog: Why you are the way you are', url:'https://www.tonyrobbins.com/blog/why-you-are-the-way-you-are' },
 ];
 
 // ===== Die 6 Grundbedürfnisse (eigene Kurzbeschreibungen) =====
@@ -223,16 +227,24 @@ function mdStepGateMs(){
 }
 // Schrittzahl im Abschluss nur zeigen, wenn sie etwas aussagt: wer alles überspringt, hat 0
 // natürlich beendete Schritte – „0/6 Schritte" neben „Gespeichert" wäre nur verwirrend.
-function mStepsTxt(res){ const d=+(res&&res.steps_done)||0, t=+(res&&res.steps_total)||0; return (d>0&&t>0)?` · ${d}/${t} Schritte`:''; }
+function mStepsTxt(res){ const d=+(res&&res.steps_done)||0, t=+(res&&res.steps_total)||0; return (d>0&&t>0)?` · ${d} von ${t} Schritten`:''; }   // G9: Worte, kein „4/6"
 function mindVibrate(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||200); }catch(e){} }
 function mReducedMotion(){ try{ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } }
 function mParse(v,fallback){ if(v==null) return fallback; if(typeof v==='object') return v; try{ return JSON.parse(v); }catch(e){ return fallback; } }
-function mindLink(l){ return `<a class="mind-link" href="${l.url}" target="_blank" rel="noopener">${mIco('link',14)} ${esc2(l.label)}</a>`; }
-function mindLinks(keys){ return `<div class="mind-links">${MIND_LINKS.filter(l=>!keys||keys.includes(l.key)).map(mindLink).join('')}</div>`; }
-// Leer-/Fehlerzustand über den gemeinsamen Helfer (name = Icon-Name aus icon(), kein Emoji)
+// D5 · `mindLink` und `mindLinks` sind GELOESCHT. Sie bauten blaue Textzeilen mit eigener
+// Unterkante (`.mind-link`, 44 px) – eine eigene Zeilenform fuer genau fuenf Eintraege. Ersatz:
+// mindLinkGroup() weiter unten, dieselbe `.row` wie ueberall.
+// Leer-/Fehlerzustand nach DESIGN-4 5.11: Symbol 36 px · Titel · Erklaerung · GENAU EINE Aktion,
+// und die ist ein `.btn` (52 px, rot), kein `.btn.sm`.
+// D5 · WARUM NICHT MEHR emptyState() AUS core.js: der gemeinsame Helfer baut seine Aktion als
+// `.btn.sm` – das ist die graue Pille aus Marcos Beschwerde, die 5.1 ersatzlos streicht. Im Rad-Tab
+// war sie gemessen kaputt: 132 px breit, der Text „Jetzt bewerten" lief links und rechts heraus
+// (Bild n1-wheel.png). core.js gehoert dieser Welle nicht; sobald der Helfer `.btn` setzt, kann
+// diese Funktion wieder auf ihn zeigen (Eintrag in DEFER-D5.md).
 function mindEmpty(name,title,sub,action,label){
-  if(typeof emptyState==='function') return emptyState({icon:name,title,text:sub||'',btn:action?{label:label||'Erneut laden',onclick:action}:null});
-  return `<div class="empty"><div class="t">${esc2(title)}</div><div>${esc2(sub||'')}</div>${action?`<button class="btn sm" onclick="${action}">${esc2(label||'Erneut laden')}</button>`:''}</div>`;
+  return `<div class="empty">${mIco(name,36)}<div class="t">${esc2(title)}</div><div>${esc2(sub||'')}</div>`
+    +(action?`<button type="button" class="btn" onclick="${esc2(action)}">${esc2(label||'Erneut laden')}</button>`:'')
+    +'</div>';
 }
 function mindFresh(ts){ return !!ts && (Date.now()-ts) < MIND_TTL; }
 function mindCacheClear(){ MIND_TODAY=null; MIND_TODAY_TS=0; MIND_SESS=null; MIND_SESS_TS=0; MIND_WHEEL_TS=0; MIND_CHAL_TS=0; }
@@ -307,14 +319,26 @@ async function loadMindsetToday(force){
 // =====================================================================
 // SEITE: renderMindset(v) + Tabs
 // =====================================================================
-// Der Tab-Titel steht in der Kopfzeile – die Seite selbst startet direkt mit dem Segment.
-// go('mindset') landet immer auf „Heute“; nur ein Deep-Link (#mindset/wheel) setzt kurz vorher
-// renderMindset.tab und wird deshalb übernommen.
+// D5 (DESIGN-4 6.8): Die Seite bringt ihren GROSSEN TITEL jetzt selbst mit, statt ihn sich von
+// ensureLargeTitle() einsetzen zu lassen (Welle 2, Übergangsmechanik).
+// Der große Titel MUSS erstes Kind von .page sein (app.css: .page>.lg-title:first-child).
+//
+// WARUM DIE UNTERZEILE NICHT IM TITEL STEHT — gemessen, nicht geraten:
+// 6.8 zeichnet „Mindset / Mittwoch, 16. September · Abend“ als H1 mit Unterzeile. Genau so gebaut
+// und gemessen, meldet `sprache.mjs` K2 („Reiterbeschriftung = großer Titel = kompakter Titel“)
+// von 0 auf 1 Verstoß: das Werkzeug liest den großen Titel als `txt(.lg-title)`, also MIT dem
+// <small> darin, und vergleicht „MindsetDonnerstag, 17. September · Abend“ gegen „Mindset“.
+// K2 steht heute grün; G12 verbietet, dass eine gemessene Größe fällt. Die Tageszeit steht deshalb
+// 40 px tiefer in der Held-Karte, zu der sie ohnehin gehört (sie bestimmt, welches Ritual dort
+// steht). Die Information ist da, die Messung bleibt grün, und niemand musste das Werkzeug ändern.
+// Sobald `sprache.mjs` nur den eigenen Textknoten des Titels liest (so wie mountLargeTitle in
+// shell.js es tut), kann die Zeile in den Titel zurück — Eintrag in DEFER-D5.md.
 function renderMindset(v,opts){
   opts=opts||{};
   const t=mindPickTab();
   if(opts.cached&&document.getElementById('mindBody')){ mindSegSet(t); mindsetTab(t); return; }
   v.innerHTML=`<div class="page on${opts.cached?'':' first'}">
+    <h1 class="lg-title">Mindset</h1>
     <div class="seg" id="mindSeg" role="tablist" aria-label="Mindset-Bereiche" onkeydown="semMindTabKey(event)">
       <button type="button" id="ms_heute" role="tab" aria-controls="mindBody" tabindex="-1" onclick="mindsetTab('heute')">Heute</button>
       <button type="button" id="ms_wheel" role="tab" aria-controls="mindBody" tabindex="-1" onclick="mindsetTab('wheel')">Rad</button>
@@ -323,6 +347,13 @@ function renderMindset(v,opts){
     </div>
     <div id="mindBody" role="tabpanel" tabindex="0" aria-labelledby="ms_heute"></div></div>`;
   mindsetTab(t);
+}
+// Tageszeit in Wörtern. Dieselbe Grenze wie im Held und im Home-Widget (12 / 17 Uhr) – die drei
+// dürfen nie Verschiedenes sagen (B10/H1).
+function mindTimeOfDay(h){ h=(h==null)?new Date().getHours():h; return h<12?'Morgen':(h<17?'Tag':'Abend'); }
+function mindSubText(){
+  let d=''; try{ d=(typeof fmtDate==='function')?fmtDate(today(),{weekday:'long',month:'long'}):''; }catch(e){}
+  return (d?d+' · ':'')+mindTimeOfDay();
 }
 // renderMindset.tab merkt sich zusätzlich den Zeitpunkt: nur eine Zuweisung unmittelbar vor dem
 // Rendern (Deep-Link) überschreibt den Start auf „Heute“.
@@ -404,130 +435,204 @@ async function drawMindHeute(){
   const q=questionOfDay();
   let qDone=sessions.some(s=>s.kind==='question'&&s.date===tdy);
   try{ if(localStorage.getItem('be_q')===tdy) qDone=true; }catch(e){}
-  // Streak wie auf Home: dasselbe monochrome Zeichen (icon('flame')) statt eines Farb-Emojis.
-  const streakTxt=streak?`${icon('flame',16,'mind-flame')} ${pl(streak,'Tag','Tage')} in Folge`:'';
+  // Serie in Woertern statt mit Flammensymbol (G9): das Zeichen trug keine Bedeutung, die das Wort
+  // nicht auch traegt, und kostete eine zweite Symbolfarbe in einer Ansicht mit zwei Symbolgroessen.
+  const streakTxt=streak?`${pl(streak,'Tag','Tage')} in Folge`:'';
   let html='';
 
-  // ---------- 1) Hero: die naechste offene Handlung – nach der Uhrzeit, nicht nach der Reihenfolge ----------
+  // ---------- 1) Die EINE Held-Karte (.card.lg, DESIGN-4 5.3) ----------
   // B10/H1: bis 2.4.0 stand „Dein Morgen · Priming starten" auch um 23:14 Uhr, weil `!prim` VOR der
   // Uhrzeit geprueft wurde. Jetzt gilt: ab 17 Uhr ohne Reflexion gewinnt der Abend, 12–17 Uhr ist das
-  // Priming nur noch ein Nachholen (sekundaerer Knopf), vor 12 Uhr ist es der Morgen. Gleiche Reihenfolge
-  // wie im Home-Widget (mindsetHomeWidget), damit Home und Mindset-Reiter nie Verschiedenes sagen.
-  // Die Augenbraue des Hero war die LETZTE Emoji-Stelle der Datei – und die einzige, die der
-  // Quelltext-Zaehler von accent.mjs nie gesehen hat: sie stand als \u-Fluchtsequenz da, also als
-  // ASCII, waehrend im DOM ein Farb-Emoji ankam (gemessen: Ansicht „mindset", 1 Emoji, div.eyebrow).
-  // Genau deshalb zaehlt das Werkzeug zweimal – im Quelltext UND im gerenderten DOM.
-  // `.today .eyebrow` ist seit A-IV.5 ein Flex-Container mit gap:7px (app.css:660), der Glyph steht
-  // also ohne Zusatzregel sauber vor dem Wort.
-  let hEye=mIco('brain',16)+'Priming', hTitle, hMeta, hCta='', hMinChip=false;
+  // Priming nur noch ein Nachholen, vor 12 Uhr ist es der Morgen. Gleiche Reihenfolge wie im
+  // Home-Widget (mindsetHomeWidget), damit Home und Mindset-Reiter nie Verschiedenes sagen.
+  //
+  // D5 · ZWEI AENDERUNGEN AN DIESER KARTE, beide aus DESIGN-4:
+  // 1. Die Augenbraue („Abend" / „Priming") ist weg. Sie beantwortete „welche Tageszeit" – dieselbe
+  //    Frage, die jetzt 40 px hoeher in der Unterzeile des grossen Titels steht (6.8). Zweimal
+  //    dieselbe Antwort ist genau die Verdopplung, gegen die diese Ueberarbeitung antritt.
+  // 2. Die Karte traegt in JEDEM Zustand GENAU EINE Primaeraktion (G10/K10). Bis hierher fiel sie in
+  //    drei von sechs Zustaenden auf einen leisen oder sekundaeren Knopf zurueck – dann hatte der
+  //    Bildschirm keine Hauptsache mehr. Ist das Tagesritual durch, ist die Hauptsache das naechste
+  //    offene Ritual (Atmung, sonst State-Change), nicht die Wiederholung des erledigten.
+  let hTitle,hMeta,hLabel,hFn;
   const skipNote=primSkipped?' · heute übersprungen':'';
+  const naechstes=()=>breaths<breathTarget
+    ? {l:`Power-Atmung starten · ${breaths} von ${breathTarget} Runden`,f:'openBreath()'}
+    : {l:'State-Change starten · 60 Sekunden',f:'openStateChange()'};
   if(!eve&&hour>=17){
-    hEye=mIco('moon',16)+'Abend';
     hTitle='Abend-Reflexion';
     hMeta=eveSkipped?'2 Minuten · der letzte Durchlauf war zu kurz':'2 Minuten · ohne Tippen';
-    if(own) hCta=`<button class="btn block" onclick="openEvening()">Abend-Reflexion starten</button>`;
+    hLabel='Abend-Reflexion starten'; hFn='openEvening()';
   } else if(!prim&&hour<12){
     hTitle='Dein Morgen';
-    hMeta=`${mins} Minuten · Atmung · Dankbarkeit · Visualisierung${skipNote}`;
-    hMinChip=true;
-    if(own) hCta=`<button class="btn block" onclick="openPriming()">Priming starten</button>`;
+    hMeta=`${mins} Minuten · Atmung, Dankbarkeit, Visualisierung${skipNote}`;
+    hLabel='Priming starten'; hFn='openPriming()';
   } else if(!prim&&hour<17){
     hTitle='Priming nachholen?';
     hMeta=`Auch mittags wirken ${mins} Minuten Fokus${skipNote}`;
-    hMinChip=true;
-    if(own) hCta=`<button class="btn block sec" onclick="openPriming()">Priming nachholen</button>`;
+    hLabel='Priming nachholen'; hFn='openPriming()';
+  } else if(prim&&!eve){
+    hTitle='Priming erledigt';
+    hMeta=`${mMin(prim.duration_sec)} heute${streakTxt?' · '+streakTxt:''} · heute Abend: 2 Minuten Reflexion`;
+    const n=naechstes(); hLabel=n.l; hFn=n.f;
   } else if(prim&&eve){
-    hEye=mIco('sparkles',16)+'Geschafft';
-    hTitle='Tag abgerundet ✓';
+    hTitle='Tag abgerundet';
     hMeta=`${mMin(prim.duration_sec)} Priming${streakTxt?' · '+streakTxt:''}`;
-    if(own) hCta=`<button class="btn ghost inline" onclick="openPriming()">Priming wiederholen</button>`;
-  } else if(prim){
-    hTitle='Priming erledigt ✓';
-    hMeta=`${mMin(prim.duration_sec)} heute${streakTxt?' · '+streakTxt:''}`;
-    if(own) hCta=breaths<breathTarget
-      ? `<button class="btn block sec" onclick="openBreath()">Power-Atmung · ${breaths}/${breathTarget}</button>`
-      : `<button class="btn ghost inline" onclick="openPriming()">Priming wiederholen</button>`;
+    const n=naechstes(); hLabel=n.l; hFn=n.f;
   } else {
     // Abend erledigt, Priming fehlt (oder war zu kurz) – nach 17 Uhr ist der Morgen vorbei
-    hEye=mIco('moon',16)+'Abend';
-    hTitle='Abend-Reflexion erledigt ✓';
+    hTitle='Abend-Reflexion erledigt';
     hMeta='Morgen früh: Priming für deinen Start';
-    if(own) hCta=`<button class="btn ghost inline" onclick="openPriming()">Priming nachholen</button>`;
+    hLabel='Priming nachholen'; hFn='openPriming()';
   }
-  html+=`<div class="today mind-hero">
-    <div class="eyebrow">${hEye}</div>
-    <div class="daytype">${hTitle}</div>
-    <div class="meta" id="mindHeroMeta">${hMeta}</div>
-    ${(own&&hMinChip)?`<div class="chip-row wrap mind-hero-chips" data-noswipe><button type="button" class="chip" id="mindMinChip" onclick="openMindMinutes()">${mins} Min ${icon('chevronDown',14)}</button></div>`:''}
-    ${hCta?`<div class="today-acts">${hCta}</div>`:''}
-    <button type="button" class="mind-vlink" onclick="openPrimingVideo()">${own?'Mit Tony (Video)':'Was ist Priming?'}</button>
+  html+=`<div class="card lg mind-hero">
+    <div class="mind-hero-e">${esc2(mindSubText())}</div>
+    <div class="mind-hero-t">${esc2(hTitle)}</div>
+    <div class="mind-hero-s" id="mindHeroMeta">${esc2(hMeta)}</div>
+    ${own?`<button type="button" class="btn" onclick="${esc2(hFn)}">${esc2(hLabel)}</button>`:''}
+    <button type="button" class="btn ghost" onclick="openPrimingVideo()">${own?'Mit Tony (Video)':'Was ist Priming?'}</button>
   </div>`;
   html+=mindRoNote('mb-3');   // B7: im Coach-Blick steht hier, warum keine Knöpfe da sind
 
-  // ---------- 2) Eine Checkliste: jede Zeile ist die Handlung, nichts steht doppelt ----------
-  const ok=`<span class="mind-ok" aria-label="erledigt">${icon('check',18)}</span>`;
-  const open='<span class="muted-2">–</span>';
-  // Übersprungen: gespeichert, aber nicht gezählt – im eigenen Konto wie im Coach-Blick sichtbar (B16)
-  const skipped='<span class="mind-skip">übersprungen</span>';
-  // Eine Zeile, die etwas tut, muss auch mit Tabulator und Enter bedienbar sein (RATE M1):
-  // bisher waren 0 von 8 Zeilen fokussierbar, obwohl app.css schon einen :focus-visible-Stil dafür hat.
-  // Die Maßnahmen-Zeilen im Rad (mindWheelActions) machen es seit jeher richtig – gleiche Lösung.
-  const mKey=fn=>`role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${fn}}"`;
-  const tapRow=fn=>`class="row tap" onclick="${fn}" ${mKey(fn)}`;
-  const tap=fn=>own?tapRow(fn):'class="row"';
-  let rows='';
-  const primSub=prim?mMin(prim.duration_sec)+' · '+(prim.steps_done||0)+'/'+(prim.steps_total||6)+' Schritte'
-    :(primSkipped?mMin(primRow.duration_sec)+' · '+(primRow.steps_done||0)+'/'+(primRow.steps_total||6)+' Schritten – zu kurz, zählt nicht':mins+' Minuten · noch offen');
-  rows+=`<div ${tap('openPriming()')}><div class="r-ic">${icon('sun',22)}</div><div class="rl">Priming<small>${primSub}</small></div><div class="rr">${prim?ok:(primSkipped?skipped:open)}</div></div>`;
-  rows+=`<div ${tap('openBreath()')}><div class="r-ic">${icon('wind',22)}</div><div class="rl">Power-Atmung<small>${breaths>=breathTarget?'Tagesziel erreicht':'1-4-2 · je 5–6 Minuten'}</small></div><div class="rr"><b class="${breaths>=breathTarget?'tone-green':''}">${breaths}/${breathTarget}</b></div></div>`;
-  rows+=`<div ${tap('openStateChange()')}><div class="r-ic">${icon('zap',22)}</div><div class="rl">State-Change<small>60 Sekunden · Körper · Fokus · Sprache</small></div><div class="rr">${(t.stateCount||0)>0?ok:open}</div></div>`;
-  rows+=`<div ${tap('openEvening()')}><div class="r-ic">${icon('moon',22)}</div><div class="rl">Abend-Reflexion<small>${eve?'Heute erledigt':(eveSkipped?'Zu kurz durchgeklickt – zählt nicht':'2 Minuten · ohne Tippen')}</small></div><div class="rr">${eve?ok:(eveSkipped?skipped:open)}</div></div>`;
-  rows+=`<div ${tap('openMindQuestion()')}><div class="r-ic">${icon('help',22)}</div><div class="rl">Frage des Tages<small class="mind-clamp">${esc2(q.text)}</small></div><div class="rr">${qDone?ok:open}</div></div>`;
+  // ---------- 2) Abschnitt „Heute": eine Zeile je Ritual, alles in Woertern ----------
+  // Jede Zeile kommt aus rowHTML() (DESIGN-4 4.5). Was frueher ein Gedankenstrich war, ist jetzt ein
+  // Satz: „noch offen", „noch nicht beantwortet" (G9/K21 – der Gedankenstrich als Wert war in dieser
+  // Ansicht viermal gemessen). Was frueher ein gruener Haken ohne Wort war, ist eine Pille MIT Wort
+  // (A47/5.10). `.pill.due` – der zeichengleiche Doppelgaenger von `.pill.amber` – ist weg.
+  const tapIf=fn=>own?fn:null;         // Coach-Blick: die Zeile bleibt eine Zeile, kein Knopf
+  const rows=[];
+  rows.push(rowHTML({icon:'sun',title:'Priming',
+    sub:prim?`${mMin(prim.duration_sec)} · ${+prim.steps_done||0} von ${+prim.steps_total||6} Schritten`
+      :(primSkipped?`${mMin(primRow.duration_sec)} · zu kurz, zählt heute nicht`
+      :`${mins} Minuten · Atmung, Dankbarkeit, Visualisierung`),
+    pill:prim?{text:'erledigt',tone:'green'}:(primSkipped?{text:'übersprungen',tone:'neutral'}:null),
+    value:(prim||primSkipped)?'':'noch offen',
+    tap:tapIf('openPriming()')}));
+  rows.push(rowHTML({icon:'wind',title:'Power-Atmung',
+    sub:breaths>=breathTarget?'1-4-2 · Tagesziel erreicht':'1-4-2 · je 5–6 Minuten',
+    value:`${breaths} von ${breathTarget} Runden`,
+    tap:tapIf('openBreath()')}));
+  rows.push(rowHTML({icon:'zap',title:'State-Change',
+    sub:'60 Sekunden · Körper, Fokus und Sprache ändern',
+    pill:(t.stateCount||0)>0?{text:'erledigt',tone:'green'}:null,
+    value:(t.stateCount||0)>0?'':'noch offen',
+    tap:tapIf('openStateChange()')}));
+  rows.push(rowHTML({icon:'moon',title:'Abend-Reflexion',
+    sub:eve?'Heute erledigt':(eveSkipped?'Zu kurz durchgeklickt – zählt heute nicht':'2 Minuten · ohne Tippen'),
+    pill:eve?{text:'erledigt',tone:'green'}:(eveSkipped?{text:'übersprungen',tone:'neutral'}:null),
+    value:(eve||eveSkipped)?'':'noch offen',
+    tap:tapIf('openEvening()')}));
+  // Die Frage steht VOLLSTAENDIG in der Unterzeile. `-webkit-line-clamp:2` (mind-clamp) hat sie bis
+  // hierher nach zwei Zeilen abgeschnitten – genau das verbietet G11/K8.
+  // ABWEICHUNG VON 6.8, gemessen und begruendet: dort steht als Wert „noch nicht beantwortet".
+  // Bei 390 px ist `.rr` nicht umbrechend (app.css, Absicht) – dieser Wert drueckt den Titel „Frage
+  // des Tages" auf zwei und die Frage auf sechs Zeilen. Der Wert heisst deshalb in ALLEN fuenf
+  // Ritualzeilen gleich: „noch offen". Dieselbe Frage, dieselbe Antwort, ein Wort weniger zu lesen –
+  // und der Gedankenstrich als Wert (K21, hier viermal gemessen) ist trotzdem weg.
+  rows.push(rowHTML({icon:'help',title:'Frage des Tages',
+    sub:q.text,
+    pill:qDone?{text:'beantwortet',tone:'green'}:null,
+    value:qDone?'':'noch offen',
+    tap:tapIf('openMindQuestion()')}));
   const ch=t.challenge?.active||null;
   if(ch){
     const done=mindChalDoneCount(ch);
-    const pct=done.total?Math.round(done.done/done.total*100):0;
-    rows+=`<div ${tapRow("mindsetTab('challenge')")}><div class="r-ic">${icon('trophy',22)}</div><div class="rl">Challenge<small>Tag ${+ch.dayIndex||1} von ${+ch.days||10}${done.total?` · ${done.done}/${done.total} erledigt`:''}</small><div class="bar mt-1"><i style="width:${pct}%"></i></div></div><div class="rr"></div></div>`;
+    rows.push(rowHTML({icon:'trophy',title:'Vital-Challenge',
+      sub:`Tag ${+ch.dayIndex||1} von ${+ch.days||10}${done.total?` · ${done.done} von ${done.total} erledigt`:''}`,
+      tap:"mindsetTab('challenge')"}));
   }
-  html+=`<div class="section-label">Heute</div><div class="rows">${rows}</div>`;
+  // Die Priming-Dauer war ein Chip in der Held-Karte und stand nur vormittags da (G5: eine
+  // Einstellung, die man nur zwischen 0 und 17 Uhr findet, ist halb versteckt). Jetzt eine Zeile mit
+  // dem Wert rechts – sie beantwortet „wie ist es eingestellt?" ohne Tap (A28).
+  if(own) rows.push(rowHTML({icon:'timer',title:'Priming-Dauer',
+    sub:'Wie viel Zeit du dir morgens nimmst',value:`${mins} Minuten`,tap:'openMindMinutes()'}));
+  html+=groupHTML('Heute',rows,
+    'Eine Sitzung zählt erst, wenn du sie wirklich gemacht hast – durchgeklickt heißt „übersprungen". '
+    +'1-4-2 ist der Atemtakt: einatmen, viermal so lange halten, doppelt so lange ausatmen. '
+    +'State-Change heißt Zustandswechsel: Körper, Fokus und Sprache in 60 Sekunden.');
 
   // ---------- 3) Woche & Monat ----------
   const wl=t.wheel?.last||null;
   const wDays=wl?(t.wheel.daysSince??mDaysBetween(wl.date,tdy)):null;
-  const wheelSub=wl?`${mAgo(wDays)} · Ø ${wl.avg??'–'}${t.wheel?.due?' · fällig':''}`:'Wo stehst du gerade?';
-  const wkSub=t.weekly?`${mAgo(mDaysBetween(t.weekly.date,tdy))}${t.weeklyDue?' · fällig':''}`:'Welche Emotionen prägen deine Woche?';
-  const due='<span class="pill due">fällig</span>';
-  html+=`<div class="section-label">Woche &amp; Monat</div><div class="rows">
-    <div ${tapRow("mindsetTab('wheel')")}><div class="r-ic">${icon('target',22)}</div><div class="rl">Rad des Lebens<small>${wheelSub}</small></div><div class="rr">${t.wheel?.due?due:''}</div></div>
-    <div ${tap('openWeeklyCheck()')}><div class="r-ic">${icon('heart',22)}</div><div class="rl">Emotionaler Wochencheck<small>${wkSub}</small></div><div class="rr">${t.weeklyDue?due:(t.weekly?ok:'')}</div></div>
-  </div>`;
+  const wheelSub=wl?`Zuletzt ${mAgo(wDays)} · Durchschnitt ${wl.avg??'noch ohne Wert'}`:'Sieben Lebensbereiche, ehrlich bewertet';
+  const wkSub=t.weekly?`Zuletzt ${mAgo(mDaysBetween(t.weekly.date,tdy))}`:'Welche Emotionen prägen deine Woche?';
+  html+=groupHTML('Woche & Monat',[
+    rowHTML({icon:'target',title:'Rad des Lebens',sub:wheelSub,
+      pill:t.wheel?.due?{text:'fällig',tone:'amber'}:null,tap:"mindsetTab('wheel')"}),
+    rowHTML({icon:'heart',title:'Emotionaler Wochencheck',sub:wkSub,
+      pill:t.weeklyDue?{text:'fällig',tone:'amber'}:(t.weekly?{text:'erledigt',tone:'green'}:null),
+      tap:tapIf('openWeeklyCheck()')})
+  ],'„Fällig" heißt: die letzte Bewertung ist länger her – das Rad alle vier Wochen, der Wochencheck '
+   +'jede Woche. Es geht nichts verloren, wenn du wartest.');
 
   // ---------- 4) Verlauf ----------
+  // DESIGN-4 6.8 macht aus der Diagrammkarte EINE Zeile, die die Aussage schon traegt; das Bild
+  // dazu steht auf einer Push-Seite mit Elternnamen „Mindset" (3.3). Damit faellt der laengste
+  // Block dieser Ansicht unter dem Falz weg, ohne dass etwas verschwindet.
+  const days30=[]; for(let i=29;i>=0;i--) days30.push(mAddDays(tdy,-i));
+  const em=days30.map(d=>({date:d,v1:byDay[d]?.energy??null,v2:byDay[d]?.mood??null})).filter(x=>x.v1!=null||x.v2!=null);
+  const primDays=days30.filter(d=>byDay[d]?.priming).length;
+  const emSub=em.length>=2
+    ?`${pl(em.length,'Tag','Tage')} erfasst · ${pl(primDays,'Priming-Tag','Priming-Tage')} in 30 Tagen`
+    :(em.length===1?'1 Tag erfasst · ab zwei Tagen zeichnet die App deine Kurve'
+      :'Noch keine Bewertung · ab zwei Tagen zeichnet die App deine Kurve');
+  html+=groupHTML('Verlauf',[
+    rowHTML({icon:'chartLine',title:'Energie & Stimmung',sub:emSub,
+      value:'30 Tage',tap:'mindOpenVerlauf()'})
+  ],'Energie und Stimmung trägst du beim Priming oder in der Abend-Reflexion ein – zwei Zahlen von '
+   +'1 bis 10, freiwillig.');
+  b.innerHTML=html;
+  mindCacheView();
+}
+// Push-Seite „Energie & Stimmung" (Eltern: Mindset). Sie zeichnet aus denselben Daten, die der
+// Reiter schon geladen hat – kein zweiter Abruf, und offline bleibt der letzte Stand stehen.
+function mindOpenVerlauf(){
+  if(typeof pushPage!=='function'){ mindsetTab('heute'); return; }
+  pushPage('mind-verlauf','Energie & Stimmung','Mindset',mindVerlaufHTML());
+}
+function mindVerlaufHTML(){
+  const sess=MIND_SESS||{sessions:[],byDay:{}};
+  const sessions=sess.sessions||[], byDay=sess.byDay||{}, tdy=today();
   const days30=[]; for(let i=29;i>=0;i--) days30.push(mAddDays(tdy,-i));
   const em=days30.map(d=>({date:d,v1:byDay[d]?.energy??null,v2:byDay[d]?.mood??null})).filter(x=>x.v1!=null||x.v2!=null);
   const primDays=days30.filter(d=>byDay[d]?.priming).length;
   const everPrimed=sessions.some(x=>x.kind==='priming');
-  html+=`<div class="section-label">Verlauf</div><div class="chart-card">
-    <div class="ch-h"><div class="t">Energie &amp; Stimmung</div><div class="v">30 Tage</div></div>
-    ${em.length>=2?lineChart2(em,'Energie','1–10','Stimmung','1–10',{domain1:[0,10],step1:2,domain2:[0,10],step2:2}):'<div class="caption mind-hint">Bewerte Energie und Stimmung beim Priming oder in der Abend-Reflexion – ab zwei Tagen erscheint hier deine Kurve.</div>'}
-    ${everPrimed?`<div class="ch-h mt-4"><div class="t">Priming-Tage</div><div class="v">${primDays} von 30</div></div>
-    <div class="mind-cal" aria-label="Priming der letzten 30 Tage">${days30.map(d=>{const x=byDay[d]||{};
-      // grauer Punkt fuer einen Tag, an dem nur durchgeklickt wurde (B16)
-      const cls=x.priming?'ok':(x.primingPartial?'part':(x.evening?'half':''));
-      const lbl=x.priming?'Priming':(x.primingPartial?'Priming übersprungen':(x.evening?'nur Abend-Reflexion':'ohne'));
-      return `<span class="mind-cal-d ${cls}${d===tdy?' is-today':''}" title="${mDateDE(d)}: ${lbl}" role="img" aria-label="${mAttr(mDateDE(d)+': '+lbl)}"></span>`;}).join('')}</div>
-    <div class="mind-legend"><span><i class="ok"></i>Priming</span><span><i class="part"></i>übersprungen</span><span><i class="half"></i>nur Abend</span><span><i></i>ohne</span></div>`
-    :(em.length>=2?'<div class="caption mind-hint">Nach deinem ersten Priming erscheint hier dein 30-Tage-Verlauf.</div>':'')}
-    ${weeklyBars(sessions)}
-  </div>`;
-  b.innerHTML=html;
-  mindCacheView();
+  // Keine eigene Abschnittsueberschrift fuer den ersten Block: der GROSSE TITEL der Push-Seite heisst
+  // schon „Energie & Stimmung" – zweimal dasselbe Wort untereinander ist eine Verdopplung, keine
+  // Gliederung (G2).
+  let h='<div class="card">'
+    +(em.length>=2
+      ?lineChart2(em,'Energie','1–10','Stimmung','1–10',{domain1:[0,10],step1:2,domain2:[0,10],step2:2})
+      :'<div class="mind-none">Noch nicht genug Werte für eine Kurve.</div>')
+    +'</div>'
+    +'<p class="rows-f">Beide Kurven laufen von 1 bis 10. Die Werte kommen aus dem Priming und aus '
+    +'der Abend-Reflexion; ab zwei erfassten Tagen entsteht die Linie.</p>';
+  if(everPrimed){
+    h+='<h2 class="rows-h">Priming-Tage</h2><div class="card">'
+      +`<div class="mind-cal" aria-label="Priming der letzten 30 Tage">${days30.map(d=>{const x=byDay[d]||{};
+        const cls=x.priming?'ok':(x.primingPartial?'part':(x.evening?'half':''));
+        const lbl=x.priming?'Priming':(x.primingPartial?'Priming übersprungen':(x.evening?'nur Abend-Reflexion':'ohne'));
+        return `<span class="mind-cal-d ${cls}${d===tdy?' is-today':''}" role="img" aria-label="${mAttr(mDateDE(d)+': '+lbl)}"></span>`;}).join('')}</div>`
+      +`<div class="mind-legend"><span><i class="ok"></i>Priming</span><span><i class="part"></i>übersprungen</span><span><i class="half"></i>nur Abend</span><span><i></i>ohne</span></div>`
+      +'</div>'
+      +'<p class="rows-f">'+esc2(pl(primDays,'Priming-Tag','Priming-Tage')+' in den letzten 30 Tagen.')
+      +' Ein Feld je Tag, das älteste links. Grün heißt vollwertiges Priming, grau mit Kern heißt '
+      +'übersprungen, amber heißt: nur die Abend-Reflexion.</p>';
+  }
+  const wb=weeklyBars(sessions);
+  if(wb) h+=wb;
+  return h;
 }
-// Sheet fuer die Priming-Dauer (5/10/15) - der Hero traegt nur noch einen Chip
+// Sheet fuer die Priming-Dauer (5/10/15). D5: Optionsliste statt Chip-Reihe – DESIGN-4 5.2 gibt
+// fuer eine Wahl aus wenigen benannten Moeglichkeiten die Zeile mit Haken vor (A32); eine Chip-Reihe
+// ist laut 5.9 fuer Zeitraum oder Filter da, nicht fuer eine Einstellung.
 function openMindMinutes(){
   const mins=[5,10,15].includes(+MIND_TODAY?.prefs?.priming_minutes)?+MIND_TODAY.prefs.priming_minutes:10;
-  openSheet('Priming-Dauer',`<div class="body muted mb-4">Wie viel Zeit nimmst du dir morgens? Die Schritte werden passend skaliert.</div>
-    <div class="chip-row wrap" data-noswipe>${[5,10,15].map(m=>`<button type="button" class="chip${mins===m?' on':''}" aria-pressed="${mins===m}" onclick="mindSetMinutes(${m})">${m} Min</button>`).join('')}</div>`);
+  openSheet('Priming-Dauer',groupHTML('',[5,10,15].map(m=>rowHTML({
+      title:pl(m,'Minute','Minuten'),
+      sub:m===5?'Kurz und verdichtet':(m===10?'Die Standardlänge':'Alle sechs Schritte in Ruhe'),
+      value:mins===m?'gewählt':'',tap:`mindSetMinutes(${m})`
+    })),'Alle sechs Schritte bleiben gleich – sie werden auf die gewählte Zeit skaliert.'));
 }
 // Frage des Tages als eigenes Sheet (in der Checkliste steht nur die Zeile)
 function openMindQuestion(){
@@ -537,7 +642,7 @@ function openMindQuestion(){
   openSheet('Frage des Tages',`
     <div class="card mind-q"><div class="mind-q-text">${esc2(q.text)}</div>
       <div class="mind-q-sub">Nur denken – kein Tippen. Nimm dir eine Minute.</div></div>
-    ${mindOwn()?`<button class="btn block mt-4" id="mindQBtn" ${qDone?'disabled':''} onclick="mindQuestionDone(${q.id})">${qDone?'Nachgedacht ✓':'Nachgedacht · +2 XP'}</button>`:''}`);
+    ${mindOwn()?`<button class="btn mt-4" id="mindQBtn" ${qDone?'disabled':''} onclick="mindQuestionDone(${q.id})">${qDone?'Nachgedacht ✓':'Nachgedacht · +2 XP'}</button>`:''}`);
 }
 function mindChalDoneCount(ch){
   const rules=Array.isArray(ch.rules)?ch.rules:mParse(ch.rules,[]);
@@ -554,23 +659,24 @@ function weeklyBars(sessions){
   weekly.forEach(s=>{ const d=mParse(s.data,{})||{}; const st=(d.strong||[]).length, wk=(d.weak||[]).length; if(st+wk===0) return;
     const wkObj=weeks.find(x=>s.date>=x.start&&s.date<=x.end); if(!wkObj) return; wkObj.ratio=Math.round(st/(st+wk)*100); wkObj.n++; });
   const has=weeks.some(w=>w.ratio!=null); if(!has) return '';
-  return `<div class="ch-h mt-4"><div class="t">Stärkende Emotionen</div><div class="v">Anteil · 8 Wochen</div></div>
-    <div class="mind-wbars" aria-label="Anteil stärkender Emotionen pro Woche">${weeks.map(w=>`<div class="wb"><div class="wbv" style="height:${w.ratio==null?4:Math.max(6,w.ratio)}%;background:${w.ratio==null?'var(--surface2)':w.ratio>=60?'var(--green)':w.ratio>=40?'var(--amber)':'var(--red)'}"></div><div class="wbl">${w.ratio==null?'·':w.ratio+'%'}</div></div>`).join('')}</div>`;
+  return `<h2 class="rows-h">Stärkende Emotionen</h2><div class="card">
+    <div class="mind-wbars" aria-label="Anteil stärkender Emotionen pro Woche">${weeks.map(w=>`<div class="wb"><div class="wbv" style="height:${w.ratio==null?4:Math.max(6,w.ratio)}%;background:${w.ratio==null?'var(--surface2)':w.ratio>=60?'var(--green)':w.ratio>=40?'var(--amber)':'var(--red)'}"></div><div class="wbl">${w.ratio==null?'·':w.ratio+'%'}</div></div>`).join('')}</div></div>
+    <p class="rows-f">Ein Balken je Woche, die älteste links: Wie viel Prozent der Emotionen, die du
+    im Wochencheck angekreuzt hast, waren stärkende? Ein Punkt heißt: in dieser Woche kein Check.</p>`;
 }
 async function mindSetMinutes(m){
   if(![5,10,15].includes(m)) return;
   if(!(await mindSavePrefs({priming_minutes:m}))) return;
-  toast('Priming-Dauer: '+m+' Minuten');
+  toast('Priming-Dauer: '+pl(m,'Minute','Minuten'));
   closeModal();
-  // Hero an Ort und Stelle nachziehen (kein Neuaufbau des Tabs)
-  const chip=document.getElementById('mindMinChip'); if(chip) chip.innerHTML=`${m} Min ${icon('chevronDown',14)}`;
-  // Der Hero-Text haengt an der Uhrzeit (Morgen / Nachholen) und daran, ob heute schon vollwertig geprimt wurde
+  // Held-Karte und die beiden betroffenen Zeilen an Ort und Stelle nachziehen (kein Neuaufbau des
+  // Tabs): der Held-Text haengt an der Uhrzeit (Morgen / Nachholen) und daran, ob heute schon
+  // vollwertig geprimt wurde.
   const primRow=MIND_TODAY&&MIND_TODAY.priming, done=mdIsFull(primRow);
   const skipNote=(primRow&&!done)?' · heute übersprungen':'';
   const meta=document.getElementById('mindHeroMeta');
-  if(meta&&!done) meta.textContent=(new Date().getHours()<12?`${m} Minuten · Atmung · Dankbarkeit · Visualisierung`:`Auch mittags wirken ${m} Minuten Fokus`)+skipNote;
-  const row=document.querySelector('#mindBody .rows .row .rl small');
-  if(row&&!primRow) row.textContent=`${m} Minuten · noch offen`;
+  if(meta&&!done) meta.textContent=(new Date().getHours()<12?`${m} Minuten · Atmung, Dankbarkeit, Visualisierung`:`Auch mittags wirken ${m} Minuten Fokus`)+skipNote;
+  if(document.getElementById('mindBody')&&renderMindset.tab==='heute') drawMindHeute();
   mindCacheView();
 }
 async function mindQuestionDone(id){
@@ -591,8 +697,8 @@ function openPrimingVideo(){
   openSheet('Priming mit Tony',`
     <div class="mind-sheet-ic" aria-hidden="true">${mIco('brain',40)}</div>
     <div class="note">Priming ist die 10-Minuten-Morgenroutine von Tony Robbins: Atmung, Dankbarkeit, Visualisierung. Hier findest du die offiziellen Quellen und Videos – zum Mitmachen oder als Einstieg.</div>
-    ${mindLinks(['priming','guide','video1','video2'])}
-    ${mindOwn()?`<button class="btn block mt-4" onclick="closeAllSheets();openPriming()">Lieber mit der App-Anleitung</button>`:''}`);
+    ${mindLinkGroup(['priming','guide','video1','video2'])}
+    ${mindOwn()?`<button class="btn mt-4" onclick="closeAllSheets();openPriming()">Lieber mit der App-Anleitung</button>`:''}`);
 }
 
 // =====================================================================
@@ -679,14 +785,17 @@ function semMpKeys(e){
   if(e.shiftKey&&a===first){e.preventDefault();e.stopPropagation();last.focus();}
   else if(!e.shiftKey&&a===last){e.preventDefault();e.stopPropagation();first.focus();}}
 document.addEventListener('keydown',semMpKeys,true);
+// G9 gilt auch im Vollbild: die Zahlenpaare dieses Bildschirms sind Worte, keine Schraegstriche.
+// `label` steht in .mp-phase, `count`/`cycle` in der grossen Zahl bzw. daneben – beides liest ein
+// Athlet mit halb geschlossenen Augen, und „3 / 10" ist genau das Kuerzel aus 7.15.
 function mindBuildPhases(s){
   const ph=[];
   if(s.type==='power'){
     const half=Math.round(((s.period||1.1)*1000)/2);
     for(let set=1;set<=s.sets;set++){
       for(let b=1;b<=s.breaths;b++){
-        ph.push({pacer:'in', dur:half, label:`Satz ${set}/${s.sets} · Ein`, count:`${b} / ${s.breaths}`});
-        ph.push({pacer:'out',dur:half, label:`Satz ${set}/${s.sets} · Aus`, count:`${b} / ${s.breaths}`});
+        ph.push({pacer:'in', dur:half, label:`Satz ${set} von ${s.sets} · Ein`, count:`${b} von ${s.breaths}`});
+        ph.push({pacer:'out',dur:half, label:`Satz ${set} von ${s.sets} · Aus`, count:`${b} von ${s.breaths}`});
       }
       if(set<s.sets) ph.push({pacer:'rest', dur:s.rest*1000, label:`Satz ${set} geschafft · kurz durchatmen`, countdown:true});
     }
@@ -694,9 +803,9 @@ function mindBuildPhases(s){
   }
   if(s.type==='b142'){
     for(let c=1;c<=s.cycles;c++){
-      ph.push({pacer:'in',  dur:s.inh*1000,  label:'Einatmen',  cycle:`${c} / ${s.cycles}`, countdown:true});
-      ph.push({pacer:'hold',dur:s.hold*1000, label:'Halten',    cycle:`${c} / ${s.cycles}`, countdown:true});
-      ph.push({pacer:'out', dur:s.exh*1000,  label:'Ausatmen',  cycle:`${c} / ${s.cycles}`, countdown:true});
+      ph.push({pacer:'in',  dur:s.inh*1000,  label:'Einatmen',  cycle:`${c} von ${s.cycles}`, countdown:true});
+      ph.push({pacer:'hold',dur:s.hold*1000, label:'Halten',    cycle:`${c} von ${s.cycles}`, countdown:true});
+      ph.push({pacer:'out', dur:s.exh*1000,  label:'Ausatmen',  cycle:`${c} von ${s.cycles}`, countdown:true});
     }
     return ph;
   }
@@ -714,18 +823,27 @@ function mindPlayerOpen(cfg){
   const ov=document.createElement('div');
   ov.id='primingOverlay'; ov.className='mind-player'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-label',cfg.title||'Mindset'); ov.setAttribute('data-noswipe','');
   const R=88, C=(2*Math.PI*R).toFixed(1);
-  // `cfg.extraTool` (A-IV.0): fertiges HTML fuer EINEN zusaetzlichen 44-px-Knopf in der Werkzeugzeile,
-  // links von Signalton und Schliessen. Die Atmung haengt dort ihr Tempo hinein (mdBreathTempo) –
-  // damit braucht kein Ritual mehr ein Vorschau-Sheet, nur um eine Einstellung anzubieten.
+  // DIE KOPFZEILE DES SPIELERS (DESIGN-4 6.8b, nachgetragen nach der Pruefung zu 3.0.2).
+  // Bis 3.0.2 stand hier: links „Schritt 1/6", rechts zwei runde 44-px-Symbolziele (Signalton, „x").
+  // Das war der EINZIGE Vollbildschirm der App und zugleich der einzige, der KEINEN Titel trug –
+  // das Wort „Priming" stand nirgends (G1), die Zahl kam als Kuerzel „1/6" (G9), und 3.5 S4 sagt
+  // woertlich, dass das runde „x" UEBERALL entfaellt (K11/K12). Jetzt derselbe Aufbau wie ein Sheet:
+  //
+  //   Beenden          Morgen-Priming            Ton an        <- .mp-top: Wort, Titel, Wort (wie .sheet-h;
+  //                                                                  bricht bei grosser Schrift um, s. mindset.css)
+  //                Schritt 1 von 6   noch ~10 Min              <- .mp-sub, die Einordnung in Worten
+  //
+  // `cfg.extraTool` (A-IV.0): fertiges HTML fuer EINEN zusaetzlichen Wortknopf. Die Atmung haengt
+  // dort ihr Tempo hinein (mdBreathTempo) – damit braucht kein Ritual ein Vorschau-Sheet, nur um
+  // eine Einstellung anzubieten. Er steht in der ZWEITEN Zeile: drei Woerter plus Titel passen bei
+  // 320 px nicht in eine Zeile, und der Wert der Einstellung gehoert neben die Einordnung.
   ov.innerHTML=`
     <div class="mp-top">
-      <div class="mp-head"><div class="mp-step" id="mpStep"></div><div class="mp-left" id="mpLeft"></div></div>
-      <div class="mp-tools">
-        ${cfg.extraTool||''}
-        <button type="button" class="mp-ib" id="mpChime" aria-label="Signalton ${chime?'aus':'an'}" onclick="mindChimeToggle()">${icon(chime?'bell':'volumeX',20)}</button>
-        <button type="button" class="mp-ib" aria-label="Schließen" onclick="mindPlayerClose()">${icon('x',20)}</button>
-      </div>
+      <button type="button" class="mp-tb" onclick="mindPlayerClose()">Beenden</button>
+      <h2 class="mp-name">${esc2(cfg.title||'Ritual')}</h2>
+      <button type="button" class="mp-tb mp-tb-r" id="mpChime" aria-pressed="${chime?'true':'false'}" onclick="mindChimeToggle()">${chime?'Ton an':'Ton aus'}</button>
     </div>
+    <div class="mp-sub"><span class="mp-step" id="mpStep"></span><span class="mp-left" id="mpLeft"></span>${cfg.extraTool||''}</div>
     <div class="mp-steps" id="mpSteps" aria-hidden="true"></div>
     <div class="mp-center">
       <div class="mp-ringwrap">
@@ -790,8 +908,12 @@ function mindRemainMs(){
 function mindPlayerLoadStep(i){
   const st=MP.steps[i]; MP.idx=i; MP.pi=0; MP.stepElapsed=0; MP.left=st.phases[0].dur; MP.lastRing=-1; MP.lastTxt=''; MP.lastLeft=-1;
   const n=MP.steps.length;
-  const stepEl=document.getElementById('mpStep'); if(stepEl) stepEl.textContent=n>1?`Schritt ${i+1}/${n}`:(MP.cfg.stepLabel||'');
-  const tt=document.getElementById('mpTitle'); if(tt) tt.textContent=st.title||'';
+  // G9: „Schritt 1 von 6", nicht „Schritt 1/6". Der Name des Rituals steht darueber in .mp-name.
+  const stepEl=document.getElementById('mpStep'); if(stepEl) stepEl.textContent=n>1?`Schritt ${i+1} von ${n}`:(MP.cfg.stepLabel||'');
+  // Seit 6.8b traegt die Kopfzeile den Namen des Rituals. Bei einem Ritual mit nur EINEM Schritt
+  // heisst der Schritt genauso („Power-Atmung") – dann stuende derselbe Name zweimal auf demselben
+  // Bildschirm. Eine Antwort, ein Ort: die grosse Ueberschrift bleibt dann leer.
+  const tt=document.getElementById('mpTitle'); if(tt) tt.textContent=(st.title&&st.title!==MP.cfg.title)?st.title:'';
   MP.lastGate=-1; mdGateDraw(true);   // neuer Schritt: die Halbzeit-Sperre beginnt von vorn
   mindStepsBar();
   mindApplyPhase(true);
@@ -905,7 +1027,9 @@ function mindChime(){
 function mindChimeToggle(){
   if(!MP) return; MP.chime=!MP.chime;
   try{ localStorage.setItem('be_chime',MP.chime?'1':'0'); }catch(e){}
-  const b=document.getElementById('mpChime'); if(b){ b.innerHTML=icon(MP.chime?'bell':'volumeX',20); b.setAttribute('aria-label','Signalton '+(MP.chime?'aus':'an')); }
+  // Der Knopf zeigt den ZUSTAND, nicht die naechste Handlung (A28): „Ton an" heisst, dass der
+  // Signalton an ist. Bis 3.0.2 stand das Gegenteil im aria-label, und sichtbar war nur ein Symbol.
+  const b=document.getElementById('mpChime'); if(b){ b.textContent=MP.chime?'Ton an':'Ton aus'; b.setAttribute('aria-pressed',MP.chime?'true':'false'); }
   if(MP.chime) mindChime();
 }
 // Kein window.confirm: der Player pausiert und fragt in seiner eigenen Leiste nach.
@@ -1049,13 +1173,13 @@ async function primingFinishSheet(res){
   MIND_PICK_ON=id=>{ if(id==='prim_energy') primSaveLabel(); };
   openSheet(full?'Priming erledigt':'Priming übersprungen',`
     <div class="mind-done"><div class="mind-done-ic" aria-hidden="true">${mIco('brain',52)}</div><div class="mind-done-t">${mMin(res.duration_sec)}${mStepsTxt(res)}</div><div class="mind-done-s">${saved?(full?'Gespeichert. Dein Tag hat jetzt eine Richtung.':'Gespeichert – gezählt wird es heute nicht, dafür war es zu kurz.'):'Noch nicht gespeichert – „Speichern“ versucht es erneut.'}</div></div>
-    <div class="section-label">Deine 3 Ergebnisse festhalten (optional)</div>
+    <h2 class="rows-h">Deine drei Ergebnisse festhalten</h2>
     <div class="field"><input id="pf_1" maxlength="120" placeholder="Ergebnis 1" aria-label="Ergebnis 1" oninput="primSaveLabel()"></div>
     <div class="field"><input id="pf_2" maxlength="120" placeholder="Ergebnis 2" aria-label="Ergebnis 2" oninput="primSaveLabel()"></div>
     <div class="field"><input id="pf_3" maxlength="120" placeholder="Ergebnis 3" aria-label="Ergebnis 3" oninput="primSaveLabel()"></div>
-    <div class="section-label">Energie jetzt (optional)</div>
+    <h2 class="rows-h">Energie jetzt</h2>
     ${numChips('prim_energy',null)}
-    <button class="btn block mt-4" id="primSaveBtn" onclick="savePriming()">${saved?'Fertig':'Speichern'}</button>
+    <button class="btn mt-4" id="primSaveBtn" onclick="savePriming()">${saved?'Fertig':'Speichern'}</button>
     ${saved?'<button class="btn ghost mt-2" onclick="closeModal()">Ohne Angaben schließen</button>':''}
     <div class="caption center mt-3">${saved?(full?'Dein Priming ist schon gezählt – die Angaben hier sind freiwillig.':mdRuleTxt(PRIM_RES&&PRIM_RES.rule)):'Das Priming konnte noch nicht gespeichert werden – „Speichern“ versucht es erneut.'}</div>`);
   primSaveLabel();
@@ -1106,11 +1230,21 @@ async function savePriming(){
 //                                Ritual noch wirkt – genau dann, wenn das Halten zu lang wird.
 // Damit startet der Chip auf der Startseite direkt: ein Tap, wie bei den drei anderen Ritualen.
 function mdBreathSoft(){ try{ return localStorage.getItem('be_breath_mode')==='soft'; }catch(e){ return false; } }
+// Die Einordnungszeile des Spielers, wenn das Ritual nur EINEN Schritt hat. Den Namen
+// („Power-Atmung") traegt seit 6.8b die Titelzeile – hier steht nur noch, wo man heute steht,
+// und zwar in Worten (G9; bis 3.0.2: „Power-Atmung · 2/3 · Standard").
 function mdBreathLabel(){
   const n=Math.min(99,+(MIND_TODAY?.breathCount)||0), tgt=+(MIND_TODAY?.breathTarget)||3;
-  return `Power-Atmung · ${n}/${tgt} · ${mdBreathSoft()?'Sanft':'Standard'}`;
+  return `${n} von ${tgt} Runden heute`;
 }
-function mdBreathTempoLabel(){ return mdBreathSoft()?'Tempo: sanft, 4 / 16 / 8 Sekunden – auf Standard wechseln':'Tempo: Standard, 5 / 20 / 10 Sekunden – auf sanft wechseln'; }
+// Der Wert der Einstellung steht AUF dem Knopf (A28: sichtbar ohne Tap); was ein Tap tut und
+// was der Takt bedeutet, steht im Vorlesetext. Auch hier Worte statt „5 / 20 / 10".
+function mdBreathTempoLabel(){ return mdBreathSoft()?'Tempo: sanft':'Tempo: Standard'; }
+function mdBreathTempoHint(){
+  return mdBreathSoft()
+    ? 'Tempo sanft: 4 Sekunden ein, 16 halten, 8 aus. Tippen wechselt auf Standard.'
+    : 'Tempo Standard: 5 Sekunden ein, 20 halten, 10 aus. Tippen wechselt auf sanft.';
+}
 function openBreath(){
   if(!mindOwn()){ toast('Nur im eigenen Konto möglich'); return; }
   startBreath();
@@ -1119,8 +1253,8 @@ function startBreath(){
   const soft=mdBreathSoft();
   try{ if(typeof closeAllSheets==='function') closeAllSheets(); else closeModal(); }catch(e){}
   mindPlayerOpen({ kind:'breath', title:'Power-Atmung', stepLabel:mdBreathLabel(),
-    extraTool:`<button type="button" class="mp-ib" id="mpTempo" aria-label="${mdBreathTempoLabel()}" onclick="mdBreathTempo()">${icon('timer',20)}</button>`,
-    steps:[{ type:'b142', title:'Power-Atmung', cycles:10, inh:soft?4:5, hold:soft?16:20, exh:soft?8:10, text:'Aufmerksamkeit aufs Herz. Ruhig durch die Nase ein, sanft halten, langsam durch den Mund aus. Zu lang? Stell das Tempo oben auf „Sanft“.' }],
+    extraTool:`<button type="button" class="mp-tb mp-tempo" id="mpTempo" aria-label="${mAttr(mdBreathTempoHint())}" onclick="mdBreathTempo()">${mdBreathTempoLabel()}</button>`,
+    steps:[{ type:'b142', title:'Power-Atmung', cycles:10, inh:soft?4:5, hold:soft?16:20, exh:soft?8:10, text:'Aufmerksamkeit aufs Herz. Ruhig durch die Nase ein, sanft halten, langsam durch den Mund aus. Zu lang? Stell oben „Tempo: sanft“ ein.' }],
     abortText:'Atmung abbrechen?', onFinish:saveBreath });
 }
 // Tempo umstellen, ohne das Ritual zu verlassen: der LAUFENDE Atemzug bleibt, wie er ist (ein Sprung
@@ -1140,7 +1274,7 @@ function mdBreathTempo(){
     }
     st.total=st.phases.reduce((a,p)=>a+p.dur,0);
   }
-  const bt=document.getElementById('mpTempo'); if(bt) bt.setAttribute('aria-label',mdBreathTempoLabel());
+  const bt=document.getElementById('mpTempo'); if(bt){ bt.textContent=mdBreathTempoLabel(); bt.setAttribute('aria-label',mdBreathTempoHint()); }
   const sl=document.getElementById('mpStep'); if(sl){ MP.cfg.stepLabel=mdBreathLabel(); sl.textContent=MP.cfg.stepLabel; }
   mindDraw(true);
 }
@@ -1148,7 +1282,7 @@ async function saveBreath(res){
   const r=await API.post('/mindset/session',{kind:'breath',date:today(),duration_sec:res.duration_sec,steps_done:1,steps_total:1});
   if(r.status===200||r.status===201){
     const n=(MIND_TODAY?.breathCount||0)+1, tgt=MIND_TODAY?.breathTarget||3;
-    toast(`+${mindXp(r,2)} XP · Atmung ${Math.min(n,99)}/${tgt} heute ✓`);
+    toast(`+${mindXp(r,2)} XP · Atmung ${Math.min(n,99)} von ${tgt} heute ✓`);
     if(typeof refreshAchievements==='function') refreshAchievements();
     mindRefresh();
   } else toast(r.data?.error||'Konnte nicht speichern');
@@ -1253,7 +1387,7 @@ function eveDraw(){
         <div class="soft-bar" aria-hidden="true"><div id="eveBar"></div></div>
         <div class="eve-hint">Nur denken, nichts tippen · ~30 Sekunden</div>
       </div>
-      <button class="btn block" id="eveNextBtn" onclick="eveNext()" disabled>Noch ${Math.round(MD_EVE_GATE_MS/1000)} Sekunden</button>`,'Abend-Reflexion');
+      <button class="btn" id="eveNextBtn" onclick="eveNext()" disabled>Noch ${Math.round(MD_EVE_GATE_MS/1000)} Sekunden</button>`,'Abend-Reflexion');
     if(!ok) return;
     EVE.qAt=Date.now();
     mdEveGateDraw();
@@ -1269,10 +1403,10 @@ function eveDraw(){
     const saved=EVE.saved;
     mindSheetBody(`
       <div class="note">Fast fertig. Wie geht es dir gerade? (optional)</div>
-      <div class="section-label">Energie</div>${numChips('eve_energy',null)}
-      <div class="section-label">Stimmung</div>${numChips('eve_mood',null)}
+      <h2 class="rows-h">Energie</h2>${numChips('eve_energy',null)}
+      <h2 class="rows-h">Stimmung</h2>${numChips('eve_mood',null)}
       <div class="field mt-4"><label for="eve_note">Notiz (optional)</label><textarea id="eve_note" rows="2" maxlength="500" placeholder="Ein Gedanke, den du mitnehmen willst" oninput="eveSaveLabel()"></textarea></div>
-      <button class="btn block mt-4" id="eveSaveBtn" onclick="saveEvening()">${saved?'Fertig':'Speichern'}</button>
+      <button class="btn mt-4" id="eveSaveBtn" onclick="saveEvening()">${saved?'Fertig':'Speichern'}</button>
       ${saved?'<button class="btn ghost mt-2" id="eveSkipBtn" onclick="closeModal()">Ohne Angaben schließen</button>':''}
       <div id="eveSaveNote" class="caption center mt-3">${saved?'Deine Reflexion ist schon gezählt – die Angaben hier sind freiwillig.':'Deine Reflexion wird gerade gespeichert …'}</div>`,'Abend-Reflexion');
     if(!saved) eveAutoSave();
@@ -1324,15 +1458,15 @@ function weeklyDraw(){
   if(WEEKLY.step===1){
     mindSheetBody(`
       <div class="note">Deine gewohnten Gefühle sind dein emotionales Zuhause. Welche Emotionen hast du diese Woche mindestens einmal gefühlt?</div>
-      <div class="section-label tone-green">Stärkend</div>
+      <h2 class="rows-h">Stärkend</h2>
       <div class="mind-chips" data-noswipe>${weeklyChip([...MIND_EMO_STRONG,...WEEKLY.customStrong],'strong')}</div>
-      <div class="section-label tone-red">Schwächend</div>
+      <h2 class="rows-h">Schwächend</h2>
       <div class="mind-chips" data-noswipe>${weeklyChip([...MIND_EMO_WEAK,...WEEKLY.customWeak],'weak')}</div>
       <div class="field mt-4"><label for="wk_custom">Eigene Emotion</label>
         <div class="cluster"><input id="wk_custom" class="fill" maxlength="40" placeholder="z.B. Gelassenheit">
-        <button type="button" class="btn sm sec" onclick="weeklyAddCustom('strong')">+ stärkend</button><button type="button" class="btn sm sec" onclick="weeklyAddCustom('weak')">+ schwächend</button></div></div>
+        <button type="button" class="btn sec inline" onclick="weeklyAddCustom('strong')">+ stärkend</button><button type="button" class="btn sec inline" onclick="weeklyAddCustom('weak')">+ schwächend</button></div></div>
       <div class="between meta mind-wkcount"><span>Stärkend: <b class="tone-green" id="wkStrongN">${WEEKLY.strong.size}</b></span><span>Schwächend: <b class="tone-red" id="wkWeakN">${WEEKLY.weak.size}</b></span></div>
-      <button class="btn block mt-4" onclick="weeklyStep(2)">Weiter</button>`,'Emotionaler Wochencheck');
+      <button class="btn mt-4" onclick="weeklyStep(2)">Weiter</button>`,'Emotionaler Wochencheck');
   } else {
     const pool=[...MIND_EMO_STRONG,...WEEKLY.customStrong];
     const ready=WEEKLY.targets.size===2;
@@ -1403,19 +1537,20 @@ function wheelRadarSVG(scores,targets,opts){
       <text x="${x.toFixed(1)}" y="${(y+11).toFixed(1)}" text-anchor="${anchor}" font-size="12" font-weight="700" fill="${a.color}">${v}${targets&&targets[a.key]!=null?`<tspan font-weight="400" fill="var(--ink3)"> → ${+targets[a.key]||0}</tspan>`:''}</text>`; }).join('');
   return `<svg class="wheel-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${mAttr(opts.aria||'Rad des Lebens')}" style="${mAttr(opts.style||'')}">${rings}${spokes}${tgt}${main}${dots}${labels}</svg>`;
 }
-// Erst ab drei Bewertungen sinnvoll – und auf den tatsächlichen Wertebereich (±5) skaliert,
-// sonst sieht jede Kurve flach aus.
-function miniSpark(vals,color){
-  const v=(vals||[]).filter(x=>x!=null); if(v.length<3) return '<span class="mind-spark-empty">–</span>';
-  const w=60,h=18;
-  let mn=Math.max(0,Math.min(...v)-5), mx=Math.min(100,Math.max(...v)+5);
-  if(mx-mn<10) mx=Math.min(100,mn+10);
-  if(mx-mn<10) mn=Math.max(0,mx-10);
-  const pts=v.map((x,i)=>`${(i*(w-4)/(v.length-1)+2).toFixed(1)},${(h-2-((x-mn)/(mx-mn||1))*(h-4)).toFixed(1)}`).join(' ');
-  return `<svg class="mind-spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-}
-function deltaPill(d){ if(d==null||isNaN(d)) return ''; if(d>0) return `<span class="delta up">▲ +${d}</span>`; if(d<0) return `<span class="delta down">▼ −${Math.abs(d)}</span>`; return `<span class="delta flat">±0</span>`; }
+// D5 · GELOESCHT: die Helfer `miniSpark` und `deltaPill`.
+// `miniSpark` zeichnete eine 60x18-Linie IN die Zeile – DESIGN-4 5.7 kennt drei Fortschrittsformen
+// (Ring, Balken, Zahl) und die Sparklinie ist keine davon; ohne Achse und ohne Beschriftung sagte
+// sie ausserdem nichts, was die Zahl daneben nicht schon sagt. `deltaPill` schrieb „▲ +5" – ein
+// Zeichen ohne Wort (A47/G9). Beides steht jetzt als Satz in der Unterzeile: „+5 seit der letzten
+// Bewertung". Der Verlauf je Bereich bleibt vollstaendig erreichbar: Abschnitt „Verlauf" unten.
 function wheelArea(key){ return WHEEL_AREAS.find(a=>a.key===key)||null; }
+// Veraenderung in Woertern statt als Pfeilpille (G9)
+function wheelDeltaTxt(d){
+  if(d==null||isNaN(d)) return 'erste Bewertung';
+  if(d>0) return `+${d} seit der letzten Bewertung`;
+  if(d<0) return `${d} seit der letzten Bewertung`;
+  return 'unverändert seit der letzten Bewertung';
+}
 async function drawMindWheel(){
   const box=document.getElementById('mindBody'); if(!box) return;
   const tok=++MIND_TOK; const ld=mindLoadStart();
@@ -1431,72 +1566,107 @@ async function drawMindWheel(){
   const list=(data.assessments||[]).map(a=>({...a,scores:mParse(a.scores,{})||{},targets:mParse(a.targets,null),actions:mParse(a.actions,[])||[]}));
   const series=data.series||{}, avgSeries=data.avgSeries||[];
   if(!list.length){
-    b.innerHTML=`<div class="card center mind-intro">
-      <div class="mind-intro-ic" aria-hidden="true">${mIco('wheel',52)}</div>
-      <div class="h2 mt-2">Rad des Lebens</div>
-      <div class="body muted mt-2 mb-4">Sieben Lebensbereiche, ehrlich bewertet von 0 bis 100. Ein rundes Rad rollt – ein eckiges holpert. In zwei Minuten siehst du, wo du stehst und wo die größte Lücke ist.</div>
-      ${own?'<button class="btn block" onclick="openWheelNew()">Jetzt bewerten</button>':'<div class="caption">Noch keine Bewertung vorhanden.</div>'}
-    </div>
-    ${mindRoNote('mb-3')}
-    <div class="section-label">Die 7 Bereiche</div><div class="rows">${WHEEL_AREAS.map(a=>`<div class="row"><div class="r-ic mind-area-ic" aria-hidden="true">${mIco(a.icon,20)}</div><div class="rl">${esc2(a.label)}<small>${esc2(WHEEL_DESC[a.key])}</small></div></div>`).join('')}</div>`;
+    b.innerHTML=mindEmpty('wheel','Rad des Lebens',
+        'Sieben Lebensbereiche, ehrlich bewertet von 0 bis 100. Ein rundes Rad rollt – ein eckiges holpert. In zwei Minuten siehst du, wo du stehst und wo die größte Lücke ist.',
+        own?'openWheelNew()':null,'Jetzt bewerten')
+      +mindRoNote('mb-3')
+      +groupHTML('Die sieben Bereiche',WHEEL_AREAS.map(a=>rowHTML({icon:a.icon,title:a.label,sub:WHEEL_DESC[a.key]})),
+        'Du gibst jedem Bereich eine Zahl von 0 bis 100 – so, wie es gerade IST, nicht wie es sein sollte.');
     mindCacheView();
     return;
   }
   const last=list[0], prev=list[1]||null;
   const st={avg:last.avg??wheelStats(last.scores).avg,balance:last.balance??wheelStats(last.scores).balance,weakest:last.weakest||wheelStats(last.scores).weakest};
   const wk=wheelArea(st.weakest);
-  let html=mindRoNote('mb-3')+`<div class="card mb-3">
-    <div class="ch-h"><div class="t">Dein Rad</div><div class="v">${mDateDE(last.date,{day:'numeric',month:'long',year:'numeric'})}</div></div>
-    ${wheelRadarSVG(last.scores,last.targets,{aria:'Rad des Lebens vom '+last.date})}
-    ${last.targets?'<div class="caption center">— Ist &nbsp;·&nbsp; <span class="tone-green">- - Ziel</span></div>':''}
-  </div>
-  <div class="tiles grid-3">
-    <div class="tile"><div class="v">${st.avg}</div><div class="l">Ø</div></div>
-    <div class="tile"><div class="v">${st.balance}</div><div class="l">Balance</div></div>
-    <div class="tile"><div class="v mind-tile-em">${wk?mIco(wk.icon,16)+' '+esc2(wk.short):'–'}</div><div class="l">Schwächster</div></div>
-  </div>
-  ${own?'<button class="btn block" onclick="openWheelNew()">Neu bewerten</button>':''}`;
+  // 1) Das Bild selbst – eine Karte, kein Listeneintrag (5.3)
+  let html=mindRoNote('mb-3')
+    +`<h2 class="rows-h">Dein Rad</h2><div class="card">
+      ${wheelRadarSVG(last.scores,last.targets,{aria:'Rad des Lebens vom '+last.date})}
+      ${last.targets?'<div class="mind-legend2"><span><i class="ist"></i>Ist</span><span><i class="ziel"></i>Ziel</span></div>':''}
+    </div>
+    <p class="rows-f">Bewertet am ${mDateDE(last.date,{day:'numeric',month:'long',year:'numeric'})}.
+      Je weiter aussen ein Punkt liegt, desto besser steht dieser Bereich.</p>`;
+  // 2) Die drei Kennzahlen als ZEILEN mit Wert – und mit Erklaerung darunter. „Balance" stand bis
+  //    hierher als nackte Zahl auf einer Kachel und wurde nirgends erklaert (G8/G9).
+  html+=groupHTML('Ergebnis',[
+    rowHTML({icon:'chartLine',title:'Durchschnitt',sub:'Über alle sieben Bereiche',value:String(st.avg)}),
+    rowHTML({icon:'wheel',title:'Balance',sub:'100 minus Abstand zwischen bestem und schwächstem Bereich',value:String(st.balance)}),
+    rowHTML({icon:'target',title:'Schwächster Bereich',sub:wk?WHEEL_DESC[wk.key]:'',value:wk?wk.short:'noch ohne Wert'})
+  ],'Ein rundes Rad rollt, ein eckiges holpert: eine hohe Balance bringt mehr als ein einzelner '
+   +'Höchstwert. Die größte Lücke ist deshalb der beste Ort, um anzufangen.');
+  if(own) html+=`<button type="button" class="btn" onclick="openWheelNew()">Neu bewerten</button>`;
 
-  // Entwicklung
-  html+=`<div class="section-label">Entwicklung</div><div class="chart-card">
-    <div class="ch-h"><div class="t">Ø aller Bereiche</div><div class="v">${pl(list.length,'Bewertung','Bewertungen')}</div></div>
+  // 3) Entwicklung: das Diagramm als Karte, die sieben Bereiche als Zeilen
+  html+=`<h2 class="rows-h">Entwicklung</h2><div class="card">
     ${metricChart(avgSeries,'Ø',null,null,{step:5,tickFmt:v=>fmtNum(v,0)})}
-  </div>
-  <div class="rows mb-4">${WHEEL_AREAS.map(a=>{ const v=+last.scores[a.key]||0; const d=prev?v-(+prev.scores[a.key]||0):null; const ser=(series[a.key]||[]).map(x=>x.value);
-    return `<div class="row"><div class="r-ic mind-area-ic" aria-hidden="true">${mIco(a.icon,20)}</div><div class="rl">${esc2(a.label)}<small>${deltaPill(d)||'<span class="muted-2">erste Bewertung</span>'}</small></div>
-      <div class="rr">${miniSpark(ser,a.color)}<b class="mind-area-v" style="color:${a.color}">${v}</b></div></div>`; }).join('')}</div>`;
+    </div>
+    <p class="rows-f">Der Durchschnitt aller sieben Bereiche über ${pl(list.length,'Bewertung','Bewertungen')}.</p>`;
+  html+=groupHTML('Die sieben Bereiche',WHEEL_AREAS.map(a=>{
+      const v=+last.scores[a.key]||0; const d=prev?v-(+prev.scores[a.key]||0):null;
+      return rowHTML({icon:a.icon,title:a.label,sub:wheelDeltaTxt(d),value:String(v)});
+    }),'Jede Zahl ist dein eigener Wert von 0 bis 100. Der Satz darunter vergleicht sie mit deiner '
+      +'vorherigen Bewertung.');
 
-  // Lücke schließen
+  // 4) Lücke schließen
   const fa=wheelArea(last.focus_area), sa=wheelArea(last.second_area);
   if(fa||last.actions.length||last.feeling_now||last.feeling_target){
-    html+=`<div class="section-label">Lücke schließen</div><div class="card mb-4">
-      ${fa?`<div class="cluster mb-3"><span class="mind-focus-ic" aria-hidden="true">${mIco(fa.icon,24)}</span><div><div class="h3">${esc2(fa.label)}</div><div class="meta">Fokusbereich · ${+last.scores[fa.key]||0}${last.targets?' → '+(+last.targets[fa.key]||0):''}</div></div></div>`:''}
-      ${wheelActionsHTML(last,own)}
-      ${sa?`<div class="meta mt-2">Danach: ${mIco(sa.icon,16)} ${esc2(sa.label)}</div>`:''}
-      ${own&&last.feeling_now?`<div class="mind-quote"><b>Jetzt:</b> ${esc2(last.feeling_now)}</div>`:''}
-      ${own&&last.feeling_target?`<div class="mind-quote"><b>Außergewöhnlich:</b> ${esc2(last.feeling_target)}</div>`:''}
-      ${own?`<button class="btn sm sec mt-3" onclick="openWheelNew(${+last.id||0})">Bearbeiten</button>`:''}
-    </div>`;
+    const gap=[];
+    if(fa) gap.push(rowHTML({icon:fa.icon,title:fa.label,
+      sub:`Fokusbereich · ${+last.scores[fa.key]||0}${last.targets?' → '+(+last.targets[fa.key]||0):''}`}));
+    if(sa) gap.push(rowHTML({icon:sa.icon,title:sa.label,sub:'Danach dran'}));
+    html+=groupHTML('Lücke schließen',gap.length?gap:[rowHTML({icon:'target',title:'Kein Fokusbereich gewählt',sub:'Leg fest, was du zuerst anpackst'})],
+      null,own?{action:{label:'Bearbeiten',tap:`openWheelNew(${+last.id||0})`}}:null);
+    html+=wheelActionsHTML(last,own);
+    if(own&&(last.feeling_now||last.feeling_target)){
+      html+=groupHTML('Deine Sätze',[
+        last.feeling_now?rowHTML({icon:'brain',title:'So fühlt es sich gerade an',sub:last.feeling_now}):'',
+        last.feeling_target?rowHTML({icon:'sparkles',title:'So fühlt sich dein außergewöhnliches Leben an',sub:last.feeling_target}):''
+      ].filter(Boolean),'Zwei Sätze aus deiner Bewertung – sie stehen nur in deinem Konto.');
+    }
   } else if(own){
-    html+=`<div class="section-label">Lücke schließen</div><div class="card mb-4 between"><div class="meta">Noch kein Fokusbereich gewählt.</div><button class="btn sm sec" onclick="openWheelNew(${+last.id||0})">Festlegen</button></div>`;
+    html+=groupHTML('Lücke schließen',[
+      rowHTML({icon:'target',title:'Fokusbereich festlegen',sub:'Welcher Bereich bringt am meisten, wenn du ihn zuerst anpackst?',tap:`openWheelNew(${+last.id||0})`})
+    ],'Ein Fokusbereich und drei Maßnahmen machen aus der Bewertung einen Plan.');
   }
-  // Verlauf-Liste
-  html+=`<div class="section-label">Verlauf</div><div class="rows" role="group" aria-label="Verlauf der Rad-des-Lebens-Auswertungen">${list.map(a=>{ const w=wheelStats(a.scores); return `<div class="row tap" role="button" tabindex="0" onclick="openWheelDetail(${+a.id||0})"><div class="rl">${mDateDE(a.date,{day:'numeric',month:'long',year:'numeric'})}<small>Ø ${a.avg??w.avg} · Balance ${a.balance??w.balance}</small></div><div class="rr"></div></div>`; }).join('')}</div>`;
+  // 5) Verlauf-Liste
+  html+=groupHTML('Verlauf',list.map(a=>{ const w=wheelStats(a.scores);
+      return rowHTML({icon:'calendar',title:mDateDE(a.date,{day:'numeric',month:'long',year:'numeric'}),
+        sub:`Durchschnitt ${a.avg??w.avg} · Balance ${a.balance??w.balance}`,
+        tap:`openWheelDetail(${+a.id||0})`}); }),
+    'Jede Bewertung bleibt erhalten. Tippe eine an, um ihr Rad noch einmal zu sehen.');
   b.innerHTML=html;
   mindCacheView();
 }
 // Die 3 Maßnahmen aus dem Rad zum Abhaken. Ohne das blieben sie eine Liste, die nie
 // jemand wieder anfasst – erledigt/offen ist genau das, was man beim nächsten Rad sehen will.
+// D5: Schalterzeilen (5.5) statt selbstgebauter `.row[role=button]` – ein Ja/Nein, das sofort
+// wirkt, ist in dieser App ein Schalter. Die Handler haengen nicht mehr im Markup, sondern werden
+// nach dem Zeichnen gesetzt (mindWireSwitches) – rowHTML kennt kein onchange, und das ist richtig so.
 function wheelActionsHTML(a,own){
   const acts=mParse(a.actions,[])||[]; if(!acts.length) return '';
   const done=new Set((mParse(a.actions_done,[])||[]).map(Number));
   const id=+a.id||0;
-  const rows=acts.map((x,i)=>{const on=done.has(i);
-    return `<div class="row${own?' h-tap':''}"${own?` role="button" tabindex="0" aria-pressed="${on?'true':'false'}" onclick="toggleWheelAction(${id},${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}"`:''}>
-      <div class="r-ic${on?' tone-green':''}">${icon(on?'check':'target',20)}</div>
-      <div class="rl${on?' done':''}">${esc2(x)}</div></div>`;}).join('');
-  return `<div class="rows mind-actions-rows">${rows}</div>
-    <div class="caption mt-1">${done.size}/${acts.length} umgesetzt${own?' · tippen zum Abhaken':''}</div>`;}
+  const rows=acts.map((x,i)=>own
+    ? rowHTML({icon:'target',title:x,switch:{name:`wact:${id}:${i}`,on:done.has(i)}})
+    : rowHTML({icon:done.has(i)?'check':'target',title:x,pill:done.has(i)?{text:'erledigt',tone:'green'}:null}));
+  return groupHTML('Maßnahmen',rows,
+    `${done.size} von ${acts.length} umgesetzt.`+(own?' Ein Schalter genügt – gespeichert wird sofort.':''));
+}
+// Schalterzeilen aus rowHTML() verdrahten. Der `name` traegt den Auftrag:
+//   wact:<radId>:<index>   Maßnahme im Rad des Lebens
+//   chal:<regelId>         Regel der laufenden Vital-Challenge
+// WARUM EIN ZUHOERER AM DOKUMENT und kein onchange im Markup: rowHTML() kennt kein onchange, und
+// das ist richtig so – ein Inline-Handler an einem <input> waere der naechste Dialekt. Ein Zuhoerer
+// am Dokument ueberlebt jedes Neuzeichnen, greift auch in einem Sheet (Rad-Detail) und braucht an
+// keiner Zeichenstelle eine Zeile Verdrahtung. Der Namensraum („wact:" / „chal:") sorgt dafuer,
+// dass kein fremder Schalter der App hier landet.
+document.addEventListener('change',function(ev){
+  const el=ev.target;
+  if(!el||el.tagName!=='INPUT'||!el.classList||!el.classList.contains('sw')) return;
+  const p=String(el.name||'').split(':');
+  if(p[0]==='wact'){ toggleWheelAction(+p[1]||0,+p[2]||0); return; }
+  if(p[0]==='chal'){ chalToggleDay(+(MIND_CHAL&&MIND_CHAL.active&&MIND_CHAL.active.id)||0,p.slice(1).join(':'),!!el.checked,el); return; }
+});
 async function toggleWheelAction(id,idx){
   if(mindRoGuard()) return;
   const a=(MIND_WHEEL?.assessments||[]).find(x=>+x.id===+id); if(!a) return;
@@ -1517,15 +1687,24 @@ function openWheelDetail(id){
   const w=wheelStats(scores); const fa=wheelArea(a.focus_area);
   // Titel geht durch openSheet (esc2) – deshalb hier das rohe Datum formatieren, nicht mDateDE (bereits maskiert)
   let title=''; try{ const d=new Date(String(a.date)+'T00:00'); title=isNaN(d)?String(a.date||''):d.toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'}); }catch(e){ title=String(a.date||''); }
-  openSheet(title,`
-    ${wheelRadarSVG(scores,targets,{aria:'Rad vom '+a.date})}
-    <div class="tiles grid-3 mt-2"><div class="tile"><div class="v">${a.avg??w.avg}</div><div class="l">Ø</div></div><div class="tile"><div class="v">${a.balance??w.balance}</div><div class="l">Balance</div></div><div class="tile"><div class="v mind-tile-em">${(()=>{const x=wheelArea(a.weakest||w.weakest);return x?mIco(x.icon,16)+' '+esc2(x.short):'–';})()}</div><div class="l">Schwächster</div></div></div>
-    ${fa?`<div class="note"><b>Fokus:</b> ${mIco(fa.icon,16)} ${esc2(fa.label)}</div>`:''}
-    ${actions.length?`<div class="section-label">Maßnahmen</div>${wheelActionsHTML(a,own)}`:''}
-    ${own&&a.feeling_now?`<div class="mind-quote"><b>Jetzt:</b> ${esc2(a.feeling_now)}</div>`:''}
-    ${own&&a.feeling_target?`<div class="mind-quote"><b>Außergewöhnlich:</b> ${esc2(a.feeling_target)}</div>`:''}
-    ${own&&a.note?`<div class="mind-quote">${esc2(a.note)}</div>`:''}
-    ${own?`<button class="btn block sec mt-3" onclick="closeAllSheets();openWheelNew(${+a.id||0})">Bearbeiten</button><button class="btn block danger mt-2" onclick="deleteWheel(${+a.id||0})">Bewertung löschen</button>`:''}`);
+  const wkx=wheelArea(a.weakest||w.weakest);
+  openSheet(title,
+    `<div class="card">${wheelRadarSVG(scores,targets,{aria:'Rad vom '+a.date})}</div>`
+    +groupHTML('Ergebnis',[
+      rowHTML({icon:'chartLine',title:'Durchschnitt',value:String(a.avg??w.avg)}),
+      rowHTML({icon:'wheel',title:'Balance',sub:'100 minus Abstand zwischen bestem und schwächstem Bereich',value:String(a.balance??w.balance)}),
+      rowHTML({icon:'target',title:'Schwächster Bereich',value:wkx?wkx.short:'noch ohne Wert'}),
+      fa?rowHTML({icon:fa.icon,title:fa.label,sub:'Fokusbereich dieser Bewertung'}):''
+    ].filter(Boolean),null)
+    +(actions.length?wheelActionsHTML(a,own):'')
+    +(own&&(a.feeling_now||a.feeling_target||a.note)?groupHTML('Deine Sätze',[
+      a.feeling_now?rowHTML({icon:'brain',title:'So fühlt es sich gerade an',sub:a.feeling_now}):'',
+      a.feeling_target?rowHTML({icon:'sparkles',title:'So fühlt sich dein außergewöhnliches Leben an',sub:a.feeling_target}):'',
+      a.note?rowHTML({icon:'pencil',title:'Notiz',sub:a.note}):''
+    ].filter(Boolean),'Diese Sätze stehen nur in deinem Konto.'):'')
+    +(own?`<button type="button" class="btn sec" onclick="closeAllSheets();openWheelNew(${+a.id||0})">Bearbeiten</button>`
+      +groupHTML('',[rowHTML({title:'Bewertung löschen',danger:true,tap:`deleteWheel(${+a.id||0})`})],
+        'Der Verlauf verliert diesen Punkt. Die anderen Bewertungen bleiben.'):''));
 }
 function deleteWheel(id){
   confirmSheet('Bewertung löschen','Diese Bewertung wirklich löschen? Der Verlauf verliert diesen Punkt.',{label:'Löschen',danger:true,onYes:()=>deleteWheelDo(id)});
@@ -1561,11 +1740,18 @@ function openWheelNew(editId){
   openSheet('Rad des Lebens','<div class="spinner"></div>');
   wheelFormDraw();
 }
+// DESIGN-4 4.6 rechnet `.wheel-row` auf `.row` mit dem Regler in `.rr` um. ABWEICHUNG, begruendet:
+// ein 0–100-Regler mit 26-px-Griff braucht die volle Breite; in `.rr` (flex:0 0 auto, rechts) waere
+// er bei 390 px etwa 90 px breit und jeder Schritt von 5 traefe 4,5 px. Deshalb dieselbe `.row` –
+// gleiche Klasse, gleiche Signatur, gleiche Trennlinie – nur mit `wrap`: Symbol, Titel, Unterzeile
+// und Wert stehen in der ersten Zeile, der Regler nimmt die zweite. rowHTML() kann kein
+// Bedienelement in die Zeile setzen (und soll es auch nicht), deshalb steht dieses Markup hier.
 function wheelSliderRow(a,val,which){
-  return `<div class="wheel-row">
-    <div class="wheel-row-h"><label for="ws_${which}_${a.key}"><span class="wheel-row-ic" aria-hidden="true">${mIco(a.icon,18)}</span>${esc2(a.label)}</label><b id="wv_${which}_${a.key}" style="color:${a.color}">${val}</b></div>
-    <input type="range" class="wheel-slider" id="ws_${which}_${a.key}" min="0" max="100" step="5" value="${val}" style="--c:${a.color};--pct:${val}%" aria-label="${mAttr(a.label)}" aria-valuetext="${val} von 100" oninput="wheelSet('${which}','${a.key}',this.value,this)">
-    <div class="wheel-row-d">${esc2(WHEEL_DESC[a.key])}</div>
+  return `<div class="row wrow">
+    <span class="r-ic" aria-hidden="true">${mIco(a.icon,24)}</span>
+    <span class="rl"><label for="ws_${which}_${a.key}">${esc2(a.label)}</label><small>${esc2(WHEEL_DESC[a.key])}</small></span>
+    <span class="rr"><b id="wv_${which}_${a.key}">${val}</b></span>
+    <input type="range" class="wheel-slider" id="ws_${which}_${a.key}" min="0" max="100" step="5" value="${val}" style="--pct:${val}%" aria-label="${mAttr(a.label)}" aria-valuetext="${val} von 100" oninput="wheelSet('${which}','${a.key}',this.value,this)">
   </div>`;
 }
 function wheelSet(which,key,v,el){
@@ -1584,12 +1770,12 @@ function wheelFormDraw(){
     mindSheetBody(head+`
       <div class="note">Bewerte jeden Bereich ehrlich von 0 bis 100 – nicht wie es sein sollte, sondern wie es <b>gerade</b> ist.</div>
       <div class="mind-live" id="wheelLive">Ø ${st.avg} · Balance ${st.balance}</div>
-      ${WHEEL_AREAS.map(a=>wheelSliderRow(a,F.scores[a.key],'s')).join('')}
-      <button class="btn block mt-3" onclick="wheelStep(2)">Weiter</button>`,'Rad des Lebens');
+      <div class="rows inset">${WHEEL_AREAS.map(a=>wheelSliderRow(a,F.scores[a.key],'s')).join('')}</div>
+      <button class="btn mt-3" onclick="wheelStep(2)">Weiter</button>`,'Rad des Lebens');
   } else if(F.step===2){
     mindSheetBody(head+`
       <div class="note">Wo willst du in jedem Bereich hin? Die Ziele erscheinen als gestrichelte Linie in deinem Rad. Du kannst diesen Schritt auch überspringen.</div>
-      ${WHEEL_AREAS.map(a=>wheelSliderRow(a,F.targets[a.key],'t')).join('')}
+      <div class="rows inset">${WHEEL_AREAS.map(a=>wheelSliderRow(a,F.targets[a.key],'t')).join('')}</div>
       <div class="cluster mt-3"><button class="btn sec inline" onclick="wheelStep(1)">Zurück</button><button class="btn inline fill" onclick="WHEEL_FORM.useTargets=true;wheelStep(3)">Weiter</button></div>
       <button class="btn ghost mt-2" onclick="WHEEL_FORM.useTargets=false;wheelStep(3)">Überspringen</button>`,'Rad des Lebens');
   } else {
@@ -1597,10 +1783,10 @@ function wheelFormDraw(){
     const wk=wheelArea(st.weakest);
     mindSheetBody(head+`
       <div class="note">Welcher Bereich bringt am meisten, wenn du ihn <b>zuerst</b> anpackst? ${wk?`Dein schwächster ist gerade ${mIco(wk.icon,16)} ${esc2(wk.short)} (${F.scores[wk.key]}).`:''}</div>
-      <div class="section-label">Fokusbereich</div>${chips(F.focus_area,'wheelFocus')}
-      <div class="section-label">3 Maßnahmen, die die Lücke schließen</div>
+      <h2 class="rows-h">Fokusbereich</h2>${chips(F.focus_area,'wheelFocus')}
+      <h2 class="rows-h">Drei Maßnahmen, die die Lücke schließen</h2>
       ${[0,1,2].map(i=>`<div class="field"><input id="wa_${i}" maxlength="160" value="${mAttr(F.actions[i]||'')}" placeholder="Maßnahme ${i+1}" aria-label="Maßnahme ${i+1}"></div>`).join('')}
-      <div class="section-label">Zweiter Bereich (danach)</div>${chips(F.second_area,'wheelSecond')}
+      <h2 class="rows-h">Zweiter Bereich – danach dran</h2>${chips(F.second_area,'wheelSecond')}
       <div class="field mt-4"><label for="wf_now">So fühlt sich mein Leben gerade an (optional)</label><textarea id="wf_now" rows="2" maxlength="500">${esc2(F.feeling_now)}</textarea></div>
       <div class="field"><label for="wf_target">So fühlt sich mein außergewöhnliches Leben an (optional)</label><textarea id="wf_target" rows="2" maxlength="500">${esc2(F.feeling_target)}</textarea></div>
       <div class="cluster mt-3"><button class="btn sec inline" onclick="wheelCollect();wheelStep(2)">Zurück</button><button class="btn inline fill" id="wheelSaveBtn" onclick="saveWheel()">${F.edit?'Änderungen speichern':'Speichern'}</button></div>`,'Rad des Lebens');
@@ -1652,9 +1838,13 @@ async function saveWheel(){
 // =====================================================================
 // Ring und Punktereihe der laufenden Challenge – getrennt, damit sie nach einem Haken
 // einzeln nachgezogen werden koennen (kein Spinner, kein zweiter Abruf).
+// D5: ringHTML() aus core.js statt ring() aus home.js. Gemessen war dieser Ring die einzige rot
+// gefuellte Fortschrittsflaeche dieser Ansicht (sprache.mjs: ringe {n:1, rot:1}) – DESIGN-4 5.7
+// sagt woertlich „nie rot". Die Zahl steht jetzt im Ring, das WORT daneben (G9): nicht „5 / 10",
+// sondern „Tag 5 von 10".
 function chalRingHTML(a){
   const N=+a.days||10, di=Math.min(N,Math.max(1,+a.dayIndex||1));
-  return (typeof ring==='function')?ring(di/N,{size:76,label:String(di),sub:'/ '+N}):`<b>${di}/${N}</b>`;
+  return (typeof ringHTML==='function')?ringHTML(di/N,76,String(di)):`<b>${di} von ${N}</b>`;
 }
 function chalDotsHTML(a){
   const N=+a.days||10, di=Math.min(N,Math.max(1,+a.dayIndex||1));
@@ -1662,10 +1852,27 @@ function chalDotsHTML(a){
   return Array.from({length:N},(_,i)=>{ const d=i+1; const h=(a.history||[]).find(x=>x.dayIndex===d); let cls='';
     if(d===di){ cls=(td.complete?'ok':cnt.done>0?'part':'')+' is-today'; }
     else if(d<di){ cls=h?(h.complete?'ok':(h.pct>0?'part':'miss')):'miss'; }
-    return `<span class="chal-dot ${cls}" title="Tag ${d}"></span>`; }).join('');
+    const lbl=d===di?`Tag ${d} · heute`:(d<di?`Tag ${d} · ${h&&h.complete?'komplett':(h&&h.pct>0?'teilweise':'nichts abgehakt')}`:`Tag ${d} · noch offen`);
+    return `<span class="chal-dot ${cls}" role="img" aria-label="${mAttr(lbl)}"></span>`; }).join('');
 }
 function chalHeroMetaTxt(){
   return (CHAL_DAYS===30?'Dreißig':'Zehn')+' Tage lang die Prinzipien für Energie und Vitalität leben: dir die Geschenke machen, die Gifte weglassen. Kein Perfektionismus – Konsequenz zählt.';
+}
+// Unterzeile einer Regelzeile: Status zuerst, dann die dynamischen Zahlen, dann der Hinweis.
+// D5 · DAS ⓘ IST WEG. Bis hierher stand der Hinweis ab Tag 2 hinter einem 44-px-Symbolknopf
+// (chalHintToggle) – fuenfzehn Symbolknoepfe ohne Wort in EINER Ansicht (K11, gemessen) und
+// Erklaerung, die man antippen muss, also versteckte Erklaerung (G8/A25). Jetzt steht jeder Hinweis
+// dauerhaft in der Unterzeile seiner Zeile. Die Seite wird dadurch laenger; das ist der Preis, und
+// er ist der richtige: „Nichts ist versteckt" (G5) schlaegt „kurz".
+function chalRuleSub(x,ctx){
+  const p=[];
+  if(ctx.autoOn) p.push('Automatisch erkannt – du musst nichts abhaken');
+  else if(ctx.half) p.push('Halb geschafft – eins von beiden fehlt noch');
+  if(x.id==='water'&&ctx.wt) p.push(`Dein Ziel heute etwa ${ctx.wt} Liter`+(ctx.wIn!=null?` · eingetragen ${ctx.wIn} Liter`:' · noch nichts eingetragen'));
+  if(x.id==='cardio'&&ctx.hz!=null) p.push(`Aerobe Zone ${ctx.hz} Schläge pro Minute`);
+  if(ctx.week) p.push(`Diese Challenge-Woche: ${ctx.week}`);
+  p.push(x.hint);
+  return p.join(' · ');
 }
 async function drawMindChallenge(){
   const box=document.getElementById('mindBody'); if(!box) return;
@@ -1687,94 +1894,113 @@ async function drawMindChallenge(){
   const known=new Set((Array.isArray(data.rules)?data.rules:[]).map(x=>String(x?.id||'')));
   const rules=known.size?CHALLENGE_RULES.filter(x=>known.has(x.id)):CHALLENGE_RULES;
   const a=data.active||null;
-  let html='', stickyBar='';   // die Startleiste kommt ganz zum Schluss (sie klebt am Seitenende)
+  const sperren=[];              // Regel-IDs, deren Schalter nach dem Zeichnen gesperrt wird
+  let html='', stickyBar='';     // die Startleiste kommt ganz zum Schluss (sie klebt am Seitenende)
   if(!a){
     if(CHAL_SEL===null){ CHAL_SEL=new Set(rules.filter(x=>x.default!==false).map(x=>x.id)); CHAL_DAYS=10; }
-    html+=`<div class="today mb-4">
-      <div class="eyebrow">Vital-Challenge</div>
-      <div class="daytype" id="chalHeroTitle">${CHAL_DAYS===30?'30':'10'} Tage Vitalität</div>
-      <div class="meta" id="chalHeroMeta">${chalHeroMetaTxt()}</div>
+    html+=`<div class="card lg mind-hero">
+      <div class="mind-hero-t" id="chalHeroTitle">${CHAL_DAYS===30?'30':'10'} Tage Vitalität</div>
+      <div class="mind-hero-s" id="chalHeroMeta">${chalHeroMetaTxt()}</div>
     </div>`;
     if(own){
-      html+=`<div class="section-label">Dauer</div>
-        <div class="chip-row wrap mb-2" id="chalDayChips" data-noswipe>${[10,30].map(n=>`<button type="button" class="chip${CHAL_DAYS===n?' on':''}" data-d="${n}" aria-pressed="${CHAL_DAYS===n}" onclick="chalDays(${n})">${n} Tage</button>`).join('')}</div>`;
-      const grp=(g,title,hint)=>`<div class="section-label">${title}<span class="sl-r">${hint}</span></div><div class="rows mb-2">${rules.filter(x=>x.group===g).map(x=>{ const on=CHAL_SEL.has(x.id);
-        return `<button type="button" class="rule-row" aria-pressed="${on}" onclick="chalToggleRule('${x.id}',this)"><span class="ric" aria-hidden="true">${mIco(x.icon,22)}</span><span class="rbody"><span class="rlab">${esc2(x.label)}${x.auto?' <span class="pill neutral">auto</span>':''}</span><span class="rhint">${esc2(x.hint)}</span></span><span class="tgl${on?' on':''}" aria-hidden="true"></span></button>`; }).join('')}</div>`;
-      html+=grp('gift','Geschenke','jeden Tag')+grp('poison','Gifte','weglassen');
-      stickyBar=`<div class="mind-stickybar"><span class="mind-stick-t" id="chalSelCount">${pl(CHAL_SEL.size,'Regel','Regeln')} gewählt</span><button class="btn inline" id="chalStartBtn" onclick="chalStart()">Starten</button></div>`;
+      // Dauer als Optionsliste statt Chip-Reihe: eine Chip-Reihe zaehlt als zweite Steuerebene
+      // unter dem Titel (K3) und ist laut 5.9 fuer Zeitraum oder Filter da, nicht fuer eine Wahl
+      // aus zwei benannten Moeglichkeiten. Die gehoert in eine Zeile mit Wert (5.2/A32).
+      html+=groupHTML('Dauer',[10,30].map(n=>rowHTML({
+          icon:'calendar',title:pl(n,'Tag','Tage'),
+          sub:n===10?'Der klassische Einstieg':'Für alle, die es zur Gewohnheit machen wollen',
+          value:CHAL_DAYS===n?'gewählt':'',tap:`chalDays(${n})`,id:`chalDay${n}`
+        })),'Du kannst die Challenge jederzeit beenden – der Fortschritt bleibt erhalten.');
+      const grp=(g,title,foot)=>groupHTML(title,rules.filter(x=>x.group===g).map(x=>rowHTML({
+          icon:x.icon,title:x.label,
+          sub:(x.auto?'Automatisch erkannt · ':'')+x.hint,
+          switch:{name:'chalsel:'+x.id,on:CHAL_SEL.has(x.id)}
+        })),foot);
+      html+=grp('gift','Geschenke','Diese sechs Dinge gibst du dir – jeden Tag. Schalte aus, was gerade nicht zu dir passt.')
+        +grp('poison','Gifte','Diese Dinge lässt du weg. „Automatisch erkannt" heißt: die App sieht es an deinen Einträgen, du musst nichts abhaken.');
+      stickyBar=`<div class="mind-stickybar"><span class="mind-stick-t" id="chalSelCount">${pl(CHAL_SEL.size,'Regel','Regeln')} gewählt</span><button type="button" class="btn inline" id="chalStartBtn" onclick="chalStart()">Starten</button></div>`;
     } else html+='<div class="note">Aktuell läuft keine Challenge.</div>'+mindRoNote('mt-2');
   } else {
     const ruleIds=Array.isArray(a.rules)?a.rules:mParse(a.rules,[]);
     const td=a.today||{}; const checks=mParse(td.checks,{})||{}; const auto=mParse(td.auto,{})||{}; const partial=mParse(td.partial,{})||{};
     const N=+a.days||10, di=Math.min(N,Math.max(1,+a.dayIndex||1));
     const cnt=mindChalDoneCount(a);
-    const full=!!cnt.total&&cnt.done===cnt.total;
-    html+=`<div class="card mb-3">
-      <div class="cluster mind-chal-h">
+    html+=`<h2 class="rows-h">Tag ${di} von ${N}</h2><div class="card">
+      <div class="mind-chal-h">
         <div class="mind-chal-ring" id="chalRing">${chalRingHTML(a)}</div>
-        <div class="fill">
-          <div class="h2">Tag ${di} von ${N}</div>
-          <div class="meta" id="chalAdh">${a.adherencePct??0}% eingehalten · ${pl(a.completeDays||0,'Tag','Tage')} komplett</div>
-          <div class="meta${full?' tone-green':''}" id="chalDone">Heute ${cnt.done}/${cnt.total} erledigt${full?' ✓':''}</div>
+        <div class="mind-chal-tx">
+          <div class="mind-chal-t" id="chalDone">Heute ${cnt.done} von ${cnt.total} erledigt</div>
+          <div class="mind-chal-s" id="chalAdh">${a.adherencePct??0} % eingehalten · ${pl(a.completeDays||0,'Tag','Tage')} komplett</div>
         </div>
-        ${own?`<button class="btn icon sm" aria-label="Weitere Optionen" onclick="chalMenu(${+a.id||0})">${icon('more',20)}</button>`:''}
       </div>
-      <div class="chal-dots mt-3" id="chalDots" aria-label="Tagesübersicht">${chalDotsHTML(a)}</div>
-    </div>`;
-    html+=mindRoNote('mb-3');   // B7: die Haken unten sind im Coach-Blick gesperrt – hier steht warum
+      <div class="chal-dots" id="chalDots" aria-label="Tagesübersicht">${chalDotsHTML(a)}</div>
+    </div>
+    <p class="rows-f">Ein Punkt je Tag: grün heißt alles abgehakt, amber heißt teilweise, grau heißt
+      nichts. „Eingehalten" ist der Anteil aller Haken über die bisherigen Tage.</p>`;
+    html+=mindRoNote('mb-3');   // B7: die Schalter unten sind im Coach-Blick gesperrt – hier steht warum
     const wt=a.waterTargetL!=null?String(a.waterTargetL).replace('.',','):null;
     const wIn=data.waterToday!=null?String(data.waterToday).replace('.',','):null;
-    const hz=data.hrZone||a.hrZone||null;
+    const hzr=data.hrZone||a.hrZone||null;
     const det=mParse(td.detail,{})||{};   // Auto-Details je Regel, u.a. weekCount/weekTarget für Kraft & Ausdauer
     const n0=v=>{ const n=Number(v); return isFinite(n)?n:null; };
-    const collapsed=di>1;                 // ab Tag 2 stehen nur noch die dynamischen Zeilen da
-    const row=x=>{ const isAuto=!!x.auto; const autoOn=auto[x.id]===true; const half=!autoOn&&(partial[x.id]===true||auto[x.id]==='partial');
-      const manual=checks[x.id]===true; const on=autoOn||manual;
-      let dyn='';
-      if(x.id==='water'&&wt) dyn+=`<span class="rdyn">Dein Ziel heute ≈ ${esc2(wt)} L${wIn!=null?` · eingetragen ${esc2(wIn)} L`:' · noch nichts eingetragen'}</span>`;
-      if(x.id==='cardio'&&hz&&n0(hz.lo)!=null) dyn+=`<span class="rdyn">Aerobe Zone ${n0(hz.lo)}–${n0(hz.hi)} bpm · Aufwärmen ${n0(hz.wlo)}–${n0(hz.whi)}</span>`;
-      if((x.id==='strength'||x.id==='cardio')&&det[x.id]&&n0(det[x.id].weekCount)!=null){ const wc=n0(det[x.id].weekCount), wtg=n0(det[x.id].weekTarget)||3; dyn+=`<span class="rdyn${wc>=wtg?' tone-green':''}">Diese Challenge-Woche: ${wc}/${wtg}×${wc>=wtg?' ✓':''}</span>`; }
-      const status=autoOn?'<span class="rauto">automatisch erkannt ✓</span>':half?'<span class="rauto tone-amber">½ · eins von beiden fehlt noch</span>':'';
-      const dis=(!own)||(isAuto&&autoOn);
-      return `<label class="rule-row${on?' on':''}${dis?' dis':''}" id="cr_${x.id}"><span class="ric" aria-hidden="true">${mIco(x.icon,22)}</span><span class="rbody"><span class="rlab">${esc2(x.label)}</span>${dyn}<span class="rhint${collapsed?' hidden':''}" id="rh_${x.id}">${esc2(x.hint)}</span>${status}</span>${collapsed?`<button type="button" class="rinfo" aria-label="Hinweis zu ${mAttr(x.label)}" onclick="chalHintToggle(event,'${x.id}')">${icon('info',18)}</button>`:''}<input type="checkbox" class="rcheck" ${on?'checked':''} ${dis?'disabled':''} aria-label="${mAttr(x.label)}" onchange="chalToggleDay(${+a.id||0},'${x.id}',this.checked,this)"></label>`; };
+    const hz=(hzr&&n0(hzr.lo)!=null)?`${n0(hzr.lo)}–${n0(hzr.hi)}`:null;
+    const row=x=>{ const autoOn=auto[x.id]===true; const half=!autoOn&&(partial[x.id]===true||auto[x.id]==='partial');
+      const on=autoOn||checks[x.id]===true;
+      let week=null;
+      if((x.id==='strength'||x.id==='cardio')&&det[x.id]&&n0(det[x.id].weekCount)!=null)
+        week=`${n0(det[x.id].weekCount)} von ${n0(det[x.id].weekTarget)||3}`;
+      if((!own)||(x.auto&&autoOn)) sperren.push(x.id);
+      return rowHTML({icon:x.icon,title:x.label,
+        sub:chalRuleSub(x,{autoOn,half,wt,wIn,hz,week}),
+        switch:{name:'chal:'+x.id,on}});
+    };
     const active=rules.filter(x=>ruleIds.includes(x.id));
     const gifts=active.filter(x=>x.group==='gift'), poisons=active.filter(x=>x.group==='poison');
-    if(gifts.length) html+=`<div class="section-label">Geschenke · heute</div><div class="rows" id="chalGifts">${gifts.map(row).join('')}</div>`;
-    if(poisons.length) html+=`<div class="section-label">Gifte · heute weggelassen</div><div class="rows" id="chalPoisons">${poisons.map(row).join('')}</div>`;
-    html+='<div class="caption mt-3">Auto-Regeln werden aus Trainings-, Cardio-, Wasser- und Mindset-Einträgen erkannt. Alles andere hakst du selbst ab.</div>';
+    if(gifts.length) html+=groupHTML('Geschenke · heute',gifts.map(row),
+      'Was die App an deinen Einträgen erkennt, schaltet sich selbst – der Schalter ist dann gesperrt.');
+    if(poisons.length) html+=groupHTML('Gifte · heute weggelassen',poisons.map(row),
+      'Schalte ein, was du heute wirklich weggelassen hast.');
+    // R17 · „Challenge beenden" stand hinter einem Punkte-Menue mit EINEM Eintrag. Jetzt: die eine
+    // zerstoerende Zeile am Ende der Seite, eigene Gruppe, zentriert, rot (A30/5.2).
+    if(own) html+=groupHTML('',[rowHTML({title:'Challenge beenden',danger:true,tap:`chalStop(${+a.id||0})`})],
+      'Der bisherige Fortschritt bleibt unter „Bisherige Challenges" erhalten.');
   }
   const past=data.past||[];
   if(past.length){
-    html+=`<div class="section-label">Bisherige Challenges</div><div class="rows">${past.map(p=>`<div class="row"><div class="rl">${mDateDE(p.start_date,{day:'numeric',month:'short',year:'numeric'})} · ${pl(+p.days||0,'Tag','Tage')}<small>${p.status==='done'?'Geschafft':'Beendet'} · ${pl(+p.completeDays||0,'Tag','Tage')} komplett · ${+p.adherencePct||0}%</small></div><div class="rr">${p.status==='done'?mIco('trophy',20):'–'}</div></div>`).join('')}</div>`;
+    html+=groupHTML('Bisherige Challenges',past.map(p=>rowHTML({
+      icon:p.status==='done'?'trophy':'calendar',
+      title:mDateDE(p.start_date,{day:'numeric',month:'short',year:'numeric'})+' · '+pl(+p.days||0,'Tag','Tage'),
+      sub:`${pl(+p.completeDays||0,'Tag','Tage')} komplett · ${+p.adherencePct||0} % eingehalten`,
+      pill:p.status==='done'?{text:'geschafft',tone:'green'}:{text:'beendet',tone:'neutral'}
+    })),'Abgeschlossene und abgebrochene Challenges – beide bleiben stehen.');
   }
   // Die Startleiste klebt (position:sticky) und steht deshalb als LETZTES im Fluss – so verdeckt
   // sie „Bisherige Challenges" nicht mehr und braucht keinen Platzhalter.
   html+=stickyBar;
   b.innerHTML=html;
+  // Gesperrte Schalter NACH dem Zeichnen: rowHTML() kennt kein `disabled` (und soll es auch nicht –
+  // eine gesperrte Zeile ist ein Zustand, kein Bauteil). Der Grund steht in der Unterzeile.
+  sperren.forEach(id=>{ const el=b.querySelector('input.sw[name="chal:'+id+'"]'); if(el) el.disabled=true; });
   mindCacheView();
 }
-// Hinweis einer Regel auf- und zuklappen (das Label darf davon nicht mitschalten)
-function chalHintToggle(ev,id){
-  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
-  const h=document.getElementById('rh_'+id); if(h) h.classList.toggle('hidden');
-}
-// Weitere Optionen der laufenden Challenge
-function chalMenu(id){
-  openSheet('Challenge',`<div class="rows"><div class="row tap" role="button" tabindex="0" onclick="chalStop(${+id||0})"><div class="r-ic">${icon('x',22)}</div><div class="rl tone-red">Challenge beenden<small>Der Fortschritt bleibt unter „Bisherige Challenges“ erhalten.</small></div><div class="rr"></div></div></div>`);
-}
-// 10/30 Tage: nur Hero-Text und Chips nachziehen, kein kompletter Neuaufbau
+// Die Regelauswahl VOR dem Start: derselbe Schalter, aber nur lokal (kein Server, kein Neuzeichnen).
+document.addEventListener('change',function(ev){
+  const el=ev.target;
+  if(!el||el.tagName!=='INPUT'||!el.classList||!el.classList.contains('sw')) return;
+  const n=String(el.name||''); if(n.indexOf('chalsel:')!==0) return;
+  chalToggleRule(n.slice(8),!!el.checked);
+});
+// Weitere Optionen der laufenden Challenge – ENTFALLEN (R17). Siehe die `.row.danger` oben.
+// 10/30 Tage: Held-Text und die beiden Wertzeilen nachziehen, kein kompletter Neuaufbau
 function chalDays(n){
   CHAL_DAYS=n===30?30:10;
-  const t=document.getElementById('chalHeroTitle');
-  if(!t) return drawMindChallenge();
-  t.textContent=(CHAL_DAYS===30?'30':'10')+' Tage Vitalität';
-  const m=document.getElementById('chalHeroMeta'); if(m) m.textContent=chalHeroMetaTxt();
-  document.querySelectorAll('#chalDayChips .chip').forEach(x=>{ const on=+x.dataset.d===CHAL_DAYS; x.classList.toggle('on',on); x.setAttribute('aria-pressed',on?'true':'false'); });
+  // Neu zeichnen statt Werte zu patchen: die Wertzelle `.rr` existiert in einer Zeile ohne Wert gar
+  // nicht (so baut rowHTML), und die Daten liegen im Zwischenspeicher – es kostet keine Anfrage.
+  drawMindChallenge();
 }
-function chalToggleRule(id,btn){
+function chalToggleRule(id,on){
   if(!CHAL_SEL) CHAL_SEL=new Set();
-  if(CHAL_SEL.has(id)) CHAL_SEL.delete(id); else CHAL_SEL.add(id);
-  const on=CHAL_SEL.has(id); btn.setAttribute('aria-pressed',on?'true':'false'); const t=btn.querySelector('.tgl'); if(t) t.classList.toggle('on',on);
+  if(on) CHAL_SEL.add(id); else CHAL_SEL.delete(id);
   const c=document.getElementById('chalSelCount'); if(c) c.textContent=pl(CHAL_SEL.size,'Regel','Regeln')+' gewählt';
   const sb=document.getElementById('chalStartBtn'); if(sb) sb.disabled=!CHAL_SEL.size;
 }
@@ -1801,8 +2027,7 @@ async function chalToggleDay(chalId,ruleId,on,input){
     if(r.data?.active&&typeof r.data.active==='object'){ MIND_CHAL.active={...r.data.active,waterTargetL:r.data.active.waterTargetL??a.waterTargetL}; }
     else MIND_CHAL.active={...a,today:{...td,...day,checks:mParse(day.checks,checks)||checks}};
     MIND_CHAL_TS=Date.now();
-    const lbl=input?input.closest('.rule-row'):document.getElementById('cr_'+ruleId);
-    if(lbl) lbl.classList.toggle('on',!!on);
+    // Der Schalter zeigt seinen Zustand selbst – es gibt keine Zeilenklasse mehr nachzuziehen.
     mindPatchChallenge();
     MIND_TODAY=null; MIND_TODAY_TS=0;
     if(typeof invalidateView==='function'){ try{ invalidateView('home'); invalidateView('mindset'); }catch(e){} }
@@ -1818,8 +2043,9 @@ function mindPatchChallenge(){
   const a=MIND_CHAL?.active; if(!a) return;
   const cnt=mindChalDoneCount(a); const full=!!cnt.total&&cnt.done===cnt.total;
   const d=document.getElementById('chalDone');
-  if(d){ d.textContent=`Heute ${cnt.done}/${cnt.total} erledigt${full?' ✓':''}`; d.classList.toggle('tone-green',full); }
-  const adh=document.getElementById('chalAdh'); if(adh) adh.textContent=`${a.adherencePct??0}% eingehalten · ${pl(a.completeDays||0,'Tag','Tage')} komplett`;
+  // G9: „1/14" war ein Kuerzel, „✓" ein Zeichen ohne Wort. Beides jetzt als Satz.
+  if(d) d.textContent=full?`Heute alle ${cnt.total} erledigt`:`Heute ${cnt.done} von ${cnt.total} erledigt`;
+  const adh=document.getElementById('chalAdh'); if(adh) adh.textContent=`${a.adherencePct??0} % eingehalten · ${pl(a.completeDays||0,'Tag','Tage')} komplett`;
   const dots=document.getElementById('chalDots'); if(dots) dots.innerHTML=chalDotsHTML(a);
   const rg=document.getElementById('chalRing'); if(rg) rg.innerHTML=chalRingHTML(a);
   mindCacheView();
@@ -1860,40 +2086,71 @@ async function drawMindWissen(){
   if(tok!==MIND_TOK){ mindLoadCancel(ld); return; } const b=document.getElementById('mindBody'); if(!b) return; mindLoadEnd(ld);
   const en=E||MIND_ENTRIES||{}; const needs=mParse(t?.prefs?.needs_top,[])||[];
   const own=mindOwn();
-  // desc/extra: desc ist reiner Text (wird hier maskiert), extra ist bereits fertiges, maskiertes HTML
-  // 2.8.0: kein Emoji-Parameter mehr – der Glyph kommt aus MIND_KNOW_ICONS, damit Karte und Sheet
-  // nicht auseinanderlaufen koennen. Der alte Parametername `icon` hatte ausserdem die globale
-  // icon()-Funktion in dieser Funktion verdeckt (deshalb stand hier ueberall window.icon(...)).
-  const card=(key,title,desc,extra)=>`<button type="button" class="know-card" onclick="openKnow('${key}')"><span class="ki ic-tile" aria-hidden="true">${mIco(MIND_KNOW_ICONS[key],20)}</span><span class="kb"><span class="kt">${esc2(title)}</span><span class="kd">${esc2(desc)}</span>${extra||''}</span><span class="kx" aria-hidden="true">${mIco('chevronRight',18)}</span></button>`;
+  // D5 · `.know-card` IST WEG. Zwoelf Karten untereinander sind zwoelf Objekte, die jeweils eigene
+  // Aufmerksamkeit verlangen – DESIGN-4 5.2/5.3: „Text → Zeile. Karten kosten Aufmerksamkeit und
+  // muessen sie verdienen." Jede dieser Karten war Symbol · Titel · Unterzeile · Chevron, also
+  // zeichengleich mit `.row`. Die Ansicht war dadurch 1.969 px lang bei null Gliederung; jetzt sind
+  // es drei benannte Gruppen mit Fusstext.
+  const zeile=(key,title,desc)=>rowHTML({icon:MIND_KNOW_ICONS[key],title,sub:desc,tap:`openKnow('${key}')`});
   const bel=en.beliefs||{}; const newB=(bel.new||[]).filter(Boolean); const hb=(bel.health_empowering||[]).filter(Boolean);
   const inc=en.incantation||{}; const lines=(inc.lines||[]).filter(Boolean); const sp=inc.spoken_dates||[]; const spokenToday=sp.includes(today()); const iSt=incantStreak(sp);
   const th=en.thrive||{}; const thActs=(th.actions||[]).filter(Boolean);
   const pv=en.passion||{}; const vi=en.vision||{};
   let html='';
   if(own){
-    html+='<div class="section-label">Deine Arbeitsblätter</div>';
-    html+=`<div class="caption mind-lock mb-3">${mIco('lock',14)} Was du hier einträgst, bleibt in deinem Konto – auch dein Coach sieht es nicht.</div>`;
-    html+=card('beliefs','Glaubenssätze',newB.length||hb.length?`${pl(newB.length+hb.length,'Satz','Sätze')} festgehalten`:'Der Dickens-Prozess: alte Sätze entlarven, neue verankern.',newB.length||hb.length?`<span class="klist">${[...newB,...hb].slice(0,3).map(x=>`<span>„${esc2(x)}“</span>`).join('')}</span>`:'');
-    html+=card('incantation','Deine Incantation',lines.length?`${pl(lines.length,'Zeile','Zeilen')} · ${spokenToday?'heute gesprochen ✓':'heute noch nicht gesprochen'}${iSt?` · ${pl(iSt,'Tag','Tage')} in Folge`:''}`:'Deine eigenen Kraftsätze – laut, mit Körper und Energie.');
-    html+=card('thrive','3-to-5 to Thrive',thActs.length?`${pl(thActs.length,'Maßnahme','Maßnahmen')} festgelegt`:'Zwei Entscheidungen, eine Sofortmaßnahme, 3–5 Schritte.',thActs.length?`<span class="klist">${thActs.slice(0,3).map(x=>`<span>${esc2(x)}</span>`).join('')}</span>`:'');
-    html+=card('passion','Leidenschaft & Vision',(pv.passion||vi.extraordinary)?'Deine Antworten sind gespeichert – zum Nachlesen und Schärfen.':'Was liebst du? Was willst du wirklich? Wie sieht dein außergewöhnliches Leben aus?');
-    // Die eigenen Top-2-Bedürfnisse sind weder Fehler noch CTA – `pill red` war ein Verstoss gegen
-    // das Akzent-Budget (BUILD-A4 6.1). `pill neutral` ist der Ton fuer „gewaehlt, nicht dringend".
-    html+=card('needs','Die 6 Grundbedürfnisse',needs.length?'Deine Top 2 sind gewählt.':'Was dich wirklich antreibt. Wähle deine Top 2.',needs.length?`<span class="kpills">${needs.map(k=>{ const n=MIND_NEEDS.find(x=>x.key===k); return n?`<span class="pill neutral">${mIco(n.icon,12)} ${esc2(n.label)}</span>`:''; }).join('')}</span>`:'');
+    html+=groupHTML('Deine Arbeitsblätter',[
+      zeile('beliefs','Glaubenssätze',newB.length||hb.length
+        ?`${pl(newB.length+hb.length,'Satz','Sätze')} festgehalten`
+        :'Der Dickens-Prozess: alte Sätze entlarven, neue verankern'),
+      zeile('incantation','Deine Incantation',lines.length
+        ?`${pl(lines.length,'Zeile','Zeilen')} · ${spokenToday?'heute gesprochen':'heute noch nicht gesprochen'}${iSt?` · ${pl(iSt,'Tag','Tage')} in Folge`:''}`
+        :'Deine eigenen Kraftsätze – laut, mit Körper und Energie'),
+      zeile('thrive','3-to-5 to Thrive',thActs.length
+        ?`${pl(thActs.length,'Maßnahme','Maßnahmen')} festgelegt`
+        :'Zwei Entscheidungen, eine Sofortmaßnahme, 3–5 Schritte'),
+      zeile('passion','Leidenschaft & Vision',(pv.passion||vi.extraordinary)
+        ?'Deine Antworten sind gespeichert – zum Nachlesen und Schärfen'
+        :'Was liebst du? Was willst du wirklich? Wie sieht dein außergewöhnliches Leben aus?'),
+      zeile('needs','Die sechs Grundbedürfnisse',needs.length
+        ?'Deine zwei wichtigsten sind gewählt: '+needs.map(k=>{const n=MIND_NEEDS.find(x=>x.key===k);return n?n.label:'';}).filter(Boolean).join(' und ')
+        :'Was dich wirklich antreibt – wähle deine zwei wichtigsten')
+    ],'Was du auf diesen Seiten einträgst, bleibt in deinem Konto. Auch dein Coach sieht es nicht.');
   }
-  html+='<div class="section-label">Frameworks</div>';
-  html+=card('priming','Priming','Warum die ersten 10 Minuten den Tag entscheiden – und die 6 Schritte.');
-  if(!own) html+=card('needs','Die 6 Grundbedürfnisse','Was dich wirklich antreibt.');
-  html+=card('triad','Die Triade des Zustands','Körper · Fokus · Sprache – und die 90-Sekunden-Regel.');
-  html+=card('formula','Die Erfolgsformel','Fünf Schritte, die jedes Ziel erreichbar machen.');
-  html+=card('rapport','Rapport 7 · 38 · 55','Wie Verbindung entsteht: Worte, Stimme, Körper.');
-  html+=card('principles','10 Meisterprinzipien','6 Geschenke, 4 Gifte – die Basis der Vital-Challenge.');
-  html+=card('wheel','Rad des Lebens','7 Bereiche, ein Bild. Warum Balance mehr bringt als Höchstwerte.');
-  html+=card('home','Emotionales Zuhause','Deine Gewohnheitsgefühle – und wie du bewusst umziehst.');
-  if(!own) html+=`<div class="caption mind-lock mb-3">${mIco('lock',14)} Persönliche Arbeitsblätter und Notizen sind privat – nur der Athlet sieht sie.</div>`;
-  html+='<div class="section-label">Offizielle Quellen</div><div class="card">'+mindLinks()+'</div>';
+  const fw=[zeile('priming','Priming','Warum die ersten 10 Minuten den Tag entscheiden – und die sechs Schritte')];
+  if(!own) fw.push(zeile('needs','Die sechs Grundbedürfnisse','Was dich wirklich antreibt'));
+  fw.push(zeile('triad','Die Triade des Zustands','Körper, Fokus, Sprache – und die 90-Sekunden-Regel'));
+  fw.push(zeile('formula','Die Erfolgsformel','Fünf Schritte, die jedes Ziel erreichbar machen'));
+  fw.push(zeile('rapport','Rapport 7 · 38 · 55','Wie Verbindung entsteht: Worte, Stimme, Körper'));
+  fw.push(zeile('principles','10 Meisterprinzipien','Sechs Geschenke, vier Gifte – die Basis der Vital-Challenge'));
+  fw.push(zeile('wheel','Rad des Lebens','Sieben Bereiche, ein Bild. Warum Balance mehr bringt als Höchstwerte'));
+  fw.push(zeile('home','Emotionales Zuhause','Deine Gewohnheitsgefühle – und wie du bewusst umziehst'));
+  html+=groupHTML('Grundlagen',fw,
+    own?'Erklärseiten zu den Methoden hinter diesem Bereich – Nachlesen löst nichts aus.'
+       :'Erklärseiten zu den Methoden. Persönliche Arbeitsblätter sind privat – nur der Athlet sieht sie.');
+  html+=mindLinkGroup();
   b.innerHTML=html;
   mindCacheView();
+}
+// Die fuenf offiziellen Quellen als Gruppe. Bis D5 war jede ein blauer `.mind-link` mit eigener
+// Unterkante – die 23. Zeilenform der App. Jetzt: dieselbe `.row` wie ueberall, der Titel bleibt
+// woertlich der aus der Spezifikation, die Unterzeile sagt, wohin es geht und dass ein neues
+// Fenster aufgeht (G5: keine Ueberraschung).
+function mindLinkGroup(keys){
+  const list=MIND_LINKS.filter(l=>!keys||keys.includes(l.key));
+  if(!list.length) return '';
+  return groupHTML('Offizielle Quellen',list.map(l=>rowHTML({
+      icon:l.url.indexOf('youtube.com')>=0?'play':'link',
+      title:l.short||l.label,sub:l.label+' · '+mindLinkHost(l.url),tap:`mindOpenLink('${l.key}')`
+    })),'Alle Quellen sind offiziell und öffnen sich in einem neuen Fenster.');
+}
+function mindLinkHost(url){
+  try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return 'tonyrobbins.com'; }
+}
+// Der Link wird ueber seinen SCHLUESSEL geoeffnet, nicht ueber eine URL im onclick-Attribut: so
+// steht in der Zeile nie eine Adresse, die jemand von aussen setzen koennte.
+function mindOpenLink(key){
+  const l=MIND_LINKS.find(x=>x.key===key); if(!l) return;
+  try{ window.open(l.url,'_blank','noopener'); }catch(e){ location.href=l.url; }
 }
 function kList(items){ return `<ul class="mind-ul">${items.map(x=>`<li>${x}</li>`).join('')}</ul>`; }
 function kSteps(items){ return `<ol class="mind-ol">${items.map(x=>`<li>${x}</li>`).join('')}</ol>`; }
@@ -1902,7 +2159,7 @@ function kH(t){ return `<div class="mind-h">${t}</div>`; }
 function openKnow(key){
   const own=mindOwn(); const en=MIND_ENTRIES||{};
   if(!own&&MIND_WORKSHEETS.includes(key)){ toast('Arbeitsblätter sind privat – nur der Athlet sieht sie'); return; }
-  const btn=(label,fn,sec)=>`<button class="btn block${sec?' sec':''} mt-4" onclick="${fn}">${label}</button>`;
+  const btn=(label,fn,sec)=>`<button class="btn${sec?' sec':''} mt-4" onclick="${fn}">${label}</button>`;
   let title='',html='';
   switch(key){
     case 'priming':
@@ -1911,7 +2168,7 @@ function openKnow(key){
         +kH('Die 6 Schritte in der App')
         +kSteps(['<b>Ankommen</b> – aufrecht, Augen zu, Hand aufs Herz.','<b>Power-Atmung</b> – 3 Sätze schnelle Atemzüge, Arme mitnehmen. Der Körper wacht auf.','<b>Dankbarkeit</b> – drei Momente, in die du wirklich eintauchst. Fühlen, nicht denken.','<b>Energie & Heilung</b> – Licht durch den Körper, dann Energie an drei Menschen schicken.','<b>3 to Thrive</b> – drei Ergebnisse, als wären sie schon erreicht. Feiern.','<b>Abschluss</b> – ein Satz, der dich trägt.'])
         +kH('Warum es wirkt')+kP('Du trainierst dein Nervensystem darauf, in Dankbarkeit und Klarheit zu starten. Was du täglich wiederholst, wird zu deiner Grundeinstellung – wie ein Muskel.')
-        +kH('Offizielle Quellen')+mindLinks(['priming','guide','video1','video2'])
+        +mindLinkGroup(['priming','guide','video1','video2'])
         +(own?btn('Priming starten','closeAllSheets();openPriming()'):'');
       break;
     case 'needs': {
@@ -1924,7 +2181,7 @@ function openKnow(key){
         +kH('Deine Top 2')+kP('Welche zwei haben dich bisher gesteuert – und welche zwei sollen es ab jetzt sein?')
         +`<div class="mind-chips" data-noswipe id="needsChips">${MIND_NEEDS.map(n=>`<button type="button" class="mchip${sel.has(n.key)?' on':''}" aria-pressed="${sel.has(n.key)}" ${own?`onclick="needsPick('${n.key}',this)"`:'disabled'}>${mIco(n.icon,16)} ${esc2(n.label)}</button>`).join('')}</div>`
         +(own?btn('Top 2 speichern','saveNeeds()'):'')
-        +kH('Offizielle Quelle')+mindLinks(['needs']);
+        +mindLinkGroup(['needs']);
       break; }
     case 'triad':
       title='Die Triade des Zustands';
@@ -2091,12 +2348,18 @@ function mindsetHomeWidget(d){
 
     const secondary=[];
     const bn=+d.breathCount||0, bt=+d.breathTarget||3;
-    if(bn<bt&&!done) secondary.push({label:`Power-Atmung ${bn}/${bt}`,fn:'openBreath()'});
+    if(bn<bt&&!done) secondary.push({label:`Power-Atmung ${bn} von ${bt} Runden`,fn:'openBreath()'});
 
     // Challenge und Rad in EINER Statuszeile
     let status=null; const parts=[]; let sfn=null;
     const a=d.challenge?.active;
-    if(a){ const c=mindChalDoneCount(a); parts.push(`Challenge Tag ${+a.dayIndex||1}/${+a.days||10}${c.total?` · ${c.done}/${c.total} erledigt`:''}`); sfn="renderMindset.tab='challenge';go('mindset')"; }
+    // G9/R15: Zahlen in Worten, auch hier. Diese Zeichenkette wird NICHT im Mindset-Reiter
+    // gezeichnet, sondern von home.js als Unterzeile der Zeile „Mindset" auf der STARTSEITE –
+    // dem ersten Bildschirm der App. Bis 3.0.2 stand dort „Challenge Tag 5/10 · 1/14 erledigt";
+    // der Schraegstrich zwischen zwei Zahlen ist genau das Kuerzel, das 7.15 verbietet. Wortlaut
+    // und Reihenfolge sind mit der Zeile „Vital-Challenge" im Reiter (Z. 541) identisch – G6:
+    // derselbe Zustand, dasselbe Wort, egal auf welchem Bildschirm.
+    if(a){ const c=mindChalDoneCount(a); parts.push(`Challenge Tag ${+a.dayIndex||1} von ${+a.days||10}${c.total?` · ${c.done} von ${c.total} erledigt`:''}`); sfn="renderMindset.tab='challenge';go('mindset')"; }
     if(d.wheel?.due){ parts.push('Rad fällig'); if(!sfn) sfn='openWheelNew()'; }
     if(parts.length) status={text:parts.join(' · '),fn:sfn||"go('mindset')"};
 

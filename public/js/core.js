@@ -111,6 +111,108 @@ function icon(name,size,cls){const b=ICONS[name];if(!b)return '';size=size||20;
 // HTML-Escaping für Text UND Attributwerte (auch " und ' – damit value="…" nie aufbricht).
 // Liegt hier, weil jede Datei es nutzt (früher in coach.js).
 function esc2(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+// ===== DIE DREI BAU-HELFER (DESIGN-4 Teil 4.5 / 5.7) ==========================================
+// Sie sind ab Welle 1 der EINZIGE erlaubte Weg, eine Zeile, eine Gruppe oder einen Ring zu bauen.
+// Eine handgeschriebene `class="row"` im JS ist ab jetzt ein Abnahme-Fehler (DESIGN-4 9.3, K6).
+//
+// WARUM HELFER UND NICHT NUR CSS: Gemessen gab es 25 Zeilenformen, drei davon zeichengleiche
+// Kopien derselben Zeile in verschiedenen Dateien. Eine CSS-Klasse verhindert das nicht - sie
+// wartet darauf, dass jemand sie richtig benutzt. Eine Funktion, die das Markup erzeugt, macht
+// die richtige Form zur bequemsten. Solange es zwei Wege gibt, gibt es zwei Dialekte.
+//
+// WELLE 1 BAUT SIE NUR - BENUTZT WERDEN SIE AB WELLE 3/4. Deshalb steht hier noch kein Aufruf.
+
+// rowHTML(o) - DIE EINE ZEILE. 56 px, Symbol - Titel - Unterzeile - Wert - Chevron.
+//   o = {icon, title, sub, value, pill:{text,tone}, tap:'js()', switch:{name,on}, danger, id}
+//   - icon:   Name aus ICONS, immer 24 px (eine Groesse, ein Set, eine Strichstaerke)
+//   - sub:    die Unterzeile, 13/400 --ink2 - der Ort fuer "woher kommt dieser Wert"
+//   - value:  der graue Wert rechts. Er beantwortet "wie ist es eingestellt?" OHNE Tap (A28).
+//   - pill:   Statusmarke rechts, IMMER mit Wort - eine Pille ohne Text gibt es nicht (A47).
+//   - tap:    macht die Zeile zu einem <button> und setzt das Chevron. Das Chevron bedeutet genau
+//             eines: fuehrt weiter (G7/A27). Wer nur einen Wert zeigt, uebergibt kein tap.
+//   - switch: macht die Zeile zu einem <label> mit Schalter. Der Zeilentext IST die Beschriftung;
+//             der Schalter bekommt keine eigene (A29). Was er bewirkt, steht im .rows-f darunter.
+//   - danger: zerstoerende Aktion - eigene, einzeilige Gruppe, zentriert, rot (A30).
+// ABWEICHUNG VON DESIGN-4 4.5, bewusst: der Bauplan dort schreibt fuer `tap`
+// String(o.tap).replace(/"/g,'&quot;'), hier steht esc2(o.tap). esc2 maskiert zusaetzlich & < > und
+// ', der HTML-Parser dekodiert sie, BEVOR der JS-Parser den onclick-Ausdruck liest - das Ergebnis
+// ist identisch, nur haelt es auch dann, wenn im Ausdruck ein & (a&&b) oder ein < (i<n) steht. Die
+// Spezifikationsfassung wuerde daraus ein kaputtes Attribut machen. Strenger, nicht anders.
+function rowHTML(o){
+  o=o||{};
+  const ic=o.icon?`<span class="r-ic">${icon(o.icon,24)}</span>`:'';
+  const sub=o.sub?`<small>${esc2(o.sub)}</small>`:'';
+  const pill=o.pill?`<span class="pill ${esc2(o.pill.tone||'neutral')}">${esc2(o.pill.text)}</span>`:'';
+  const val=(o.value!=null&&o.value!=='')?esc2(o.value):'';
+  const rr=(pill||val)?`<span class="rr">${pill}${val}</span>`:'';
+  const id=o.id?` id="${esc2(o.id)}"`:'';
+  const rl=`<span class="rl">${esc2(o.title)}${sub}</span>`;
+  if(o.switch)return `<label class="row switch"${id}>${ic}${rl}`
+    +`<span class="rr"><input type="checkbox" class="sw" name="${esc2(o.switch.name)}"`
+    +`${o.switch.on?' checked':''}></span></label>`;
+  // Die zerstoerende Zeile bekommt KEIN Chevron: sie fuehrt nirgendwohin, sie loescht (G7/A30).
+  if(o.tap)return `<button type="button" class="row tap${o.danger?' danger':''}"${id}`
+    +` onclick="${esc2(o.tap)}">${ic}${rl}${rr}`
+    +(o.danger?'':'<span class="chev" aria-hidden="true"></span>')+'</button>';
+  return `<div class="row${o.danger?' danger':''}"${id}>${ic}${rl}${rr}</div>`;
+}
+
+// groupHTML(head, rows[], foot, o) - Ueberschrift + Gruppe + Fusstext in EINEM Stueck.
+//   o = {action:{label,tap}, lg:true, inset:false}
+//   - head:  die Abschnittsueberschrift (.rows-h), 17/700 GEMISCHT - keine Versalien (A36).
+//   - foot:  DER ERKLAERUNGSORT DER APP (.rows-f, G8/A25). Grauer Fliesstext, mehrzeilig erlaubt,
+//            dauerhaft sichtbar. Er ersetzt jedes i-Symbol, jeden Tooltip und jedes title-Attribut.
+//            Wer ein Kuerzel benutzt, erklaert es hier - sonst gar nicht (G9/K21).
+//   - action: die Wortaktion rechts in der Ueberschrift. Sie ersetzt die graue Pille (.btn.sm).
+//   - inset:  die Trennlinie rueckt auf 52 px ein und steht damit buendig unter dem Titel statt
+//            unter dem Symbol (A41). 52 px sind die Symbolspalte - eine Gruppe OHNE Symbole
+//            bekaeme damit eine Linie, die 52 px neben nichts beginnt. Der Wert wird deshalb NICHT
+//            aus einem Standardwert geraten, sondern an den Zeilen GEMESSEN: hat mindestens eine
+//            Zeile eine Symbolspalte (.r-ic), gilt inset, sonst nicht. `o.inset` ueberstimmt das
+//            ausdruecklich (true/false), so bleibt der Schalter aus DESIGN-4 4.5 erhalten.
+function groupHTML(head,rows,foot,o){
+  o=o||{};
+  const a=(o.action&&o.action.label)
+    ?`<button type="button" class="a" onclick="${esc2(o.action.tap)}">${esc2(o.action.label)}</button>`:'';
+  const h=head?`<h2 class="rows-h${o.lg?' lg':''}">${esc2(head)}${a}</h2>`:'';
+  const f=foot?`<p class="rows-f">${esc2(foot)}</p>`:'';
+  const body=Array.isArray(rows)?rows.join(''):String(rows||'');
+  const inset=(o.inset==null)?/class="r-ic"/.test(body):!!o.inset;
+  return h+`<div class="rows${inset?' inset':''}">${body}</div>`+f;
+}
+
+// ringHTML(pct, size, label) - DER EINZIGE RING DER APP (DESIGN-4 5.7).
+//   Ring = Tagesziel. Balken = Anteil in einer Liste. Zahl = alles andere.
+//   HOECHSTENS EINER je Bildschirm, und NIE ROT. Gemessen gab es zwei Implementierungen: die eine
+//   neutral mit runden Enden (home.js), die andere mit fest verdrahtetem --red und stumpfen Enden
+//   (training.js) - damit war der Trainingsring die einzige rot gefuellte Fortschrittsflaeche der
+//   App, gegen die eigene Hausregel "ein Balken ist eine Menge, kein Ruf". Hier gibt es eine.
+//   pct   0..1 (wird geklemmt)          size  46 in einer Zeile, 128 als Held
+//   label Text INNEN. VOREINSTELLUNG: NICHTS. Das WORT steht daneben, nicht im Ring:
+//         nicht "0/27", sondern "27 Saetze - 0 geschafft" (G9).
+//         Bis zur Nachbesserung schrieb der Helfer ohne label eine Prozentzahl hinein - bei einem
+//         frischen Tag also "0 %", und genau das verbietet DESIGN-4 5.7/G9 woertlich ("Nicht 0 %,
+//         sondern noch nichts geloggt"). Eine Voreinstellung, die man ueberschreiben MUSS, um die
+//         Regel einzuhalten, ist die falsche Voreinstellung. Wer die Zahl will, schreibt sie hin:
+//         ringHTML(p,128,Math.round(p*100)+'%').
+//   Der Ring ist aria-hidden: er wiederholt nur, was daneben in Woertern steht.
+function ringHTML(pct,size,label){
+  pct=Math.max(0,Math.min(1,+pct||0));
+  size=+size||46;
+  const stroke=4,r=(size-stroke)/2,c=2*Math.PI*r,off=c*(1-pct),cx=size/2;
+  // Untergrenze 12 px (--t-min): unter 12 px wird auf dunklem Grund nichts mehr gelesen, geraten.
+  const fs=Math.max(12,Math.round(size*0.27));
+  const txt=(label===null||label===undefined)?'':String(label);
+  const inner=txt?`<text x="${cx}" y="${cx}" text-anchor="middle" dominant-baseline="central"`
+    +` font-size="${fs}" font-weight="700" fill="var(--ink)">${esc2(txt)}</text>`:'';
+  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">`
+    +`<circle cx="${cx}" cy="${cx}" r="${r.toFixed(2)}" fill="none" stroke="var(--surface3)" stroke-width="${stroke}"/>`
+    +`<circle class="ring-fg" cx="${cx}" cy="${cx}" r="${r.toFixed(2)}" fill="none" stroke="var(--ink2)"`
+    +` stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}"`
+    +` stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 ${cx} ${cx})"/>${inner}</svg>`;
+}
+
 function fmtNum(v,digits){if(v==null||v===''||isNaN(+v))return '–';digits=digits||0;
   return (+v).toLocaleString('de-DE',{minimumFractionDigits:digits,maximumFractionDigits:digits});}
 // fmtDate('2026-09-07',{weekday:'short'|'long', month:'short'|'long'}) -> „Mo., 7. Sept." / „Montag, 7. September"
@@ -1745,7 +1847,11 @@ function _navMark(b,on){if(!b)return;b.classList.toggle('on',!!on);
   if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
 function buildNav(){const nav=document.getElementById('navBar');if(!nav||!ME)return;
   let items;
-  const athleteTabs=[['home','home','Home'],['workout','dumbbell','Training'],['diet','utensils','Ernährung'],['mindset','brain','Mindset'],['tracker','chartLine','Analyse']];
+  // G2 (DESIGN-4 3.1): Reiterbeschriftung = grosser Titel = kompakter Titel. Der erste Reiter hiess
+  // „Home" und trug damit als einziger einen anderen Namen als sein Titel. Er heisst jetzt „Heute" –
+  // dasselbe Wort wie in TITLES und wie im grossen Titel der Seite. Der Routenname (`home`) bleibt:
+  // er steht in Deep-Links, PWA-Kurzwegen und im Ansichts-Cache und ist keine Beschriftung.
+  const athleteTabs=[['home','home','Heute'],['workout','dumbbell','Training'],['diet','utensils','Ernährung'],['mindset','brain','Mindset'],['tracker','chartLine','Analyse']];
   if(ME.role!=='athlete'&&COACH_CONTEXT)items=athleteTabs;
   else if(ME.role==='admin')items=[['admin','settings','Verwaltung'],['athletes','users','Athleten']];
   else if(ME.role==='coach')items=[['athletes','users','Athleten'],['messages','mail','Nachrichten'],['templates','fileSpreadsheet','Vorlagen']];
@@ -1759,7 +1865,26 @@ function buildNav(){const nav=document.getElementById('navBar');if(!nav||!ME)ret
   document.body.classList.toggle('no-nav',items.length<2);document.body.classList.toggle('has-nav',items.length>=2);}
 
 // ===== ROUTER + ANSICHTS-CACHE (stale-while-revalidate) =====
-const TITLES={home:'Home',workout:'Training',diet:'Ernährung',mindset:'Mindset',tracker:'Analyse',athletes:'Athleten',admin:'Verwaltung',messages:'Nachrichten',templates:'Vorlagen'};
+const TITLES={home:'Heute',workout:'Training',diet:'Ernährung',mindset:'Mindset',tracker:'Analyse',athletes:'Athleten',admin:'Verwaltung',messages:'Nachrichten',templates:'Vorlagen'};
+// ===== DER GROSSE TITEL, TEIL 1: DER TEXT (DESIGN-4 3.2) =====
+// Teil 2 (Einsetzen, Schrumpfen beim Scrollen) steht in shell.js bei mountLargeTitle().
+// Hier steht nur, WIE der Titel und seine Unterzeile heissen – das ist Sache des Routers, weil
+// TITLES und CUR_TAB hier wohnen.
+// Die Unterzeile traegt KONTEXT (Datum, Zeitraum, Elternobjekt), nie eine Aktion (3.2).
+// In dieser Welle bleibt sie fuer die REITER leer, und zwar gemessen begruendet:
+//   · Der Kontext, den DESIGN-4 6.1/6.2/6.9 dort vorsieht (Datum, Trainingstag, Zeitraum), steht
+//     heute schon auf jeder dieser Seiten – auf `home` als „Guten Abend, Marco · Mi., 16.9." in
+//     .today .eyebrow, im Training als Tages-Chips, in der Analyse als Zeitraum-Chips. Eine zweite
+//     Kopie 20 px darueber waere genau die Verdopplung, gegen die diese Ueberarbeitung antritt
+//     (jedes Thema dreimal auf einem Bildschirm, S#3/P5).
+//   · Sie kostet gemessene 24 px Seitenhoehe. Auf `home` ist die Hoehe ein Abnahmekriterium
+//     (< 1.000 px, DESIGN-4 9.4) – 24 px fuer eine Doppelung auszugeben, waere das schlechteste
+//     Geschaeft dieser Welle.
+// Die Unterzeilen kommen in Welle 4/5 zusammen mit dem Umbau der Ansichten, der die alten Kopien
+// entfernt. Push-Seiten (3.3) geben ihre Unterzeile dagegen jetzt schon selbst mit – dort gibt es
+// keine Kopie, die man erst wegraeumen muesste.
+function lgTitleText(tab){return TITLES[tab]||'';}
+function lgTitleSub(tab){return '';}
 // VIEW_CACHE[tab]={html,scrollY,ts,user,date}. go() malt den Cache synchron (kein Spinner, keine Animation),
 // ruft dann den Renderer mit {cached:true} – der frischt im Hintergrund auf. invalidateView(tab?) leert.
 let VIEW_CACHE={},CUR_TAB=null;
@@ -1780,6 +1905,10 @@ function go(p,opts){
   if(typeof opts==='string'){const seg=opts;opts={};if(p==='tracker'&&typeof renderTracker==='function')renderTracker.tab=seg;}
   opts=opts||{};
   if(typeof closeAllSheets==='function')closeAllSheets(); // ein Sheet überlebt keinen Tabwechsel
+  // …und eine Push-Ebene auch nicht (DESIGN-4 3.3 N2): ein Reiterwechsel räumt den Stapel ab.
+  // Die Reiterleiste bleibt über der Push-Seite sichtbar und bedienbar – genau deshalb MUSS ein
+  // Tipp darauf hier landen und nicht hinter der offenen Ebene verpuffen.
+  if(typeof closeAllPages==='function')closeAllPages();
   // …und eine laufende Coachmark-Tour auch nicht: ihr Overlay liegt über allem und zeigt auf Elemente,
   // die es auf dem neuen Tab nicht mehr gibt (endTour räumt Overlay, Scroll-Sperre und Resize-Handler auf).
   if(typeof endTour==='function'&&document.getElementById('tourOv'))endTour();
@@ -1795,14 +1924,26 @@ function go(p,opts){
   if(CUR_TAB&&!same)_snapshotView(CUR_TAB); // verlassene Ansicht für die Rückkehr merken
   CUR_TAB=p;
   document.querySelectorAll('.navbtn').forEach(b=>_navMark(b,b.dataset.p===p));
+  // G1 (DESIGN-4 3.2): Der Kopf trägt den Namen des Bildschirms, NIE den App-Namen. Bis hierher stand
+  // auf der Startseite die Wortmarke „BE INEVITABLE" – der einzige Bildschirm der App ohne Ortsangabe
+  // (Beleg A8). Die Wortmarke ist nicht verschwunden: sie steht auf der Anmeldeseite (index.html
+  // #loginView), im Startbildschirm-Symbol und im Profilkopf. Sie hört nur auf, die Ortsangabe zu
+  // blockieren. `textContent` statt `innerHTML`: der Titel ist ab jetzt reiner Text.
   const ht=document.getElementById('hdrTitle');
-  if(ht)ht.innerHTML=(p==='home'&&!coachView())?'<span class="wordmark" aria-label="BE INEVITABLE">BE INEVITABLE</span>':esc2(TITLES[p]||'');
+  if(ht)ht.textContent=lgTitleText(p);
   mountCtxBar();
   const c=VIEW_CACHE[p];
   if(_cacheValid(c)){v.innerHTML=c.html;window.scrollTo(0,same?0:(c.scrollY||0));opts.cached=true;}
   else{window.scrollTo(0,0);opts.cached=false;}
+  // Der grosse Titel wird SOFORT gesetzt – vor dem Zeichner. Sonst steht auf einer Seite, die noch
+  // ein Skelett zeigt, kein Titel, und genau das ist der Augenblick, in dem man wissen will, wo man
+  // ist. Der Zeichner ersetzt das Markup gleich darauf; der Beobachter in shell.js setzt den Titel
+  // dann wieder ein (siehe _lgObserve).
+  if(typeof mountLargeTitle==='function')mountLargeTitle();
   const r=_renderer(p);if(!r)return;
-  try{const out=r(v,opts);if(out&&typeof out.catch==='function')out.catch(e=>console.error('[go]',p,e));return out;}catch(e){console.error('[go]',p,e);}}
+  try{const out=r(v,opts);
+    if(typeof mountLargeTitle==='function')mountLargeTitle();
+    if(out&&typeof out.catch==='function')out.catch(e=>console.error('[go]',p,e));return out;}catch(e){console.error('[go]',p,e);}}
 // Coach-Kontextleiste unter dem Header: renderCtxBar() aus coach.js (WP7), sonst schlanke Fallback-Leiste
 function mountCtxBar(){const cb=document.getElementById('ctxBar');if(!cb)return;
   if(!(coachView()&&COACH_CONTEXT)){cb.innerHTML='';return;}

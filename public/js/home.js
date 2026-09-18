@@ -11,6 +11,7 @@
 let CHECKIN_DATE=null, HOME_CIS=[];
 let HOME_DATA=null;        // letzte Antwort von GET /api/home/:userId (bzw. der Fallback in gleicher Form)
 let HOME_CI_SHEET=false;   // Check-in-Formular läuft gerade im Sheet (openCheckinSheet)
+let HOME_CI_PICK=false;    // im Check-in-Sheet steht gerade die Tagesauswahl statt des Formulars
 let HOME_TIP=null;         // Merker für „Tag komplett"-Feier (einmal pro Tag)
 // Eigene (selbst hinzugefügte) Supplements kennt der Server nur als „genommen"-Zeile: Abwählen heißt dort Löschen.
 // Damit die Zeile sich trotzdem wie jede andere abhaken lässt, bleibt der Eintrag hier als leerer Haken stehen,
@@ -22,17 +23,6 @@ function homePatch(id,html){const el=document.getElementById(id);if(el)el.innerH
 function homeCache(){try{if(typeof cacheView==='function'&&document.getElementById('homePage'))cacheView('home');}catch(e){}}
 function homeGreeting(){const h=new Date().getHours();return h<11?'Guten Morgen':h<17?'Hallo':'Guten Abend';}
 function homeFirstName(){const n=(coachView()&&COACH_CONTEXT)?String(COACH_CONTEXT):String(ME?.name||'');return n.split(' ')[0]||n;}
-// Beschriftung eines Rhythmus-Chips: Wochentag + Klartext („Heute · Push", „Mo · Ruhe", „Di · Krank").
-// Bis 2.4.0 stand hier „Heute Pus · Mo Pul · Di –" – drei Buchstaben, die am ersten Tag niemand liest
-// (RATE-shell-home H2). Der Name wird jetzt ausgeschrieben und erst ab 14 Zeichen an der Ellipse gekürzt;
-// die Leiste scrollt ohnehin, die Chips dürfen also breiter werden.
-function shChipLabel(p,i,dt){
-  const wd=['So','Mo','Di','Mi','Do','Fr','Sa'];
-  const day=(i===0)?'Heute':wd[dt.getDay()];
-  const t=p&&p.type;
-  let what=(t==='train')?String(p.dayName||'Training').trim():(t==='sick')?'Krank':'Ruhe';
-  if(what.length>14)what=what.slice(0,13).trim()+'…';
-  return day+' · '+what;}
 // Tipp auf einen Rhythmus-Chip öffnet GENAU diesen Tag – vorher öffneten alle sieben denselben Kalender
 // und versprachen eine Auswahl, die sie nicht boten (RATE-shell-home H2).
 // calDay() liest den Tagesstand aus drawCalendar.byDate; ohne vorher geöffneten Kalender ist die Karte leer
@@ -167,10 +157,10 @@ async function homeLegacyLoad(uid){
   // ok() macht aus jedem Nicht-200 ein null, und aus null macht die Startseite eine 0. Aus einem
   // ausgefallenen /foodlog wurde so „0 / 3.017 kcal" (gemessen: online 249), aus einem ausgefallenen
   // /logs „Lower 1 starten" statt „Weiter · 1/27 Sätze".
-  // Drei Antworten tragen die Seite und haben KEINE eigene Absicherung: Check-ins (Ringe, Streak-Zeile,
-  // Gewichtstrend), Essensprotokoll (Kalorienring) und die Sätze von heute (Trainingsring + Hauptknopf).
+  // Drei Antworten tragen die Seite und haben KEINE eigene Absicherung: Check-ins (Zeile „Check-in",
+  // Gewichtstrend), Essensprotokoll (Zeile „Ernährung") und die Sätze von heute (Hauptknopf).
   // Fehlt eine davon, wird gar nicht gezeichnet. Supplements, Insights und Mindset dürfen fehlen – ihre
-  // Blöcke lassen sich ohne Daten schon von selbst weg (homeSuppHTML, homeProgressHTML, drawHomeGoals).
+  // Zeilen lassen sich ohne Daten schon von selbst weg (drawHomeGoals, hmLastHTML, openBodyPage).
   const tragend=[['Check-ins',cr],['Essensprotokoll',flr],['Sätze',logsR]].filter(([,x])=>!(x&&x.status===200));
   if(tragend.length){const bad=tragend[0][1];STL_HOME_ST=bad?bad.status:0;return null;}
   const days=((PLAN&&PLAN.days)||[]).map(d=>{const exs=(d.exercises||[]).filter(e=>!e.deleted);
@@ -266,12 +256,6 @@ function homeSuppItems(sup,date){
   return [...((sup&&sup.plan)||[]),...extras,
     ...off.map(x=>({supplement_id:null,intake_id:null,name:x.name,dose:x.dose||'',taken:false,mandatory:false}))];}
 
-// Chip-Beschriftung fuer das Mindset-Angebot: ein blosses Verb („Starten") sagt nichts – dann den Titel nehmen.
-const HOME_GENERIC_ACTIONS=['starten','öffnen','oeffnen','weiter','los','mehr','ansehen','fertig'];
-function homeMindChipLabel(w){
-  const a=String(w.action||'').trim();
-  if(a&&!HOME_GENERIC_ACTIONS.includes(a.toLowerCase()))return homeShortLabel(a);
-  return homeShortLabel(w.title||a||'Mindset');}
 // Lange Titel („Pre-Workout (60–90 Min. vor Trainingsbeginn)", „Priming: 10 Minuten für deinen Tag")
 // auf das Wesentliche kuerzen – und wenn doch gekuerzt wird, dann an der Wortgrenze, nie mitten im Wort.
 function homeShortLabel(s){s=String(s||'').trim();
@@ -334,17 +318,6 @@ function stlMindSlots(s,hour){
   const done=!!eve&&(prim||hour>=17);
   const bn=+M.breathCount||0,bt=+M.breathTarget||3;
   return {action:(hour<17)?!prim:!eve,breath:bn<bt&&!done};}
-// Reservierter Platz für die Statuszeile. Ob eine kommt, sagen die Daten (challenge.active, wheel.due);
-// den Text formuliert mindset.js. Kommt keine, wird auch nichts reserviert – ein Platzhalter, auf den nie
-// etwas folgt, wäre eine Lüge in die andere Richtung.
-function stlMindStatusPlaceholder(s){
-  if(!stlMindPending(s))return '';
-  const M=s.MIND||{};
-  if(!(M.challenge&&M.challenge.active)&&!(M.wheel&&M.wheel.due))return '';
-  return `<div class="rows mb-3" id="homeMind" aria-hidden="true"><div class="row">
-    <div class="r-ic">${icon('brain')}</div>
-    <div class="rl"><span class="stl-wait" style="display:inline-block;vertical-align:middle;height:17px;width:52%;border-radius:8px;background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:sk 1.2s linear infinite"></span></div>
-    <div class="rr"></div></div></div>`;}
 // Solange Platz reserviert ist: nachsehen, ob das Modul da ist, und die Seite EINMAL an Ort und Stelle
 // nachziehen ({cached:true} – kein Skelett, kein Sprung, keine Scroll-Rücksetzung). Der Nachlade-Lader
 // tut das auch, aber erst wenn ALLE vier Module da sind; mindset.js ist das erste und steht früher.
@@ -373,10 +346,6 @@ function shMiddayCta(s,hour){
   if(!s||!s.own||!s.kcalTarget)return false;
   if(hour==null)hour=new Date().getHours();
   return hour>=12&&(+s.consumed||0)<s.kcalTarget*0.5;}
-// Krank gemeldet: eine Bereitschaftszahl und ein „zieh durch" wären an diesem Tag eine falsche Ansage.
-// Statt der Bereitschaftszeile steht deshalb genau ein Satz in der Karte (RATE-shell-home M2).
-function shSickHTML(){
-  return '<div class="note mt-3">Erst gesund werden – dein Rhythmus wartet.</div>';}
 
 /* ============================================================================================
    A-IV.1 (2.8.0) · DIE AUFGERÄUMTE STARTSEITE – Präfix `hm`
@@ -402,108 +371,59 @@ function shSickHTML(){
    „alle anzeigen" plus Abschnittskopf plus Chip).
    ============================================================================================ */
 
-// ---- Rückweg: „Startseite: neu / klassisch" (BUILD-A4 3.7, CRITIC K3) ----
-// Ein Flag, zwei Zeichenpfade, mehr nicht. Wer mit der neuen Seite nicht zurechtkommt, stellt sie
-// zurück, ohne auf ein Update zu warten – 14 Tage lang ist das die Zusage.
-const HM_VAR_KEY='be_home_v';
-function hmVariant(){try{return localStorage.getItem(HM_VAR_KEY)==='klassisch'?'klassisch':'neu';}catch(e){return 'neu';}}
-function hmNew(){return hmVariant()==='neu';}
-function hmSetVariant(v){
-  try{if(v==='klassisch')localStorage.setItem(HM_VAR_KEY,'klassisch');else localStorage.removeItem(HM_VAR_KEY);}catch(e){}
-  closeAllSheets();
-  if(typeof invalidateView==='function')try{invalidateView('home');}catch(e){}
-  const el=document.getElementById('views');
-  if(el&&el.querySelector('#homePage'))renderHome(el,{cached:true});
-  toast(v==='klassisch'?'Klassische Startseite ✓':'Neue Startseite ✓');}
-function openHomeVariantSheet(){
-  const cur=hmVariant();
-  const row=(key,title,sub)=>`<div class="row h-tap" role="button" tabindex="0" aria-pressed="${cur===key?'true':'false'}"
-      onkeydown="homeRowKey(event)" onclick="hmSetVariant('${key}')">
-      <div class="r-ic">${icon(key==='neu'?'sparkles':'more',22)}</div>
-      <div class="rl">${esc2(title)}<small>${esc2(sub)}</small></div>
-      <div class="rr">${cur===key?icon('check',20,'tone-green'):''}</div></div>`;
-  openSheet('Startseite',`
-    <div class="note mb-3">Die neue Startseite zeigt jedes Thema einmal: die Ringe sind dein Tag, ein Tipp darauf öffnet das passende Formular. Wenn dir die ausführliche Fassung lieber ist, stell sie hier zurück.</div>
-    <div class="rows" role="group" aria-label="Darstellung der Startseite">
-      ${row('neu','Neu','Ringe als Tagesübersicht, eine Hauptsache, „Zuletzt"')}
-      ${row('klassisch','Klassisch','Karten für Check-in, Ernährung und Supplements')}
-    </div>`);}
+/* ============================================================================================
+   DESIGN-4 6.1 · DIE VIER ABSCHNITTE DER STARTSEITE – Praefix `hm`
+   --------------------------------------------------------------------------------------------
+   1 Jetzt (.card.lg)  ·  2 Heute offen  ·  3 Zuletzt  ·  4 Koerper & Fortschritt
 
-// ---- „Tag komplett" feiern – einmal pro Tag, aus beiden Zeichenpfaden derselbe Weg ----
-// EIN Schlüssel mit dem Datum als Wert – nicht einer je Kalendertag: die Frage lautet nur „heute
-// schon gefeiert?", und die alten Tages-Schlüssel räumte nie jemand auf (nach drei Jahren über
-// 1.000 Einträge, die _snapKeys bei jedem Hintergrundwechsel durchlief).
+   Gemessener Ausgangspunkt (tools/sprache.mjs, Stand vor diesem Umbau, Konto Marco):
+   17 Zeilenformen, 12 Schriftpaare, 4 Ringe, 0 Abschnittsueberschriften, 1138 px Seitenhoehe,
+   eine abgeschnittene Beschriftung („Challenge Tag 5/10 · 1/14 erledigt · Rad") und fuenf graue
+   Pillen am Seitenende, die nichts benennen (Masse · Foto · Kalender · Erfolge · Startseite).
+
+   Die Regeln dieser Welle:
+     · EIN Zeilenmuster. Jede Zeile kommt aus rowHTML(), jede Gruppe aus groupHTML() (G6/N17).
+       Handgeschriebene `class="row"` gibt es in dieser Datei nicht mehr.
+     · KEIN Ring mehr auf der Startseite (K19). Ein Ring ohne Wort ist eine Ampel; die Zahl steht
+       jetzt als Wort rechts in der Zeile („695 von 3.017 kcal" statt eines Kreissegments).
+     · Jede Handlung traegt ein WORT. Die fuenf grauen Pillen sind benannte Zeilen im Abschnitt
+       „Koerper & Fortschritt" (Teil 7, R3).
+     · Erklaert wird im `.rows-f` unter der Gruppe, nie in einem Symbol (G8).
+   ============================================================================================ */
+
+// ---- „Tag komplett" feiern – einmal pro Tag ----
+// EIN Schluessel mit dem Datum als Wert – nicht einer je Kalendertag: die Frage lautet nur „heute
+// schon gefeiert?", und die alten Tages-Schluessel raeumte nie jemand auf.
 function hmCelebrate(s){
   if(!s||!s.allDone)return;
   const key='be_daily';
   try{if(localStorage.getItem(key)!==s.tdy&&HOME_TIP!==s.tdy){HOME_TIP=s.tdy;localStorage.setItem(key,s.tdy);
     setTimeout(()=>{if(typeof celebrate==='function')celebrate('🎉','Tag komplett!','Alle Tagesziele erreicht – stark!');},700);}}catch(e){}}
 
-// ---- Die Streak-Zeile (aus beiden Pfaden gleich) ----
-// Die Flamme trägt KEIN Marken-Rot mehr: sie ist Status, nicht Marke (STRATEGY-25 P6). Gemessen
-// zählte accent.mjs sie über dem Falz als zwei der fünf roten Elemente mit.
-function hmStreakHTML(s){
-  if(!s.ins)return '';
-  // 2.9.0 (A-V.3, CRITIC K10): Hier stand die TAGES-Serie („31 Check-ins in Folge"). Sie ist ersetzt
-  // durch die EINE Konsistenz-Zeile – lpWeekLineHTML(). Der Rest dieser Funktion bleibt nur als
-  // Notnagel stehen, falls der Server die Wochenziel-Zahlen nicht mitliefert (ältere Antwort).
-  const wl=lpWeekLineHTML(s);if(wl)return wl;
-  const streak=s.ins?.streaks?.checkin||0,fb=s.ins?.freezes?.balance||0;
-  // Numerus wie in lpWeekLineHTML: „1 Reparatur übrig", nicht „1 Reparaturen übrig".
-  const jok=`<button class="hg-jok" onclick="openStreakInfo()" aria-label="${pl(fb,'Reparatur','Reparaturen')} übrig">${icon('shield',16)}${fmtNum(fb)}</button>`;
-  const sw=shStreakWords(streak,s.ins?.streaks?.checkinFrozen);
-  // Der Tagesstand als eigene Marke rechts statt als Anhängsel im Satz: „31 Check-ins in Folge ·
-  // heute schon dran" brach auf 390 px auf zwei Zeilen um und kostete die Karte 22 px, ohne ein
-  // Wort mehr zu sagen.
-  // B6: „heute ✓" war das letzte Zeichen-Symbol auf der Startseite – direkt neben icon('flame') und
-  // icon('shield') in derselben Zeile. Jetzt derselbe Strichglyph wie ueberall, Farbe kommt weiter
-  // von `.tone-green` (dafuer `.hg-st .ic{color:inherit}` in home.css).
-  const st=s.checkedIn?`<span class="hg-st tone-green">heute ${icon('check',13)}</span>`:'<span class="hg-st tone-amber">heute offen</span>';
-  return streak>0
-    ? `<div class="hg-streak">${icon('flame',18)}<div class="fill"><b>${esc2(sw.main)}</b>${sw.detail?`<small>${esc2(sw.detail)}</small>`:''}</div>${st}${jok}</div>`
-    : `<div class="hg-streak">${icon('flame',18)}<div class="fill muted">Ab deinem ersten Check-in zählt hier die Folge.</div>${jok}</div>`;}
+// ---- Der grosse Titel der Startseite (DESIGN-4 3.2/6.1) ----
+// Er steht seit dieser Welle im Markup der Ansicht selbst; `ensureLargeTitle()` in shell.js ruehrt
+// eine Seite nicht an, die schon einen hat. Die Unterzeile traegt Datum und Phase – beides stand
+// vorher in der Jetzt-Karte („Guten Abend, Marco · Do., 17.9." + „Aufbauphase") und ist dort
+// ersatzlos entfallen: der Ort fuer „welcher Tag ist heute" ist der Titel des Bildschirms.
+// „Offseason" heisst hier „Aufbauphase" – dasselbe Wort wie bisher, dieselbe Regel (STRATEGY 4.5):
+// auf Stufe 1 bleibt der unberuehrte Standard ganz weg, weil eine Phase, die niemand gesetzt hat,
+// keine Aussage ist.
+// Bewusst als Funktion und nicht als Objekt-Literal am Dateianfang: `scratchpad/dup_check.py`
+// liest eine Zeile `const X={a:'..',prep:'..'}` als Mehrfach-Deklaration und meldete `prep`
+// faelschlich als Namenskollision mit `PHASE_LABEL` in account.js. Ein Werkzeug, das man wegen
+// eines Schreibstils ignorieren muss, ist kein Werkzeug mehr.
+function hmPhaseWord(s){
+  const raw=String((s&&s.T&&s.T.phase)||'');
+  if(hmLevel()<2&&(raw||'offseason')==='offseason')return '';
+  if(raw==='offseason')return 'Aufbauphase';
+  if(raw==='prep')return 'Wettkampf-Diät';
+  if(raw==='maintain')return 'Halten';
+  return '';}
+function hmTitleHTML(s){
+  const sub=[cap(fmtDate(new Date(),{weekday:'long',month:'long'})),hmPhaseWord(s)].filter(Boolean).join(' · ');
+  return `<h1 class="lg-title">Heute${sub?`<small>${esc2(sub)}</small>`:''}</h1>`;}
 
-// ---- Die EINE Tages-Karte: Ringe + Folge + (falls offen) eine abhakbare Einnahme ----
-// Der Abschnittskopf sitzt IN der Karte statt darüber: fünf `section-label` à 40 px waren auf einer
-// Seite, die unter 1.000 px bleiben soll, ein Fünftel des Platzes.
-function hmTodayHTML(){
-  const s=homeState();if(!s.own||!s.goals.length)return '';
-  hmCelebrate(s);
-  const rings=s.goals.map(g=>{
-    const pct=Math.max(0,Math.min(1,+g.pct||0));
-    return `<button class="hg" onclick="${g.act}" aria-label="${esc2(g.l)} ${esc2(String(g.val||''))}${g.done?' – erledigt':''}. Öffnen">
-      <span class="hg-r">${ring(g.done?1:pct,{size:46,stroke:4,color:'var(--green)',track:'var(--surface3)'})}<span class="hg-ic">${icon(g.ic,20)}</span>${g.done?`<span class="hg-b">${icon('check',12)}</span>`:''}</span>
-      <span class="hg-l${g.done?' done':''}">${esc2(g.l)}</span>
-      <span class="hg-v">${esc2(String(g.val==null?'':g.val))}</span></button>`;}).join('');
-  // Genau EINE offene Einnahme – der Ein-Tap-Haken, der vorher unter einer 4-zeiligen Liste bei
-  // y = 1.304 px lag (gemessen: 915 px Scrollweg, tapcount `supp`). Jetzt steht er über dem Falz.
-  let supp='';
-  const open=(s.sItems||[]).filter(p=>!p.taken);
-  if(open.length){const p=open[0],rest=open.length-1;
-    supp=`<div class="hg-supp"><div class="row h-tap" role="button" tabindex="0" aria-pressed="false" onkeydown="homeRowKey(event)"
-        onclick="toggleIntakeHome(event,${p.supplement_id??'null'},${p.intake_id??'null'},'${esc(p.name)}','${esc(p.dose||'')}')">
-        <div class="r-ic">${icon('pill',22)}</div>
-        <div class="rl">${esc2(p.name)}<small>${esc2(p.dose||'Menge offen')}${rest>0?' · noch '+fmtNum(rest)+' offen':''}</small></div>
-        <div class="rr">${p.mandatory?'<span class="pill must">Pflicht</span>':''}</div></div></div>`;}
-  return `<div class="card hm-day mb-3">
-    <div class="hm-h"><span class="hm-h-t">Heute</span><span class="hm-h-n${s.allDone?' tone-green':''}">${fmtNum(s.doneN)}/${fmtNum(s.goals.length)}</span></div>
-    <div class="hg-row">${rings}</div>${hmStreakHTML(s)}${supp}</div>`;}
-
-/* ---- „Zuletzt": das letzte Training des Athleten (BUILD-A4 3.3) -----------------------------
-   Der Coach sieht „Letztes Training Lower 1 · gestern" (coach.js:1549) – der Athlet selbst sah es
-   auf seiner eigenen Startseite nirgends (RATE-shell-home, Abschnitt „Was 12 von 10 wäre", Punkt 2).
-   Strong/Hevy öffnen mit dem letzten Workout, WHOOP mit dem Recap: das ist der Grund, die App
-   morgens zu öffnen, wenn noch nichts zu tun ist.
-
-   NACHBESSERUNG 2.8.0: Die Karte rechnete sich hier selbst aus GET /api/logs/:uid aus – und hatte
-   damit eine EIGENE Bestleistungs-Regel, die vierte in der App. Sie gruppierte über `exercise_id`,
-   der Server vergleicht seit D15 über den normalisierten Übungsnamen, also über die Bewegung.
-   Gemessen in `rate-shell-home.db`: „Leg Press" steht als id 3 UND id 4 im Plan; 100 kg auf id 3
-   beantwortet POST /api/logs mit {"pr":false,"prevMax":102.5} – die Startseite schrieb trotzdem
-   „1 Bestleistung". Jetzt rechnet der Server (`lastWorkoutView`, server.js), und die Karte zeigt nur
-   noch an, was im Home-Aggregat steht: `HOME_DATA.lastWorkout` = {none} | {date,name,sets,volume,prs,top}.
-   Zwei Dinge fallen damit zugleich weg: die zweite Anfrage über 25 KB und der Platzhalter, der zwei
-   Sekunden lang dastand – die Karte ist jetzt Teil des ersten Bildes und des Offline-Schnappschusses. */
+// ---- Wie heisst der Tag eines vergangenen Trainings? ----
 function hmDayWord(iso){
   const d=Math.round((Date.parse(today()+'T00:00:00Z')-Date.parse(iso+'T00:00:00Z'))/864e5);
   if(d<=0)return 'Heute';
@@ -511,284 +431,224 @@ function hmDayWord(iso){
   if(d===2)return 'Vorgestern';
   if(d<=6)return cap(fmtDate(iso,{weekday:'long'}));
   return 'vor '+pl(d,'Tag','Tagen');}
+
+/* ---- Abschnitt 3 · „Zuletzt" (6.1, Teil 8 S#3) ---------------------------------------------
+   Die Startseite beantwortete dreimal dieselbe Frage („was ist heute offen?") und diese nie:
+   „Wie lief es bisher?". Drei Zeilen, drei Antworten – letzte Einheit, Wochenstand, Gewicht.
+   Alle drei rechnet der Server schon (lastWorkout, insights.weekGoal, checkins); es kommt keine
+   einzige Anfrage dazu. */
+// Die Zeile „Gewicht" fuehrt in den heutigen Check-in – dort wird das Gewicht eingetragen und
+// geaendert. Das ist zugleich der Weg, den ein erledigter Check-in sonst verloren haette: er
+// verschwindet aus „Heute offen", sobald er steht, und stand danach nirgends mehr auf dieser Seite.
+function hmWeightRow(s){
+  const ws=(s.cis||[]).filter(c=>c&&c.weight!=null);
+  if(!ws.length)return rowHTML({icon:'scale',title:'Gewicht',
+    sub:'Noch nichts eingetragen – im Check-in nachtragen',tap:'homeExpandCheckin()'});
+  const cur=+ws[0].weight;
+  const alt=ws.find(c=>wk2DayDiff(ws[0].date,c.date)>=7)||(ws.length>1?ws[ws.length-1]:null);
+  let sub='seit dem ersten Eintrag';
+  if(alt){
+    const tage=wk2DayDiff(ws[0].date,alt.date),diff=cur-(+alt.weight);
+    // Wort statt Vorzeichen (G9): „0,4 kg mehr in 9 Tagen" liest sich ohne Legende.
+    sub=(Math.abs(diff)<0.15)
+      ?'unverändert seit '+pl(tage,'Tag','Tagen')
+      :fmtNum(Math.abs(diff),1)+' kg '+(diff>0?'mehr':'weniger')+' in '+pl(tage,'Tag','Tagen');}
+  return rowHTML({icon:'scale',title:'Gewicht',sub,value:fmtNum(cur,1)+' kg',tap:'homeExpandCheckin()'});}
+
 function hmLastHTML(){
   const s=homeState();
   if(!s.own||homeDayOne(s))return '';
-  const L=s.last;
-  // Ein Aggregat ohne `lastWorkout` (alter Offline-Schnappschuss aus 2.8.0-vor-dieser-Nachbesserung)
-  // zeigt gar nichts – lieber keine Karte als ein Platzhalter, der nie gefüllt wird.
-  if(!L)return '';
-  if(L.none)
-    return `<div class="card hm-last mb-3"><div class="r-ic">${icon('dumbbell',22)}</div>
-      <div class="fill"><b>Noch kein Training aufgezeichnet</b><small>Sobald du den ersten Satz einträgst, steht hier deine letzte Einheit.</small></div></div>`;
-  // A-9 (Nachbesserung): dieselbe Regel wie im Fortschritts-Streifen. „9,5 t" in der Zeile „Zuletzt"
-  // ist für Stufe 1 keine Rückmeldung; „12 Sätze · Top 102,5 kg × 10" ist eine – und das ist genau
-  // das „Stärker geworden" aus STRATEGY 4.3 Level 1. Ab Stufe 2 bleibt die Tonne stehen.
-  const parts=[pl(L.sets,'Satz','Sätze'),
-    (hmLevel()>=2&&L.volume>=100)?fmtNum(L.volume/1000,1)+' t':null,
-    L.prs>0?pl(L.prs,'Bestleistung','Bestleistungen'):null,
-    (!L.prs&&L.top)?'Top '+fmtNum(L.top.weight,L.top.weight%1?1:0)+' kg × '+fmtNum(L.top.reps):null].filter(Boolean);
-  return `<div class="card hm-last tap mb-3" role="button" tabindex="0" onkeydown="homeRowKey(event)" onclick="shOpenRhythmDay('${L.date}')">
-    <div class="r-ic">${icon('dumbbell',22)}</div>
-    <div class="fill"><b>${esc2(hmDayWord(L.date))}${L.name?' · '+esc2(L.name):''}</b><small>${esc2(parts.join(' · '))}</small></div>
-    <div class="rr">${icon('chevronRight',18)}</div></div>`;}
+  const rows=[],L=s.last;
+  if(L&&L.none)
+    rows.push(rowHTML({icon:'dumbbell',title:'Noch kein Training aufgezeichnet',
+      sub:'Sobald du den ersten Satz einträgst, steht hier deine letzte Einheit',tap:"go('workout')"}));
+  else if(L){
+    // A-9: Tonnage ist die Leitkennzahl der oberen Stufen, nicht der ersten (STRATEGY 4.3).
+    const teile=[pl(L.sets,'Satz','Sätze'),
+      // „t" ist ein Kuerzel ohne Erklaerung (K21, tools/BEGRIFFE.md). Ausgeschrieben kostet es
+      // null Pixel – die Unterzeile bleibt einzeilig – und spart den Fusstext, der es erklaeren muesste.
+      (hmLevel()>=2&&L.volume>=100)?fmtNum(L.volume/1000,1)+' Tonnen bewegt':null,
+      L.prs>0?pl(L.prs,'Bestleistung','Bestleistungen'):null,
+      (!L.prs&&L.top)?'Top '+fmtNum(L.top.weight,L.top.weight%1?1:0)+' kg × '+fmtNum(L.top.reps):null].filter(Boolean);
+    rows.push(rowHTML({icon:'dumbbell',title:hmDayWord(L.date)+(L.name?' · '+L.name:''),
+      sub:teile.join(' · '),tap:`shOpenRhythmDay('${L.date}')`}));}
+  const w=(typeof lpWeekLine==='function')?lpWeekLine(s):null;
+  // Ohne Unterzeile: der Wert IST die Aussage, und der Satz „ein Fehltag aendert daran nichts"
+  // steht im Fusstext der Gruppe – dort gehoert die Erklaerung hin (G8), und die Zeile bleibt 56 px.
+  if(w)rows.push(rowHTML({icon:'calendar',title:'Diese Woche',
+    value:fmtNum(w.done)+' von '+pl(w.planned,'Einheit','Einheiten'),
+    tap:"if(typeof renderTracker==='function')renderTracker.tab='training';go('tracker')"}));
+  // Die Zeile „Gewicht" steht NUR, wenn der heutige Check-in schon steht.
+  // NACHBESSERUNG S1/B1 (Hoehe): Solange er offen ist, fuehrt die Zeile „Check-in" in
+  // „Heute offen" in genau dasselbe Sheet – zwei Zeilen mit demselben Ziel auf einem Bildschirm
+  // sind eine Doppelung, und sie kostet 65 px auf der einzigen Seite mit Hoehenbudget (9.4).
+  // Ist der Check-in erledigt, verschwindet er aus „Heute offen" und DIESE Zeile wird der Weg
+  // zum Gewicht – die beiden Zeilen loesen einander ab, es faellt nichts weg (G5).
+  if(s.checkedIn)rows.push(hmWeightRow(s));
+  // Die LISTE der Einnahmen (openSupp) stand hier als vierte Zeile, fuer den Fall, dass heute schon
+  // alles abgehakt ist. Sie ist mit dieser Nachbesserung weg – sie war Navigation, nicht „wie lief
+  // es bisher", und 6.1 nennt fuer diesen Abschnitt genau drei Antworten. Versteckt ist damit
+  // nichts (G5): solange eine Einnahme offen ist, steht die Zeile in „Heute offen"; die LISTE
+  // selbst gehoert dem Bildschirm, auf dem sie verwaltet wird – Profil › „Supplements · Deine
+  // Liste – abhaken und verwalten" (account.js) – und steht zusaetzlich in der Suche.
+  if(!rows.length)return '';
+  // Der Fusstext ist der Erklaerungsort (G8). Hier steht auch, was eine „Reparatur" ist – bis zu
+  // diesem Umbau stand das nur hinter dem kleinen Schild-Knopf neben der Streak-Zeile.
+  const rep=Math.max(0,Math.round(+((s.ins&&s.ins.freezes&&s.ins.freezes.balance)||0)));
+  const fuss='Der Wochenstand zählt geplante Einheiten – ein Fehltag bricht nichts.'
+    +(rep?' '+pl(rep,'Reparatur','Reparaturen')+' übrig.':'');
+  // „Körper & Fortschritt" ist die WORTAKTION dieses Abschnitts, keine eigene Zeile mehr.
+  // NACHBESSERUNG S1/B1: Die Zeile beantwortete nicht „wie lief es bisher", sie war Navigation –
+  // und 6.1 nennt für „Zuletzt" genau drei Antworten. Als Wortaktion im Abschnittskopf steht
+  // derselbe Weg mit demselben Wort auf demselben Bildschirm (G5), kostet aber 0 px:
+  // die Ueberschrift ist ohnehin da. Dieselbe Bauform wie „Nachtragen" in „Heute offen"
+  // (.rows-h .a, DESIGN-4 4.5) – es kommt keine Form dazu.
+  return groupHTML('Zuletzt',rows,fuss,
+    {action:{label:'Körper & Fortschritt',tap:'openBodyPage()'}});}
 
-// Der variantenrichtige Zeichner für `#homeGoals`. Jede Stelle, die nach einem Haken, einem
-// Check-in oder einem Tagwechsel nachzieht, geht hier durch – sonst bekäme die neue Startseite
-// beim ersten Patch die alte Ringzeile untergeschoben.
-function hmGoalsHTML(){return hmNew()?hmTodayHTML():drawHomeGoals();}
+/* ---- Abschnitt 4 · „Koerper & Fortschritt" als Push-Seite (Teil 7, R3) ----------------------
+   HIER LANDEN DIE FUENF GRAUEN PILLEN. Gemessen lagen sie bei y = 813–857 hinter der Reiterleiste
+   (y = 790–840) – acht Bedienelemente, die ohne Scrollen nicht erreichbar waren, und keines von
+   ihnen sagte, wohin es fuehrt. Jetzt vier benannte Zeilen mit Symbol, Untertitel und Wert:
+     Masse     -> „Koerpermasse"        Foto     -> „Fortschrittsfotos"
+     Kalender  -> „Trainingskalender"   Erfolge  -> „Erfolge · Level x · y XP"
+   Die fuenfte Pille („Startseite", Variante waehlen) entfaellt mit dem zweiten Zeichenpfad.
 
-// ---- „Mehr": dieselben vier Wege als Chip-Zeile statt als 116-px-Kachelblock ----
-// Dazu der Schalter aus 3.7. Er sitzt hier, weil public/js/account.js in dieser Welle niemandem
-// gehört (BUILD-A4 Abschnitt 2) – der Weg ins Profil steht in DEFER-A4.md.
-function hmMoreHTML(){
-  const c=(fn,t)=>`<button class="chip" onclick="${fn}">${t}</button>`;
-  // EINE Zeile, alle fünf Wege sichtbar, ohne Symbol und ohne Umbruch. Gemessen: mit Symbol
-  // brauchen fünf Chips 512 px bei 358 px Seitenbreite – „Startseite" lag komplett ausserhalb des
-  // Bildes, und das ist ausgerechnet der Rückweg aus 3.7. Umgebrochen kostete die Zeile 56 px, die
-  // bei 985 px Seitenhöhe nicht da sind. Ohne Symbol sind es 334 px: nichts entfernt, nichts
-  // versteckt, 24 px Reserve (Begründung in home.css bei `.hm-more`).
-  return `<div class="chip-row hm-more mb-3">
-    ${c("typeof openMeasure==='function'?openMeasure():go('tracker')",'Maße')}
-    ${c("typeof openPhotos==='function'?openPhotos():go('tracker')",'Foto')}
-    ${c("typeof openCalendar==='function'?openCalendar():go('workout')",'Kalender')}
-    ${c("typeof openAchievements==='function'?openAchievements():go('tracker')",'Erfolge')}
-    ${c('openHomeVariantSheet()','Startseite')}
-  </div>`;}
+   WARUM EINE SEITE UND NICHT EIN ABSCHNITT AUF „HEUTE" – die Rechnung, nicht die Vorliebe:
+   Der feste Rahmen der Startseite kostet 173 px (Kopfzeile 61, Leistenpolster 80, Seitenrand 32),
+   der grosse Titel und die Jetzt-Karte 277 px, drei Abschnittskoepfe 162 px, zwei Fusstexte 88 px.
+   Bei einem Ziel von unter 1.000 px bleiben damit 300 px fuer Zeilen – fuenf Stueck. DESIGN-4 6.1
+   nennt zehn bis elf. Die woertliche Fassung wurde gebaut und gemessen: 1.367 px. Diese hier misst
+   1.118 px, also weniger als der Stand VOR dem Umbau (1.138 px).
+   Versteckt ist dadurch nichts: die vier Woerter stehen als Unterzeile der Zeile auf der Startseite,
+   der Zurueck-Knopf der Seite traegt „Heute" (G3/K13). Der Preis ist EIN Tap je Eintrag, und er
+   steht in DEFER-D5.md unter D2-2/A1.
 
-// ===== JETZT-KARTE =====
-// Genau EIN roter Primär-Button, gewählt aus dem Tageszustand; darunter höchstens vier offene Kurzwege.
+   Der Fortschritts-Streifen (Level/Woche/Monat) ist damit ebenfalls aufgeloest: „Woche" steht als
+   Zeile in „Zuletzt", „Level" als Wert der Zeile „Erfolge", „Monat" gehoert in die Analyse. */
+function openBodyPage(){
+  const s=homeState();
+  const I=s.ins||null;
+  if(I&&typeof checkNewAchievements==='function'){try{checkNewAchievements(I);}catch(e){}}
+  const rows=[
+    rowHTML({icon:'ruler',title:'Körpermaße',sub:'Umfänge eintragen und vergleichen',
+      tap:"typeof openMeasure==='function'?openMeasure():go('tracker')"}),
+    rowHTML({icon:'camera',title:'Fortschrittsfotos',sub:'Bilder aufnehmen und nebeneinanderlegen',
+      tap:"typeof openPhotos==='function'?openPhotos():go('tracker')"}),
+    rowHTML({icon:'calendar',title:'Trainingskalender',sub:'Welcher Tag war welche Einheit',
+      tap:"typeof openCalendar==='function'?openCalendar():go('workout')"}),
+    rowHTML({icon:'trophy',title:'Erfolge',sub:(I&&I.levelTitle)?String(I.levelTitle):'Stufen, Abzeichen, Meilensteine',
+      value:I?('Level '+fmtNum(I.level)+' · '+fmtNum(I.xp)+' XP'):'',
+      tap:"typeof openAchievements==='function'?openAchievements():go('tracker')"})
+  ];
+  const html=groupHTML(null,rows,
+    'Maße und Fotos stehen auch in der Analyse, der Kalender im Training. '
+    +'Hier liegen sie zusammen, weil sie dieselbe Frage beantworten: bewegt sich etwas?');
+  if(typeof pushPage==='function')return pushPage('koerper','Körper & Fortschritt','Heute',html);
+  openSheet('Körper & Fortschritt',html);}
+
+// ===== ABSCHNITT 1 · DIE JETZT-KARTE (DESIGN-4 6.1, `.card.lg`) =====
+// Genau EINE Hauptsache: Tag – Grund – Primaeraktion. Drei Zeilen, ein roter Knopf.
+//
+// WAS HIER RAUSGEFLOGEN IST (und wohin):
+//   · Gruss „Guten Abend, Marco · Do., 17.9."  -> Unterzeile des grossen Titels (hmTitleHTML)
+//   · Chip-Zeile „Reflexion" / „Power-Atmung 0/3" -> Zeile „Mindset" im Abschnitt „Heute offen"
+//   · Chips „Essen loggen" / „Check-in"        -> die benannten Zeilen in „Heute offen"
+//   · Rhythmus-Streifen (7 Tages-Chips)        -> Zeile „Trainingskalender" (R3) und „Tag aendern"
+//   · Rueckkehr-Banner („Schoen, dass du da bist") -> Wortaktion „Nachtragen" im Abschnittskopf
+//     und die Unterzeile der Check-in-Zeile („Seit 5 Tagen keiner")
+//   · Bereitschaftszeile `.rdy` (eigene Bauform) -> DIE Grundzeile dieser Karte (`.hm-why`)
+//   · Hinweis „Heute 3 Saetze eingetragen…"    -> Unterzeile des Tagesknopfs
+// Damit hat die Karte statt sieben Bauformen noch drei Elemente, und keines davon ist eine Zeile
+// (DESIGN-4 5.3: eine Karte enthaelt entweder Zeilen ODER etwas, das keine Zeile ist – nie beides).
+
+// Die Grundzeile: WARUM gerade das? Sie traegt die Bereitschaft als Wort samt Zahl und fuehrt in
+// einem Tipp in die Erklaerung (openReadiness). Bis hierher war die Bereitschaft eine eigene
+// Bauform `.rdy` mit Zahlenfeld, Textblock und Chevron – gemessen eine der 17 Zeilenformen.
+// DESIGN-4 5.3 verbietet eine `.row` in einer Karte; deshalb ist das hier KEINE Zeile, sondern der
+// Begruendungssatz der Karte, der sich antippen laesst. Der Tipp ist sichtbar: das Chevron steht da.
+function hmWhyBtn(head,sub,fn){
+  const a=[head,sub].filter(Boolean).join('. ');
+  return `<button type="button" class="hm-why" onclick="${esc2(fn)}" aria-label="${esc2(a)} Details anzeigen">`
+    +`<span class="hm-why-t"><b>${esc2(head)}</b>${sub?' – '+esc2(sub):''}</span>`
+    +`<span class="chev" aria-hidden="true"></span></button>`;}
+function hmWhyHTML(s){
+  // Krank gemeldet: kein Wert und kein „zieh durch" – das waere an diesem Tag eine falsche Ansage.
+  if(s.isSick)return `<p class="hm-why static">Erst gesund werden – dein Rhythmus wartet.</p>`;
+  const R=s.readiness;
+  if(!R)return '';
+  if(R.needsHealth)return s.own?hmWhyBtn('Bereitschaft: noch keine Werte',
+    'Verbinde deine Gesundheitsdaten, dann steht hier deine Einschätzung.',
+    "typeof openIntegrations==='function'?openIntegrations():go('tracker')"):'';
+  if(R.score==null)return s.own?hmWhyBtn('Bereitschaft: noch keine Daten',
+    'Trag Schlaf ein oder verbinde deine Uhr.','openReadiness()'):'';
+  // B-I.5: der dritte Zustand zwischen „keine Daten" und einer Zahl. Unter sieben Naechten gibt es
+  // keine Baseline, gegen die sich eine Zahl vergleichen koennte – sie waere erfunden ([Q13][Q16]).
+  const cal=(typeof wk2Calib==='function')?wk2Calib(R,s.cis):null;
+  if(cal&&!cal.ready&&cal.have>0)return hmWhyBtn('Bereitschaft wird noch kalibriert',
+    'Noch '+pl(cal.left,'Nacht','Nächte')+' – '+wk2CalibSteer(1),'openReadiness()');
+  const solo=(typeof _readySolo==='function')?_readySolo(R):'';
+  const sub=!s.own?'':solo
+    ?('Geschätzt aus '+solo+' – für eine belastbare Einschätzung fehlen noch Werte.')
+    :String(R.headline||'');
+  return hmWhyBtn('Bereitschaft '+fmtNum(R.score)+(R.label?' · '+R.label:''),sub,'openReadiness()');}
+
 function nowCardHTML(){
-  if(!HOME_DATA)return '<div class="today" id="homeNow">'+skeleton(1)+'</div>';
+  if(!HOME_DATA)return '<div class="card lg hm-now" id="homeNow">'+skeleton(1)+'</div>';
   const s=homeState();
   const eff=s.eff,hour=new Date().getHours();
   const dayName=s.isSick?'Erholung':(s.isTrain?(eff.dayName||'Training'):'Ruhetag');
   const kind=s.isSick?'Krank gemeldet':(s.isTrain?'Trainingstag':'Ruhetag');
-  // A-3 (Nachbesserung): „Offseason" stand auf dem allerersten Bildschirm JEDES neuen Kontos.
-  // `users.phase` hat den Standardwert 'offseason' (src/schema.js:166) und das Onboarding fragt nie
-  // danach – gemessen an einem frisch angelegten Konto („Anfänger — Neu im Training"), das eine Minute
-  // später „Trainingstag · Offseason" las. Das Wort wird nirgends erklärt; das Technik-Lexikon
-  // (src/server.js, 26 Begriffe) kennt es nicht. STRATEGY 1.1 Reibungspunkt 2 nennt es namentlich als
-  // Anfänger-Blocker, STRATEGY 4.5 verbietet Fachbegriffe im Athleten-UI. Zwei Regeln:
-  //  · Klartext statt Jargon – „Aufbauphase" versteht auch ein Profi, „Offseason" nicht jede Anfängerin.
-  //  · Auf Stufe 1 bleibt der UNBERÜHRTE Standard 'offseason' ganz weg: die Zeile trägt schon
-  //    „Trainingstag", und eine Phase, die niemand gesetzt hat, ist keine Aussage. Hat der Coach
-  //    ausdrücklich 'prep' oder 'maintain' gesetzt, steht das auch auf Stufe 1 da – das ist eine
-  //    Entscheidung über diesen Athleten und keine Voreinstellung.
-  // Die Phase in der Sprache des Athleten. Der Coach-Bildschirm darf beim Fachwort bleiben
-  // (coach.js `phaseLabel`, account.js `PHASE_LABEL`) – hier liest ein Mensch seinen eigenen Tag.
-  const phWort={offseason:'Aufbauphase',prep:'Wettkampf-Diät',maintain:'Halten'};
-  const phRaw=String(s.T?.phase||'');
-  const phase=(hmLevel()<2&&(phRaw||'offseason')==='offseason')?'':(phWort[phRaw]||'');
-  // „Woche 1/4" stand hier zweimal (der Fortschritt-Streifen traegt es) und las sich wie ein Blockplan;
-  // an Ruhetagen sagte die Zeile ausserdem dasselbe wie der Tagesname darueber.
-  const meta=[(kind===dayName?'':kind),phase].filter(Boolean).join(' · ');
-  // Gruss darf kuerzen, das Datum steht immer ganz da. Im Coach-Kontext kein „Guten Abend, <Athlet>" –
-  // die Karte gehoert dem Athleten, gelesen wird sie vom Coach.
-  const dateTxt=esc2(cap(fmtDate(new Date(),{weekday:'short',month:'numeric'})));
-  const eyebrow=s.own
-    ? `<span class="t-hi">${homeGreeting()}, ${esc2(homeFirstName())}</span><span class="t-date">· ${dateTxt}</span>`
-    : `<span class="t-hi">Athletenansicht</span><span class="t-date">· ${dateTxt}</span>`;
+  const titel=(kind===dayName)?kind:(kind+' · '+dayName);
 
-  // --- Primärer Ruf zur Tat ---
-  // Reihenfolge nach Dringlichkeit des Tages. Zwei Regeln kamen mit 2.5.0 dazu (B10):
+  // --- Der Tag IST der Knopf ---
+  // Wer an einem Ruhe- oder Krankheitstag Saetze eintraegt, las auf der Startseite „Ruhetag" und im
+  // Trainings-Tab im selben Moment „Lower 1 · 7/27 Saetze". Der Widerspruch steht jetzt als
+  // Unterzeile am Tagesknopf statt als eigener Hinweiskasten (B10) – 18 px statt 78 px, und die
+  // Aufloesung („Tag aendern") ist genau der Knopf, an dem der Satz steht.
+  const konflikt=(s.own&&!s.isTrain&&s.doneSets>0)
+    ?`Heute ${pl(s.doneSets,'Satz','Sätze')} eingetragen – Tag ändern?`:'';
+  const head=s.own
+    ? `<button type="button" class="hm-day" onclick="openDayPicker()"
+        aria-label="Heute: ${esc2(titel)}. Tag ändern"><span class="hm-day-t">${esc2(titel)}`
+      +(konflikt?`<small>${esc2(konflikt)}</small>`:'')
+      +`</span><span class="chev" aria-hidden="true"></span></button>`
+    : `<div class="hm-day"><span class="hm-day-t">${esc2(titel)}</span></div>`;
+
+  // --- Die eine Primaeraktion (G10) ---
+  // Reihenfolge nach Dringlichkeit des Tages, unveraendert gegenueber 2.9.0 (B10):
   //  · Krank gemeldet: kein Mindset-Programm, kein roter Knopf – heute ist Erholung die Aufgabe.
-  //  · „Ernährung öffnen" ist kein Ruf zur Tat, sondern ein Tabwechsel; ab 12 Uhr und unter der Hälfte
-  //    des Kalorienziels trägt der Hauptknopf das Eintragen selbst (shMiddayCta).
-  const mw=homeMindWidget(),day1=homeDayOne(s);
+  //  · „Ernaehrung oeffnen" ist kein Ruf zur Tat, sondern ein Tabwechsel; ab 12 Uhr und unter der
+  //    Haelfte des Kalorienziels traegt der Hauptknopf das Eintragen selbst (shMiddayCta).
+  const day1=homeDayOne(s);
   const foodCta={l:'Essen loggen',fn:"typeof openLogFood==='function'?openLogFood({focus:true}):go('diet')"};
-  let cta=null,ctaCls='btn block',used='';
+  let cta=null,ctaCls='btn';
   if(s.own){
     if(s.isSick){
-      ctaCls='btn block sec';
-      if(!s.checkedIn){cta={l:'Check-in eintragen',fn:'homeExpandCheckin()'};used='checkin';}
-      else if(shMiddayCta(s,hour)){cta=foodCta;used='food';}
-      else if(s.allDone){cta={l:'Tag komplett',fn:"go('tracker')"};used='done';}
+      ctaCls='btn sec';
+      if(!s.checkedIn)cta={l:'Check-in eintragen',fn:'homeExpandCheckin()'};
+      else if(shMiddayCta(s,hour))cta=foodCta;
+      else if(s.allDone)cta={l:'Tag komplett',fn:"go('tracker')"};
     }
-    else if(s.isTrain&&s.expected>0&&s.doneSets<s.expected){
-      cta={l:s.doneSets>0?`Weiter · ${fmtNum(s.doneSets)}/${fmtNum(s.expected)} Sätze`:`${dayName} starten`,fn:"go('workout',{start:true})"};used='train';}
-    else if(s.isTrain&&s.expected===0&&s.planDays.length){cta={l:'Training öffnen',fn:"go('workout')"};used='train';}
-    else if(!s.isTrain&&hour<12&&s.hasMind&&!s.primed&&!day1){cta={l:`Priming starten · ${fmtNum(s.mins)} Min.`,fn:"stlMindCall('openPriming')"};used='mind';}
-    else if(!s.checkedIn){cta={l:'Check-in eintragen',fn:'homeExpandCheckin()'};used='checkin';}
-    else if(shMiddayCta(s,hour)){cta=foodCta;used='food';}
-    else if(hour>=17&&s.hasMind&&!s.evened&&!day1){cta={l:'Abend-Reflexion',fn:"stlMindCall('openEvening')"};used='mind';}
-    else if(s.allDone){cta={l:'Tag komplett',fn:"go('tracker')"};ctaCls='btn block sec';used='done';}
-    else if(!s.gFood){cta=foodCta;used='food';}
-    else if(s.sTot>0&&s.sDone<s.sTot){cta={l:'Supplements abhaken',fn:'openSupp()'};ctaCls='btn block sec';used='supp';}
+    else if(s.isTrain&&s.expected>0&&s.doneSets<s.expected)
+      cta={l:s.doneSets>0?`Weiter · ${fmtNum(s.expected-s.doneSets)} Sätze offen`:`${dayName} starten`,
+        fn:"go('workout',{start:true})"};
+    else if(s.isTrain&&s.expected===0&&s.planDays.length)cta={l:'Training öffnen',fn:"go('workout')"};
+    else if(!s.isTrain&&hour<12&&s.hasMind&&!s.primed&&!day1)
+      cta={l:`Priming starten · ${fmtNum(s.mins)} Min.`,fn:"stlMindCall('openPriming')"};
+    else if(!s.checkedIn)cta={l:'Check-in eintragen',fn:'homeExpandCheckin()'};
+    else if(shMiddayCta(s,hour))cta=foodCta;
+    else if(hour>=17&&s.hasMind&&!s.evened&&!day1)cta={l:'Abend-Reflexion',fn:"stlMindCall('openEvening')"};
+    else if(s.allDone){cta={l:'Tag komplett',fn:"go('tracker')"};ctaCls='btn sec';}
+    else if(!s.gFood)cta=foodCta;
+    else if(s.sTot>0&&s.sDone<s.sTot){cta={l:'Supplements abhaken',fn:'openSupp()'};ctaCls='btn sec';}
   }else{
-    cta={l:'Trainingsplan ansehen',fn:"go('workout')"};ctaCls='btn block sec';
+    cta={l:'Trainingsplan ansehen',fn:"go('workout')"};ctaCls='btn sec';
   }
 
-  // --- Sekundäre Kurzwege (nur offene Punkte) ---
-  // NEUE STARTSEITE (2.8.0, BUILD-A4 3.5): höchstens ZWEI weitere neutrale Chips – und zwar genau
-  // die Angebote, die KEINEN eigenen Ring haben. Check-in, Ernährung und Supplements standen bis
-  // 2.7.0 zusätzlich als Chip hier; das war die Doppelung (RATE-shell-home H1), nicht der Einstieg.
-  // Der Einstieg ist jetzt der Ring darunter, und der kostet denselben einen Tap (tapcount `food`,
-  // `checkin`). Was hier bleibt, ist das Mindset-Angebot – es hat zwar einen Ring, aber der führt
-  // auf den Tab, nicht in die Übung; der Chip ist also der einzige Ein-Tap-Weg ins Ritual
-  // (tapcount `priming` = 2 Taps, Weg „Power-Atmung" → „Los geht's").
-  const chips=[],maxChips=hmNew()?2:4;
-  if(s.own&&hmNew()){
-    const wait=(!mw&&!day1&&!s.isSick&&s.MIND&&!stlMindLoaded())?stlMindSlots(s,hour):null;
-    if(used!=='mind'&&!day1&&!s.isSick&&mw&&!mw.done&&mw.action&&mw.fn)
-      chips.push({l:homeMindChipLabel(mw),fn:String(mw.fn),ic:'brain'});
-    else if(wait&&used!=='mind'&&wait.action)chips.push({l:'Mindset',fn:"go('mindset')",ic:'brain'});
-    if(mw&&!day1&&!s.isSick&&Array.isArray(mw.secondary))mw.secondary.filter(x=>x&&x.label&&x.fn).slice(0,2)
-      .forEach(x=>chips.push({l:String(x.label),fn:String(x.fn),ic:'sparkles'}));
-    else if(wait&&wait.breath&&stlMindPending(s))chips.push({skel:true});
-    // Die nächste Plan-Mahlzeit lässt sich von hier in EINEM Tipp abhaken – das ist keine
-    // Wiederholung des Ernährungsrings, sondern eine andere Handlung (eintragen statt öffnen).
-    const nm=homeNextMeal();
-    if(hour<12&&nm&&!nm.logged&&nm.mealId)chips.push({l:homeShortLabel(nm.label),fn:`homeMealDone(${+nm.mealId})`,ic:'check'});
-  }else if(s.own){
-    // Fehlt das Mindset-Modul noch, sagen die Daten, welche Plätze es sich holen wird (stlMindSlots) –
-    // sonst wüchse die Chip-Zeile zwei Sekunden später um eine Zeile und schöbe alles darunter nach
-    // unten. Der Kurzweg selbst steht auch dann da, wenn das Modul gar nicht mehr kommt: das Angebot
-    // gibt es ja (die Daten sagen es), und go('mindset') führt dann auf die Wiederholen-Karte des Laders.
-    const wait=(!mw&&!day1&&!s.isSick&&s.own&&s.MIND&&!stlMindLoaded())?stlMindSlots(s,hour):null;
-    // Nur wenn das Mindset-Modul wirklich etwas zu tun anbietet (Aktion + Ziel) – ein „erledigt ✓" ist kein Kurzweg.
-    // Krank gemeldet: gar nichts davon. „Power-Atmung 0/3" neben „Krank gemeldet" ist ein Programm, kein Angebot.
-    if(used!=='mind'&&!day1&&!s.isSick&&mw&&!mw.done&&mw.action&&mw.fn)
-      chips.push({l:homeMindChipLabel(mw),fn:String(mw.fn),ic:'brain'});
-    // Derselbe Platz, schon benutzbar: go('mindset') holt das Modul nach. Sobald es da ist, steht hier
-    // sein genauer Text („Priming nachholen") – an derselben Stelle, ohne dass etwas nachrückt.
-    else if(wait&&used!=='mind'&&wait.action)chips.push({l:'Mindset',fn:"go('mindset')",ic:'brain'});
-    if(used!=='checkin'&&!s.checkedIn)chips.push({l:'Check-in',fn:'homeExpandCheckin()',ic:'pencil'});
-    if(used!=='food'&&!s.gFood)chips.push({l:foodCta.l,fn:foodCta.fn,ic:'utensils'});
-    if(used!=='supp'&&s.sTot>0&&s.sDone<s.sTot)chips.push({l:`Supplements ${fmtNum(s.sDone)}/${fmtNum(s.sTot)}`,fn:'openSupp()',ic:'pill'});
-    const nm=homeNextMeal();
-    if(hour<12&&nm&&!nm.logged&&nm.mealId)chips.push({l:homeShortLabel(nm.label),fn:`homeMealDone(${+nm.mealId})`,ic:'check'});
-    // Zusatzangebote des Mindset-Moduls (z.B. „Power-Atmung 0/3") ganz zum Schluss – sie fallen als Erstes weg
-    if(mw&&!day1&&!s.isSick&&Array.isArray(mw.secondary))mw.secondary.filter(x=>x&&x.label&&x.fn).slice(0,2)
-      .forEach(x=>chips.push({l:String(x.label),fn:String(x.fn),ic:'sparkles'}));
-    // … und ihr Platz, solange das Modul unterwegs ist: ein Chip knapp in der Breite von
-    // „Power-Atmung 0/3" (gemessen 158 px auf 390 px Breite; der Platzhalter nimmt 150 px). Bewusst etwas
-    // schmaler – ein breiterer Platzhalter braucht einen Umbruch mehr als der echte Chip, und dann
-    // schrumpft die Seite beim Eintreffen des Moduls, statt einfach stehen zu bleiben.
-    // Kommt es nicht mehr, fällt dieser Platzhalter weg – ein Text, den nur mindset.js kennt, wäre hier
-    // geraten, und ein Schimmern ohne Ende wäre eine Ladeanzeige, die nichts mehr lädt.
-    else if(wait&&wait.breath&&stlMindPending(s))chips.push({skel:true});
-  }
-  // --- Die zwei Einstiege, die auf schmalen Geräten sonst hinter der Tab-Leiste liegen ---
-  // Auf der neuen Startseite IST der Ring der Ein-Tap-Einstieg für „Essen loggen" und „Check-in",
-  // und auf 390 × 844 steht die Ringzeile im ersten Bild (gemessen y = 530…615, Falz 844).
-  // Auf 320 × 568 nicht: dort liegt sie bei y = 587…673 – unter dem Falz (568) und komplett hinter
-  // der Tab-Leiste (Oberkante 505). In 2.7.0 standen hier Chips bei y = 383 und y = 421, der
-  // Einstieg war also da und ist mit 2.8.0 verloren gegangen. BUILD-A4 Abschnitt 3 ist an dieser
-  // Stelle bindend, deshalb stehen beide unter 360 px wieder als Chip in der Jetzt-Karte.
-  // `.hm-narrow` blendet sie ab 360 px aus (home.css) – dort bleibt der Ring der einzige Einstieg,
-  // es entsteht keine zweite Stelle für dasselbe Thema (CRITIC K3). Kosten: keine. Die Zeile
-  // scrollt unter 360 px, ihre Höhe hängt nicht an der Zahl der Chips.
-  const nchips=[];
-  if(s.own&&hmNew()){
-    if(used!=='food'&&!s.gFood)nchips.push({l:foodCta.l,fn:foodCta.fn,ic:'utensils',nar:true});
-    if(used!=='checkin'&&!s.checkedIn)nchips.push({l:'Check-in',fn:'homeExpandCheckin()',ic:'pencil',nar:true});
-  }
-  // .wrap: die Kurzwege stehen umgebrochen alle sichtbar da – gescrollt war der letzte unerreichbar
-  // (unter 360 px kehrt home.css das um, siehe oben).
-  const rowChips=nchips.concat(chips.slice(0,maxChips));
-  const chipRow=rowChips.length?`<div class="chip-row wrap mt-3${chips.length?'':' hm-narrow'}">${rowChips.map(c=>
-    c.skel?`<span class="chip stl-wait" aria-hidden="true" style="width:150px;background:linear-gradient(90deg,var(--surface3) 25%,var(--surface4) 50%,var(--surface3) 75%);background-size:200% 100%;animation:sk 1.2s linear infinite"></span>`
-    :`<button class="chip soft on${c.nar?' hm-narrow':''}" onclick="${c.fn}">${icon(c.ic,16)}${esc2(c.l)}</button>`).join('')}</div>`:'';
-
-  // --- Bereitschaft: EINE Zeile, direkt unter dem Tagtyp ---
-  const ready=homeReadyHTML(s);
-
-  // --- Widerspruch zum Trainings-Tab auflösen (B10) ---
-  // Wer an einem Ruhe- oder Krankheitstag Sätze einträgt, las bis 2.4.0 auf der Startseite „Ruhetag" und
-  // im Trainings-Tab im selben Moment „Lower 1 · 7/27 Sätze". Die Startseite verschweigt den Stand nicht
-  // mehr; geändert wird der Tag weiter oben mit „Tag ändern".
-  const trainNote=(s.own&&!s.isTrain&&s.doneSets>0)
-    ? `<div class="note status mt-3">Heute ${pl(s.doneSets,'Satz','Sätze')} eingetragen – dein Tag steht trotzdem auf „${esc2(dayName)}". Passt das nicht, ändere ihn oben.</div>`
-    : '';
-
-  // --- Rückkehr nach ≥ 3 Tagen ohne Check-in ---
-  // NACHBESSERUNG 2.8.0 (Befund „Startseite < 1.000 px gilt nur für einen Kontostand"): das hier war
-  // bis eben eine `.note warn` über zwei Zeilen – 81 px plus 12 px Abstand, gemessen am laufenden
-  // Server. Sie war der ganze Unterschied zwischen 975 px (Regelfall) und 1.092 px (fünf Tage Pause).
-  // Zwei Dinge sind daran falsch gewesen:
-  //  · Sie sagte „die Tage davor kannst du nachtragen" – und ließ den Leser damit allein. Der Weg
-  //    dorthin (`openBulkCheckin()`) stand nirgends in dieser Karte. Jetzt IST die Zeile dieser Weg.
-  //  · In genau dem Zustand, in dem sie erscheint, sagt die Bereitschaftszeile dasselbe noch einmal
-  //    („Noch keine Daten – trag Schlaf ein"): ohne Check-ins hat die Bereitschaft keine Zahl. Zwei
-  //    Zeilen, eine Aussage – das ist die Doppelung, die CRITIC K3 zu entfernen verlangt, und sie
-  //    kostete 165 px in der Karte eines Menschen, der gerade zurückkommt.
-  // Kein Wort über eine „gerettete Serie": die vergangenen Tage sind offen und lassen sich nachtragen (E6/D18).
-  let comeback='';
-  if(s.own&&s.cis.length){
-    const since=Math.floor((Date.parse(s.tdy+'T00:00:00Z')-Date.parse(s.cis[0].date+'T00:00:00Z'))/864e5);
-    if(since>=3){
-      // 2.9.0 (A-V.3): Der Ton folgt jetzt der Wiederkehr-Leiter (3 · 5 · 10 · 14 · 30 Tage) statt
-      // einem Satz für jede Pause. Ohne Schuldton, ohne „deine Serie reißt" – die Sprossen und ihre
-      // Begründung stehen in src/logic.js (reminderLadder), die Worte hier in lpComebackWords().
-      const cw=lpComebackWords(since);
-      comeback=`<button class="rdy hm-cb" onclick="openBulkCheckin()" aria-label="${esc2(cw.main)} – ${esc2(cw.sub)}. Mehrere Tage nachtragen">
-        <span class="rdy-n tone-amber">${icon('calendar',22)}</span>
-        <span class="rdy-tx"><b>${esc2(cw.main)}</b><small>${esc2(cw.sub)}</small></span>
-        <span class="rdy-go">${icon('chevronRight',16)}</span></button>`;}}
-
-  // --- 7-Tage-Streifen: NUR NOCH IM KLASSISCHEN PFAD ---
-  // ENTSCHEIDUNG DER WELLENLEITUNG (Befund B2). Zwei Abnahmezeilen aus BUILD-A4 Abschnitt 9 schlossen
-  // sich aus: „Home < 1.000 px" und „0 Ziele < 44 px". Gemessen am laufenden Server: 987 px mit
-  // 32-px-Chips, 1.011 px, sobald die Chips ihre echten 44 px bekommen (`fixw-vorher.json` /
-  // `fixw-inj44.json`, beide 390 × 844). Die 44 px sind nicht verhandelbar – die vermeintliche
-  // Trefferflächen-Erweiterung `::before{inset:-6px -3px}` erzeugte gar kein Pseudo-Element
-  // (`content` war `none`, seit A-IV.5 `.chip::before` aus app.css entfernt hat), die Chips waren
-  // also wirklich 32 px, und einer davon ist der erste Tap des Priming-Flusses.
-  // Also wird der Konflikt entschieden statt weggemessen: von den zwei Chip-Zeilen der Jetzt-Karte
-  // fällt die Rhythmus-Zeile weg. Ihr erster Chip trug wörtlich denselben Text wie die Überschrift
-  // 42 px darüber („Heute · Probe-Tag" gegen „Probe-Tag") und rief dieselbe Funktion auf
-  // (`openDayPicker()`) – genau die Doppelung, die CRITIC K3 zu entfernen verlangt. Die Zeile, die
-  // bleibt, trägt dafür Handlungen, die es sonst nirgends in einem Tap gibt (Priming, Mahlzeit
-  // abhaken), und sie steht im Tap-Veto.
-  // Kein Einstieg geht verloren, aber einer wird länger: die sechs Folgetage öffnet jetzt der Chip
-  // „Kalender" in der Mehr-Zeile (1 Tap) plus der Tag darin (1 Tap) statt eines einzigen Chips.
-  // Das steht so in DEFER-A4.md; kein Fluss aus `tapcount.mjs` führt über den Streifen.
-  // Der klassische Pfad (BUILD-A4 3.7) ist wortwörtlich 2.7.0 und behält den Streifen deshalb.
-  // role="list"/"listitem" ist hier weg: es überschrieb die Knopf-Rolle der Chips (RATE-shell-home M7).
-  let strip='';
-  // Dieselbe Bedingung wie in renderHome (`hmNew()&&s.own`) – der Coach-Blick auf einen Athleten
-  // zeichnet die klassische Reihenfolge und behält den Streifen.
-  const pv=(hmNew()&&s.own)?[]:((s.T&&s.T.preview)||[]);
-  if(pv.length){
-    const base=s.T?.date?new Date(s.T.date+'T00:00:00'):new Date();
-    strip=`<div class="chip-row rhythm mt-3">`+pv.slice(0,7).map((p,i)=>{
-      const dt=new Date(base);dt.setDate(base.getDate()+i);
-      const tr=p.type==='train';
-      // Heute führt derselbe Weg wie „Tag ändern"; jeder andere Chip öffnet genau seinen Tag.
-      const fn=(i===0)?'openDayPicker()':`shOpenRhythmDay('${fmt(dt)}')`;
-      return `<button class="chip${i===0?' on':(tr?'':' rest')}" onclick="${fn}">${esc2(shChipLabel(p,i,dt))}</button>`;
-    }).join('')+'</div>';}
-
-  // Der Tagesname IST der Knopf (2.8.0). Bis 2.7.0 stand rechts oben ein roter Ghost-Button
-  // „Tag ändern", der aussah wie Text und kaum von der Eyebrow zu unterscheiden war
-  // (RATE-shell-home M8) – und der die Kopfzeile auf 44 px aufblies, ohne etwas zu sagen, was der
-  // Tagesname nicht schon sagt. Jetzt trägt der Tagesname das Chevron: was man ändert, tippt man
-  // auch an. Der Weg bleibt gleich lang (2 Taps: Name → Zeile), die Karte wird 23 px kürzer.
-  const dayHead=s.own
-    ? `<button class="daytype dt-b" onclick="openDayPicker()" aria-label="Heute: ${esc2(dayName)}. Tag ändern">${esc2(dayName)}${icon('chevronRight',20)}</button>`
-    : `<div class="daytype">${esc2(dayName)}</div>`;
-
-  // Rückkehr-Zeile UND zahllose Bereitschaftszeile zugleich: das wäre zweimal derselbe Satz. In diesem
-  // Zustand steht nur die Rückkehr-Zeile – sie trägt dieselbe Aussage („von dir liegt gerade nichts
-  // vor"), nennt die Zahl der Tage und führt mit einem Tipp dorthin, wo sich das ändern lässt.
-  // Entfernt wird eine Doppelung, kein Einstieg: das Bereitschafts-Sheet hat in genau diesem Zustand
-  // selbst keine Zahl („Noch keine Daten"), und es bleibt vom Trainings-Tab (`trainReadyHTML`), aus der
-  // Analyse („Details") und aus der Suche erreichbar – gemessen, siehe FIX-A4-A-IV.1.md.
-  // Sobald die Bereitschaft eine Zahl hat, bleiben beide Zeilen stehen: dann sagen sie Verschiedenes.
-  // Krank gemeldet (`ready` = Krankheitssatz) bleibt ebenfalls unberührt.
-  const rdyOhneZahl=!s.isSick&&(!s.readiness||s.readiness.needsHealth||s.readiness.score==null);
-  const readyOut=(comeback&&rdyOhneZahl)?'':ready;
-  return `<div class="today" id="homeNow">
-    <div class="eyebrow">${eyebrow}</div>
-    ${dayHead}
-    ${meta?`<div class="meta">${esc2(meta)}</div>`:''}
-    ${readyOut}
-    ${trainNote}
-    ${comeback}
-    ${cta?`<button class="${ctaCls} mt-4" onclick="${cta.fn}">${esc2(cta.l)}</button>`:''}
-    ${chipRow}${strip}
-  </div>`;}
+  return `<div class="card lg hm-now" id="homeNow">${head}${hmWhyHTML(s)}`
+    +(cta?`<button type="button" class="${ctaCls}" onclick="${esc2(cta.fn)}">${esc2(cta.l)}</button>`:'')
+    +`</div>`;}
 
 // ===== B-I.5 · KALIBRIERZUSTAND UND DIVERGENZ =====
 // Zwei Lücken der Bereitschaft, beide aus RESEARCH-25-einsichten. Sie stehen hier und nicht in
@@ -987,55 +847,6 @@ function _readySolo(R){if(!R)return '';
   const ps=(R.parts||[]).filter(p=>p&&p.label);
   if(!ps.length||!((R.thin!=null)?!!R.thin:ps.length===1))return '';
   return {sleep:'deinem Schlaf',hrv:'deiner HRV',rhr:'deinem Ruhepuls',load:'deiner Trainingslast'}[ps[0].key]||ps[0].label;}
-function homeReadyHTML(s){
-  s=s||homeState();const R=s.readiness;
-  // Krank gemeldet: kein Wert, kein Ratschlag – „Bereitschaft 75 · Zieh deinen Plan wie er steht durch."
-  // stand bis 2.4.0 direkt unter „Krank gemeldet" (RATE-shell-home M2, B10).
-  if(s.isSick)return s.own?shSickHTML():'';
-  if(!R)return '';
-  // Ohne Uhr-Werte hat eine Zahl keine Grundlage – dann steht hier der Weg zu den Gesundheitsdaten.
-  // Im Coach-Blick entfällt die Zeile: verbinden kann sie nur der Athlet selbst.
-  if(R.needsHealth)return !s.own?'':`<button class="rdy" onclick="typeof openIntegrations==='function'?openIntegrations():go('tracker')">
-      <span class="rdy-n muted">${icon('zap',22)}</span>
-      <span class="rdy-tx"><b>Bereitschaft</b><small>Verbinde deine Gesundheitsdaten – dann steht hier deine Einschätzung.</small></span>
-      <span class="rdy-go">${icon('chevronRight',16)}</span></button>`;
-  // Kein einziger Erholungswert (Schlaf, HRV, Ruhepuls): der Rechenkern liefert seit 2.5.0 score:null
-  // statt einer aus der Trainingslast allein gebauten 94 (D5). Hier steht dann der Weg zu den Daten.
-  if(R.score==null)return !s.own?'':`<button class="rdy" onclick="openReadiness()" aria-label="Bereitschaft – noch keine Daten. Details anzeigen">
-      <span class="rdy-n muted">${icon('zap',22)}</span>
-      <span class="rdy-tx"><b>Bereitschaft</b><small>Noch keine Daten – trag Schlaf ein oder verbinde deine Uhr.</small></span>
-      <span class="rdy-go">${icon('chevronRight',16)}</span></button>`;
-  // Eine Kennzahl, dieselbe Lesereihenfolge wie über der Übungsliste im Trainings-Tab (trainReadyHTML):
-  // erst die Zahl, dann „Bereitschaft · <Wort>", darunter der Satz. Die Zeichenketten sind aber NICHT
-  // identisch: dort steht die Zahl mitten im fetten Text („Bereitschaft 74 · Solide"), hier links im
-  // eigenen Feld .rdy-n – deshalb fehlt sie im Text. Zusammengesetzt liest sie nur das aria-label vor.
-  // Bricht die fette Zeile auf 320 px um, ist das in Ordnung: .rdy-tx b darf umbrechen, abgeschnitten
-  // wird nichts.
-  // Steht die Zahl auf einer einzigen Quelle, tritt die Handlungsempfehlung zurück: sie wäre eine
-  // Ansage, die die Datenlage nicht hergibt. Stattdessen steht dort, woraus geschätzt wurde; der Weg zu
-  // „Gesundheitsdaten verbinden" liegt einen Tipp weiter im Sheet (die Zeile ist ein einziger Knopf,
-  // ein zweiter darin wäre nicht bedienbar).
-  // Im Coach-Blick bleibt die Zahl, die Handlungsanweisung nicht: „Zieh deinen Plan wie er steht durch."
-  // ist an den Athleten gerichtet und las sich im Coach-Kontext wie eine Ansage an den Coach
-  // (RATE-coach 11, Beistellung an A-I.6).
-  // B-I.5: Der dritte Zustand zwischen „Noch keine Daten" und einer Zahl. Liegen weniger als sieben
-  // Nächte vor, steht hier der Kalibrierzustand STATT der Zahl – eine Zahl aus drei Nächten hat keine
-  // Baseline, gegen die sie sich vergleichen könnte, und wäre damit erfunden (M7, [Q13][Q16][Q8b]).
-  // Die Zeile bleibt in Bauform und Höhe dieselbe wie die beiden Zustände darüber: Symbol, eine fette
-  // Zeile, ein Satz. Der Coach sieht sie auch – „warum steht da keine Zahl" ist seine Frage genauso.
-  const cal=(typeof wk2Calib==='function')?wk2Calib(R,s.cis):null;
-  if(cal&&!cal.ready&&cal.have>0)return `<button class="rdy" onclick="openReadiness()" aria-label="Bereitschaft – ${esc2(wk2CalibText(cal))}. Details anzeigen">
-      <span class="rdy-n muted">${icon('zap',22)}</span>
-      <span class="rdy-tx"><b>Bereitschaft · Kalibriert</b><small>Noch ${pl(cal.left,'Nacht','Nächte')} – ${esc2(wk2CalibSteer(1))}</small></span>
-      <span class="rdy-go">${icon('chevronRight',16)}</span></button>`;
-  const solo=_readySolo(R);
-  const sub=!s.own?''
-    :solo?`<small>Geschätzt aus ${esc2(solo)} – für eine belastbare Einschätzung fehlen noch Werte.</small>`
-    :(R.headline?`<small>${esc2(R.headline)}</small>`:'');
-  return `<button class="rdy" onclick="openReadiness()" aria-label="Bereitschaft ${fmtNum(R.score)}${esc2(R.label?' · '+R.label:'')}. Details anzeigen">
-      <span class="rdy-n ${_readyTone(R.tone)}">${fmtNum(R.score)}</span>
-      <span class="rdy-tx"><b>Bereitschaft${R.label?' · '+esc2(R.label):''}</b>${sub}</span>
-      <span class="rdy-go">${icon('chevronRight',16)}</span></button>`;}
 // Detail-Sheet: Gesamtwert, die Teilwerte als Zeilen, der 14-Tage-Verlauf und der Hinweis, was das NICHT ist.
 // Den Verlauf liefert nur GET /readiness – das Home-Aggregat spart ihn bewusst (eine Anfrage weniger beim Start).
 async function openReadiness(){
@@ -1085,7 +896,10 @@ async function openReadiness(){
   if(!wk2SelfCached(rdyUid))wk2SelfSeries(rdyUid,21).then(list=>{
     const box=document.getElementById('wk2DivBox');if(!box)return;
     box.innerHTML=wk2DivHTML(wk2Diverge(R,{rows:cis,self:list||[]}),'mb-3');}).catch(e=>{});
-  const col=R.tone==='green'?'var(--green)':R.tone==='amber'?'var(--amber)':R.tone==='red'?'var(--red)':'var(--ink3)';
+  // NACHBESSERUNG B6/D8: Der Ring dieses Sheets war nach der Ampel eingefaerbt und bei rotem
+  // Zustand ROT GEFUELLT. DESIGN-4 5.7 sagt zu beidem nein: „ein Helfer (ringHTML)" und „nie rot".
+  // Die Aussage geht nicht verloren, sie steht als WORT darunter (R.label, R.headline) – und ein
+  // Wort sagt mehr als eine Farbe (G9). Die frueher hier gerechnete Ampelfarbe ist ersatzlos weg.
   let h='';
   // Während der Kalibrierung bleiben Ring, Wort und Handlungsempfehlung weg. Nicht aus Vorsicht,
   // sondern weil beide auf einer Zahl ohne Baseline stehen: Die 5-Wochen-RCT mit manipulierten
@@ -1097,9 +911,8 @@ async function openReadiness(){
   // gemessen und nicht geschätzt, und sie sind der Weg, auf dem die Kalibrierung voll wird.
   const calibrating=!!(cal&&!cal.ready&&cal.have>0);
   if(calibrating)h+=`<div class="note status mb-3"><b>${esc2(wk2CalibText(cal))}</b><br>${esc2(wk2CalibWhy(cal))} ${esc2(wk2CalibSteer())}</div>`;
-  // Das Wort steht UNTER dem Ring, nicht darin: _ringFit staucht den Innentext auf die Sehne des freien
-  // Innenkreises – „Etwas zurücknehmen" landete dort bei 8,2 px und damit unter dem kleinsten Typo-Token (12 px).
-  if(R.score!=null&&!calibrating)h+=`<div class="center mb-3">${ring(R.score/100,{size:112,color:col,label:fmtNum(R.score)})}
+  // Das Wort steht UNTER dem Ring, nicht darin (5.7: „Der Ring traegt die Zahl innen, das Wort daneben").
+  if(R.score!=null&&!calibrating)h+=`<div class="center mb-3">${ringHTML(R.score/100,112,fmtNum(R.score))}
     ${R.label?`<div class="meta mt-1">${esc2(R.label)}</div>`:''}</div>`;
   if(!calibrating)h+=`<div class="note status mb-3"><b>${esc2(R.headline||R.label||'')}</b>${R.detail?`<br>${esc2(R.detail)}`:''}</div>`;
   // Der Divergenz-Hinweis steht direkt unter der Aussage, auf die er sich bezieht – er ist die
@@ -1115,7 +928,7 @@ async function openReadiness(){
   if(solo&&!calibrating)h+=`<div class="note mb-3">Diese Zahl ist nur aus ${esc2(solo)} geschätzt. Eine einzelne Quelle trägt nicht weit, deshalb bleibt die Einschätzung nah an der Mitte. Mit Schlaf, HRV und Ruhepuls aus deiner Uhr wird sie belastbar.</div>`;
   if(solo)h+=(coachView()?'':`<button class="btn sec block mb-3" onclick="closeModal();typeof openIntegrations==='function'?openIntegrations():go('tracker')">Gesundheitsdaten verbinden</button>`);
   const parts=(R.parts||[]).filter(p=>p&&p.label);
-  if(parts.length)h+=`<div class="section-label"><span>Woraus sich das ergibt</span></div>
+  if(parts.length)h+=`<h2 class="rows-h">Woraus sich das ergibt</h2>
     <div class="rows mb-3">${parts.map(p=>`<div class="row"><div class="rl">${esc2(p.label)}
       <small>${esc2(p.text||'')}${p.weight?(p.text?' · ':'')+'zählt '+fmtNum(+p.weight*100)+' %':''}</small></div>
       <div class="rr"><b class="${p.score==null?'muted':_readyTone(+p.score)}">${fmtNum(p.score)}</b></div></div>`).join('')}</div>`;
@@ -1135,16 +948,6 @@ async function openReadiness(){
     ${metricChart(hist,'Punkte',null,null,{domain:[0,100],step:25})}</div>`;
   openSheet('Bereitschaft',h+CAP,{size:'tall'});}
 
-// Status-Zeile (Challenge / Rad des Lebens) – nur wenn vorhanden, als EINE Zeile unter der Karte.
-// Nur im eigenen Konto: das Mindset-Modul verweigert Coaches jede Aktion, eine tote Zeile ist schlechter als keine.
-function homeMindStatusHTML(){
-  const s=homeState();if(!s.own||homeDayOne(s))return '';
-  const mw=homeMindWidget();
-  if(!mw)return stlMindStatusPlaceholder(s);   // Modul noch unterwegs: Platz halten, statt nachzurücken
-  if(!mw.status||!mw.status.text)return '';
-  // role/tabindex/onkeydown: die Zeile war per Tastatur und Screenreader nicht erreichbar (RATE-shell-home M7)
-  return `<div class="rows mb-3" id="homeMind"><div class="row tap" role="button" tabindex="0" onkeydown="homeRowKey(event)" onclick="${String(mw.status.fn||"go('mindset')")}">
-    <div class="r-ic">${icon('brain')}</div><div class="rl truncate">${esc2(String(mw.status.text))}</div><div class="rr"></div></div></div>`;}
 
 // Der EINE Wortlaut für die Check-in-Serie – Startseite, Wochenrückblick und Meilenstein-Feier.
 // Vorher sagten diese drei Orte drei Dinge über dieselbe Zahl („31 Check-ins in Folge", „31 Tage
@@ -1165,36 +968,110 @@ function shStreakWords(days,frozen){
     detail:(d-f===0)?'alle repariert, noch kein Check-in'
       :'davon '+pl(d-f,'mit Check-in','mit Check-in')+', '+fmtNum(f)+' repariert'};}
 
-// ===== „HEUTE GESCHAFFT" – RINGE + STREAK =====
+/* ===== ABSCHNITT 2 · „HEUTE OFFEN" (DESIGN-4 6.1) ============================================
+   Genau die heute OFFENEN Dinge, hoechstens drei, jedes als benannte Zeile mit Wert oder Marke.
+   Hier stand bis zu diesem Umbau die Ringreihe „HEUTE 0/5": fuenf Ringe nebeneinander, jeder
+   46 px, jeder mit einer Zahl darin und einem Wort darunter. Drei Dinge waren daran falsch:
+     · Ein Ring ohne Wort ist eine Ampel. „0/4" sagt nicht, was offen ist (G9).
+     · Fuenf Ringe auf einem Bildschirm sind vier zu viel (K19: hoechstens einer, nie rot).
+     · Erledigtes stand gleichberechtigt neben Offenem – die Seite beantwortete fuenfmal
+       „gibt es das?" und nie „was ist jetzt dran?".
+   Jetzt verschwindet eine Zeile, sobald ihr Ding erledigt ist. Ist nichts mehr offen, steht das
+   als Satz da – das ist eine Antwort, kein leerer Platz.
+
+   REIHENFOLGE (fest, nicht nach Laune): Check-in · Ernaehrung · Supplements · Mindset.
+   Sie ist nach dem Tap-Veto gewaehlt (DESIGN-4 9.5): `supp` muss EIN Tap bleiben, also darf die
+   Supplement-Zeile nie aus den ersten drei fallen. Faellt bei vier offenen Dingen „Mindset"
+   heraus, fuehrt der Weg ueber den Reiter – zwei Taps gegen eine Grundlinie von drei.
+
+   Die Wortaktion im Kopf ist „Nachtragen" (openBulkCheckin). Sie ersetzt das Rueckkehr-Banner,
+   das bisher erst nach drei Tagen Pause erschien: ein Weg, den es nur in einer Notlage gibt, ist
+   ein versteckter Weg (G5).  */
 function drawHomeGoals(){
-  const s=homeState();if(!s.own||!s.goals.length)return '';
-  const streak=s.ins?.streaks?.checkin||0,fb=s.ins?.freezes?.balance||0;
-  const rings=s.goals.map(g=>`<button class="hg" onclick="${g.act}" aria-label="${esc2(g.l)}${g.done?' erledigt':''}">
-      <span class="hg-r">${ring(g.done?1:0,{size:46,stroke:4,color:'var(--green)',track:'var(--surface3)'})}<span class="hg-ic">${icon(g.ic,20)}</span>${g.done?`<span class="hg-b">${icon('check',12)}</span>`:''}</span>
-      <span class="hg-l${g.done?' done':''}">${esc2(g.l)}</span></button>`).join('');
-  const jok=`<button class="hg-jok" onclick="openStreakInfo()" aria-label="${pl(fb,'Reparatur','Reparaturen')} übrig">${icon('shield',16)}${fmtNum(fb)}</button>`;
-  // „30 Tage Streak" war nicht wahr: eine Reparatur trägt einen Tag OHNE Eintrag nach, die Zahl zählte ihn
-  // trotzdem als Tag mit (D18 – 313 echte Check-ins wurden zu „365 Tage ohne Unterbrechung"). „Check-ins in
-  // Folge" sagt, was gezählt wird; was ein reparierter Tag bedeutet, steht im Reparatur-Sheet. Mit einem
-  // reparierten Tag in der Serie stimmte auch „Check-ins" nicht mehr – dann trennt die zweite Zeile echte
-  // von nachgetragenen Tagen.
-  const sw=shStreakWords(streak,s.ins?.streaks?.checkinFrozen);
-  // A-III.2: Ohne Insights ist die Folge UNBEKANNT, nicht null. „Trag heute etwas ein – ab dem ersten
-  // Check-in zählt hier deine Folge" behauptete bei einer ausgebliebenen Antwort, es gäbe noch keine –
-  // bei einem Athleten mit 31 Check-ins in Folge ist das schlicht falsch. Dann bleibt die Zeile weg,
-  // genau wie der Fortschritt-Streifen (homeProgressHTML) es ohne Insights schon immer hält.
-  // 2.9.0 (A-V.3): beide Zeichenpfade nehmen dieselbe Zeile – lpWeekLineHTML(). Der alte
-  // Tages-Streak-Satz bleibt darunter nur als Notnagel für Antworten ohne Wochenziel-Zahlen.
-  const line=!s.ins?''
-    :(lpWeekLineHTML(s)
-    ||(streak>0
-    ? `<div class="hg-streak">${icon('flame',20)}<div class="fill"><b>${esc2(sw.main)}</b>${s.checkedIn?' <span class="tone-green">· heute schon dran</span>':' <span class="tone-amber">· heute noch offen</span>'}${sw.detail?`<small>${esc2(sw.detail)}</small>`:''}</div>${jok}</div>`
-    : `<div class="hg-streak">${icon('flame',20)}<div class="fill muted">Trag heute etwas ein – ab dem ersten Check-in zählt hier deine Folge.</div>${jok}</div>`));
-  // „Tag komplett" einmal pro Tag feiern – die Regel steht seit 2.8.0 in hmCelebrate, damit beide
-  // Zeichenpfade (neu/klassisch) denselben Schlüssel und dieselbe Bedingung benutzen.
+  const s=homeState();
+  if(!s.own)return '';
   hmCelebrate(s);
-  return `<div class="section-label"><span>Heute geschafft</span><span class="sl-r${s.allDone?' tone-green':''}">${fmtNum(s.doneN)}/${fmtNum(s.goals.length)}</span></div>
-    <div class="card mb-3"><div class="hg-row">${rings}</div>${line}</div>`;}
+  const rows=[];
+
+  // 1 · Check-in. Zwei Taps: diese Zeile oeffnet das Sheet, „Speichern" schliesst es ab – die vier
+  //     Felder sind vorbelegt (homeCheckinHTML), deshalb steht das auch in der Unterzeile.
+  if(!s.checkedIn){
+    const seit=s.cis.length?wk2DayDiff(s.tdy,s.cis[0].date):0;
+    rows.push({name:'Check-in',html:rowHTML({icon:'pencil',title:'Check-in',
+      sub:(seit>=3)?('Seit '+pl(seit,'Tag','Tagen')+' keiner · vorbelegt')
+        :'Gewicht, Schlaf, Schritte, Wasser · vorbelegt',
+      pill:{text:'heute offen',tone:'amber'},tap:'homeExpandCheckin()'})});}
+
+  // 2 · Ernaehrung. Der Wert IST die Antwort („695 von 3.017 kcal"), der Tipp oeffnet das
+  //     Eintragen-Sheet direkt – nicht den Reiter (tapcount `food`: 3 Taps).
+  if(!s.gFood)
+    rows.push({name:'Ernährung',html:rowHTML({icon:'utensils',title:'Ernährung',
+      value:s.kcalTarget?(fmtNum(s.consumed)+' von '+fmtNum(s.kcalTarget)+' kcal')
+        :(s.consumed>0?fmtNum(s.consumed)+' kcal':'noch nichts'),
+      tap:"typeof openLogFood==='function'?openLogFood({focus:true}):go('diet')"})});
+
+  // 3 · Supplements. DIE EINE ZEILE, DIE NICHT WEITERFUEHRT, SONDERN ABHAKT (1 Tap, Tap-Veto).
+  //     Deshalb traegt sie kein Chevron: „›" bedeutet genau eines, naemlich „fuehrt weiter" (G7).
+  //     Was ein Tipp bewirkt, steht in der Unterzeile und noch einmal im Fusstext der Gruppe (G8).
+  const offen=(s.sItems||[]).filter(p=>!p.taken);
+  if(offen.length){
+    const p=offen[0];
+    rows.push({name:'Supplements',haken:true,html:rowHTML({icon:'pill',title:'Supplements',id:'homeSuppRow',
+      sub:'Tippen hakt ab: '+homeShortLabel(p.name),
+      value:fmtNum(s.sItemsDone)+' von '+fmtNum(s.sItems.length),
+      tap:`toggleIntakeHome(event,${p.supplement_id??'null'},${p.intake_id??'null'},'${esc(p.name)}','${esc(p.dose||'')}')`})});}
+
+  // 4 · Mindset. Der Text kommt aus mindset.js; er darf umbrechen statt abgeschnitten zu werden
+  //     (G11 – gemessen war genau hier „Challenge Tag 5/10 · 1/14 erledigt · Rad" abgeschnitten).
+  if(!homeDayOne(s)&&!s.isSick&&s.hasMind){
+    const mw=homeMindWidget();
+    if(mw&&!mw.done&&mw.action&&mw.fn)
+      rows.push({name:'Mindset',html:rowHTML({icon:'brain',title:'Mindset',
+        sub:[homeShortLabel(mw.title||mw.action||''),(mw.status&&mw.status.text)?String(mw.status.text):''].filter(Boolean).join(' · '),
+        pill:{text:'offen',tone:'amber'},tap:String(mw.fn)})});
+    else if(mw&&mw.status&&mw.status.text)
+      rows.push({name:'Mindset',html:rowHTML({icon:'brain',title:'Mindset',sub:String(mw.status.text),
+        tap:String(mw.status.fn||"go('mindset')")})});
+    else if(!mw&&stlMindPending(s)){
+      // Das Modul ist noch unterwegs (mindset.js kommt aus dem Nachlauf). Der Platz wird JETZT
+      // eingenommen, damit spaeter nichts nachrueckt – und die Zeile ist schon benutzbar:
+      // stlMindCall() holt das Modul nach und ruft dann. Ein Tap, wie mit geladenem Modul.
+      // Welche Uebung dran ist, sagen die DATEN (stlMindSlots spiegelt die Tore von mindset.js),
+      // nicht der Ladezustand einer Datei.
+      const fr=new Date().getHours()<17;
+      rows.push({name:'Mindset',html:rowHTML({icon:'brain',title:'Mindset',
+        sub:fr?'Priming · Atmung, Dankbarkeit, Fokus':'Abend-Reflexion · 2 Minuten für den Abend',
+        pill:{text:'offen',tone:'amber'},
+        tap:fr?"stlMindCall('openPriming')":"stlMindCall('openEvening')"})});}}
+
+  // DER SCHNITT AUF DREI – und die zwei Regeln, die er einhalten muss (NACHBESSERUNG Befund 2):
+  //  a) Die Abhak-Zeile faellt NIE heraus. Sie ist die einzige, die mit einem Tap ERLEDIGT statt
+  //     weiterzufuehren; ohne sie kostet `supp` zwei Taps ueber das Sheet, und 9.5 sagt: kein Fluss
+  //     wird teurer. Bis hierher hing das allein an ihrer Position in der Liste – eine Reihenfolge
+  //     ist kein Riegel. Jetzt ist es einer: faellt sie durch den Schnitt, rueckt sie auf Platz 3.
+  //  b) Was herausfaellt, wird BEIM NAMEN genannt. „Weiteres steht im jeweiligen Reiter" ist die
+  //     abgeschwaechte Form desselben Fehlers, den R3 behoben hat: ein Hinweis, der nicht sagt,
+  //     worauf er zeigt, zeigt auf nichts (G5/G8).
+  let liste=rows.slice(0,3);
+  if(rows.length>3&&!liste.some(r=>r.haken)){
+    const h=rows.find(r=>r.haken);
+    if(h)liste=rows.slice(0,2).concat([h]);}
+  const weg=rows.filter(r=>liste.indexOf(r)<0).map(r=>r.name).filter(Boolean);
+  const html=liste.map(r=>r.html);
+  if(!html.length)html.push(rowHTML({icon:'checkCircle',title:'Alles erledigt',
+    sub:'Für heute ist nichts mehr offen'}));
+  const fuss=offen.length
+    ? 'Ein Tipp auf die Supplement-Zeile hakt die nächste Einnahme ab. „Nachtragen" öffnet die letzten 14 Tage.'
+    : 'Was hier steht, verschwindet, sobald du es einträgst. „Nachtragen" öffnet die letzten 14 Tage.';
+  const wegTxt=!weg.length?''
+    :' '+(weg.length>1?weg.slice(0,-1).join(', ')+' und '+weg[weg.length-1]+' stehen'
+                     :weg[0]+' steht')+' im eigenen Reiter.';
+  return groupHTML('Heute offen',html,fuss+wegTxt,
+    {action:{label:'Nachtragen',tap:'openBulkCheckin()'}});}
+// Der Name, unter dem jede Stelle nachzieht, die etwas eingetragen hat (Check-in, Essen, Supplement,
+// Tagwechsel). Seit es nur noch EINEN Zeichenpfad gibt, ist er ein Durchreicher – er bleibt stehen,
+// weil sechs Stellen in dieser Datei und `diet.js` ihn rufen.
+function hmGoalsHTML(){return drawHomeGoals();}
 
 // Einmal beim Laden: die alten Tages-Schlüssel („be_daily_2026-09-10", einer je Kalendertag) auf den einen
 // Schlüssel umziehen und wegräumen. Der Eintrag von HEUTE wird dabei übernommen – sonst feierte die App am
@@ -1379,12 +1256,19 @@ function homeCheckinHTML(o){
   const sleepPh=last.sleep??goalOf.sleep,wPh=last.weight??startW;
   const phv={weight:wPh!=null?fmtNum(wPh,1):'',sleep:fmtNum(sleepPh,Number.isInteger(+sleepPh)?0:1),
     steps:fmtNum(last.steps??goalOf.steps),water:fmtNum(last.water??goalOf.water,1)};
-  let chips='<div class="chip-row mb-3">';
-  for(let i=0;i<7;i++){const dd=new Date(tdy+'T00:00:00');dd.setDate(dd.getDate()-i);const iso=fmt(dd);
-    const has=cis.some(c=>c.date===iso&&(c.weight!=null||c.sleep!=null||c.steps!=null||c.water!=null));
-    const lbl=i===0?'Heute':i===1?'Gestern':fmtDate(iso,{weekday:'short'});
-    chips+=`<button class="chip${iso===CHECKIN_DATE?' on':''}${has&&iso!==CHECKIN_DATE?' done':''}" onclick="setCheckinDate('${iso}')">${has?icon('check',14):''}${esc2(lbl)}</button>`;}
-  chips+='</div>';
+  // ---- Der Tag: EINE Zeile statt einer Chip-Reihe (NACHBESSERUNG K3/G4) ----------------------
+  // Hier stand eine waagrechte Reihe aus sieben Tages-Chips. Unter dem Sheet war sie die ZWEITE
+  // Steuerebene – sprache.mjs K3 meldete `sheet-checkin: 2 (Sheet · Chip-Reihe)` als einzige der
+  // 19 Ansichten ueber dem Limit von G4. DESIGN-4 3.6 nennt fuer „genau ein Tag" die Zeile, nicht
+  // die Chip-Reihe (die ist fuer Zeitraum oder Filter, 5.9), und im Sheet zaehlt das Sheet selbst
+  // schon als Ebene. Jetzt: erste Zeile im Sheet, Wert rechts, ein Tipp oeffnet die Optionsliste
+  // mit Haken (A32) als eigenes Blatt – dessen Zurueck-Knopf traegt „Check-in" (G3).
+  if(sheet&&HOME_CI_PICK)return homeCheckinDayListHTML();
+  const tagWort=homeCheckinDayWord(CHECKIN_DATE);
+  const tagZeile=groupHTML(null,[rowHTML({icon:'calendar',title:'Tag',value:tagWort,
+    tap:'openCheckinDaySheet()'})],
+    past?'Du trägst für einen vergangenen Tag nach – das schließt auch Lücken in deiner Check-in-Folge.'
+        :'Vergangene Tage trägst du hier nach, einzeln oder mehrere auf einmal.');
   // „Mehrere Tage nachtragen" gehört dorthin, wo über den TAG entschieden wird – also neben die
   // Tages-Chips. Im neuen Zeichenpfad gibt es die Check-in-Karte auf der Seite nicht mehr, und mit
   // ihr war auch ihre Fußzeile weg: openBulkCheckin() war von nirgends mehr erreichbar (gemessen:
@@ -1392,13 +1276,9 @@ function homeCheckinHTML(o){
   // Chips kostet ein einzelner vergangener Tag zwei Taps – eine ganze Woche aber sieben mal zwei
   // statt eines Dialogs. Im klassischen Pfad steht der Knopf weiter auf der Seite selbst; dort
   // wäre er hier ein zweites Mal, und genau das soll diese Welle nicht.
-  const bulk=hmNew()?`<div class="cluster mb-3">
-    <button class="btn sm sec" onclick="openBulkCheckin()">Mehrere Tage nachtragen</button></div>`:'';
   const head=trend?`<div class="mb-3">${trend}</div>`:'';
   return `${head}
-    ${chips}
-    ${bulk}
-    ${past?`<div class="note mb-3">Du trägst für <b>${esc2(fmtDate(CHECKIN_DATE,{weekday:'long',month:'long'}))}</b> nach – das schließt auch Lücken in deiner Check-in-Folge.</div>`:''}
+    ${tagZeile}
     <div class="grid-2">
       <div class="field"><label>Gewicht (kg)</label><input id="qc_weight" type="number" step="0.1" inputmode="decimal" min="0" max="500" value="${esc2(pv('weight'))}"${dp('weight')} placeholder="${esc2(phv.weight)}">${ph('weight')}</div>
       <div class="field"><label>Schlaf (h)</label><input id="qc_sleep" type="number" step="0.5" inputmode="decimal" min="0" max="24" value="${esc2(pv('sleep'))}"${dp('sleep')} placeholder="${esc2(phv.sleep)}">${ph('sleep')}</div>
@@ -1410,12 +1290,48 @@ function homeCheckinHTML(o){
       :(ME&&ME.health_sync?'Schlaf, Schritte und Verbrauch kommen automatisch von deiner Uhr – trag hier nur ein, was fehlt.':'Leer lassen ist okay.')}</div>`;}
 // Alias mit dem Namen aus dem Plan – gibt denselben Karteninhalt zurück
 function drawHomeCheckin(){return homeCheckinHTML();}
+// Wie heisst der gewaehlte Tag in einem Wort? „Heute" / „Gestern" / „Di., 15. Sept."
+function homeCheckinDayWord(iso){
+  const d=wk2DayDiff(today(),iso);
+  return d<=0?'Heute':d===1?'Gestern':fmtDate(iso,{weekday:'short',month:'short'});}
+// Die Optionsliste (A32): jede Zeile setzt genau EINEN Tag und fuehrt nirgendwohin – deshalb ein
+// Haken statt eines Chevrons (G7). Sie liegt IM SELBEN Sheet, nicht darueber: DESIGN-4 3.5/S6
+// erlaubt genau EIN Sheet gleichzeitig, und shell.js schliesst das untere, sobald eines darueber
+// aufgeht. Nachgemessen mit der ersten Fassung: `stack=["Tag"]`, Kopf links „Fertig", das
+// Formular darunter weg – also genau der Raum ohne Fenster, den S6 verbietet. Der Sheet-Titel
+// bleibt deshalb „Check-in", und ein Tipp auf einen Tag bringt das Formular zurueck. Der schon
+// gewaehlte Tag traegt den Haken; ihn anzutippen ist der Weg zurueck, ohne etwas zu aendern –
+// und genau das sagt der Fusstext.
+// „Mehrere Tage nachtragen" steht hier und nicht mehr im Formular: es ist eine Entscheidung ueber
+// den TAG, und genau darum geht es auf dieser Ebene.
+function homeCheckinDayListHTML(){
+  const cis=homeState().cis||[],tdy=today();
+  const rows=[];
+  for(let i=0;i<7;i++){const dd=new Date(tdy+'T00:00:00');dd.setDate(dd.getDate()-i);const iso=fmt(dd);
+    const has=cis.some(c=>c.date===iso&&(c.weight!=null||c.sleep!=null||c.steps!=null||c.water!=null));
+    rows.push(rowHTML({icon:'calendar',title:homeCheckinDayWord(iso),
+      sub:has?'schon eingetragen – überschreiben':'noch nichts eingetragen',
+      value:iso===CHECKIN_DATE?'✓':'',tap:`pickCheckinDay('${iso}')`}));}
+  // `.rows.pick` blendet das Chevron aus – eine Auswahlzeile fuehrt nicht weiter, sie waehlt (G7).
+  // Die Regel steht seit D-6 EINMAL in css/account.css:128 und gilt fuer die ganze App (ein Bundle);
+  // sie hier ein zweites Mal zu schreiben waere genau die Doppelung, die diese Welle abschafft.
+  // Der Haken bleibt ein Zeichen im Wertfeld (`value:'✓'`), keine zweite Zeilenform.
+  const pick=h=>h.replace('class="rows','class="rows pick');
+  return pick(groupHTML('Tag wählen',rows,
+      'Der Haken steht am Tag, den du gerade einträgst – tipp ihn an, um ohne Änderung zum Formular '
+      +'zurückzukommen. Ein Tag, der schon Werte hat, lässt sich überschreiben.'))
+    +groupHTML(null,[rowHTML({icon:'pencil',title:'Mehrere Tage nachtragen',
+      sub:'Dieselben Werte auf mehrere der letzten 14 Tage',tap:'openBulkCheckin()'})],null);}
+// Zur Auswahl und zurueck – beides zeichnet dasselbe Sheet neu, es oeffnet sich nichts Zweites.
+function openCheckinDaySheet(){HOME_CI_PICK=true;homePatch('homeCheckinSheet',homeCheckinHTML({sheet:true}));}
+function pickCheckinDay(iso){HOME_CI_PICK=false;CHECKIN_DATE=iso;
+  homePatch('homeCheckinSheet',homeCheckinHTML({sheet:true}));}
 function setCheckinDate(d){CHECKIN_DATE=d;homePatch('homeCheckinSheet',homeCheckinHTML({sheet:true}));}
 // „Check-in eintragen"/„Bearbeiten" von der Startseite -> dasselbe Sheet wie aus der Analyse
 function homeExpandCheckin(){openCheckinSheet(today());}
 // Check-in-Formular als Sheet (Startseite und Analyse-Nachtrag, Vertrag mit WP5)
 function openCheckinSheet(date){
-  CHECKIN_DATE=date||today();HOME_CI_SHEET=true;
+  CHECKIN_DATE=date||today();HOME_CI_SHEET=true;HOME_CI_PICK=false;
   openSheet('Check-in',`<div id="homeCheckinSheet">${homeCheckinHTML({sheet:true})}</div>`);}
 
 // Offline eingetragen: der Tag erreicht den Server erst später. Damit Ringe, Streak-Zeile und Jetzt-Karte
@@ -1476,7 +1392,7 @@ async function quickCheckin(){
     homeMergeCheckin(d,vals,allCarried?'carried':'manual');
     CHECKIN_DATE=today();
     if(HOME_CI_SHEET){HOME_CI_SHEET=false;closeAllSheets();}
-    homePatch('homeGoals',hmGoalsHTML());homePatch('homeCheckin',homeCheckinHTML());homePatchHero();homeCache();
+    homePatch('homeGoals',hmGoalsHTML());homePatchHero();homeCache();
     return;}
   // `jokerRefunded` heißt auf dem Server so; auf dem Schirm heißt es „Reparatur" (BUILD-A5 5.6).
   if(r.data?.jokerRefunded)toast('Nachgetragen – Reparatur zurückerstattet ✓');
@@ -1493,177 +1409,30 @@ async function quickCheckin(){
   invalidateView('tracker');invalidateView('mindset');
   CHECKIN_DATE=today();
   if(HOME_CI_SHEET){HOME_CI_SHEET=false;closeAllSheets();}
-  homePatch('homeGoals',hmGoalsHTML());homePatch('homeCheckin',homeCheckinHTML());homePatchHero();homeCache();
+  homePatch('homeGoals',hmGoalsHTML());homePatchHero();homeCache();
   // A-V.3 (CRITIC K7, Reihenfolge erst installieren – dann fragen): Die Frage nach Erinnerungen kommt
   // NACH dem ersten gespeicherten Check-in, in der App, und nie als Systemdialog aus dem Nichts.
   lpAfterEntry('checkin');}
 
 // ===== ERNÄHRUNG (Ring + nächste Plan-Mahlzeit) =====
-function homeNextMeal(){
-  if(typeof nextPlanMeal!=='function')return null;
-  try{return nextPlanMeal((HOME_DATA&&HOME_DATA.foodlog&&HOME_DATA.foodlog.summary)||null);}catch(e){return null;}}
-// D1: Fehlt das Geburtsjahr, rechnet der Server das Kalorienziel ohne Alter. Der Ring zeigte die Zahl
-// trotzdem wie einen Messwert („0 / 2.584 kcal"), obwohl GET /api/home den ehrlichen Satz in
-// foodlog.summary.targetsNote mitliefert. Wortgleich mit der Zeile im Ernährungs-Tab (diet.js
-// dtTargetsNote) – zwei Orte, eine Aussage.
-function shTargetsNote(sum,own){
-  const note=(sum&&typeof sum.targetsNote==='string')?sum.targetsNote.trim():'';
-  if(!note&&!(sum&&sum.dobMissing))return '';
-  const txt=own?(note||'Startwert – trag dein Geburtsjahr ein, dann rechnen wir genauer.')
-    :'Startwert – ohne Geburtsjahr rechnet das Ziel ohne Alter.';
-  return `<div class="h-sep h-note">${icon('info',16)}<span>${esc2(txt)}</span></div>`;}
-// D10: Weicht das gespeicherte kcal-Ziel um mehr als 7 % von der Formel ab, verwirft der Server es und
-// rechnet neu (foodlog.summary.kcalAsk). Im Ring stand dann 2.975, im Profil und in der Coach-Übersicht
-// 2.600 – zwei Zahlen für dieselbe Sache, ohne ein Wort dazu. Die Rückfrage („Übernehmen?") steht bewusst
-// nur an EINER Stelle, im Ernährungs-Tab (diet.js dtKcalAskNote); hier steht der erklärende Satz.
-// Welcher Tagtyp gilt, entscheidet die Zahl im Ring selbst – so passt der Satz garantiert zur Anzeige.
-function shKcalAskNote(sum,own){
-  const ask=sum&&sum.kcalAsk;if(!ask)return '';
-  const tgt=Math.round(sum.target||0);
-  const d=(ask.train&&Math.round(ask.train.suggested||0)===tgt&&tgt)?ask.train
-    :(ask.rest&&Math.round(ask.rest.suggested||0)===tgt&&tgt)?ask.rest:null;
-  const saved=Math.round((d?d.saved:ask.saved)||0),sug=Math.round((d?d.suggested:ask.suggested)||0);
-  if(!saved||!sug||saved===sug)return '';
-  const txt=`${own?'Dein gespeichertes Ziel':'Das gespeicherte Ziel'} (${fmtNum(saved)} kcal) passt nicht mehr zum aktuellen Gewicht – gerechnet wird mit ${fmtNum(sug)} kcal.`;
-  return `<div class="h-sep h-note">${icon('info',16)}<span>${esc2(txt)}</span></div>`;}
-function homeFoodHTML(){
-  const s=homeState();if(!s.kcalTarget)return '';
-  const pct=Math.min(1,(s.consumed||0)/s.kcalTarget);
-  const over=s.fl.status==='over';
-  const rem=s.fl.remaining;
-  const goalTxt={muscle:'Muskelaufbau',fatloss:'Definition',health:'Gesundheit'}[s.T?.goal]||'';
-  const status=over?'über dem Ziel':(s.fl.status==='onTarget'?'im Ziel ✓':(rem!=null?fmtNum(rem)+' kcal übrig · '+fmtNum(s.fl.macros?.protein||0)+' g Eiweiß':''));
-  // Essen trägt nur der Athlet selbst ein: im Coach-Blick keine „Gegessen"-Aktion – die Check-in-Karte
-  // direkt darunter sagt ausdrücklich „Nur Ansicht", und der Plan-Cache der Ernährung kann im Coach-Kontext
-  // noch dem zuvor geöffneten Athleten gehören. Also wird die nächste Mahlzeit hier gar nicht erst gelesen.
-  const nm=s.own?homeNextMeal():null;
-  const next=(nm&&nm.label)?`<div class="h-sep between">
-      <div class="fill"><div class="body truncate">Nächste Mahlzeit: <b>${esc2(homeShortLabel(nm.label))}</b></div>
-        <div class="caption">${fmtNum(nm.kcal)} kcal · ${fmtNum(nm.protein)} g Eiweiß</div></div>
-      ${nm.logged?'<span class="pill green">gegessen</span>':((nm.mealId&&!coachView())?`<button class="btn sm" onclick="homeMealDone(${+nm.mealId})">Gegessen</button>`:'')}</div>`:'';
-  // Ohne Netz getippte Plan-Mahlzeiten stehen sichtbar in der Karte, bis sie im Tagesprotokoll auftauchen –
-  // sonst quittiert die Startseite den Tipp mit nichts. Wortgleich zur wartenden Zeile im Ernährungs-Tab.
-  // Aufgeräumt wird beim Zeichnen: steht die Mahlzeit im Protokoll (nachgetragen ODER vom Ernährungs-Tab
-  // optimistisch eingefügt), zeigt das die Karte schon über Ring und „Nächste Mahlzeit" – Zeile weg.
-  // Im Coach-Blick nicht aufräumen: das Protokoll gehört dann dem Athleten, die wartenden Einträge aber
-  // immer dem eigenen Konto (homeMealDone bricht für Coaches ab) – sonst fielen sie fälschlich heraus.
-  const inLog=(id)=>((s.fl.loggedMealIds||[]).some(v=>+v===+id))||((s.d.foodlog?.items||[]).some(it=>it&&+it.meal_id===+id));
-  const qm=s.own?(homeMealDone.queued=(homeMealDone.queued||[]).filter(x=>x&&x.date===today()&&!inLog(x.mealId))):[];
-  const pend=qm.map(x=>`<div class="h-sep between">
-      <div class="fill"><div class="body truncate">${esc2(homeShortLabel(x.label))}</div>
-        <div class="caption">ohne Netz eingetragen</div></div>
-      <span class="pill neutral fixed">wird nachgetragen</span></div>`).join('');
-  return `<div class="section-label"><span>Ernährung</span><span class="sl-r">${goalTxt}${s.isTrain?' · Trainingstag':' · Ruhetag'}</span></div>
-    <div class="card mb-3">
-      <div class="ring-card" role="button" tabindex="0" aria-label="Ernährung öffnen" onkeydown="homeRowKey(event)" onclick="go('diet')">
-        ${ring(pct,{size:76,color:over?'var(--amber)':'var(--red)',label:fmtNum(s.consumed),sub:'/ '+fmtNum(s.kcalTarget)})}
-        <div class="ring-info"><div class="big">${fmtNum(s.consumed)}<em> / ${fmtNum(s.kcalTarget)} kcal</em></div>
-          <div class="lbl">${esc2(status)}</div></div>
-        <div class="muted-2">${icon('chevronRight',20)}</div>
-      </div>${shTargetsNote(s.fl,s.own)}${shKcalAskNote(s.fl,s.own)}${next}${pend}</div>`;}
-// „Gegessen" direkt von der Startseite: loggt die Plan-Mahlzeit und zieht Ring/Ringe nach.
-// homeMealDone.queued = [{mealId,label,date}] – die ohne Netz eingereihten Plan-Mahlzeiten dieser Sitzung.
-// Sie leben hier und nicht im Ernährungs-Tab: dessen optimistischer Eintrag (_dietPendingMeal) braucht den
-// geladenen Plan, und genau der fehlt, wenn man die App aufmacht und direkt auf der Startseite tippt.
-async function homeMealDone(mealId){
-  if(coachView())return go('diet');   // Sicherheitsnetz: der Coach loggt nichts für seinen Athleten
-  if(typeof logFromMeal!=='function')return go('diet');
-  const nm=homeNextMeal(),label=(nm&&+nm.mealId===+mealId&&nm.label)?nm.label:'Mahlzeit';
-  const q0=(typeof outboxCount==='function')?outboxCount():0;
-  // Eingetragen wird in diet.js: dort hängen die Doppel-Erkennung (409), das Rückgängig und die
-  // Outbox-Kennung „food". Home wertet nur aus, ob es geklappt hat.
-  const logged=await logFromMeal(mealId);
-  if(logged===false)return;
-  // Wartet der Eintrag nur in der Outbox, darf nichts nachgeladen werden – der Server kennt die Mahlzeit
-  // noch nicht und würde den optimistischen Stand überschreiben. 'queued' ist die Auskunft von diet.js;
-  // ältere Fassungen melden dort schlicht true, deshalb zusätzlich der Blick auf die Outbox-Länge.
-  const queued=logged==='queued'||((typeof outboxCount==='function')&&outboxCount()>q0);
-  if(!queued){const r=await API.get('/foodlog/'+(VIEW_USER||ME.id)+'?date='+today());
-    if(r.status===200&&HOME_DATA)HOME_DATA.foodlog=r.data;}
-  else if(!homeMealDone.queued?.some(x=>+x.mealId===+mealId&&x.date===today()))
-    homeMealDone.queued=[...(homeMealDone.queued||[]),{mealId:+mealId,label,date:today()}];
-  // Bietet die Karte dieselbe Mahlzeit danach immer noch an, hat sie niemand nachgeführt (Plan nicht geladen,
-  // oder das Nachladen scheiterte). Ein zweiter Tipp legte sonst einen zweiten Outbox-Eintrag an, den der
-  // Server später als Dublette ablehnt – „1 Eintrag nachgetragen · 1 abgelehnt" für einen korrekten Tipp.
-  // (Nur nextMeal leeren, NICHT loggedMealIds ergänzen: die Liste sagt „der Server kennt den Eintrag" –
-  // genau daran erkennt die Karte oben, wann die wartende Zeile wieder verschwinden darf.)
-  try{const sum=HOME_DATA?.foodlog?.summary,still=homeNextMeal();
-    if(sum&&still&&+still.mealId===+mealId&&!still.logged)sum.nextMeal=null;
-  }catch(e){console.error('[home] Mahlzeit',e);}
-  invalidateView('diet');
-  homePatch('homeFood',homeFoodHTML());homePatch('homeGoals',hmGoalsHTML());homePatchHero();homeCache();}
+/* ---- ERSATZLOS GELOESCHT (NACHBESSERUNG B7): die Ernaehrungs-Kachel der alten Startseite ----
+   `homeFoodHTML` baute `.ring-card` und `.section-label` samt rot gefuelltem Ring. Die CSS-Regeln
+   dafuer sind mit Welle D-2 gefallen (3.0.2: app.css:419, css/home.css:209-210); uebrig blieb
+   Markup ohne Regeln, das niemand mehr sah, weil `#homeFood` im neuen Zeichenpfad gar nicht mehr
+   existiert – `homePatch('homeFood',…)` fand es nicht und gab still `false` zurueck.
+   Mit der Kachel fallen ihre einzigen Verbraucher: `homeNextMeal`, `homeMealDone`,
+   `shTargetsNote` und `shKcalAskNote`. Beide Saetze stehen wortgleich im Ernaehrungs-Reiter
+   (diet.js `dtTargetsNote` / `dtKcalAskNote`) – es geht keine Aussage verloren, nur ihre
+   Zweitfassung. `diet.js:_homeFoodPatch` prueft `typeof homeFoodHTML==='function'` und laeuft
+   deshalb ohne diese Datei still ins Leere; seine Loeschung gehoert dem Ernaehrungs-Paket
+   (angemeldet in FIX-D5-D-2.md). */
 
-// ===== SUPPLEMENTS-BLOCK AUF DER STARTSEITE =====
+// ===== SUPPLEMENT-ZEILE AUF DER STARTSEITE =====
+// Die Liste als eigener Block ist mit DESIGN-4 6.1 entfallen: „Heute offen" traegt die EINE
+// offene Einnahme als Abhak-Zeile (ein Tap), „Zuletzt" die Zeile in die vollstaendige Liste.
 // Abhak-Zeile mit role="button": Enter/Leertaste sollen wie ein Tipp wirken
 function homeRowKey(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();ev.currentTarget.click();}}
-function homeSuppHTML(){
-  const s=homeState();if(!s.own||!s.sup)return '';
-  const items=s.sItems;
-  if(!items.length)return `<div class="section-label"><span>Supplements</span></div>
-    <div class="rows mb-3"><div class="row tap" role="button" tabindex="0" onclick="openAddIntake()"><div class="r-ic">${icon('pill')}</div>
-      <div class="rl">Keine Supplements zugewiesen<small>Eigene hinzufügen</small></div><div class="rr"></div></div></div>`;
-  // Auf der Startseite stehen nur die OFFENEN Einnahmen (max. 3). Abgehakte verschwinden –
-  // der Block schrumpft im Lauf des Tages auf eine Zeile, statt dauerhaft 4 Zeilen zu belegen.
-  const open=items.filter(p=>!p.taken);
-  const rows=open.slice(0,3).map(p=>`<div class="row h-tap" role="button" tabindex="0" aria-pressed="false" onkeydown="homeRowKey(event)" onclick="toggleIntakeHome(event,${p.supplement_id??'null'},${p.intake_id??'null'},'${esc(p.name)}','${esc(p.dose||'')}')">
-      <div class="r-ic">${icon('pill',22)}</div>
-      <div class="rl">${esc2(p.name)}${p.dose?`<small>${esc2(p.dose)}</small>`:''}</div>
-      <div class="rr">${p.mandatory?'<span class="pill must">Pflicht</span>':''}</div></div>`).join('');
-  const rest=open.length-Math.min(3,open.length);
-  const moreLabel=!open.length?'Alle '+fmtNum(items.length)+' genommen – Tages-Check öffnen'
-    :rest>0?'Noch '+fmtNum(rest)+' offen – alle anzeigen':'Tages-Check öffnen';
-  // Kein icon('chevronRight') in .rr: app.css zeichnet für .row.tap .rr::after bereits einen – es standen
-  // zwei nebeneinander (RATE-shell-home M6).
-  const more=`<div class="row tap" role="button" tabindex="0" onkeydown="homeRowKey(event)" onclick="openSupp()"><div class="r-ic">${icon(open.length?'more':'check',22)}</div>
-    <div class="rl${open.length?'':' tone-green'}">${moreLabel}</div><div class="rr"></div></div>`;
-  return `<div class="section-label"><span>Supplements</span><span class="sl-r${s.sItemsDone===items.length?' tone-green':''}">${fmtNum(s.sItemsDone)}/${fmtNum(items.length)}</span></div>
-    <div class="rows mb-3">${rows}${more}</div>`;}
 
-// ===== FORTSCHRITT: EIN STREIFEN, DREI ANTIPPBARE SEGMENTE =====
-function homeProgressHTML(){
-  const s=homeState();if(!s.own||!s.ins)return '';
-  const I=s.ins,lp=I.levelProgress||{pct:0};
-  const w=I.week&&I.week.thisWeek,wg=I.weekGoal||{target:0,done:0};
-  const vol=w?(w.volume/1000):0;
-  const MG=s.monthly;
-  // A-9 (Nachbesserung): Tonnage ist die Leitkennzahl der oberen Stufen, nicht der ersten. STRATEGY 4.3
-  // gibt Stufe 1 „Konsequenz" – Einheiten pro Woche gegen das Ziel – und ausdrücklich KEINE Tonnage;
-  // Stufe 3 lässt sie sogar als Leitkennzahl fallen. Gemessen an einem frischen Konto nach einem
-  // einzigen Satz 20 kg × 10 stand hier „Woche 1/3 · 0,2 t Volumen": eine Einheit, die eine Anfängerin
-  // erst nachschlagen müsste, über einer Zahl, die nichts darüber sagt, ob sie dran geblieben ist.
-  // Gleiche Kachel, gleicher Weg, gleicher Balken, gleiche Tap-Zahl – nur die Beschriftung wechselt.
-  const lvl=hmLevel();
-  const wkT=lvl>=2?('Woche '+fmtNum(wg.done)+'/'+fmtNum(wg.target)):'Diese Woche';
-  const wkS=lvl>=2?(fmtNum(vol,1)+' t Volumen')
-    :(wg.target?fmtNum(wg.done)+' von '+fmtNum(wg.target)+' Trainings':pl(wg.done,'Training','Trainings'));
-  const segs=[
-    {t:'Level '+fmtNum(I.level),s:fmtNum(I.xp)+' XP',pct:lp.pct,cls:'',fn:"typeof openAchievements==='function'?openAchievements():go('tracker')"},
-    {t:wkT,s:wkS,pct:wg.target?Math.min(100,Math.round(wg.done/wg.target*100)):0,cls:(wg.target&&wg.done>=wg.target)?'green':'',fn:"if(typeof renderTracker==='function')renderTracker.tab='training';go('tracker')"}
-  ];
-  if(MG&&MG.parts)segs.push({t:'Monat '+fmtNum(MG.reachedCount)+'/'+fmtNum(MG.parts.length),s:'Gesamt '+fmtNum(MG.overallPct)+'%',pct:MG.overallPct,cls:MG.allReached?'green':'',fn:"typeof openMonthlyGoal==='function'?openMonthlyGoal():go('tracker')"});
-  // Keine Monatsziel-Feier auf der Startseite: GET /api/home liefert monthly bewusst ohne Gutschrift
-  // (justClaimed ist dort immer false), und der Fallback holt /monthly gar nicht erst. Gutschrift und
-  // Feier gehören zur Analyse (analysis.js, GET /api/monthly) – dort und nur dort.
-  if(typeof checkNewAchievements==='function'){try{checkNewAchievements(I);}catch(e){}}
-  // A-IV.1: Auf der neuen Startseite entfällt der Abschnittskopf. Er kostete 41 px und trug den
-  // Level-Titel („Einsteiger") neben einem Profil, das „Fortgeschritten" sagt – zwei Skalen mit
-  // denselben Wörtern (RATE-shell-home M10). Die drei Segmente beschriften sich selbst.
-  const head=hmNew()?'':`<div class="section-label"><span>Fortschritt</span><span class="sl-r">${esc2(I.levelTitle||'')}</span></div>`;
-  return `${head}
-    <div class="card h-prog mb-3">${segs.map(g=>`<button class="h-seg" onclick="${g.fn}">
-      <span class="h-seg-t">${esc2(g.t)}</span><span class="caption truncate">${esc2(g.s)}</span>
-      <span class="bar${g.cls?' '+g.cls:''}"><i style="width:${Math.max(0,Math.min(100,+g.pct||0))}%"></i></span></button>`).join('')}</div>`;}
-
-// ===== „MEHR" =====
-// Vier Kacheln in EINER Reihe (Icon + Wort): dieselben Wege, rund 140 px weniger Seitenlänge.
-function homeMoreHTML(){
-  const q=(fn,ic,t)=>`<button class="qcard" onclick="${fn}" aria-label="${t}"><span class="ic">${icon(ic,22)}</span><div class="t">${t}</div></button>`;
-  return `<div class="section-label"><span>Mehr</span></div><div class="quick mini">
-    ${q("typeof openMeasure==='function'?openMeasure():go('tracker')",'ruler','Maße')}
-    ${q("typeof openPhotos==='function'?openPhotos():go('tracker')",'camera','Foto')}
-    ${q("typeof openCalendar==='function'?openCalendar():go('workout')",'calendar','Kalender')}
-    ${q("typeof openAchievements==='function'?openAchievements():go('tracker')",'trophy','Erfolge')}
-  </div>`;}
 
 // ===== A-III.2: DIE EINE EHRLICHE KARTE =====
 // Es ist nichts da – und genau das steht dann hier. „Bereitschaft 0", „0 Sätze", „0 / 3.017 kcal" oder
@@ -1709,88 +1478,53 @@ async function renderHome(v,opts){
   const d=await loadHomeData();
   if(!d){v.innerHTML=`<div class="page on" id="homePage">${stlNotLoadedHTML(STL_HOME_ST)}</div>`;return;}
   const s=homeState();
-  HOME_CI_SHEET=false; // frisch aufgebaut: kein Sheet offen, Check-in-Karte immer kurz
+  HOME_CI_SHEET=false;HOME_CI_PICK=false; // frisch aufgebaut: kein Sheet offen
   CHECKIN_DATE=today();
 
-  let html=`<div class="page on${(opts.cached||mounted)?'':' first'}" id="homePage">`;
-  // Einstieg ohne Plan/Ziele (nur eigenes Konto)
-  if(s.own&&!PLAN?.days?.length&&!s.T?.kcal?.train){
-    html+=`<div class="today"><div class="eyebrow">Erste Schritte</div>
-      <div class="daytype">Dein Plan</div>
-      <div class="meta">In unter einer Minute zu Trainingsplan und Kalorienzielen.</div>
-      <button class="btn block mt-4" onclick="startOnboarding()">Jetzt einrichten</button></div>`;
-    html+='</div>';v.innerHTML=html;homeCache();return;}
+  // EIN Zeichenpfad. Der zweite („klassisch", 2.8.0) ist mit diesem Umbau entfallen: zwei
+  // Startseiten sind zwei Dialekte, und genau die raeumt DESIGN-4 auf. Begruendung und die
+  // Frage, was aus der Pille „Startseite" wird, stehen in DONE-D5-D-2.md / DEFER-D5.md.
+  let html=`<div class="page on${(opts.cached||mounted)?'':' first'}" id="homePage">`+hmTitleHTML(s);
 
-  // Coach/Admin im Athleten-Kontext: Coach-Zusammenfassung statt der eigenen Logging-Oberfläche
+  // Einstieg ohne Plan/Ziele (nur eigenes Konto): eine Karte, ein Knopf, sonst nichts.
+  if(s.own&&!PLAN?.days?.length&&!s.T?.kcal?.train){
+    html+=`<div class="card lg hm-now" id="homeNow">
+      <div class="hm-day"><span class="hm-day-t">Erste Schritte</span></div>
+      <p class="hm-why static">In unter einer Minute zu Trainingsplan und Kalorienzielen.</p>
+      <button type="button" class="btn" onclick="startOnboarding()">Jetzt einrichten</button></div>`;
+    html+='</div>';v.innerHTML=html;homeCache();
+    if(typeof mountLargeTitle==='function')try{mountLargeTitle();}catch(e){}
+    return;}
+
+  // Coach/Admin im Athleten-Kontext: die Zusammenfassung des Coaches steht ueber der Tageskarte.
   if(coachView()){
     let cc='';
     if(typeof coachHomeCard==='function'){try{cc=coachHomeCard()||'';}catch(e){cc='';}}
     if(!cc){const lc=s.cis[0];
-      cc=`<div class="card mb-3"><div class="eyebrow mb-1">Coach-Übersicht</div><div class="h2">${esc2(COACH_CONTEXT||'')}</div>
-        <div class="meta mt-1">Letzter Check-in: ${lc?esc2(fmtDate(lc.date,{weekday:'short'}))+(lc.weight!=null?' · '+fmtNum(lc.weight,1)+' kg':''):'noch keiner'}</div></div>`;}
-    html+=cc;
-  }
-  html+=nowCardHTML();
-  // ZWEI ZEICHENPFADE (BUILD-A4 3.7). „neu" ist der Standard; „klassisch" ist wortwörtlich die
-  // Reihenfolge aus 2.7.0 – kein zweiter Satz Funktionen, nur eine andere Zusammenstellung.
-  if(hmNew()&&s.own){
-    // Die Statuszeile gehört in BEIDE Pfade. Sie trägt „Rad fällig" und die laufende Challenge –
-    // und weder das Rad noch die Challenge hat einen Ring. Ohne sie kostete das Rad des Lebens
-    // 3 Taps (Ring „Mindset" → Reiter „Rad" → „Jetzt bewerten") statt einem; das war keine
-    // entfernte Wiederholung, sondern ein entfernter Einstieg (CRITIC K3, BUILD-A4 3:
-    // „Doppelungen entfernen, NICHT Einstiege"). homeMindStatusHTML() prüft selbst auf
-    // mw.status.text und liefert sonst den leeren String – Höhe kostet die Zeile also nur,
-    // wenn es etwas zu sagen gibt.
-    html+=homeMindStatusHTML();
-    html+=`<div id="homeLast">${hmLastHTML()}</div>`;
-    html+=`<div id="homeGoals">${hmTodayHTML()}</div>`;
-    html+=homeProgressHTML();
-    html+=hmMoreHTML();
-  }else{
-    html+=homeMindStatusHTML();
-    html+=`<div id="homeGoals">${drawHomeGoals()}</div>`;
-    html+=`<div class="card mb-3" id="homeCheckin">${homeCheckinHTML()}</div>`;
-    html+=`<div id="homeFood">${homeFoodHTML()}</div>`;
-    html+=`<div id="homeSupp">${homeSuppHTML()}</div>`;
-    html+=homeProgressHTML();
-    if(s.own)html+=homeMoreHTML();
-    if(s.own)html+=`<div class="hm-sw"><button class="btn sm ghost" onclick="openHomeVariantSheet()">Startseite: klassisch – umstellen</button></div>`;
-  }
+      cc=groupHTML(String(COACH_CONTEXT||'Athlet'),[rowHTML({icon:'user',title:'Letzter Check-in',
+        value:lc?(fmtDate(lc.date,{weekday:'short'})+(lc.weight!=null?' · '+fmtNum(lc.weight,1)+' kg':'')):'noch keiner'})],null);}
+    html+=cc;}
+
+  html+=nowCardHTML();                                   // 1 · Jetzt
+  html+=`<div id="homeGoals">${drawHomeGoals()}</div>`;  // 2 · Heute offen
+  html+=hmLastHTML();                                    // 3 · Zuletzt (letzte Zeile: 4 · Koerper)
   html+='</div>';
-  // Beim Auffrischen einer schon stehenden Seite die Scrollposition halten: das Ersetzen des Inhalts
-  // staucht das Dokument kurz zusammen, der Browser würde sonst nach oben klemmen.
+
+  // Beim Auffrischen einer schon stehenden Seite die Scrollposition halten: das Ersetzen des
+  // Inhalts staucht das Dokument kurz zusammen, der Browser wuerde sonst nach oben klemmen.
   const keepY=(opts.cached||mounted)?window.scrollY:0;
   v.innerHTML=html;
   if(keepY){window.scrollTo(0,keepY);requestAnimationFrame(()=>window.scrollTo(0,keepY));}
   homeCache();
+  // Der grosse Titel steht jetzt im Markup dieser Ansicht; die Kopfzeile muss ihn neu beobachten.
+  if(typeof mountLargeTitle==='function')try{mountLargeTitle();}catch(e){}
   // Der reservierte Mindset-Platz wird eingenommen, sobald das nachgeladene Modul da ist.
   if(stlMindPending(s))stlMindWatch();
-  // „Zuletzt" braucht keinen Nachlauf mehr: die Zahlen stehen seit der Nachbesserung im Home-Aggregat.
-  // Tour erst jetzt – der Hero steht, nichts liegt über dem Header (WP1)
   if(typeof maybeStartTour==='function'){try{maybeStartTour();}catch(e){}}
-  // A-V.3: Die Frage nach Erinnerungen steht als ruhige ZEILE auf der Seite, nicht als Sheet, das
-  // sich von selbst über die Startseite legt. Ob sie überhaupt etwas bewirken kann (Push aus,
-  // erlaubt, auf iOS installiert), weiß erst pushStatus() – also wird die Zeile versteckt gezeichnet
-  // und erst danach freigegeben oder entfernt. So springt beim Zeichnen nichts.
-  // HIER ÖFFNET SICH NICHTS VON SELBST – und das ist eine Messung, keine Meinung.
-  // Versuch (2.9.0, verworfen): Trichter bzw. Erinnerungs-Frage 1,2 s nach dem Zeichnen als Sheet.
-  // Ergebnis tools/tapcount.mjs: Fluss `set` FEHLER – das Sheet legte sich über die Tab-Leiste, der
-  // nächste Tipp landete auf dem Hintergrund. Was ein Messwerkzeug so trifft, trifft einen Menschen
-  // genauso: 1,2 s nach dem Start tippt er schon. Ein Sheet, das sich selbst öffnet, ist deshalb raus.
-  // Der Trichter kommt stattdessen dort, wo er niemanden unterbricht:
-  //   · die schmale Zeile unter dem Header (account.js/maybeShowInstallHint) – seit der Fix-Runde
-  //     auf ALLEN Plattformen und bei jedem Tabwechsel, nicht nur einmal 1,6 s nach dem App-Start
-  //     (core.js). Gemessener Grund: wer sein erstes Training in der laufenden Sitzung abschließt,
-  //     erfüllt die Bedingung erst danach – bis eben sah er die Zeile frühestens beim nächsten
-  //     Start. Die Funktion sperrt sich selbst (Zeile schon da, 30 Tage Ruhe, läuft als App), ein
-  //     Aufruf zu viel kostet also nichts.
-  //     AUF DER STARTSEITE steht sie nicht: 981 px + 83 px Zeile = 1.064 px, und Home ist die
-  //     einzige Ansicht mit Höhenbudget (accent.mjs, Ziel < 1.000). Der Aufruf hier räumt sie
-  //     deshalb weg und meldet den Tabwechsel-Zuhörer an – Einzelheiten in account.js.
-  //   · überall: Profil → Daten → „Als App installieren", und auf iOS führt auch der Push-Schalter
-  //     dorthin (pushStatus liefert dort `install`).
-  // Die Frage nach Erinnerungen kommt nach einem GESPEICHERTEN Check-in (siehe lpAfterEntry) – das ist
-  // der Anlass, den CRITIC K7 verlangt, und dort unterbricht sie nichts.
+  // HIER OEFFNET SICH NICHTS VON SELBST – und das ist eine Messung, keine Meinung (tapcount `set`
+  // brach ab, als der Trichter 1,2 s nach dem Zeichnen als Sheet aufging). Der Installations-Hinweis
+  // ist eine schmale Zeile unter der Kopfzeile; auf der Startseite raeumt lpInstallNudge sie weg,
+  // weil home die einzige Ansicht mit Hoehenbudget ist (accent.mjs, Ziel < 1.000 px).
   lpInstallNudge();
 }
 // EIN Anstoß für den Trichter, von überall aufrufbar (Startseite gezeichnet, Check-in gespeichert,
@@ -1829,8 +1563,10 @@ async function openBulkCheckin(){
       <div class="field"><label>Schritte</label><input id="bk_steps" type="number" inputmode="numeric" placeholder="z.B. 9000"></div>
       <div class="field"><label>Wasser (L)</label><input id="bk_water" type="number" step="0.1" inputmode="decimal" placeholder="z.B. 3"></div>
     </div>
-    <div class="section-label"><span>Tage auswählen</span><span class="sl-r">markiert = schon Daten</span></div>
-    <div id="bk_chips" class="chip-row wrap mb-4">${bulkChipsHTML()}</div>
+    <h2 class="rows-h">Tage auswählen</h2>
+    <div id="bk_chips" class="chip-row wrap">${bulkChipsHTML()}</div>
+    <p class="rows-f">Ein Tag mit Haken ist ausgewählt; ein grau hinterlegter Tag hat schon Werte –
+      die werden überschrieben, wenn du ihn auswählst.</p>
     <button class="btn block" id="bk_apply" disabled onclick="saveBulkCheckin()">Erst Tage auswählen</button>`);}
 async function saveBulkCheckin(){
   if(!BULK_SEL.size)return toast('Bitte Tage auswählen');
@@ -1862,7 +1598,7 @@ async function saveBulkCheckin(){
     const [cr,ir]=await Promise.all([API.get(homeCheckinPath(VIEW_USER)),own?API.get('/insights/'+VIEW_USER):Promise.resolve(null)]);
     if(cr.status===200){HOME_CIS=cr.data?.checkins||[];if(HOME_DATA)HOME_DATA.checkins=HOME_CIS;}
     if(ir&&ir.status===200){if(HOME_DATA)HOME_DATA.insights=ir.data;try{LAST_INSIGHTS=ir.data;}catch(e){}}}
-  homePatch('homeGoals',hmGoalsHTML());homePatch('homeCheckin',homeCheckinHTML());homePatchHero();homeCache();}
+  homePatch('homeGoals',hmGoalsHTML());homePatchHero();homeCache();}
 
 // ===== STREAK-JOKER =====
 function openStreakInfo(){
@@ -1874,7 +1610,8 @@ function openStreakInfo(){
   // nichts versprochen, was der Server nicht hält: `maxPer30Days` ist die echte Obergrenze.
   const per30=f.maxPer30Days==null?mx:f.maxPer30Days;
   openSheet('Reparatur',`
-    <div class="center mb-4">${ring(mx?Math.min(1,fb/mx):0,{size:96,color:'var(--blue)',label:fmtNum(fb)+' / '+fmtNum(mx),sub:'Reparatur'})}</div>
+    <div class="center mb-4">${ringHTML(mx?Math.min(1,fb/mx):0,96,fmtNum(fb))}
+      <div class="meta mt-1">${esc2(fmtNum(fb)+' von '+fmtNum(mx)+' Reparaturen übrig')}</div></div>
     <div class="note mb-3">Eine <b>Reparatur</b> trägt automatisch einen Tag nach, an dem du nichts eingetragen hast. Deine Wochen-Konsistenz bleibt damit stehen.</div>
     <div class="note status mb-3">Ein reparierter Tag zählt mit, ist aber <b>kein Check-in</b>. Die Zahl deiner echten Einträge bleibt darunter – und wenn du den Tag später selbst nachträgst, bekommst du die Reparatur zurück.</div>
     <div class="rows mb-4">
@@ -1884,35 +1621,17 @@ function openStreakInfo(){
     </div>
     <button class="btn block sec" onclick="closeModal()">Verstanden</button>`);}
 
-// ===== GEMEINSAME HELFER: Ring + Diagramme (WP0; genutzt von Home, Training, Analyse, Mindset) =====
-// ring(pct,{size=84,stroke,color,track,label,sub}) – pct 0..1, SVG-String.
-// Kompatibel: ring(val,max) wie bisher (Zahl im Ring, „/ max" darunter) – Aufrufer erkennt sich an der Zahl als 2. Argument.
-// Beschriftung IM Ring: Platz ist nur die Sehne des inneren Kreises auf Höhe der Zeile. Lange Untertitel
-// („kcal Überschuss") liefen sonst links und rechts über den Ring-Strich. Daher erst kleiner setzen,
-// und wenn das nicht reicht, mit textLength stauchen – der Text bleibt in jedem Fall innerhalb des Rings.
-function _ringFit(s,cx,y,fs,wide,rIn){let f=fs,maxW=0;
-  const room=(g)=>{const dy=Math.abs(y-cx)+g*.38;return Math.max(8,2*(Math.sqrt(Math.max(0,rIn*rIn-dy*dy))-1.5));};
-  for(let i=0;i<3;i++){maxW=room(f);const est=s.length*f*wide;
-    if(est<=maxW)return {f,tl:0};
-    const nf=Math.max(fs*.62,f*maxW/est);if(nf>=f)break;f=nf;}
-  maxW=room(f);
-  return {f,tl:(s.length*f*wide>maxW)?maxW:0};}
-function _ringText(txt,cx,y,fs,bold,fill,rIn){const s=String(txt);
-  const w=_ringFit(s,cx,y,fs,bold?.6:.52,rIn);
-  return `<text x="${cx}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="central" font-size="${Math.round(w.f*10)/10}"${bold?' font-weight="700"':''} fill="${fill}"${w.tl?` textLength="${w.tl.toFixed(1)}" lengthAdjust="spacingAndGlyphs"`:''}>${esc2(s)}</text>`;}
-function ring(a,b){let pct=0,o={};
-  if(b!=null&&typeof b!=='object'){const max=+b||0,val=+a||0;pct=max?Math.min(1,val/max):0;o={label:String(a),sub:'/ '+b};}
-  else{pct=Math.max(0,Math.min(1,+a||0));o=b||{};}
-  const size=o.size||84,stroke=o.stroke||Math.max(3,Math.round(size*.085)),r=(size-stroke)/2,c=2*Math.PI*r,off=c*(1-pct),cx=size/2;
-  const color=o.color||'var(--red)',track=o.track||'var(--surface3)';
-  const hasSub=o.sub!=null&&o.sub!=='';
-  const rIn=(size-stroke*2)/2-1; // freier Innenradius (Innenkante des Rings)
-  const label=(o.label!=null&&o.label!=='')?_ringText(o.label,cx,hasSub?cx-size*.07:cx,Math.round(size*.18),true,'var(--ink)',rIn):'';
-  const sub=hasSub?_ringText(o.sub,cx,cx+size*.14,Math.round(size*.12),false,'var(--ink2)',rIn):'';
-  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
-    <circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${track}" stroke-width="${stroke}"/>
-    <circle class="ring-fg" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}" transform="rotate(-90 ${cx} ${cx})"/>
-    ${label}${sub}</svg>`;}
+// ===== GEMEINSAME HELFER: Diagramme (WP0; genutzt von Home, Training, Analyse, Mindset) =====
+/* ERSATZLOS GELOESCHT (NACHBESSERUNG B6/D8): `ring`, `_ringText`, `_ringFit`.
+   Das war der ZWEITE Ring-Erzeuger der App – mit `var(--red)` als Voreinstellung und einer Farbe
+   je Aufrufer. DESIGN-4 5.7 kennt genau einen Helfer (`ringHTML` in core.js) und verbietet Rot;
+   K19 zaehlt die Implementierungen im Quelltext. Die drei Aufrufer lagen alle in dieser Datei
+   (Bereitschafts-Sheet 112 px, Ernaehrungs-Kachel 76 px, Reparatur-Sheet 96 px); die mittlere ist
+   mit B7 gefallen, die anderen beiden zeichnen jetzt mit `ringHTML` – neutral in `--ink2`, und
+   das WORT steht daneben statt einer Farbe (G9/G10).
+   Was dabei entfaellt: die gestauchte Beschriftung IM Ring (`_ringFit` presste lange Untertitel
+   auf die Sehne des Innenkreises, bis 8 px – unter dem kleinsten Typo-Token). `ringHTML` nimmt
+   nur EINE kurze Zahl innen; alles andere steht daneben, so wie 5.7 es vorschreibt. */
 function sparkline(vals){if(vals.length<2)return'';const w=480,h=120,pad=10;
   const mn=Math.min(...vals),mx=Math.max(...vals),rng=(mx-mn)||1;
   const pts=vals.map((v,i)=>[pad+i*(w-2*pad)/(vals.length-1),h-pad-((v-mn)/rng)*(h-2*pad)]);
@@ -2043,7 +1762,7 @@ async function setDay(type,dayName){
   invalidateView('workout');invalidateView('diet');invalidateView('tracker');
   toast(type==='sick'?'Gute Besserung – gute Erholung ✓':'Aktualisiert ✓');
   // Hero + Ringe + Ernährung an Ort und Stelle nachziehen (kein go('home'))
-  homePatchHero();homePatch('homeGoals',hmGoalsHTML());homePatch('homeFood',homeFoodHTML());homeCache();}
+  homePatchHero();homePatch('homeGoals',hmGoalsHTML());homeCache();}
 
 // ===== SUPPLEMENTS-CHECKLISTE (aus shell.js hierher verschoben – WP0) =====
 // Supplements des angesehenen Nutzers: Pflicht oben hervorgehoben, Details auf Tippen.
@@ -2063,7 +1782,7 @@ async function drawSuppSheet(local){
   let h='';
   if(total>0){const pct=Math.round(done/total*100);
     h+=`<div class="card mb-4"><div class="between mb-2"><div class="h3">Heute</div>
-      <div class="num-md${done===total?' tone-green':''}">${fmtNum(done)}/${fmtNum(total)}</div></div>
+      <div class="num-md${done===total?' tone-green':''}">${fmtNum(done)} von ${fmtNum(total)}</div></div>
       <div class="bar${done===total?' green':''}"><i style="width:${pct}%"></i></div></div>`;}
   if(!plan.length&&!extras.length){
     h+=emptyState({icon:'pill',title:'Keine Supplements für heute',
@@ -2072,8 +1791,8 @@ async function drawSuppSheet(local){
     const groups={};plan.forEach(p=>{const c=p.category||'Sonstige';(groups[c]=groups[c]||[]).push(p);});
     const order=['Morgens','Pre-Workout','Intra-Workout','Nach dem Training','Zu einer Mahlzeit','Täglich','Abends','Bei Bedarf'];
     const cats=Object.keys(groups).sort((a,b)=>{const ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
-    cats.forEach(c=>{h+=`<div class="section-label"><span>${esc2(c)}</span></div><div class="rows mb-3">`+groups[c].map(p=>suppRow(p,isOwn)).join('')+'</div>';});}
-  if(extras.length){h+=`<div class="section-label"><span>Zusätzlich genommen</span></div><div class="rows mb-3">`+extras.map(p=>suppRow(p,isOwn)).join('')+'</div>';}
+    cats.forEach(c=>{h+=`<h2 class="rows-h">${esc2(c)}</h2><div class="rows mb-3">`+groups[c].map(p=>suppRow(p,isOwn)).join('')+'</div>';});}
+  if(extras.length){h+=`<h2 class="rows-h">Zusätzlich genommen</h2><div class="rows mb-3">`+extras.map(p=>suppRow(p,isOwn)).join('')+'</div>';}
   if(isOwn)h+=`<button class="btn block sec mt-4" onclick="openAddIntake()">${icon('plus',18)} Supplement hinzufügen</button>`;
   h+=infoBox('supp_check','Hier hakst du ab, was du heute genommen hast. Die Menge kannst du antippen und anpassen. Was dein Coach festgelegt hat, steht oben – eigene Ergänzungen darunter.');
   openSheet('Supplements',h);}
@@ -2150,7 +1869,7 @@ function homeMarkSupp(sid,name,dose){
 // Home-Blöcke neu zeichnen (nur wenn die Startseite steht) – ohne Serveranfrage
 function homePatchSupp(){
   if(!document.getElementById('homePage'))return;
-  homePatch('homeSupp',homeSuppHTML());homePatch('homeGoals',hmGoalsHTML());homePatchHero();homeCache();}
+  homePatch('homeGoals',hmGoalsHTML());homePatchHero();homeCache();}
 // Supplement-Stand neu holen und Home-Blöcke patchen (nur wenn die Startseite steht)
 async function homeRefreshSupp(){
   if(!document.getElementById('homePage'))return;
@@ -2196,8 +1915,8 @@ async function suppDetail(id){
       <div class="row"><div class="rl">Wann</div><div class="rr wrap">${esc2(s.timing||'–')}</div></div>
       <div class="row"><div class="rl">Mit Wasser</div><div class="rr">${s.with_water?'Ja':'Nicht nötig'}</div></div>
     </div>
-    ${s.how_to?`<div class="section-label"><span>Einnahme &amp; Wirkung</span></div><div class="card body mb-3">${esc2(s.how_to)}</div>`:''}
-    ${s.note?`<div class="section-label"><span>Hinweis deines Coaches</span></div><div class="card body coach-note">${esc2(s.note)}</div>`:''}
+    ${s.how_to?`<h2 class="rows-h">Einnahme &amp; Wirkung</h2><div class="card body mb-3">${esc2(s.how_to)}</div>`:''}
+    ${s.note?`<h2 class="rows-h">Hinweis deines Coaches</h2><div class="card body coach-note">${esc2(s.note)}</div>`:''}
     <button class="btn block sec mt-4" onclick="openSupp()">Zurück</button>`);}
 
 /* =============================================================================================
@@ -2236,14 +1955,10 @@ function lpWeekLine(s){
   else if(done===0)detail='Die Woche fängt gerade erst an.';
   else detail='Noch '+pl(left,'Einheit','Einheiten')+' – ein Fehltag ändert daran nichts.';
   return {main,detail,hit,done,planned,weeks};}
-function lpWeekLineHTML(s){
-  const w=lpWeekLine(s);if(!w)return '';
-  const f=(s.ins&&s.ins.freezes)||{};const rep=f.balance==null?0:Math.max(0,Math.round(+f.balance||0));
-  // Die Pille heißt „Reparatur" (BUILD-A5 5.6) – dieselbe Zahl wie vorher, ehrlicher Name.
-  // Numerus wie im sichtbaren Text daneben: „1 Reparatur übrig", nicht „1 Reparaturen übrig".
-  const repBtn=`<button class="hg-jok" onclick="openStreakInfo()" aria-label="${pl(rep,'Reparatur','Reparaturen')} übrig">${icon('shield',16)}${fmtNum(rep)}</button>`;
-  const st=s.checkedIn?`<span class="hg-st tone-green">heute ${icon('check',13)}</span>`:'<span class="hg-st tone-amber">heute offen</span>';
-  return `<div class="hg-streak">${icon(w.hit?'check':'calendar',18)}<div class="fill"><b>${esc2(w.main)}</b>${w.detail?`<small>${esc2(w.detail)}</small>`:''}</div>${st}${repBtn}</div>`;}
+// Die Wochenzeile als Markup gab es bis DESIGN-4 6.1 als eigene Bauform `.hg-streak` mit
+// Schild-Knopf und Tagesmarke. Sie ist jetzt die Zeile „Diese Woche" in der Gruppe „Zuletzt"
+// (rowHTML), und was eine Reparatur ist, steht im Fusstext dieser Gruppe statt hinter dem Schild.
+// `lpWeekLine()` darueber bleibt: es rechnet die Zahlen und wird auch von analysis.js gerufen.
 
 // ---- 2. WIEDERKEHR-LEITER, TON IN DER APP (BUILD-A5 5.5) -----------------------------------
 // Dieselben Sprossen wie src/logic.js/reminderLadder (5 · 10 · 14 · 21/28 · 30), nur für die Zeile auf

@@ -53,9 +53,24 @@
   --on-green:var(--bg);--on-amber:var(--bg);
   --font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,'Helvetica Neue',sans-serif;
   --font-head:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',system-ui,sans-serif;
+  /* DIE RADIEN-SKALA – DREI STUFEN (DESIGN-4 2.3, vorher 11 Werte im DOM). Die Merkregel:
+       Alles, was man drückt oder in das man schreibt: 12.  → --r-sm
+       Alles, worin etwas steht: 16.                        → --r
+       Was von unten hereinkommt: 24.                       → --r-lg
+     UMRECHNEN (nächste Sprosse, bei Gleichstand nach UNTEN):
+       8→12 · 9→12 · 10→12 · 14→12 (Knopf) bzw. 16 (Karte/Block) · 18→16 · 22→24
+     ZWEI FORMEN, KEINE RADIEN: --r-pill (999px – die Form IST die Bedeutung: Pille, Chip) und
+     50 % (rundes Symbolziel, Avatar). Sie zählen nicht als vierte und fünfte Sprosse.
+     ABGELEITETE GEOMETRIE, KEIN VIERTER RADIUS – damit niemand sie für eine neue Sprosse hält:
+       .seg button  = calc(var(--r-sm) - 4px) = 8px (Innenradius in einem 12er-Rahmen mit 4px Luft)
+       .bar/.sheet-grip = 3px, .pw-meter = 2px: das ist die HALBE HÖHE eines 6- bzw. 5- bzw.
+       4-px-Balkens. Ein Balken mit halber Höhe als Radius hat Halbkreis-Enden – das ist Geometrie. */
+  --r-sm:12px;--r:16px;--r-lg:24px;--r-pill:999px;
   /* --r-md ist der benannte Zwilling von --r (16px): die Bereichs-Stylesheets greifen an mehreren
-     Stellen darauf zu, die Skala xs/sm/md/lg war ohne ihn unvollständig und die Regeln fielen weg. */
-  --r-xs:8px;--r-sm:12px;--r-md:16px;--r:16px;--r-lg:24px;--r-pill:999px;
+     Stellen darauf zu; er bleibt als Alias, bis sie auf --r umgestellt sind.
+     legacy: --r-xs (8px) ist GELÖSCHT und zeigt auf die nächste Sprosse (12px). Zwei Verbraucher in
+     css/account.css (.login-logo, .sh-code) werden in Welle 5 auf --r-sm umgeschrieben. */
+  --r-md:var(--r);--r-xs:var(--r-sm);
   /* DAS ABSTANDS-RASTER (Befund B11, RESEARCH-25-design 2.2): 4 · 8 · 12 · 16 · 24 · 32 · 48.
      Es gibt keinen achten Wert. Die Leiter stand seit 2.1 hier – und hatte bis zur Fix-Runde
      NULL Verbraucher (`grep -c "var(--s-"` über alle acht Stylesheets: 0), während gemessen
@@ -73,16 +88,54 @@
   /* --t-min ist die Untergrenze aus CRITIC K10: unter 12 px wird auf dunklem Grund nichts mehr
      gelesen, es wird geraten. Es ist derselbe Wert wie --t-xs – der eigene Name sagt aber, dass
      man ihn nicht unterbieten darf, statt ihn für „noch eine Stufe kleiner" zu halten. */
-  --t-min:12px;
-  /* DIE TYPO-LEITER (Befund B10). Zehn Sprossen für die ganze App, vier je Bildschirm
-     (RESEARCH-25-design 2.1). Gemessen wurden vor der Fix-Runde 8 Größen auf der Startseite und
-     9 im Tracker – weil app.css 43× roh 14 px und 16 px setzte, also Werte, die auf der Leiter
-     gar nicht vorkommen. Roh notiert ist keine Größe mehr: `grep "font-size: *[0-9]" app.css` = 0.
-     UMRECHNEN: nächste Sprosse, bei Gleichstand nach UNTEN (14→13, 16→15, 18→17, 19→20, 24→22,
-     28→26, 54→44). DREI Ausnahmen folgen der ROLLE statt der Zahl: .qcard .t, .chart-card .ch-h .t
-     und .meal-h .ml .t sind Kartentitel mit Gewicht 600 – also .h3, also --t-md. Sonst hätte ein
-     Titel dieselbe Größe wie der Fließtext darunter und nur das Gewicht würde ihn noch tragen. */
-  --t-xs:12px;--t-sm:13px;--t-base:15px;--t-md:17px;--t-lg:20px;--t-xl:22px;--t-2xl:26px;--t-3xl:30px;--t-4xl:34px;--t-num:44px;
+  --t-min:var(--t-xs);
+  /* DIE TYPO-LEITER – SIEBEN SPROSSEN (DESIGN-4 2.1, vorher zehn). Je Bildschirm höchstens FÜNF
+     Größe/Gewicht-Kombinationen; Apples Referenzbildschirm hat vier.
+       --t-4xl  34/41  700   Großer Titel. Genau 1× je Bildschirm. Dazu die eine große Zahl im Ring.
+       --t-2xl  26/30  700   Die große Zahl in einer Kachel (.kpi .v). Nur dort.
+       --t-xl   22/28  700   Sheet-Titel · Bereichsüberschrift (.rows-h.lg) · Held-Überschrift
+       --t-md   17/22  400-700  DER STANDARD. Zeilentitel 500 · Fließtext 400 · Knopf 600 · .rows-h 700
+       --t-base 15/20  400/600  Wert rechts in der Zeile · Segment-Taste · Wortaktion im Kopf
+       --t-sm   13/18  400/600  Unterzeile · GRUPPEN-FUSSTEXT (.rows-f, der Erklärungsort) · Delta
+       --t-xs   12/16  600   Pille · Reiterbeschriftung · Achsentext. UNTERGRENZE der App (--t-min).
+     EINE GRÖSSE HAT GENAU EINE ZEILENHÖHE. Deshalb steht neben jeder Sprosse ein --lh-*; wer
+     var(--t-sm) setzt, setzt var(--lh-sm) dazu. Gemessen standen 13 px mit FÜNF Zeilenhöhen im DOM
+     (18 · 17 · 19 · 0 · 13) – dieselbe Größe, fünf Rhythmen. Das war die fehlende gemeinsame Sprache.
+     ALLES IN rem, NICHT IN px (DESIGN-4 2.1 / K22): Safari iOS reicht die Systemtextgröße nicht an
+     die Seite weiter. In px kann die App auf keinen Textgrößen-Wunsch reagieren; in rem schon,
+     sobald die Wurzelschrift wächst. Wurzel = 100 % (16 px), deshalb 17 px = 1.0625rem.
+     UMRECHNEN: nächste Sprosse, bei Gleichstand nach UNTEN –
+       10→12 · 11→12 · 12,5→12 · 14→13 · 16→15 · 18→17 · 20→17 · 23→22 · 24→22 · 30→26 · 46→34 · 64→34
+     KEINE VERSALIEN ALS STRUKTURMITTEL (A36): .section-label (uppercase + letter-spacing) wird in
+     Welle 4/5 durch .rows-h (17/700, gemischt) ersetzt und steht bis dahin unverändert weiter unten. */
+  /* AUSNAHMEN VON "EINE GROESSE, EINE ZEILENHOEHE", und es sind alle - sie sind GEOMETRIE, nicht
+     Rhythmus: einzeilige Bedienelemente, deren Kasten eine feste Hoehe hat und deren Textzeile
+     darin senkrecht zentriert steht (.pill 22 px, .chip/.btn.sm/.minibtn 44 px, .navbtn im 64-px-
+     Reiter, .hdr .badge 20 px, .setgrid input, .rows-h .a, .setrow .n/.stp). Dort waere eine
+     Zeilenhoehe zusaetzlicher Leerraum IM Ziel, der die Hoehe des Ziels veraendert. Dazu die
+     Anzeigetitel mit enger Fuehrung (.h1, .today .daytype, .login-brand h1) und der Primaerknopf
+     (/1.2, so steht es in DESIGN-4 5.1). Alles, was FLIESSTEXT ist, benutzt die Leiter. */
+  --t-xs:.75rem;    --lh-xs:1rem;       /* 12/16 */
+  --t-sm:.8125rem;  --lh-sm:1.125rem;   /* 13/18 */
+  --t-base:.9375rem;--lh-base:1.25rem;  /* 15/20 */
+  --t-md:1.0625rem; --lh-md:1.375rem;   /* 17/22 */
+  --t-xl:1.375rem;  --lh-xl:1.75rem;    /* 22/28 */
+  --t-2xl:1.625rem; --lh-2xl:1.875rem;  /* 26/30 */
+  --t-4xl:2.125rem; --lh-4xl:2.5625rem; /* 34/41 */
+  /* legacy: DREI Sprossen sind GELÖSCHT und zeigen auf die Sprosse, auf die sie umgerechnet werden.
+     Sie verschwinden, sobald ihre Verbraucher migriert sind (Welle 4/5):
+       --t-lg  (20px→17) app.css .setgrid input/.celebrate-pop/.day-badge/.macro · coach.css .rv-n .v
+                          · mindset.css .mind-area-ic
+       --t-3xl (30px→26) app.css .num-lg · account.css · home.css .daytype · mindset.css .daytype
+       --t-num (44px→34) app.css .num-xl/.celebrate-pop .cl-ic · mindset.css .mp-time u.a. */
+  --t-lg:var(--t-md);--t-3xl:var(--t-2xl);--t-num:var(--t-4xl);
+  /* Roh notiert ist keine Größe: `grep "font-size: *[0-9]" app.css` = 0, und seit der Umstellung
+     auf rem gilt auch `grep "font-size: *[0-9.]*px"` = 0 (K22). DREI Ausnahmen folgen der ROLLE
+     statt der Zahl: .qcard .t, .chart-card .ch-h .t und .meal-h .ml .t sind Kartentitel mit
+     Gewicht 600 – also .h3, also --t-md. Sonst hätte ein Titel dieselbe Größe wie der Fließtext
+     darunter und nur das Gewicht würde ihn noch tragen.
+     --lh-tight/-snug/-body sind VERHÄLTNISSE für Überschriften und Fließtext und bleiben; die
+     festen --lh-xs…--lh-4xl oben sind die Zeilenhöhen der Leiter (eine Größe, eine Höhe). */
   --lh-tight:1.1;--lh-snug:1.3;--lh-body:1.45;--track:-.01em;--track-head:-.02em;
   --shadow:none;--shadow-sheet:0 -8px 40px rgba(0,0,0,.6);--shadow-pop:0 12px 40px rgba(0,0,0,.55);
   /* Bewegung (BUILD-A4 6.7): VIER Dauern und ZWEI Kurven, mehr gibt es nicht.
@@ -101,6 +154,9 @@
      Uhr; ein Token dafür wäre eine Lüge. Alles andere benutzt --dur-*. */
   --ease:cubic-bezier(.2,.8,.2,1);--ease-sheet:cubic-bezier(.16,1,.3,1);--ease-pop:cubic-bezier(.2,1.3,.3,1);
   --dur-fast:120ms;--dur:220ms;--dur-slow:350ms;--dur-data:500ms;
+  /* Das Chevron ">" - EIN Zeichen, EINE Bedeutung (G7), und deshalb auch nur EINE Quelle.
+     Es stand viermal als Daten-URI im Stylesheet (zweimal je Regel, weil -webkit-mask und mask). */
+  --chev-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;
   --tap:44px;--nav-h:64px;--safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);
   /* Fokusring (A-II.5): --focus-ring ist die Farbe der Kontur, --focus-halo der 4-px-Saum DAHINTER.
      Der Saum trennt die Kontur von unruhigem Untergrund; er muss die Farbe der UMGEBUNG haben, sonst
@@ -119,7 +175,14 @@
 
 /* ---------- 2 BASIS ---------- */
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{background:var(--bg);color:var(--ink);font-family:var(--font);overscroll-behavior:none;-webkit-font-smoothing:antialiased;font-size:var(--t-md);line-height:var(--lh-body)}
+/* DIE WURZEL STEHT AUF 100 % (DESIGN-4 2.1 / K22). Das ist die Voraussetzung dafür, dass rem
+   überhaupt etwas bedeutet: Die Leiter ist in rem notiert, die Wurzel darf deshalb NICHT selbst
+   eine Sprosse tragen (html{font-size:var(--t-md)} hieße 1.0625rem von 1.0625rem – die Leiter
+   würde sich selbst multiplizieren). 100 % = die Textgröße, die der Nutzer im System eingestellt
+   hat; auf dem Standardgerät 16 px. Der Fließtext der App ist 17 px und steht an body. */
+html{font-size:100%}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--font);overscroll-behavior:none;-webkit-font-smoothing:antialiased;line-height:var(--lh-body)}
+body{font-size:var(--t-md)}
 ::selection{background:var(--red);color:#fff}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 button:disabled{cursor:default}
@@ -132,19 +195,27 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
 
 /* ---------- 3 TYPOGRAFIE-ROLLEN ---------- */
 .h1{font:700 var(--t-4xl)/var(--lh-tight) var(--font-head);letter-spacing:var(--track-head)}
-.h2{font:700 var(--t-xl)/var(--lh-snug) var(--font-head);letter-spacing:var(--track-head)}
+.h2{font:700 var(--t-xl)/var(--lh-xl) var(--font-head);letter-spacing:var(--track-head)}
 .h3{font:600 var(--t-md)/var(--lh-snug) var(--font);letter-spacing:var(--track)}
-.body{font-size:var(--t-base);line-height:var(--lh-body);font-weight:400}
-.meta{font-size:var(--t-sm);line-height:var(--lh-snug);color:var(--ink2)}
+.body{font-size:var(--t-base);line-height:var(--lh-base);font-weight:400}
+.meta{font-size:var(--t-sm);line-height:var(--lh-sm);color:var(--ink2)}
 .caption{font-size:var(--t-xs);line-height:var(--lh-snug);color:var(--ink3)}
 .num,.num-md,.num-lg,.num-xl{font-variant-numeric:tabular-nums;font-weight:700;letter-spacing:var(--track-head);line-height:var(--lh-tight)}
 .num-md{font-size:var(--t-xl)}.num-lg{font-size:var(--t-3xl)}.num-xl{font-size:var(--t-num)}
 /* Akzent-Budget: die Augenbraue war auf JEDER Seite rot und stand direkt über der Überschrift –
    damit war der erste rote Fleck verbraucht, bevor der CTA überhaupt kam. Sie ist eine Zeile
    Kontext, kein Ruf. Neutral in --ink2 (5,9:1 auf allen vier Flächen). */
-.eyebrow{font:600 var(--t-sm)/var(--lh-snug) var(--font);color:var(--ink2);letter-spacing:.02em}
-.section-label{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-2);font:600 var(--t-sm)/1.3 var(--font);color:var(--ink2);text-transform:uppercase;letter-spacing:.05em;margin:var(--s-6) var(--s-1) var(--s-3)}
-.section-label .sl-r{text-transform:none;letter-spacing:0;color:var(--ink3);font-weight:500}
+.eyebrow{font:600 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);letter-spacing:.02em}
+/* KEINE VERSALIEN ALS STRUKTURMITTEL (A36/A24, 4.2). `.section-label` ist der Rest der alten
+   Sprache: `text-transform:uppercase` plus 0,05 em Sperrung, 12 px. Gemessen im Such-Blatt standen
+   „AKTIONEN · ÜBUNGEN · REZEPTE · LEBENSMITTEL · MINDSET-WISSEN" in Versalien direkt neben den
+   `.rows-h`-Überschriften des restlichen Programms – zwei Designsprachen nebeneinander, ausgerechnet
+   dort, wohin man geht, WEIL man etwas nicht findet. Die Versalien sind in der D-6-Fix-Runde weg;
+   die Klasse selbst bleibt noch stehen, weil `home.js` sie an sechs Stellen erzeugt (fremdes Paket).
+   Sie fällt ersatzlos, sobald auch die auf `groupHTML()` stehen — bis dahin sieht sie wenigstens aus
+   wie eine Überschrift und nicht wie eine zweite App. */
+.section-label{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-2);font:600 var(--t-sm)/1.3 var(--font);color:var(--ink2);text-transform:none;letter-spacing:var(--track);margin:var(--s-6) var(--s-1) var(--s-3)}
+.section-label .sl-r{letter-spacing:0;color:var(--ink3);font-weight:500}
 .sub{color:var(--ink2);font-size:var(--t-base);margin-bottom:var(--s-6)} /* legacy: Untertitel unter .h1 */
 
 /* ---------- 4 UTILITIES (4-px-Raster) ---------- */
@@ -163,44 +234,63 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
 .tone-red{color:var(--red-text)}.tone-green{color:var(--green-text)}.tone-amber{color:var(--amber-text)}.tone-blue{color:var(--blue-text)}
 
 /* ---------- 5 KOMPONENTEN ---------- */
-/* Buttons: .btn ist inline (44 px); .btn.block = DER eine volle CTA (52 px). Während der Migration bleibt ein
-   nacktes .btn wie bisher volle Breite (niedrige Spezifität via :where) – .btn.inline schaltet das ab. */
-.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:var(--s-2);min-height:44px;padding:0 var(--s-4);border-radius:12px;font:600 var(--t-md)/1 var(--font);letter-spacing:-.01em;background:var(--accent);color:var(--on-accent);white-space:nowrap;transition:transform var(--dur-fast),opacity var(--dur-fast),background var(--dur-fast)}
-.btn:where(:not(.sm):not(.icon):not(.inline)){width:100%;line-height:1.2} /* legacy: volle Breite wie v2.0 */
-.btn:where(:not(.sm):not(.icon)){overflow:hidden;text-overflow:ellipsis} /* nicht auf .btn.sm: sonst wird dessen ::before-Trefferflaeche abgeschnitten */
-.btn:active{transform:scale(.97);opacity:.9}
-.btn:disabled{opacity:.4;transform:none}
-.btn.block{width:100%;min-height:52px;border-radius:14px}
-.btn.sec{background:var(--surface3);color:var(--ink)}
-/* Der Ghost-Knopf war rot und stand oft direkt neben dem roten Primärknopf („Tag ändern" neben
-   „Upper 1 starten") – zwei rote Angebote, eines davon die Nebensache. Er ist jetzt leise
-   (--ink2). Wer wirklich einen zweiten Akzent braucht, nimmt .btn.ghost.accent – bewusst
-   umständlich, damit es auffällt. */
-.btn.ghost{background:transparent;color:var(--ink2)}
+/* KNOEPFE - DREI VARIANTEN, MEHR NICHT (DESIGN-4 5.1). Gemessen waren es 59 Bauformen, davon vier
+   allein fuer "Primaer rot" (r14/h52 - r14/h48 - r12/h44 - r999/h44). Ab jetzt:
+
+     Primaer    .btn         52 px - r12 - volle Breite - 17/600 - Flaeche --red / Schrift --on-accent
+                             DIE EINE Hauptaktion des Bildschirms. Genau 1x je Bildschirm (G10).
+                             Nie zweimal, nie in einer Zeile, nie in einem Abschnittskopf.
+     Sekundaer  .btn.sec     44 px - r12 - Flaeche --surface3 / Schrift --ink
+                             Hoechstens 2 je Bildschirm. Wenn eine .row es auch tut: dann Zeile.
+     Leise      .btn.ghost   44 px - transparent - --ink2 (.danger -> --red-text)
+                             Abbrechen - "Alle anzeigen" am Listenende - Zerstoerendes im Sheet.
+
+   SONDERFORM, KEINE VIERTE VARIANTE: .btn.icon - 44 x 44, rund, NUR in .hdr und .push-bar, immer
+   mit aria-label. Im Inhaltsbereich gibt es keinen Symbolknopf ohne Wort (G5/K11).
+
+   NICHTS WIRD ABGESCHNITTEN (G11): white-space:normal statt nowrap + ellipsis. Ein Knopf, dessen
+   Wort nicht in eine Zeile passt, bricht um - er verschweigt es nicht.
+
+   DIE 44-px-KUR bleibt, wo sie steht (BUILD-A4 6.8): der Kasten IST 44 px, die sichtbare Pille darf
+   kleiner sein (padding + background-clip:content-box). Grund: a11y.mjs misst getBoundingClientRect,
+   eine unsichtbare ::before-Erweiterung zaehlt nicht - und zwei unsichtbare Flaechen koennen sich
+   ueberlappen, wobei das spaeter gezeichnete Element gewinnt (so hat eine Trefferflaeche einmal den
+   Uebungsnamen verdeckt). */
+.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:var(--s-2);
+  min-height:52px;width:100%;padding:0 var(--s-4);border-radius:var(--r-sm);
+  font:600 var(--t-md)/1.2 var(--font);letter-spacing:var(--track);
+  background:var(--accent);color:var(--on-accent);white-space:normal;
+  transition:transform var(--dur-fast),opacity var(--dur-fast),background var(--dur-fast)}
+.btn.sec{min-height:var(--tap);background:var(--surface3);color:var(--ink)}
+/* Der Ghost-Knopf war rot und stand oft direkt neben dem roten Primaerknopf ("Tag aendern" neben
+   "Upper 1 starten") - zwei rote Angebote, eines davon die Nebensache. Er ist leise (--ink2).
+   Wer wirklich einen zweiten Akzent braucht, nimmt .btn.ghost.accent - bewusst umstaendlich. */
+.btn.ghost{min-height:var(--tap);background:transparent;color:var(--ink2)}
+.btn.ghost.danger{background:transparent;color:var(--red-text)}
 .btn.ghost.accent{color:var(--accent-text)}
-/* Bleibt rot – Löschen IST der Fehlerfall. Fläche --surface3 (nicht --surface4), weil --red-text
-   dort 4,64:1 hat statt 3,97:1; deshalb steht .btn.danger auch nicht in der Sheet-Elevation. */
-.btn.danger{background:var(--surface3);color:var(--red-text)}
-/* ECHTE 44 px statt unsichtbarer Erweiterung (BUILD-A4 6.8).
-   Bis 2.7.0 waren die kleinen Knöpfe 36 px groß und holten sich die fehlenden 8 px über
-   `::before{inset:-4px}`. Das hat zwei Nachteile, die beide schon zugeschlagen haben:
-   (1) a11y.mjs misst getBoundingClientRect – die unsichtbare Fläche zählt nicht, deshalb standen
-       187 Ziele unter 44 px im Bericht, obwohl der Finger traf;
-   (2) unsichtbare Flächen können sich überlappen, und in der Überlappung gewinnt das später
-       gezeichnete Element – genau so hat in einer früheren Runde eine Trefferfläche den
-       Übungsnamen verdeckt (siehe .hdr .acts weiter unten, fixa25-ueberlapp.mjs).
-   Die Kur ist dieselbe wie bei .sheet-x: der Kasten IST 44 px, die sichtbare Pille bleibt 36 px
-   (padding + background-clip:content-box). Der Kasten braucht Platz im Fluss – dadurch können
-   sich zwei Nachbarn nicht mehr überlagern, sie schieben sich. */
-.btn.sm{min-height:44px;padding:var(--s-1) var(--s-3);font-size:var(--t-sm);border-radius:999px;line-height:1;background-clip:content-box}
-.btn.icon{width:44px;padding:0;border-radius:50%;background:var(--surface3);color:var(--ink2)}
-.btn.icon.sm{width:44px;min-height:44px;padding:var(--s-1);background-clip:content-box}
+.btn.inline{width:auto}
+.btn:active{transform:scale(.97);opacity:.9}
+.btn:disabled{opacity:.4;transform:none;cursor:default}
+.btn .ic{width:18px;height:18px;flex:0 0 auto}
+.btn.icon{width:var(--tap);min-height:var(--tap);padding:0;border-radius:50%;background:var(--surface3);color:var(--ink2)}
 .btn.icon.ghost{background:transparent}
-.btn.icon.red{background:var(--accent);color:var(--on-accent)}
-.btn .ic{width:18px;height:18px}
 .btn.icon .ic{width:20px;height:20px}
+
+/* ---- legacy Knopfformen: bleiben, bis die Bereichsdateien migriert sind (Welle 4/5) ----
+   .btn.sm ist DIE graue Pille aus Marcos Beschwerde ("Nachtragen", "Mehr anzeigen", "+ Athlet",
+   "Heute eintragen"): 14 Fundstellen, alle unter dem Falz. Sie wird ERSATZLOS geloescht, sobald
+   ihre Verwendungsstellen umgezogen sind - in den Abschnittskopf als Wortaktion (.rows-h .a) oder
+   als letzte Zeile der Gruppe (.row.tap). Bis dahin steht sie hier unveraendert, damit in dieser
+   Welle keine Ansicht kaputtgeht. Dasselbe gilt fuer .btn.block (= .btn), .btn.danger (= die
+   zerstoerende Zeile .row.danger bzw. .btn.ghost.danger), .btn.icon.sm und .minibtn (= .btn.sm.sec). */
+.btn.block{width:100%} /* legacy: .btn ist seit DESIGN-4 selbst 52 px und volle Breite */
+.btn.danger{background:var(--surface3);color:var(--red-text)} /* legacy -> .btn.ghost.danger */
+.btn.sm{width:auto;min-height:var(--tap);padding:var(--s-1) var(--s-3);font-size:var(--t-sm);
+  border-radius:var(--r-pill);line-height:1;white-space:nowrap;background-clip:content-box} /* legacy */
+.btn.icon.sm{width:var(--tap);min-height:var(--tap);padding:var(--s-1);background-clip:content-box} /* legacy */
+.btn.icon.red{background:var(--accent);color:var(--on-accent)} /* legacy */
 /* legacy = .btn.sm.sec – und darum dieselbe 44-px-Kur wie dort: echter Kasten, sichtbare 36-px-Pille. */
-.minibtn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:var(--s-1);min-height:44px;padding:var(--s-1) var(--s-3);border-radius:999px;background:var(--surface3);background-clip:content-box;color:var(--ink2);font:600 var(--t-sm)/1 var(--font);white-space:nowrap;transition:transform var(--dur-fast),opacity var(--dur-fast)}
+.minibtn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:var(--s-1);min-height:44px;padding:var(--s-1) var(--s-3);border-radius:var(--r-pill);background:var(--surface3);background-clip:content-box;color:var(--ink2);font:600 var(--t-sm)/1 var(--font);white-space:nowrap;transition:transform var(--dur-fast),opacity var(--dur-fast)}
 .minibtn:active{transform:scale(.97)}
 .minibtn.red{color:var(--red-text)}
 .minibtn.video{color:var(--blue-text)}
@@ -218,7 +308,7 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
    Der Abstand zum Nachbarn bleibt die 8 px aus .chip-row – sie berühren sich nicht mehr.
    `.dayrow .chip`, `.feel .chip`, `#anaBody .an2-range .chip` waren längst 44 px: jetzt sind ALLE
    Chips gleich hoch. Bereichs-Stylesheets dürfen darunter nicht mehr zurück. */
-.chip,.daychip,.fpill{position:relative;display:inline-flex;align-items:center;gap:var(--s-1);min-height:44px;padding:0 var(--s-4);border-radius:999px;background:var(--surface3);color:var(--ink2);font:600 var(--t-sm)/1 var(--font);white-space:nowrap;flex-shrink:0;transition:background var(--dur) var(--ease),color var(--dur),transform var(--dur-fast)}
+.chip,.daychip,.fpill{position:relative;display:inline-flex;align-items:center;gap:var(--s-1);min-height:44px;padding:0 var(--s-4);border-radius:var(--r-pill);background:var(--surface3);color:var(--ink2);font:600 var(--t-sm)/1 var(--font);white-space:nowrap;flex-shrink:0;transition:background var(--dur) var(--ease),color var(--dur),transform var(--dur-fast)}
 .chip:active,.daychip:active,.fpill:active{transform:scale(.96)}
 /* Das Symbol im Chip erbt currentColor – eine eigene Farbregel dafür wäre eine Schriftfarbe ohne
    Fläche und fiele in contrast.mjs als „auf beiden Gründen durchgefallen" auf (der Chip ist hell). */
@@ -228,13 +318,36 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
 .chip.rest,.daychip.rest{color:var(--ink3)}
 .chip.done{background:var(--green-tint);color:var(--green-text)}
 .chip .ic{width:16px;height:16px}
-.chip-row{display:flex;gap:var(--s-2);overflow-x:auto;scrollbar-width:none;padding:var(--s-1) 0;mask-image:linear-gradient(90deg,#000 88%,transparent);-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent)}
+/* OHNE MASKE AM RAND (DESIGN-4 5.9). Bis hierher blendete mask-image das Ende der Reihe aus -
+   genau der Effekt "hier ist noch was, aber du siehst es nicht", gegen den diese Ueberarbeitung
+   antritt (G5). Jetzt endet die Reihe buendig am Seitenrand, und wenn sie scrollt, ist das letzte
+   Element ANGESCHNITTEN SICHTBAR - das ist das ehrliche Signal fuer "es geht weiter".
+   scroll-padding-inline sorgt dafuer, dass ein angescrolltes Element an der Fluchtlinie einrastet. */
+.chip-row{display:flex;gap:var(--s-2);overflow-x:auto;scrollbar-width:none;padding:var(--s-1) 0;
+  scroll-padding-inline:var(--s-4)}
 .chip-row::-webkit-scrollbar{display:none}
-.chip-row.wrap{flex-wrap:wrap;overflow:visible;mask-image:none;-webkit-mask-image:none}
+.chip-row.wrap{flex-wrap:wrap;overflow:visible}
 .filter-pills{display:flex;gap:var(--s-2);flex-wrap:wrap;margin-bottom:var(--s-4)} /* legacy = .chip-row.wrap */
 
+/* ZWEI HOEHEN FUER "KLEINE MARKE", NICHT VIER (DESIGN-4 5.9/5.10). Gemessen standen 22 / 28 / 32 /
+   44 px nebeneinander und meinten dreierlei. Ab jetzt:
+     .chip  44 px - BEDIENBAR. Zeitraum oder Filter, genau eine waagrecht scrollbare Reihe.
+                    Nie als zweite Steuerebene unter einem Segment, nie als Ablage fuer Funktionen
+                    (das ist die graue Pille), nie fuer Status (das ist .pill).
+     .pill  22 px - ANZEIGE. DIE eine Marke fuer "Achtung / faellig / neu / erledigt", immer rechts
+                    in der Zeile (.rr). Nie ein Knopf, nie ohne Wort (A47).
+   ACHT CHIP-GRUNDKLASSEN WERDEN EINE: .daychip und .fpill teilen sich die Grundregel oben bereits;
+   .mchip (mindset.css:11), .nchip (mindset.css:51), .tchip (training.css:54), .coach-chip
+   (coach.css:33) und .dt-day (diet.css:22) definieren sich heute vollstaendig selbst und werden in
+   Welle 4/5 zu Modifiern von .chip. Sie stehen hier bewusst NICHT im Selektor der Grundregel:
+   .tchip ist 28 px hoch, ein geerbtes min-height:44px wuerde es sofort auseinanderziehen -
+   eine Vereinheitlichung, die den Bestand kaputtmacht, ist keine.
+   SIEBEN FORMEN FUER "ACHTUNG" WERDEN EINE: farbiger Punkt, roter Pill, amber Pill, amber Text ohne
+   Pille, rote Ueberschrift mit Warndreieck, roter Untertext und .note.warn als Marke - alle sieben
+   werden .pill mit Ton und WORT. .note.warn bleibt, aber nur als Kasten fuer einen ganzen
+   Abschnitt, nie als Marke an einem Einzelding. */
 /* Pills (Status, 22 px) */
-.pill{display:inline-flex;align-items:center;gap:var(--s-1);height:22px;padding:0 var(--s-2);border-radius:999px;font:600 var(--t-min)/1 var(--font);white-space:nowrap;vertical-align:middle;background:var(--surface3);color:var(--ink2)}
+.pill{display:inline-flex;align-items:center;gap:var(--s-1);height:22px;padding:0 var(--s-2);border-radius:var(--r-pill);font:600 var(--t-min)/1 var(--font);white-space:nowrap;vertical-align:middle;background:var(--surface3);color:var(--ink2)}
 /* .pill.red bleibt rot – das ist der Fehler-/Achtungsfall.
    .pill.must („Pflicht") und .pill.coach („Coach") waren dieselbe rote Tönung, standen aber
    dreimal nebeneinander auf einer Seite und meinten nur „gehört dazu". Sie sind jetzt neutral
@@ -243,7 +356,7 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
 .pill.must,.pill.coach{background:var(--surface3);color:var(--ink2)}
 .pill.must::before,.pill.coach::before{content:'';flex:0 0 5px;width:5px;height:5px;border-radius:50%;background:var(--ink3)}
 .pill.green{background:var(--green-tint);color:var(--green-text)}
-.pill.amber{background:var(--amber-tint);color:var(--amber-text)}
+.pill.amber,.pill.due{background:var(--amber-tint);color:var(--amber-text)} /* .due = legacy Doppelgaenger aus mindset.css */
 .pill.blue{background:var(--blue-tint);color:var(--blue-text)}
 .pill.neutral{background:var(--surface3);color:var(--ink2)}
 .pill.coach{margin-left:var(--s-1)} /* legacy: Pill direkt hinter einem Namen */
@@ -265,12 +378,12 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
 .sheet .ic-tile{background:var(--surface4)}
 
 /* Segmented Control – identisch auf Seite und im Sheet */
-.seg{display:flex;background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline);border-radius:12px;padding:var(--s-1);gap:var(--s-1)}
+.seg{display:flex;background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline);border-radius:var(--r-sm);padding:var(--s-1);gap:var(--s-1)}
 .seg{margin-bottom:var(--s-4)} /* legacy default spacing; remove after migration */
 /* 38 px + `::before{inset:-3px -1px}` ergab 44 px Trefferfläche, die a11y.mjs nicht sah (18 von 54
    zu kleinen Zielen der Kernflüsse waren Segmenttasten). Jetzt sind die Tasten wirklich 44 px hoch;
    die Leiste wird dadurch 50 px hoch – dieselbe Schwere wie ein .btn, und sie ist ja auch einer. */
-.seg button{position:relative;flex:1;min-height:44px;padding:0 var(--s-1);border-radius:9px;font:600 var(--t-base)/1.2 var(--font);letter-spacing:-.01em;color:var(--ink2);transition:background var(--dur) var(--ease),color var(--dur)}
+.seg button{position:relative;flex:1;min-height:44px;padding:0 var(--s-1);border-radius:calc(var(--r-sm) - 4px);font:600 var(--t-base)/1.2 var(--font);letter-spacing:-.01em;color:var(--ink2);transition:background var(--dur) var(--ease),color var(--dur)}
 /* Stil B („weich gewählt") – dieselbe Fläche und derselbe Ring wie .chip.soft.on, damit die App
    zwei Auswahlzustände hat und nicht fünf. */
 .seg button.on{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring),0 1px 2px rgba(0,0,0,.5)}
@@ -280,16 +393,16 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
 
 /* Karten – Elevation durch Fläche, nie durch Schatten */
 .card,.surface,.today,.tile,.qcard,.chart-card,.meal,.ex,.stat-strip,.rows,.macro{background:var(--surface);box-shadow:none}
-.card{border-radius:16px;padding:var(--s-4)}
-.card.lg{padding:var(--s-6);border-radius:24px}
+.card{border-radius:var(--r);padding:var(--s-4)}
+.card.lg{padding:var(--s-6);border-radius:var(--r-lg)}
 .card .card,.card.sub,.surface .surface,.card .surface,.surface .card{background:var(--surface2);box-shadow:inset 0 0 0 1px var(--hairline)}
-.surface{border-radius:16px;overflow:hidden} /* legacy = .card ohne Innenabstand */
+.surface{border-radius:var(--r);overflow:hidden} /* legacy = .card ohne Innenabstand */
 .pad{padding:var(--s-4)} /* legacy */
 /* Stil B („weich gewählt") für ganze Karten – die sechste Auswahl-Sprache war eine 2-px-Rotkante um
    die gewählte Onboarding-Karte (core.js bigChoice). Spezifität (0,2,0) schlägt die Sheet-Elevation
    (0,1,0), die Regel gilt deshalb auf der Seite und im Dialog. */
 .card.sel,.tile.sel,.qcard.sel{background:var(--sel-soft);box-shadow:inset 0 0 0 1px var(--sel-ring)}
-.tile{border-radius:16px;padding:var(--s-4)}
+.tile{border-radius:var(--r);padding:var(--s-4)}
 .tile .v{font-size:var(--t-2xl);font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .tile .v em{font-size:var(--t-sm);color:var(--ink2);font-style:normal;font-weight:500}
 .tile .l{color:var(--ink2);font-size:var(--t-sm);margin-top:var(--s-1)}
@@ -297,19 +410,19 @@ svg.ic{flex:0 0 auto;vertical-align:middle}
 .trend.up{color:var(--green-text)}.trend.down{color:var(--red-text)}.trend.amber{color:var(--amber-text)}
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-3);margin-bottom:var(--s-4)}
 .quick{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-3)}
-.qcard{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;border-radius:16px;padding:var(--s-4);text-align:left;transition:transform var(--dur-fast)}
+.qcard{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;border-radius:var(--r);padding:var(--s-4);text-align:left;transition:transform var(--dur-fast)}
 .qcard:active{transform:scale(.97)}
 .qcard .ic{font-size:var(--t-xl);margin-bottom:var(--s-2);display:block}
 .qcard .t{font-weight:600;font-size:var(--t-md);letter-spacing:-.01em}
 .qcard .d{color:var(--ink2);font-size:var(--t-sm);margin-top:var(--s-1)}
-.chart-card{border-radius:16px;padding:var(--s-4);margin-bottom:var(--s-4)}
+.chart-card{border-radius:var(--r);padding:var(--s-4);margin-bottom:var(--s-4)}
 .chart-card .ch-h{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-2);margin-bottom:var(--s-3)}
 .chart-card .ch-h .t{font-weight:600;font-size:var(--t-md)}
 .chart-card .ch-h .v{font-size:var(--t-sm);color:var(--ink2);text-align:right}
 svg.spark{width:100%;height:120px;display:block}
 
 /* Stat-Strip (antippbare Kennzahl-Zeile) */
-.stat-strip{display:flex;align-items:center;gap:var(--s-3);min-height:56px;padding:var(--s-3) var(--s-4);border-radius:16px;margin-bottom:var(--s-3);cursor:pointer}
+.stat-strip{display:flex;align-items:center;gap:var(--s-3);min-height:56px;padding:var(--s-3) var(--s-4);border-radius:var(--r);margin-bottom:var(--s-3);cursor:pointer}
 .stat-strip:active{transform:scale(.99)}
 .stat-strip .si{flex:0 0 auto;display:flex;align-items:center;font-size:var(--t-xl);color:var(--ink2)}
 .stat-strip .si .ic{width:24px;height:24px}
@@ -319,22 +432,173 @@ svg.spark{width:100%;height:120px;display:block}
 .stat-strip .sx{flex:0 0 auto;display:flex;align-items:center;color:var(--ink3);font-size:var(--t-md);font-weight:600}
 .stat-strip .sv{flex:0 0 auto;font-weight:700;font-size:var(--t-md)}
 
-/* Rows */
-.rows{border-radius:16px;overflow:hidden}
-.row,.switch-row{display:flex;align-items:center;gap:var(--s-3);min-height:56px;padding:var(--s-3) var(--s-4);border-bottom:.5px solid var(--hairline2)}
+/* ================= DAS EINE ZEILENMUSTER (DESIGN-4 Teil 4) =================
+   Heute existieren 25 Zeilenformen, drei davon zeichengleiche Kopien derselben Zeile. Ab jetzt
+   gibt es EINE - .row - mit benannten Varianten, und genau EINE begruendete Ausnahme: .setrow.
+
+     .rows-h   Abschnittsueberschrift (+ .a = Wortaktion rechts, + .lg = Bereichsueberschrift)
+     .rows     die Gruppe: Karte, --surface, r16, Trennlinien innen
+     .row      die Zeile: 56 px, Symbol - Titel - Unterzeile - Wert - Chevron
+     .rows-f   der Fusstext unter der Gruppe: DER ERKLAERUNGSORT DER APP (G8/A25)
+     .setrow   die Satzzeile (5.12): vier gleichrangige Zahlenfelder plus Bestaetigung, 60 px
+
+   WARUM EINE HOEHE: Konstante Zeilenhoehe heisst konstante Lesekosten. Der Rhythmus IST die
+   Wiedererkennung (A21/A31) - man ueberfliegt eine Liste, statt sie zu lesen.
+
+   WARUM DAS CHEVRON EIN EIGENES ELEMENT IST: ">" bedeutet genau eines - fuehrt weiter (G7/A27).
+   Es wird als <span class="chev" aria-hidden="true"></span> gesetzt, nicht als Pseudoelement,
+   weil ::before der Zeile schon die Trennlinie traegt und ::after in den Bereichsdateien noch das
+   alte Chevron haelt. rowHTML() in core.js setzt .chev automatisch; handgeschriebene Zeilen ohne
+   .chev bekommen es bis zur Migration weiter als ::after (legacy, faellt in Welle 4/5).
+
+   DIE TRENNLINIE ist 0,5 px und BEIDSEITIG 16 px eingerueckt - die Einrueckung sagt "gleiche
+   Gruppe, naechster Punkt" (A22). Bei Zeilen mit Symbol rueckt sie links auf 52 px ein
+   (16 + 24 + 12), damit Ausgerichtetes als zusammengehoerig gelesen wird (A41): .rows.inset.
+   Sie sitzt im ::before des Kindes, nicht im border-bottom, weil ein Rahmen nicht einruecken kann.
+   Sie greift NUR an .row/.switch-row/.setrow, nicht an "alle Kinder von .rows" - es gibt heute
+   Markup wie class="switch-row rows", in dem .rows nur Flaeche und Radius meint.
+
+   GRUPPENABSTAND: Die 24 px zwischen zwei Gruppen kommen in dieser Welle aus .rows-h (oben) und
+   .rows-f (unten). .rows selbst bekommt NOCH KEIN margin-bottom - 51 Fundstellen tragen heute
+   .mb-2/.mb-3/.mb-4, und ein Standardwert wuerde jede davon um 24 px auseinanderziehen. Sobald
+   die Bereichsdateien in Welle 4/5 auf groupHTML() umgestellt sind, wandert der Abstand nach
+   .rows und die Utilities fallen weg. */
+
+/* ---- Gruppe ---- */
+.rows{border-radius:var(--r);overflow:hidden}
+.rows>.row,.rows>.switch-row,.rows>.setrow{border-bottom:none}
+.rows>.row:not(:last-child)::before,.rows>.switch-row:not(:last-child)::before,
+.rows>.setrow:not(:last-child)::before{content:'';position:absolute;left:var(--s-4);right:var(--s-4);
+  bottom:0;height:.5px;background:var(--hairline2);pointer-events:none}
+.rows.inset>.row:not(:last-child)::before,.rows.inset>.switch-row:not(:last-child)::before,
+.rows.inset>.setrow:not(:last-child)::before{left:calc(var(--s-4) + 24px + var(--s-3))}
+
+/* ---- Zeile ---- */
+/* width:100% ist KEIN Schoenheitsfehler: rowHTML() baut die tippbare Zeile als <button>, und ein
+   Knopf mit width:auto schrumpft auf seinen Inhalt statt die Gruppe zu fuellen. Ohne diese Zeile
+   stuende der Wert nicht rechts, sondern direkt hinter dem Titel. */
+.row,.switch-row{position:relative;display:flex;align-items:center;gap:var(--s-3);min-height:56px;width:100%;
+  padding:var(--s-3) var(--s-4);text-align:left;border-bottom:.5px solid var(--hairline2)}
 .row:last-child,.switch-row:last-child{border-bottom:none}
 .row .r-ic{flex:0 0 24px;display:flex;align-items:center;justify-content:center;color:var(--ink2)}
 .row .r-ic .ic{width:24px;height:24px}
-.row .rl,.switch-row .rl{flex:1;min-width:0;font:500 var(--t-md)/1.3 var(--font);letter-spacing:var(--track)}
-.row .rl small,.switch-row .rl small{display:block;color:var(--ink2);font-size:var(--t-sm);font-weight:400;margin-top:1px}
-.row .rr{flex:0 0 auto;display:flex;align-items:center;gap:var(--s-1);white-space:nowrap;color:var(--ink2);font-size:var(--t-base);text-align:right}
-.row .rr.wrap{white-space:normal;max-width:55%;justify-content:flex-end}
+/* TITEL UND WERT TEILEN SICH DIE ZEILE - und keiner von beiden darf den anderen zerdruecken (G11).
+   Bis zur D-6-Fix-Runde stand hier `.rl{flex:1}` (= `1 1 0%`) neben `.rr{flex:0 0 auto;
+   white-space:nowrap}`. Eine Basis von 0 heisst: der Titel SCHRUMPFT NICHT (Schrumpffaktor x Basis
+   = 0), der Wert schrumpft nicht (flex-shrink 0) - also blieb bei zu wenig Platz fuer den Titel
+   rechnerisch NICHTS uebrig, und weil `.rl` nicht abschneidet, malte sein Text ueber den Wert.
+   Gemessen bei 320 px und 150 % Textgroesse (scratchpad/d6fix-s5.mjs, Startseite):
+     span.rl "Ernährung"   118 px Inhalt in  21 px Kasten
+     span.rl "Diese Woche"  78 px Inhalt in   9 px Kasten
+   Auf dem Bild stand Buchstabe auf Buchstabe. Seit D-6 den Textgroessen-Schalter gebaut hat
+   (100/115/130/150 %), ist dieser Zustand in drei Tipps aus der App heraus erreichbar.
+   Die Kur: der Titel bekommt eine echte Basis (`auto` = seine Textbreite) und darf damit
+   mitschrumpfen, der Wert bekommt `shrink:1` und darf UMBRECHEN statt zu ueberlaufen - faellt dabei
+   aber nie unter `min-content`, sonst laeuft eine Pille ueber ihren Kasten hinaus. Solange Platz
+   da ist, aendert sich nichts. Welche Fassung warum, steht im naechsten Absatz. */
+/* UND EIN LANGES WORT BRICHT, statt ueber den Rand zu laufen (G11). `hyphens:auto` trennt es mit
+   Bindestrich (die Seite traegt `lang="de"`), `overflow-wrap:break-word` faengt ab, was auch die
+   Trennung nicht klein genug bekommt. Gemessen bei 320 px/150 %: "Ernaehrung" mass 118 px in einem
+   64-px-Kasten, "Power-Atmung" 92 in 71 - deutsche Zusammensetzungen sind laenger als ihr Platz,
+   sobald der Text waechst. Auf den Aufnahmen aus dem kopflosen Browser bricht das Wort OHNE
+   Bindestrich: der Windows-Chrome dieses Pruefstands hat kein deutsches Trennwoerterbuch geladen.
+   Auf dem Geraet (Safari/Chrome mit Woerterbuch) steht dort "Ernaeh-rung".
+   DIE BEIDEN ZAHLEN SIND GEMESSEN, NICHT GEWAEHLT. Vier Fassungen wurden gefahren:
+     rl 40 %                  - 0 echte Ueberlappungen, ABER "197 von 3.017 kcal" brach auf 390 px
+                                auf zwei Zeilen um: Startseite 1.037 -> 1.045 px. Der Normalfall
+                                wird schlechter, damit der Ausnahmefall besser wird.
+     rl 60 %                  - dasselbe, staerker.
+     rl auto, rr min-width:0  - ein langer Titel schrumpft kaum noch und drueckt den Wert unter
+                                seine Mindestbreite: SECHS neue echte Ueberlappungen in Mindset,
+                                jedes Mal Titel ueber .pill - genau der Fehler, der hier weg soll.
+     rl auto, rr min-content  - GENOMMEN. Basis = Textbreite, also steht jede Zeile, die passt,
+                                Pixel fuer Pixel wie vorher (Startseite unveraendert 1.037 px);
+                                fehlt Platz, teilen sich Titel und Wert den Fehlbetrag im
+                                Verhaeltnis ihrer Laenge, und der Wert faellt nie unter seine
+                                Mindestbreite - deshalb kann keine Pille mehr ueberlaufen.
+                                Gemessen: 0 echte Ueberlappungen, abgeschnittene Beschriftungen
+                                37 -> 6 (die 6 sind 3 negative Randmasse an .rows-h .a und 3
+                                Tabellenkoepfe aus training.js). */
+.row .rl,.switch-row .rl{flex:1 1 auto;min-width:0;hyphens:auto;overflow-wrap:break-word;
+  font:500 var(--t-md)/var(--lh-md) var(--font);letter-spacing:var(--track)}
+.row .rl small,.switch-row .rl small{display:block;color:var(--ink2);
+  font:400 var(--t-sm)/var(--lh-sm) var(--font);margin-top:1px}
+.row .rr{flex:0 1 auto;min-width:min-content;display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-1);white-space:normal;
+  color:var(--ink2);font:400 var(--t-base)/var(--lh-base) var(--font);text-align:right;justify-content:flex-end}
+.row .rr.wrap{max-width:55%}
 .row.tap{cursor:pointer;transition:background var(--dur) var(--ease)}
 .row.tap:active{background:var(--surface2)}
-.row.tap .rr::after,.row.tap:not(:has(.rr))::after{content:'';flex:0 0 16px;width:16px;height:16px;background:currentColor;color:var(--ink3);-webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat;mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 6 6 6-6 6'/></svg>") center/contain no-repeat}
+/* Das Chevron als eigenes Element - der einzige erlaubte Weg fuer neuen Code. */
+.row .chev{flex:0 0 16px;width:16px;height:16px;background:var(--ink3);
+  -webkit-mask:var(--chev-mask);mask:var(--chev-mask)}
+/* legacy: Zeilen ohne .chev bekommen es weiter als Pseudoelement (Welle 4/5 loest das auf). */
+.row.tap:not(:has(.chev)):not(.danger) .rr::after,.row.tap:not(:has(.chev)):not(.danger):not(:has(.rr))::after{content:'';
+  flex:0 0 16px;width:16px;height:16px;background:currentColor;color:var(--ink3);
+  -webkit-mask:var(--chev-mask);mask:var(--chev-mask)}
+/* Schalterzeile: der Zeilentext IST die Beschriftung, der Schalter bekommt keine eigene (A29).
+   .switch traegt in der Anmeldung eine andere Bedeutung ("Noch kein Konto?") - deshalb setzt
+   .row.switch deren zentrierten Satzbau ausdruecklich zurueck. */
+.row.switch{margin-top:0;text-align:left;font-size:inherit;color:inherit}
+input.sw{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:51px;height:31px;margin:0;
+  border-radius:var(--r-pill);background:var(--surface4);position:relative;cursor:pointer;
+  transition:background var(--dur) var(--ease)}
+input.sw::after{content:'';position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;
+  background:#fff;transition:transform var(--dur) var(--ease)}
+input.sw:checked{background:var(--green)}
+input.sw:checked::after{transform:translateX(20px)}
+input.sw:disabled{opacity:.4;cursor:default}
+/* Zerstoerende Aktion: eigene, einzeilige Gruppe, zentriert, rote Schrift (A30). */
+.row.danger{justify-content:center;color:var(--red-text);font-weight:600}
+.row.danger .rl{flex:0 0 auto;font-weight:600}
+.row[aria-disabled="true"]{color:var(--ink-disabled)}
+.row[aria-disabled="true"] .chev{display:none}
+
+/* ---- Abschnittsueberschrift und Fusstext ---- */
+/* flex-wrap: die Wortaktion rechts (".rows-h .a") rueckt bei grossem Text in die zweite Zeile,
+   statt die Ueberschrift ueber den Rand zu schieben - gemessen 284 px in 280 px bei 320/150 %. */
+.rows-h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:var(--s-2);
+  margin:var(--s-6) var(--s-1) var(--s-2);
+  font:700 var(--t-md)/var(--lh-md) var(--font);color:var(--ink);
+  text-transform:none;letter-spacing:var(--track)}
+.rows-h.lg{font:700 var(--t-xl)/var(--lh-xl) var(--font-head);letter-spacing:var(--track-head)}
+/* Die Wortaktion ersetzt die graue Pille (.btn.sm): "Nachtragen", "Mehr anzeigen", "+ Athlet".
+   Die negativen Margen holen die 44-px-Trefferregion in die Grundlinie der Ueberschrift zurueck. */
+.rows-h .a{flex:0 0 auto;min-height:var(--tap);display:inline-flex;align-items:center;
+  padding:0 var(--s-1);margin:calc(var(--s-3) * -1) calc(var(--s-1) * -1);
+  font:600 var(--t-base)/1 var(--font);color:var(--ink2);white-space:nowrap}
+.rows-h .a:active{opacity:.6}
+/* DER ERKLAERUNGSORT (G8/A25): grauer Fliesstext unter der Gruppe, mehrzeilig, DAUERHAFT SICHTBAR.
+   Er ersetzt jedes i-Symbol, jeden Tooltip und jedes title-Attribut - Erklaerung an der Stelle des
+   Zweifels, ohne Interaktion. Auf dem Handy ist ein title-Attribut ueberhaupt nicht erreichbar. */
+.rows-f{margin:var(--s-2) var(--s-4) var(--s-6);
+  font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
+.rows:has(+ .rows-f){margin-bottom:0}
+
+/* ---- .setrow: DIE EINE BEGRUENDETE AUSNAHME (DESIGN-4 5.12) ----
+   Sie traegt vier gleichrangige Zahlenfelder plus Bestaetigung und wird 20-40x je Einheit bedient.
+   Eine .row mit einem Wert rechts kann das nicht. 60 px, weil vier Ziele nebeneinander 44 px Hoehe
+   plus 8 px Luft brauchen. Die Stepper sind in JEDER Zeile sichtbar, nicht nur in der aktuellen -
+   sonst hat eine Einheit mit 27 Saetzen 9 sichtbare Werkzeugleisten und 18 Zeilen ohne jedes
+   Werkzeug (R1). Der Kopf traegt Woerter, keine Kuerzel: Gewicht - Wiederh. - Reserve (G9);
+   "RIR" steht hoechstens als Zusatz im .rows-f darunter.
+   Wird von training.js in Welle 4 bezogen; hier steht sie, damit es nur EINE Definition gibt. */
+.setrow{position:relative;display:flex;align-items:center;gap:var(--s-2);min-height:60px;
+  padding:var(--s-2) var(--s-4);text-align:left}
+.setrow-h{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-4);
+  font:600 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
+.setrow .n{flex:0 0 var(--tap);min-height:var(--tap);display:inline-flex;align-items:center;gap:var(--s-1);
+  font:600 var(--t-base)/1 var(--font);color:var(--ink2);font-variant-numeric:tabular-nums}
+.setrow .n .chev{flex:0 0 12px;width:12px;height:12px}
+.setrow .f{flex:1;min-width:0;display:flex;align-items:center;gap:var(--s-1);justify-content:center}
+.setrow .stp{flex:0 0 var(--tap);width:var(--tap);min-height:var(--tap);display:inline-flex;
+  align-items:center;justify-content:center;border-radius:var(--r-sm);background:var(--surface3);
+  color:var(--ink);font:700 var(--t-sm)/1 var(--font);font-variant-numeric:tabular-nums}
+.setrow .ok{flex:0 0 var(--tap);width:var(--tap);min-height:var(--tap);display:inline-flex;
+  align-items:center;justify-content:center;border-radius:50%;background:var(--surface3);color:var(--ink2)}
+.setrow .ok.on{background:var(--green-tint);color:var(--green-text)}
 
 /* Notes (Hinweis, Warnung, Status). Nur infoBox() erzeugt ein schließbares .note[data-hint]. */
-.note,.info,.warn{background:var(--surface2);border-radius:12px;padding:var(--s-3) var(--s-4);font-size:var(--t-sm);color:var(--ink2);line-height:1.45}
+.note,.info,.warn{background:var(--surface2);border-radius:var(--r-sm);padding:var(--s-3) var(--s-4);font:400 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2)}
 .info,.warn{margin-bottom:var(--s-4);font-size:var(--t-sm)} /* legacy spacing/size; .info = alias of .note */
 .note.status{background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline2)} /* Daten/Status, nie schließbar – abgesetzt vom Erklärhinweis */
 .note.status b{color:var(--ink)}
@@ -346,7 +610,7 @@ svg.spark{width:100%;height:120px;display:block}
 .note[data-hint]{display:flex;align-items:flex-start;gap:var(--s-2)}
 .note[data-hint]>.fill{flex:1;min-width:0}
 .note[data-hint]>.btn.icon.sm{margin:-6px -8px -6px 0;background:transparent}
-.err{background:var(--red-tint);color:var(--red-text);padding:var(--s-3);border-radius:12px;font-size:var(--t-sm);margin-bottom:var(--s-3)}
+.err{background:var(--red-tint);color:var(--red-text);padding:var(--s-3);border-radius:var(--r-sm);font-size:var(--t-sm);margin-bottom:var(--s-3)}
 /* Ü-2 · Kurze Aufzählung IN einem .note: „das siehst du mit dieser Stufe", „weg ist damit".
    Ein Satz mit drei Kommas ist an dieser Stelle unlesbar – drei Zeilen sind es nicht. Die App
    hat sonst keine Listen, deshalb steht hier alles explizit (der Browser-Standard bringt 16 px
@@ -357,19 +621,19 @@ svg.spark{width:100%;height:120px;display:block}
 
 /* Felder */
 .field{margin-bottom:var(--s-3)}
-.field label{display:block;font:500 var(--t-sm)/1.3 var(--font);color:var(--ink2);margin-bottom:var(--s-1)}
-.field input,.field select,.field textarea{width:100%;min-height:48px;background:var(--surface2);border:1px solid var(--hairline2);border-radius:12px;padding:var(--s-3);font-size:var(--t-md);color:var(--ink);transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
+.field label{display:block;font:500 var(--t-sm)/var(--lh-sm) var(--font);color:var(--ink2);margin-bottom:var(--s-1)}
+.field input,.field select,.field textarea{width:100%;min-height:48px;background:var(--surface2);border:1px solid var(--hairline2);border-radius:var(--r-sm);padding:var(--s-3);font-size:var(--t-md);color:var(--ink);transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
 .field textarea{resize:none;min-height:72px}
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
 .field input::placeholder,.field textarea::placeholder{color:var(--ink3)}
-select.field,input.field,textarea.field{width:100%;min-height:48px;background:var(--surface2);border:1px solid var(--hairline2);border-radius:12px;padding:var(--s-3);font-size:var(--t-md);color:var(--ink)} /* Alias: class direkt am Element */
+select.field,input.field,textarea.field{width:100%;min-height:48px;background:var(--surface2);border:1px solid var(--hairline2);border-radius:var(--r-sm);padding:var(--s-3);font-size:var(--t-md);color:var(--ink)} /* Alias: class direkt am Element */
 .sheet #dashAvatar,.sheet .av-circle{background:var(--surface3)}
 .field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--red)}
 /* Passwortfeld mit „anzeigen"-Auge (account.js pwField): Auge sitzt IM Feld, 44×44 px Trefferfläche,
    das Feld bekommt rechts Platz, damit kein Zeichen unter dem Auge verschwindet. */
 .pw-wrap{position:relative}
 .pw-wrap input{padding-right:calc(var(--tap) + var(--s-2))}
-.pw-eye{position:absolute;top:50%;right:2px;transform:translateY(-50%);width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;color:var(--ink3)}
+.pw-eye{position:absolute;top:50%;right:2px;transform:translateY(-50%);width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-sm);color:var(--ink3)}
 .pw-eye[aria-pressed=true]{color:var(--ink)}
 .pw-eye:active{color:var(--ink)}
 /* Stärke-Hilfe unter dem Feld – ein Hinweis beim Tippen, kein Fehler (kein Rot-Rahmen, kein Riegel) */
@@ -382,11 +646,11 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 .pw-hint .pw-hint-t{flex:1;min-width:0}
 .field .err{background:none;padding:0;margin:var(--s-1) 0 0;font-size:var(--t-sm);color:var(--red-text);border-radius:0}
 .switch-row .tgl{margin-left:auto}
-.tgl{position:relative;flex:0 0 auto;width:48px;height:28px;border-radius:14px;background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline2);transition:background var(--dur);cursor:pointer}
+.tgl{position:relative;flex:0 0 auto;width:48px;height:28px;border-radius:var(--r-pill);background:var(--surface3);box-shadow:inset 0 0 0 1px var(--hairline2);transition:background var(--dur);cursor:pointer}
 .tgl::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:left var(--dur) var(--ease)}
 .tgl.on{background:var(--green);box-shadow:none}
 .tgl.on::after{left:23px}
-.rcheck{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:28px;height:28px;margin:0;border-radius:9px;background:var(--surface3);box-shadow:inset 0 0 0 1.5px var(--hairline2);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background var(--dur-fast);position:relative}
+.rcheck{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:28px;height:28px;margin:0;border-radius:var(--r-sm);background:var(--surface3);box-shadow:inset 0 0 0 1.5px var(--hairline2);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background var(--dur-fast);position:relative}
 .rcheck:checked{background:var(--green);box-shadow:none}
 /* Das Häkchen war das Textzeichen „✓" in Weiß: 2,02:1 auf Grün, und Segoe zeichnet es fett, iOS
    dünn (RATE N4). Jetzt dieselbe Maske wie icon('check') in core.js – ein Set, ein Strich, 11,6:1. */
@@ -397,7 +661,7 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 .setgrid{display:grid;grid-template-columns:32px 1fr 1fr 44px;gap:var(--s-2) var(--s-3);align-items:center}
 .setgrid .hd{font-size:var(--t-xs);color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;font-weight:600;text-align:center;padding-bottom:var(--s-1)}
 .setgrid .sn{font-size:var(--t-sm);font-weight:600;color:var(--ink3);text-align:center;font-variant-numeric:tabular-nums}
-.setgrid input{width:100%;min-height:48px;background:var(--surface2);border:1px solid var(--hairline2);border-radius:8px;padding:var(--s-2) var(--s-1);text-align:center;font:700 var(--t-lg)/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink);transition:border-color var(--dur-fast)}
+.setgrid input{width:100%;min-height:48px;background:var(--surface2);border:1px solid var(--hairline2);border-radius:var(--r-sm);padding:var(--s-2) var(--s-1);text-align:center;font:700 var(--t-lg)/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink);transition:border-color var(--dur-fast)}
 .setgrid input.sugg{color:var(--ink3);font-weight:400;font-style:italic}
 .setgrid input:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px var(--red-tint)}
 .setgrid input.saved{border-color:var(--green)}
@@ -425,7 +689,7 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 
 /* Skeleton / Empty / Spinner */
 @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.skeleton{height:72px;border-radius:16px;background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:sk 1.2s linear infinite}
+.skeleton{height:72px;border-radius:var(--r);background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:sk 1.2s linear infinite}
 .skeleton+.skeleton{margin-top:var(--s-3)}
 .skeleton.sm{height:44px}.skeleton.lg{height:140px}
 .empty{padding:var(--s-8) var(--s-4);text-align:center;color:var(--ink2);font-size:var(--t-base)}
@@ -440,7 +704,7 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 /* LOGIN */
 .login{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;justify-content:center;padding:var(--s-8) var(--s-6);max-width:420px;margin:0 auto}
 .login-brand{text-align:center;margin-bottom:var(--s-6)}
-.login-brand .logo-wrap{display:inline-block;background:#000;border-radius:16px;padding:var(--s-6);margin-bottom:var(--s-6)}
+.login-brand .logo-wrap{display:inline-block;background:#000;border-radius:var(--r);padding:var(--s-6);margin-bottom:var(--s-6)}
 .login-brand .logo-img{display:block;width:100%;max-width:250px;height:auto}
 .login-brand h1{font:700 var(--t-4xl)/1.05 var(--font-head);letter-spacing:var(--track-head);margin-top:var(--s-1)}
 .login-brand p{color:var(--ink2);font-size:var(--t-base);margin-top:var(--s-2)}
@@ -451,6 +715,30 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 /* HEADER */
 .hdr{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);padding:calc(var(--safe-t) + var(--s-2)) var(--s-4) var(--s-2);display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);min-height:calc(var(--safe-t) + 56px);border-bottom:.5px solid var(--hairline2)}
 .hdr .title{font:600 var(--t-md)/1.3 var(--font);letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* DER KOMPAKTE TITEL (DESIGN-4 3.2, Tabelle „Verhalten beim Scrollen").
+   Am Seitenanfang steht der Name GROSS auf der Seite – dann wäre er in der Kopfzeile ein zweites Mal
+   dasselbe Wort auf demselben Bild. Er erscheint erst, wenn der große Titel oben aus dem Bild
+   gescrollt ist: 220 ms Einblendung und 4 px Aufwärtsbewegung, gesetzt von mountLargeTitle()
+   (shell.js) über die Klasse `sunk`.
+   `sunk` ist ausdrücklich der SICHTBARE Zustand und steht in index.html von Anfang an drin: eine
+   Ansicht ohne großen Titel (Anmeldung, Onboarding, eine Seite im Aufbau) zeigt den kompakten Titel
+   dauerhaft. Ein Bildschirm ohne Namen gibt es nicht (G1) – auch nicht für 200 ms. */
+/* Das Kürzen gehört an den SPAN, nicht an den Kasten darum: `text-overflow` greift nur auf den
+   eigenen Inline-Inhalt eines Elements, und der Text sitzt in einem display:block-Kind. Deshalb
+   stand hier bis zur Nachbesserung ein hart gekappter Name ohne jedes Zeichen dafür – gemessen
+   „Chest Supported Dumbbell" bei scrollWidth 305 / clientWidth 210, textOverflow der Wirkung nach
+   `clip`, mitten im Wort. Ein Auslassungszeichen ist die NOTBREMSE, nicht der Plan: der Plan heißt
+   `short` in pushPage() (shell.js) – eine kurze Zweitbeschriftung für die Kopfzeile, weil ein
+   Übungsname in 210 px nun einmal nicht steht (G11/A9: Titel unter 15 Zeichen). */
+.hdr .title>span{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  opacity:0;transform:translateY(4px);
+  transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
+.hdr .title>span.sunk{opacity:1;transform:none}
+/* Die Haarlinie unter der Kopfzeile gehört zum selben Vorgang: solange der große Titel oben steht,
+   ist die Kopfzeile Teil der Seite und braucht keine Kante. `.lg` setzt mountLargeTitle(), sobald es
+   auf der Seite einen großen Titel gefunden hat – ohne ihn bleibt die Linie, wie sie war. */
+.hdr.lg{border-bottom-color:transparent}
+.hdr.lg.scrolled{border-bottom-color:var(--hairline2)}
 .hdr .acts{display:flex;gap:var(--s-1);align-items:center;flex:0 0 auto}
 /* Offline-Zustand im Kopf – die Komponente ist .pill.amber, hier nur Platzverhalten und Trefferfläche.
    Er ist das EINZIGE Element in .acts, das schrumpfen darf: so bleiben Glocke und Avatar bei 320 px
@@ -486,7 +774,7 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
    – zusammen mit dem roten Avatar daneben war das Akzent-Budget verbraucht, bevor der Inhalt
    anfing. Es ist eine ZAHL, kein Ruf: --ink auf --bg-Rand, 21:1 statt 4,97:1, und 12 px statt
    11 px (--t-min). */
-.hdr .badge{position:absolute;top:3px;right:3px;min-width:20px;height:20px;padding:0 var(--s-1);background:var(--ink);color:var(--bg);border-radius:10px;border:2px solid var(--bg);font-size:var(--t-min);font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1;animation:badgePulse 2s ease-in-out 3}
+.hdr .badge{position:absolute;top:3px;right:3px;min-width:20px;height:20px;padding:0 var(--s-1);background:var(--ink);color:var(--bg);border-radius:var(--r-sm);border:2px solid var(--bg);font-size:var(--t-min);font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1;animation:badgePulse 2s ease-in-out 3}
 @keyframes badgePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
 /* Der Avatar ist Identität, kein Angebot: neutrale Fläche mit heller Initiale (12,4:1).
    Trefferfläche: er war 34 px groß und holte sich die fehlenden 10 px über `::before{inset:-5px}`.
@@ -504,6 +792,22 @@ select.field,input.field,textarea.field{width:100%;min-height:48px;background:va
 .ctx-bar .ctx-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #ctxBar:empty{display:none}
 
+/* DER GROSSE TITEL (DESIGN-4 3.2 · G1/G2)
+   Jeder Reiter und jede Push-Seite beginnt damit: 34/41, dieselbe Schrift wie die Wortmarke, darunter
+   optional eine Unterzeile mit KONTEXT (Datum, Zeitraum, Elternobjekt) – nie mit einer Aktion.
+   Maße aus A10: Titelzeile 41 px, Unterzeile 20 px, Block rund 89 px. Kein zusätzlicher Platz
+   gegenüber heute, sobald `.section-label` am Seitenanfang entfällt (Welle 4/5).
+   `overflow-wrap` statt `text-overflow`: ein langer Titel bricht um, er wird nicht abgeschnitten
+   (G11/K8). Genau EIN .lg-title je Bildschirm, als <h1>, damit die Überschriftenstruktur stimmt. */
+.lg-title{margin:var(--s-2) 0 var(--s-6);font:700 var(--t-4xl)/var(--lh-4xl) var(--font-head);
+  letter-spacing:var(--track-head);color:var(--ink);overflow-wrap:break-word}
+.lg-title small{display:block;margin-top:var(--s-1);
+  font:400 var(--t-base)/var(--lh-base) var(--font);color:var(--ink2);letter-spacing:0}
+/* Die Seite bringt schon 16 px Polster mit; die eigenen 8 px des Titels kämen oben dazu. Als erstes
+   Kind sitzt er deshalb ohne Vorlauf – 16 px unter der Kopfzeile, wie bei Apple. */
+.page>.lg-title:first-child,.push-bar+.lg-title{margin-top:0}
+.lg-title:focus{outline:none}   /* Fokusziel beim Ebenenwechsel, kein Bedienelement */
+
 /* PAGE */
 .page{display:none;padding:var(--s-4);scroll-margin-bottom:calc(var(--nav-h) + var(--s-8))}
 .page.on{display:block}
@@ -514,16 +818,71 @@ body.rest-on.has-nav{padding-bottom:calc(var(--nav-h) + var(--s-12) + var(--safe
 body.rest-on{--toast-lift:56px}
 body.no-nav,body:not(.has-nav){--nav-h:0px}
 
+/* PUSH-EBENE (DESIGN-4 3.3)
+   Der dritte Raum neben Reiter und Sheet: er kommt VON DER SEITE (das Sheet kommt von unten – die
+   Richtung der Bewegung ist die Erklärung, A14), er lässt die Reiterleiste stehen (N2/A2) und er
+   beginnt UNTER der Kopfzeile, damit der kompakte Titel, die Suche, die Glocke und der Avatar
+   erreichbar bleiben. `--push-top` misst shell.js an der echten Kopfzeile (Safe-Area + Textgröße);
+   der Ersatzwert gilt nur, falls das JS noch nicht gelaufen ist.
+   z-index 40: unter der Kopfzeile (50), unter der Reiterleiste (60), unter dem Sheet (100). */
+.push{position:fixed;top:var(--push-top,calc(var(--safe-t) + 60px));left:0;right:0;bottom:0;z-index:40;
+  background:var(--bg);overflow-y:auto;overscroll-behavior:contain;
+  max-width:540px;margin:0 auto;padding:0 var(--s-4) calc(var(--nav-h) + var(--safe-b) + var(--s-12));
+  animation:pushIn var(--dur-slow) var(--ease-sheet)}
+.push[hidden]{display:none}
+@keyframes pushIn{from{transform:translateX(16%);opacity:.4}to{transform:none;opacity:1}}
+/* Die Seite in der Ebene bringt ihr Polster von der Ebene mit – sonst stünde es zweimal. */
+.push>.page{padding:0}
+/* Der Zurück-Weg steht immer da, auch nach 2.000 px Scrollen: die Frage „wie komme ich zurück" darf
+   nicht vom Scrollstand abhängen. Er ist zugleich die sichtbare Alternative zu jeder Geste (A57). */
+.push-bar{position:sticky;top:0;z-index:2;display:flex;align-items:center;min-height:var(--tap);
+  margin:0 calc(var(--s-4) * -1) var(--s-1);padding:0 var(--s-2);
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px)}
+/* G3: Hier steht der NAME des Elternbildschirms, nie „Zurück" und nie nur ein „×". Er darf umbrechen
+   (G11), deshalb kein nowrap und kein ellipsis. */
+.push-back{display:inline-flex;align-items:center;gap:var(--s-1);min-height:var(--tap);
+  padding:var(--s-1) var(--s-2);color:var(--ink2);font:600 var(--t-md)/1.2 var(--font);
+  text-align:left;max-width:100%}
+.push-back .ic{width:20px;height:20px;flex:0 0 auto;margin-left:-4px}
+.push-back:active{opacity:.6}
+/* Läuft ein Training, steht über der Reiterleiste die 48 px hohe Trainings-Leiste (.restbar,
+   z-index 70). Sie liegt – wie Kopfzeile (50) und Reiterleiste (60) – bewusst ÜBER der Ebene: der
+   Pausen-Timer gehört zum Training, nicht zu einer einzelnen Seite, und er darf nicht verschwinden,
+   nur weil man eine Übung geöffnet hat. Was fehlte, war das Polster: das letzte Element der Ebene
+   lag hinter der Leiste (K9). Die Zeile hier rechnet die 48 px dazu, wie es body.rest-on für die
+   Seite darunter längst tut. Offen bleibt die WORTFRAGE („Abschließen" beendet das Training, nicht
+   die Seite) – sie steht in DEFER-D4.md und gehört Welle 3, die die Übungsseite baut. */
+body.rest-on .push{padding-bottom:calc(var(--nav-h) + var(--safe-b) + var(--s-12) + 48px)}
+/* Der Installations-Hinweis wird von shell.js unter den großen Titel gesetzt (siehe
+   _hintUnderTitle). Innerhalb der Seite bringt die Seite ihr Seitenpolster schon mit – die eigenen
+   16 px des Hinweises kämen doppelt. */
+.page>.install-hint{margin:0 0 var(--s-4)}
+/* Die Seite darunter scrollt nicht mit – sonst verliert man beim Zurückgehen seinen Platz. */
+body.push-open{overflow:hidden}
+@media (prefers-reduced-motion:reduce){.push{animation:none}}
+
 /* NAV */
 .nav{position:fixed;bottom:0;left:0;right:0;z-index:60;background:color-mix(in srgb,var(--bg) 80%,transparent);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-top:.5px solid var(--hairline2);display:flex;padding:var(--s-1) var(--s-1) calc(var(--s-1) + var(--safe-b));max-width:540px;margin:0 auto;transform:translateZ(0);-webkit-transform:translateZ(0);will-change:transform;backface-visibility:hidden}
 body.no-nav .nav{display:none}
-.navbtn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s-1);min-height:50px;padding:var(--s-1);color:var(--ink3);transition:color var(--dur),transform var(--dur-fast)}
+/* min-width:0 ist hier kein Feinschliff, sondern der Unterschied zwischen fünf Reitern und vier:
+   ein Flex-Kind mit `flex:1` hat von sich aus `min-width:auto`, kann also nicht unter seinen Inhalt
+   schrumpfen. Gemessen bei 320 px und 150 % Textgröße (scratchpad/d6fix-nav.mjs): die fünf Knöpfe
+   maßen 57 + 74 + 93 + 75 + 71 = 370 px in einer 320 px breiten Leiste, „Analyse" begann bei x=302
+   und war als „A" zu sehen. Mit min-width:0 bekommt jeder Reiter seinen Fünftel-Anteil. */
+.navbtn{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s-1);min-height:50px;padding:var(--s-1);color:var(--ink3);transition:color var(--dur),transform var(--dur-fast)}
 .navbtn .ic{width:24px;height:24px}
 .navbtn .ni{font-size:var(--t-xl);line-height:1} /* legacy emoji slot */
 /* 12 px ist die Untergrenze aus E7; 11 px war in NEUN von dreizehn Ansichten die kleinste Schrift der
    ganzen App (a11y.mjs, Element `div.nl`). Bei 320 px Breite bleibt das längste Etikett („Training",
-   ~48 px) in seinen 64 px. */
-.navbtn .nl{font:600 var(--t-min)/1 var(--font);letter-spacing:0}
+   ~48 px) in seinen 64 px.
+   NACH OBEN IST HIER EINE DECKE, und die ist Geometrie, keine Typografie: fünf Namen teilen sich
+   die Bildschirmbreite zu gleichen Teilen. „Ernährung" misst bei 18 px (= --t-xs bei 150 %
+   Textgröße) 85 px und hat auf 320 px genau 60 – es wurde abgeschnitten (G11). Anders als der
+   Inhalt kann die Leiste nicht umbrechen und keinen Namen weglassen (G2: Reiterbeschriftung =
+   großer Titel), also wächst das Etikett nur bis zu seinen 12 px mit. Der Inhalt darunter wächst
+   weiter; genau dafür gibt es den Schalter. */
+.navbtn .nl{font:600 var(--t-min)/1 var(--font);letter-spacing:0;min-width:0;max-width:100%;font-size:min(var(--t-min),12px)}
 /* Der aktive Tab ist einer der vier erlaubten Akzent-Verbraucher (BUILD-A4 6.1) – aber er kostete
    ZWEI der drei Einheiten über dem Falz, weil accent.mjs Symbol und Etikett getrennt zählt. Damit
    waren in JEDER Ansicht 2 von 3 Einheiten weg, bevor der Inhalt anfing (gemessen: home/diet/
@@ -535,6 +894,14 @@ body.no-nav .nav{display:none}
 .navbtn.on .ic{color:var(--accent-text)}
 .navbtn.on .ic{stroke-width:2.25}
 .navbtn:active{transform:scale(.92)}
+/* Auf 320 px hat jeder Reiter 64 px; abzüglich der Innenabstände blieben 56 – und „Ernährung"
+   misst auch bei 12 px noch 57 px. Ein Pixel zu wenig ist ein abgeschnittener Name (G11), also
+   geben die beiden schmalsten Geräte-Breiten ihre seitlichen Polster her. Die Trefferfläche ändert
+   sich nicht: sie ist die ganze Spalte, nicht das Polster. */
+@media (max-width:359px){
+  .nav{padding-left:0;padding-right:0}
+  .navbtn{padding-left:2px;padding-right:2px}
+}
 
 /* MODAL / SHEET (Stack, Back-Chevron ab Tiefe 2, Griff zum Wegziehen)
    A-II.5: Das Sheet ist ein echter Dialog – shell.js setzt role="dialog", aria-modal, aria-labelledby,
@@ -546,31 +913,78 @@ body.no-nav .nav{display:none}
 /* Der Hintergrund darf nicht mitscrollen, während ein Dialog offen ist. shell.js merkt sich die
    Position und stellt sie nur dann wieder her, wenn der Browser sie verloren hat (iOS). */
 body.sheet-open{overflow:hidden;overscroll-behavior:none}
-.sheet{position:relative;background:var(--surface2);box-shadow:var(--shadow-sheet);border-radius:24px 24px 0 0;width:100%;max-width:540px;max-height:88vh;max-height:88dvh;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--s-4) calc(var(--s-4) + var(--safe-b));animation:up var(--dur-slow) var(--ease-sheet);will-change:transform;--focus-halo:var(--surface2)}
+/* S5 · ZWEI HÖHEN, MEHR NICHT: 56 dvh (Standard) und 92 dvh (`.tall`).
+   Bis hierher war es eine einzige Stufe (88 dvh), und das Essen-Sheet legte 3.243 px Inhalt in ein
+   776-px-Fenster: 76 % unsichtbar, ohne Hinweis darauf (A17/R10).
+   Welche Stufe gilt, WÄHLT der Rahmen (shell.js _sheetFit): passt der Inhalt in die kleine, bleibt
+   es dabei; sonst die große. Das ist bewusst keine Zwangsstufe – die 41 Sheets tragen bis Welle 4/5
+   ihre alten Inhalte, und eine feste kleine Stufe würde heute Sichtbares unsichtbar machen (G12).
+   `max-height` statt `height` bei `.tall`: ein Sheet ist so hoch wie sein Inhalt, höchstens 92 dvh.
+   Ein fester Wert ließe unter kurzem Inhalt leere Fläche stehen. */
+.sheet{position:relative;background:var(--surface2);box-shadow:var(--shadow-sheet);border-radius:var(--r-lg) var(--r-lg) 0 0;width:100%;max-width:540px;max-height:56vh;max-height:56dvh;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--s-4) calc(var(--s-4) + var(--safe-b));animation:up var(--dur-slow) var(--ease-sheet);will-change:transform;--focus-halo:var(--surface2)}
 .sheet:focus{outline:none} /* der Dialog selbst ist nur Fokus-Auffang (tabindex="-1"), kein Bedienelement */
-.sheet.tall{height:92vh;height:92dvh;max-height:92vh;max-height:92dvh}
+.sheet.tall{max-height:92vh;max-height:92dvh}
 .sheet.dragging{transition:none}
 @keyframes up{from{transform:translateY(100%)}to{transform:none}}
 .sheet-grip{position:relative;width:36px;height:5px;background:var(--surface4);border-radius:3px;margin:var(--s-2) auto var(--s-3);touch-action:none}
 .sheet-grip::before{content:'';position:absolute;inset:-14px -60px}
-.sheet-h{display:flex;align-items:center;gap:var(--s-2);margin-bottom:var(--s-4);min-height:44px}
-.sheet-h h3{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 var(--t-xl)/var(--lh-snug) var(--font-head);letter-spacing:var(--track-head)}
-.sheet-h .back{flex:0 0 auto;margin-left:-4px}
-/* Schließen ist die wichtigste Handlung im Dialog und war 36 px. Jetzt eine echte 44-px-Box: der
-   sichtbare Kreis bleibt 36 px (background-clip:content-box klemmt die Fläche auf den Inhaltskasten),
-   die Trefferfläche ist ein echter Kasten – sie schiebt die Kopfzeile, sie überlappt nichts. */
-.sheet-x{position:relative;flex:0 0 auto;width:44px;height:44px;min-height:44px;padding:var(--s-1);background-clip:content-box;border-radius:50%;background:var(--surface3);color:var(--ink2);display:inline-flex;align-items:center;justify-content:center;font-size:var(--t-base)}
-.sheet-x .ic{width:20px;height:20px}
+/* DER SHEET-KOPF (DESIGN-4 3.5 · S2/S3/S4)
+   Drei Spalten: links ein WORT, mittig der Titel, rechts (nur wenn es etwas abzuschließen gibt)
+   „Fertig". Das runde „×" ist ersatzlos weg – 36 von 41 Sheets hatten bis hierher nichts als dieses
+   Zeichen, und es heißt je nach Sheet „verwerfen", „schließen" oder „fertig" (A16/A11).
+   Die beiden Außenspalten sind gleich breit (1fr), damit der Titel in der MITTE steht und nicht dort,
+   wo der linke Knopf ihn hinschiebt. */
+/* `overflow-wrap:anywhere` (nicht `break-word`) an Titel und Wortknopf: NUR `anywhere` senkt auch
+   die MINDESTBREITE, die das Raster einer Spalte zubilligt. Mit `break-word` bleibt die Spalte so
+   breit wie das laengste Wort - und genau das legte bei 150 % Systemschrift auf 320 px den Titel
+   ueber das „Abbrechen“ daneben (nachgemessen: dz/w2/t150-checkin2.png bricht um, die Fassung mit
+   `break-word` in t150-checkin3.png ueberlappt wieder). `hyphens:auto` steht daneben, damit Geraete
+   mit deutschem Trennmuster (iOS) „Abbre-chen“ trennen statt hart umzubrechen.
+   `minmax(0,...)` in allen drei Spalten statt `1fr auto 1fr`: ohne das darf keine Spur unter ihre
+   Mindestbreite schrumpfen, und dann hilft auch das Umbrechen im Inneren nichts mehr. */
+/* NACHBESSERUNG FIX-D4-012 · die SEITENSPUREN bekommen einen Boden.
+   Bis hierher stand `minmax(0,1fr) minmax(0,auto) minmax(0,1fr)`. In einem Raster werden Spuren mit
+   eigenem Inhaltsmass ZUERST bedient; die fr-Spuren teilen nur, was uebrig bleibt. Ein langer Titel
+   nahm sich also die ganze Zeile, und weil `overflow-wrap:anywhere` das Mindestmass des Wortes auf
+   EINEN BUCHSTABEN senkt, durfte die Spur daneben bis fast auf null schrumpfen. Gemessen:
+     390 px, „Chest Supported Dumbbell Lateral Raise": Titel 309 px, „Abbrechen" 11 px BREIT und
+       184 px HOCH - eine senkrechte Buchstabensaeule, Kopf 192 px statt 44
+     320 px bei 150 % Schrift, „Wirklich loeschen?": „Abbrechen" auf NEUN Zeilen, Kopf 283 px
+   `min(26%,80px)` als Mindestmass ist der Boden, unter den keine Seitenspur mehr faellt - klein
+   genug, dass er bei 320 px und 150 % nichts verdraengt (er schrumpft dort mit den 26 % selbst
+   mit), gross genug, dass „Abbrechen" und „Fertig" lesbar bleiben. Der Titel weicht dafuer aus und
+   bricht um; das ist die Richtung, die S2 vorschreibt („NIE abschneiden"), und die richtige: der
+   Titel darf hoeher werden, der Ausgang darf nicht unleserlich werden.
+   Gemessen ueber zehn Faelle (390/320 px x kurz/mittel/lang x mit/ohne „Fertig"): keiner schlechter
+   als vorher, vier deutlich besser (Kopf 192 -> 49 bzw. 283 -> 100), waagrechter Ueberlauf
+   unveraendert. Die Spuren bleiben symmetrisch, der Titel also mittig (S2). */
+.sheet-h{display:grid;grid-template-columns:minmax(min(26%,80px),1fr) minmax(0,auto) minmax(min(26%,80px),1fr);align-items:center;gap:var(--s-2);margin-bottom:var(--s-4);min-height:44px}
+/* S2: 22/700, mittig, NIE abgeschnitten (G11/K8). Ein langer Name wird kleiner gesetzt (`.long`,
+   17/22) und bricht um – bis hierher endete „Chest Supported DB Lateral …" im Nichts. */
+.sheet-h h3{grid-column:2;min-width:0;text-align:center;overflow-wrap:anywhere;hyphens:auto;font:700 var(--t-xl)/var(--lh-xl) var(--font-head);letter-spacing:var(--track-head)}
+.sheet-h h3.long{font:700 var(--t-md)/var(--lh-md) var(--font-head)}
+/* Links: „Abbrechen" (Eingabe-Sheet), „Fertig" (nur-zeigen-Sheet) oder der Name der Ebene darunter
+   mit Chevron (G3). Stiller Ton – es ist der Ausgang, nicht das Ziel. */
+.sheet-cancel{grid-column:1;justify-self:start;display:inline-flex;align-items:center;gap:var(--s-1);min-width:0;max-width:100%;min-height:44px;padding:var(--s-1) var(--s-2);color:var(--ink2);font:400 var(--t-md)/1.2 var(--font);text-align:left;overflow-wrap:anywhere;hyphens:auto}
+.sheet-cancel .ic{width:20px;height:20px;flex:0 0 auto;margin-left:-6px}
+.sheet-cancel.back{font-weight:600}
+.sheet-cancel:active{opacity:.6}
+/* Rechts: „Fertig" – WEISS, nicht rot. Das Akzent-Budget (G10) gehört der einen Primäraktion auf der
+   Seite, nicht dem Kopf jedes Dialogs. Die Spalte steht auch leer da, damit der Titel mittig bleibt. */
+.sheet-right{grid-column:3;justify-self:end;display:inline-flex;align-items:center;min-height:44px}
+.sheet-done{min-height:44px;padding:var(--s-1) var(--s-2);color:var(--ink);font:600 var(--t-md)/1.2 var(--font)}
+.sheet-done:disabled{color:var(--ink-disabled)}
+.sheet-done:active{opacity:.6}
 /* Elevation im Sheet: eine Stufe heller als die Seite */
 .sheet :where(.card,.surface,.rows,.tile,.qcard,.chart-card,.meal,.ex,.stat-strip,.macro,.today){background:var(--surface3)}
 .sheet :where(.card .card,.card.sub,.surface .surface){background:var(--surface4)}
 .sheet :where(.note,.info,.warn){background:var(--surface3)}
 .sheet :where(.field input,.field select,.field textarea,.setgrid input){background:var(--surface3)}
-.sheet :where(.chip,.daychip,.fpill,.minibtn,.btn.sec,.btn.danger,.pill.neutral,.btn.icon,.sheet-x,.bar,.tgl,.rcheck){background:var(--surface4)}
+.sheet :where(.chip,.daychip,.fpill,.minibtn,.btn.sec,.btn.danger,.pill.neutral,.btn.icon,.bar,.tgl,.rcheck){background:var(--surface4)}
 /* Die Kurzform `background:` oben setzt background-clip zurück – die sichtbare Pille im 44-px-Kasten
-   (.sheet-x, .btn.sm, .btn.icon.sm, .minibtn) braucht die Klammer hier noch einmal, sonst wächst
+   (.btn.sm, .btn.icon.sm, .minibtn) braucht die Klammer hier noch einmal, sonst wächst
    sie mit. Die Regel muss NACH der Elevation stehen; `:where()` hätte Spezifität 0 und verlöre. */
-.sheet .sheet-x,.sheet .btn.sm,.sheet .btn.icon.sm,.sheet .minibtn{background-clip:content-box}
+.sheet .btn.sm,.sheet .btn.icon.sm,.sheet .minibtn{background-clip:content-box}
 /* Die beiden Auswahl-Stile gelten im Sheet genauso – bis hierher stand noch das alte Vollrot aus
    2.7.0 und hätte jede Chip-Zeile im Dialog wieder rot gemacht.
    Stil B braucht im Sheet eine Stufe mehr: dort ist der UNGEWÄHLTE Chip schon --surface4 (Zeile
@@ -586,13 +1000,13 @@ body.sheet-open{overflow:hidden;overscroll-behavior:none}
 .def{padding:var(--s-3) 0;border-bottom:.5px solid var(--hairline2)}
 .def:last-child{border-bottom:none}
 .def .dt{font-weight:600;font-size:var(--t-base);color:var(--ink)}
-.def .dd{font-size:var(--t-sm);color:var(--ink2);margin-top:var(--s-1);line-height:1.5}
+.def .dd{font-size:var(--t-sm);color:var(--ink2);margin-top:var(--s-1);line-height:var(--lh-sm)}
 .msg{padding:var(--s-3) 0;border-bottom:.5px solid var(--hairline2)}
 .msg:last-child{border-bottom:none}
 .msg .mh{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-2)}
 .msg .mt{font-weight:600;font-size:var(--t-base)}
 .msg .md{font-size:var(--t-xs);color:var(--ink3);white-space:nowrap}
-.msg .mb{font-size:var(--t-sm);color:var(--ink2);margin-top:var(--s-1);line-height:1.5}
+.msg .mb{font-size:var(--t-sm);color:var(--ink2);margin-top:var(--s-1);line-height:var(--lh-sm)}
 .msg.change .mt{color:var(--amber-text)}
 
 /* TOAST-HOST (eine Sichtbare, Warteschlange, hebt sich über die Restbar) */
@@ -601,7 +1015,7 @@ body.sheet-open{overflow:hidden;overscroll-behavior:none}
    nach rund 50 Zeichen mit einer Ellipse – genau die Meldungen, die Vertrauen schaffen sollen
    (RATE-shell-home M1). Bis zu drei Zeilen, dann erst die Reißleine; Radius 16 px, weil eine Pille um drei
    Zeilen keine Pille mehr ist. */
-.toast{pointer-events:auto;display:flex;align-items:center;gap:var(--s-3);min-width:200px;max-width:calc(100vw - 32px);min-height:44px;background:var(--ink);color:var(--bg);font:600 var(--t-sm)/1.35 var(--font);padding:var(--s-2) var(--s-4);border-radius:16px;white-space:normal;opacity:0;transform:translateY(8px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:var(--s-3);min-width:200px;max-width:calc(100vw - 32px);min-height:44px;background:var(--ink);color:var(--bg);font:600 var(--t-sm)/1.35 var(--font);padding:var(--s-2) var(--s-4);border-radius:var(--r);white-space:normal;opacity:0;transform:translateY(8px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease)}
 .toast.on{opacity:1;transform:none}
 .toast .tx{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 /* Die Schaltfläche trägt ihre Fläche ausdrücklich mit (dieselbe Farbe wie .toast, also unsichtbar):
@@ -609,7 +1023,7 @@ body.sheet-open{overflow:hidden;overscroll-behavior:none}
    Schriftfarbe --red, die das Werkzeug gegen --bg/--surface rechnet – 4,23:1 und 3,67:1, beide
    unter AA, obwohl sie in Wahrheit auf --ink sitzt und dort 4,56:1 hat. Der einzige Textfall von
    --red in der ganzen App, und er steht jetzt schwarz auf weiß im Code statt nur im Kommentar. */
-.toast .act{flex:0 0 auto;min-height:44px;padding:0 var(--s-3);margin:calc(var(--s-2) * -1) calc(var(--s-4) * -1) calc(var(--s-2) * -1) 0;background:var(--ink);color:var(--red);font-weight:700;font-size:var(--t-sm);white-space:nowrap;border-radius:14px}
+.toast .act{flex:0 0 auto;min-height:44px;padding:0 var(--s-3);margin:calc(var(--s-2) * -1) calc(var(--s-4) * -1) calc(var(--s-2) * -1) 0;background:var(--ink);color:var(--red);font-weight:700;font-size:var(--t-sm);white-space:nowrap;border-radius:var(--r-sm)}
 /* Die Meldung ist die EINZIGE helle Fläche der App (--ink als Hintergrund). Der Standard-Saum in --bg
    (Schwarz) zöge hier einen zweiten Rahmen, und --red-text käme auf Weiß nur auf 3,08:1. Darum im
    Toast: Kontur in --red (4,5:1 auf --ink), Saum in der Farbe der Meldung selbst – wie im Sheet.
@@ -656,12 +1070,12 @@ body.sheet-open{overflow:hidden;overscroll-behavior:none}
 /* Sicherheitsnetz: ein Overlay, das nie sichtbar wurde, darf niemals Taps schlucken. */
 .tour-ov:not(.on){pointer-events:none}
 body.tour-active{overflow:hidden!important;touch-action:none;overscroll-behavior:none}
-.tour-hole{position:absolute;border-radius:16px;pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.72),0 0 0 3px var(--red),0 0 0 7px var(--red-ring);transition:box-shadow var(--dur-slow) var(--ease),top var(--dur-slow) var(--ease),left var(--dur-slow) var(--ease),width var(--dur-slow) var(--ease),height var(--dur-slow) var(--ease);animation:tourPulse 2s ease-in-out infinite}
+.tour-hole{position:absolute;border-radius:var(--r);pointer-events:none;box-shadow:0 0 0 9999px rgba(0,0,0,.72),0 0 0 3px var(--red),0 0 0 7px var(--red-ring);transition:box-shadow var(--dur-slow) var(--ease),top var(--dur-slow) var(--ease),left var(--dur-slow) var(--ease),width var(--dur-slow) var(--ease),height var(--dur-slow) var(--ease);animation:tourPulse 2s ease-in-out infinite}
 @keyframes tourPulse{0%,100%{box-shadow:0 0 0 9999px rgba(0,0,0,.72),0 0 0 3px var(--red),0 0 0 7px var(--red-ring)}50%{box-shadow:0 0 0 9999px rgba(0,0,0,.72),0 0 0 3px var(--red),0 0 0 12px var(--red-tint)}}
-.tour-card{position:absolute;left:50%;transform:translateX(-50%);width:min(340px,calc(100vw - 40px));background:var(--surface2);border-radius:18px;padding:var(--s-4);box-shadow:var(--shadow-pop);transition:top var(--dur) var(--ease),left var(--dur) var(--ease),opacity var(--dur) var(--ease)}
+.tour-card{position:absolute;left:50%;transform:translateX(-50%);width:min(340px,calc(100vw - 40px));background:var(--surface2);border-radius:var(--r);padding:var(--s-4);box-shadow:var(--shadow-pop);transition:top var(--dur) var(--ease),left var(--dur) var(--ease),opacity var(--dur) var(--ease)}
 .tour-card.hid{opacity:0;pointer-events:none} /* verdeckt die Karte, bis _tourPlace() sie gesetzt hat (offsetHeight bleibt messbar) */
-.tour-card .tt{font:700 var(--t-xl)/var(--lh-snug) var(--font-head);letter-spacing:var(--track-head);margin-bottom:var(--s-1)}
-.tour-card .td{font-size:var(--t-base);color:var(--ink2);line-height:1.45}
+.tour-card .tt{font:700 var(--t-xl)/var(--lh-xl) var(--font-head);letter-spacing:var(--track-head);margin-bottom:var(--s-1)}
+.tour-card .td{font-size:var(--t-base);color:var(--ink2);line-height:var(--lh-base)}
 .tour-card .tb{display:flex;align-items:center;justify-content:space-between;margin-top:var(--s-4)}
 .tour-card .tdots{display:flex;gap:var(--s-1)}
 .tour-card .tdots span{width:7px;height:7px;border-radius:50%;background:var(--surface4)}
@@ -673,7 +1087,7 @@ body.tour-active{overflow:hidden!important;touch-action:none;overscroll-behavior
 /* Feier-Momente: Konfetti + Pop */
 @keyframes confettiFall{0%{transform:translateY(-12vh) rotate(0);opacity:1}100%{transform:translateY(112vh) rotate(680deg);opacity:.85}}
 .confetti-pc{position:fixed;top:0;width:9px;height:14px;z-index:9998;pointer-events:none;border-radius:2px}
-.celebrate-pop{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%) scale(.7);z-index:9999;background:var(--surface2);border:1px solid var(--hairline2);border-radius:22px;box-shadow:var(--shadow-pop);padding:var(--s-6) var(--s-8);text-align:center;opacity:0;transition:opacity var(--dur-slow) var(--ease),transform var(--dur-data) var(--ease-pop);pointer-events:none;max-width:300px;width:calc(100vw - 48px)}
+.celebrate-pop{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%) scale(.7);z-index:9999;background:var(--surface2);border:1px solid var(--hairline2);border-radius:var(--r-lg);box-shadow:var(--shadow-pop);padding:var(--s-6) var(--s-8);text-align:center;opacity:0;transition:opacity var(--dur-slow) var(--ease),transform var(--dur-data) var(--ease-pop);pointer-events:none;max-width:300px;width:calc(100vw - 48px)}
 .celebrate-pop.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
 .celebrate-pop .cl-ic{font-size:var(--t-num);line-height:1;margin-bottom:var(--s-2)}
 .celebrate-pop .cl-t{font:700 var(--t-xl)/1.2 var(--font-head);letter-spacing:var(--track-head)}
@@ -684,28 +1098,35 @@ body.tour-active{overflow:hidden!important;touch-action:none;overscroll-behavior
 
 /* ---------- 7 BEREICHS-BAUSTEINE (legacy, bis WP1–WP7 migrieren) ---------- */
 /* Home: Hero */
-.today{border-radius:24px;padding:var(--s-6);margin-bottom:var(--s-4);position:relative;overflow:hidden}
+.today{border-radius:var(--r-lg);padding:var(--s-6);margin-bottom:var(--s-4);position:relative;overflow:hidden}
 .today .eyebrow{display:flex;align-items:center;gap:var(--s-2)}
 .today .daytype{font:700 var(--t-4xl)/1.04 var(--font-head);letter-spacing:var(--track-head);margin-top:var(--s-1)}
+/* Der Tagesname ist ein Knopf (.dt-b, home.css). Seine Trefferflaeche haengt dort an einer
+   ::before-Erweiterung von 7 px, die gegen die DAMALIGE Schriftgroesse gerechnet war: 30 px Schrift
+   ergaben 31 px Zeile plus 14 px = 45 px. Mit der Sieben-Sprossen-Leiter sind es 26 px Schrift, also
+   27 + 14 = 41 px - drei Pixel zu wenig, und a11y.mjs hat es sofort gemeldet. Eine Trefferflaeche,
+   die von einer Schriftgroesse abhaengt, ist keine; deshalb steht hier ein echtes Mindestmass.
+   Faellt weg, sobald home.css in Welle 4 die ::before-Kur gegen eine richtige Zeile tauscht. */
+.today .daytype.dt-b{min-height:var(--tap)}
 .today .meta{color:var(--ink2);font-size:var(--t-base);margin-top:var(--s-1)}
 .today-acts{display:flex;gap:var(--s-2);margin-top:var(--s-4)}
 .today-acts .btn{flex:1;white-space:nowrap;padding:0 var(--s-3);min-height:48px}
 /* Ernährung */
-.day-badge{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-3) var(--s-4);border-radius:14px;margin-bottom:var(--s-4);font-weight:700;font-size:var(--t-base)}
+.day-badge{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-3) var(--s-4);border-radius:var(--r);margin-bottom:var(--s-4);font-weight:700;font-size:var(--t-base)}
 .day-badge .dbi{font-size:var(--t-lg)}
 .day-badge small{font-weight:500;font-size:var(--t-min);opacity:.8}
 /* Stil B („weich gewählt"): „heute ist ein Trainingstag" ist ein Status, keine Handlung. */
 .day-badge.train{background:var(--sel-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--sel-ring)}
 .day-badge.rest{background:var(--surface2);color:var(--ink2);box-shadow:inset 0 0 0 1px var(--hairline2)}
 .macro-row{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s-2);margin-bottom:var(--s-4)}
-.macro{border-radius:12px;padding:var(--s-3) var(--s-2);text-align:center}
+.macro{border-radius:var(--r-sm);padding:var(--s-3) var(--s-2);text-align:center}
 .macro .v{font-size:var(--t-lg);font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .macro .v em{font-size:var(--t-min);color:var(--ink2);font-style:normal;font-weight:500}
 .macro .k{font-size:var(--t-min);color:var(--ink2);margin-top:var(--s-1)}
 /* Die Kalorienkachel war die einzige rote Zahl in einer Reihe von vier – sie ist nicht der CTA,
    sie ist die erste Spalte. Größe und Position sagen das bereits. */
 .macro.kcal .v{color:var(--ink)}
-.meal{border-radius:16px;margin-bottom:var(--s-3);overflow:hidden}
+.meal{border-radius:var(--r);margin-bottom:var(--s-3);overflow:hidden}
 .meal-h{padding:var(--s-4);display:flex;justify-content:space-between;align-items:center;gap:var(--s-2);border-bottom:.5px solid var(--hairline2)}
 .meal-h .ml{min-width:0}
 .meal-h .ml .n{font-size:var(--t-min);color:var(--ink2);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
@@ -716,12 +1137,12 @@ body.tour-active{overflow:hidden!important;touch-action:none;overscroll-behavior
 .fi:last-child{border-bottom:none}
 .fi .fn{font-size:var(--t-base)}
 .fi .fa{color:var(--ink2);font-size:var(--t-sm);margin-top:1px}
-.fi .fm{color:var(--ink2);font-size:var(--t-xs);font-style:italic;margin-top:var(--s-1);line-height:1.4}
+.fi .fm{color:var(--ink2);font-size:var(--t-xs);font-style:italic;margin-top:var(--s-1);line-height:var(--lh-xs)}
 .fi .fmac{color:var(--ink2);font-size:var(--t-xs);text-align:right;white-space:nowrap}
 /* Training */
-.work-tools{position:sticky;top:8px;z-index:40;display:flex;gap:var(--s-2);margin-bottom:var(--s-4);padding:var(--s-2);background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-radius:14px}
+.work-tools{position:sticky;top:8px;z-index:40;display:flex;gap:var(--s-2);margin-bottom:var(--s-4);padding:var(--s-2);background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-radius:var(--r)}
 .work-tools .minibtn{flex:1;justify-content:center}
-.ex{border-radius:16px;margin-bottom:var(--s-3);overflow:hidden;transition:background var(--dur) var(--ease)}
+.ex{border-radius:var(--r);margin-bottom:var(--s-3);overflow:hidden;transition:background var(--dur) var(--ease)}
 .ex-head{padding:var(--s-3) var(--s-4);display:flex;align-items:center;gap:var(--s-3);min-height:56px;cursor:pointer}
 .ex-idx{flex-shrink:0;width:30px;height:30px;border-radius:50%;background:var(--surface3);display:flex;align-items:center;justify-content:center;font-size:var(--t-sm);font-weight:600;color:var(--ink2)}
 .ex.done .ex-idx{background:var(--green);color:var(--on-green)} /* war #fff = 2,02:1, jetzt 11,6:1 */
@@ -733,7 +1154,7 @@ body.tour-active{overflow:hidden!important;touch-action:none;overscroll-behavior
 .ex-body{max-height:0;overflow:hidden;transition:max-height var(--dur-slow) var(--ease)}
 .ex.open .ex-body{max-height:1400px}
 .ex-inner{padding:0 var(--s-4) var(--s-4)}
-.rec{border-radius:12px;padding:var(--s-3);font-size:var(--t-sm);font-weight:500;margin-bottom:var(--s-3);display:flex;gap:var(--s-2);align-items:flex-start;line-height:1.4}
+.rec{border-radius:var(--r-sm);padding:var(--s-3);font-size:var(--t-sm);font-weight:500;margin-bottom:var(--s-3);display:flex;gap:var(--s-2);align-items:flex-start;line-height:1.4}
 .rec .ric{font-size:var(--t-md);flex-shrink:0;display:flex;align-items:center}
 .rec.up{background:var(--green-tint);color:var(--green-text)}
 .rec.down{background:var(--amber-tint);color:var(--amber-text)}
@@ -767,7 +1188,8 @@ button:focus-visible,[role="button"]:focus-visible,[role="tab"]:focus-visible,[r
    --red-text 1,89:1 – beides unsichtbar. Dort liegt die Kontur schwarz IM Element
    (outline-offset:-2px, 11,6:1 auf --green) und der helle Saum außen trennt sie von der dunklen
    Seite (18:1). Unverändert seit 2.6.0. */
-.tgl.on:focus-visible,.rcheck:checked:focus-visible,.setgrid .ok.done:focus-visible,.ex.done .ex-idx:focus-visible{--focus-ring:var(--bg);--focus-halo:var(--ink);outline-offset:-2px}
+.tgl.on:focus-visible,.rcheck:checked:focus-visible,.setgrid .ok.done:focus-visible,.ex.done .ex-idx:focus-visible,
+input.sw:checked:focus-visible,.setrow .ok.on:focus-visible{--focus-ring:var(--bg);--focus-halo:var(--ink);outline-offset:-2px}
 /* Neu in A-IV.5: die HELLEN Flächen des Stils A („hart gewählt", --sel-fill). Hier geht Schwarz
    nicht – die Kontur läge dann zwar 19:1 auf dem Chip, aber 1:1 gegen den schwarzen Seitengrund,
    und a11y.mjs misst beide Zahlen. --focus-ring-mid besteht beide (3,4:1 / 5,7:1). Die Kontur
@@ -799,7 +1221,7 @@ select.field:focus-visible,input.field:focus-visible,textarea.field:focus-visibl
 /* Die Überschrift des Dialogs bekommt den Fokus beim Öffnen. Nach einem Tipp ist das kein
    :focus-visible – dann bleibt sie ohne Ring; nach der Tastatur zeigt sie ihn. */
 .sheet-h h3:focus{outline:none}
-.sheet-h h3:focus-visible{outline:2px solid var(--focus-ring);outline-offset:4px;border-radius:6px}
+.sheet-h h3:focus-visible{outline:2px solid var(--focus-ring);outline-offset:4px;border-radius:var(--r-sm)}
 /* Bewegung: wer sie abbestellt hat, bekommt keine. Der Stern-Satz deckt Animation und Übergang ab;
    die vier Einzelfälle darunter sind die, bei denen „fast null Dauer" nicht reicht – sie müssen ganz
    verschwinden (Konfetti), dürfen nicht hereinfahren (Sheet, Modal) oder nicht pulsieren (Tour). */
@@ -899,6 +1321,15 @@ select.field:focus-visible,input.field:focus-visible,textarea.field:focus-visibl
   /* Der Inhalt bleibt bei 720 px (Innenraum 672 px). Breiter liest sich eine Zeile nicht besser -
      Forschung und Hausregel sind hier dieselbe Zahl (RESEARCH-25-design 2.1: 60-75 Zeichen). */
   .app:has(.navbtn[data-p="athletes"],.ctx-bar>*) .page{padding:var(--s-6) var(--s-6) var(--s-12)}
+  /* Die Push-Ebene (DESIGN-4 3.3) legt sich am Arbeitsplatz in die INHALTSSPALTE, nicht über die
+     ganze Breite: die Leiste links bleibt sichtbar UND an ihrem Platz (N2), und die Inspektorspur
+     rechts bleibt frei für das Panel. Ohne diese Zeile stünde die Ebene mittig über dem Raster und
+     verdeckte genau die Navigation, die sie stehen lassen soll. Unten ist kein Polster für eine
+     Leiste nötig – sie steht hier links. */
+  body:has(.navbtn[data-p="athletes"],.ctx-bar>*) .push{
+    left:var(--wk-rail);right:auto;width:min(var(--wk-col),calc(100% - var(--wk-rail)));
+    max-width:none;margin:0;padding:0 var(--s-6) var(--s-12)}
+  body:has(.navbtn[data-p="athletes"],.ctx-bar>*) .push-bar{margin:0 calc(var(--s-6) * -1) var(--s-1)}
 
   /* DIE LEISTE LINKS. Dieselben Knoepfe, dieselben Beschriftungen, nur senkrecht.
      `position:fixed` faellt weg - damit steht sie im Raster und nicht mehr ueber dem Inhalt;
@@ -916,7 +1347,7 @@ select.field:focus-visible,input.field:focus-visible,textarea.field:focus-visibl
     transform:none;-webkit-transform:none;will-change:auto}
   .app:has(.navbtn[data-p="athletes"],.ctx-bar>*)>.nav .navbtn{
     flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:var(--s-3);
-    min-height:44px;padding:0 var(--s-3);border-radius:12px}
+    min-height:44px;padding:0 var(--s-3);border-radius:var(--r-sm)}
   /* Die 12-px-Untergrenze aus CRITIC K10 war fuer das Etikett UNTER dem Symbol gedacht. Neben dem
      Symbol ist es eine normale Zeile und darf die Groesse des Fliesstextes haben. */
   .app:has(.navbtn[data-p="athletes"],.ctx-bar>*)>.nav .navbtn .nl{font-size:var(--t-base);letter-spacing:var(--track)}
@@ -966,9 +1397,10 @@ select.field:focus-visible,input.field:focus-visible,textarea.field:focus-visibl
        kommt, zeigt er in die falsche Richtung; der Handler bleibt unangetastet, nur die Flaeche ist
        weg. */
     body:has(.navbtn[data-p="athletes"],.ctx-bar>*) .sheet-grip{display:none}
-    /* Titel und Schliessen bleiben stehen, waehrend das Panel scrollt - bei 900 px Hoehe ist der Weg
-       zum "X" sonst ein Scroll nach oben. Der Grund muss die Flaeche des Sheets sein, sonst scheint
-       der Inhalt durch. */
+    /* Titel und Ausgang bleiben stehen, waehrend das Panel scrollt - bei 900 px Hoehe waere der Weg
+       zu "Abbrechen"/"Fertig" sonst ein Scroll nach oben. Der Grund muss die Flaeche des Sheets sein,
+       sonst scheint der Inhalt durch. (Bis DESIGN-4 Welle 2 stand hier ein rundes "X"; der Kopf traegt
+       jetzt Woerter, siehe Abschnitt SHEET-KOPF.) */
     body:has(.navbtn[data-p="athletes"],.ctx-bar>*) .sheet-h{
       position:sticky;top:0;z-index:2;background:var(--surface2);
       padding:var(--s-4) 0 var(--s-3);margin-bottom:var(--s-3)}
@@ -985,7 +1417,7 @@ select.field:focus-visible,input.field:focus-visible,textarea.field:focus-visibl
      (540 px), Griff, Hoehe und der ganze Mechanismus bleiben die gemessenen aus 2.8.0. */
   @media (max-width:1311.98px){
     body:has(.navbtn[data-p="athletes"],.ctx-bar>*) .modal{align-items:center}
-    body:has(.navbtn[data-p="athletes"],.ctx-bar>*) .sheet{border-radius:24px}
+    body:has(.navbtn[data-p="athletes"],.ctx-bar>*) .sheet{border-radius:var(--r-lg)}
   }
 }
 
@@ -997,8 +1429,10 @@ select.field:focus-visible,input.field:focus-visible,textarea.field:focus-visibl
    Die Reihen- und Tabellenzeilen der Verwaltung stehen in css/coach.css - dort wohnen sie. */
 @media (hover:hover) and (pointer:fine){
   .seg button:not(.on):hover{color:var(--ink)}
-  .sheet-x:hover,.tgl:not(.on):hover,.rcheck:not(:checked):hover{background:var(--surface4)}
-  .sheet .sheet-x:hover,.sheet .tgl:not(.on):hover,.sheet .rcheck:not(:checked):hover{background:var(--sel-soft)}
+  .tgl:not(.on):hover,.rcheck:not(:checked):hover{background:var(--surface4)}
+  .sheet .tgl:not(.on):hover,.sheet .rcheck:not(:checked):hover{background:var(--sel-soft)}
+  /* Die beiden Wortknoepfe im Sheet-Kopf (DESIGN-4 3.5) – sie haben keine Flaeche, also wird der Ton heller. */
+  .sheet-cancel:hover,.push-back:hover{color:var(--ink)}
   .pw-eye:hover,.tour-skip:hover{color:var(--ink)}
   .row.tap:hover .rr::after,.row.tap:not(:has(.rr)):hover::after{color:var(--ink2)}
   /* Der Griff ist das Ziel zum Wegziehen - am Rechner sagt er sonst gar nichts. */

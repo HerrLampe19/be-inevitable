@@ -41,7 +41,8 @@ function twAbbrLegend(names){const list=[...new Set((Array.isArray(names)?names:
 // Progression je Tag für die Sitzung merken (1 Batch-Request statt 10; bei Plan-Änderungen leeren)
 const PROG_CACHE={};
 function _progInvalidate(){for(const k of Object.keys(PROG_CACHE))delete PROG_CACHE[k];}
-const EX_META={}; // Basis-Metazeile je Übung (wird bei „fertig" durch die Zusammenfassung ersetzt)
+// (Die frühere Zwischenablage EX_META für die Metazeile der Übungskarte ist entfallen: die
+//  Unterzeile der Übungszeile wird aus den Daten gebaut, nicht aus einem zweiten Speicher.)
 
 // ===== A-IV.2 · Die Satzzeile für Anfänger UND Profis (Präfix tw) =============================
 // Eine Zeile, zwei Sichtbarkeitsstufen – kein zweiter Bildschirm, kein Modus-Schalter
@@ -79,8 +80,8 @@ function twStepKg(ex,pr){for(const v of [pr&&pr.step,pr&&pr.stepKg,pr&&pr.step_k
 // annimmt (SET_TYPES in server.js). 'deleted' ist KEINE wählbare Art: gelöscht wird über
 // DELETE /api/logs/:id, und das ist weich (CRITIC K9).
 const TW_TYPES=[
-  {k:'work',    s:'',  l:'Arbeitssatz',  d:'Zählt in Volumen, e1RM und Bestleistung.'},
-  {k:'warmup',  s:'A', l:'Aufwärmsatz',  d:'Zählt NICHT in Volumen, e1RM und Bestleistung.'},
+  {k:'work',    s:'',  l:'Arbeitssatz',  d:'Zählt in Volumen, geschätztes Maximum und Bestleistung.'},
+  {k:'warmup',  s:'A', l:'Aufwärmsatz',  d:'Zählt NICHT in Volumen, geschätztes Maximum und Bestleistung.'},
   {k:'drop',    s:'D', l:'Drop-Satz',    d:'Direkt im Anschluss mit weniger Gewicht, ohne Pause.'},
   {k:'backoff', s:'B', l:'Backoff-Satz', d:'Bewusst leichter nach dem schweren Satz.'}];
 function twType(k){return TW_TYPES.find(t=>t.k===k)||TW_TYPES[0];}
@@ -146,25 +147,34 @@ function _rowExtra(grid){const o={};if(!grid)return o;
   const ri=grid.querySelector('input.rir');
   if(ri)o.rir=(ri.value===''?null:Math.max(0,Math.min(5,parseInt(ri.value,10)||0)));
   return o;}
-let TW_CUR=null; // vom Nutzer gewählte Satzzeile {ex,set}; sonst gilt „die nächste offene"
-// Genau EINE Zeile je Karte trägt die Werkzeugleiste (Stepper, Hantelrechner, Notiz): die, die
-// gerade dran ist. Das hält die Karte kurz – und es ist dieselbe Zeile, die der Athlet als
-// nächstes bestätigt, also stehen die Werkzeuge immer dort, wo der Daumen ohnehin ist.
-function twMarkCur(card){const rows=[...card.querySelectorAll('.setgrid[data-set]')];if(!rows.length)return;
-  const id=+card.dataset.id;let pick=null;
-  if(TW_CUR&&TW_CUR.ex===id)pick=rows.find(g=>+g.dataset.set===TW_CUR.set)||null;
-  if(!pick)pick=rows.find(g=>!_rowDone(g))||rows[rows.length-1];
-  rows.forEach(g=>g.classList.toggle('cur',g===pick));}
-function twCurSet(exId,setNo){TW_CUR={ex:+exId,set:+setNo};
-  const c=document.getElementById('ex-'+exId);if(c)twMarkCur(c);}
+// TW_CUR merkt sich, welche Satzzeile der Mensch zuletzt angefasst hat. Bis 3.0.2 entschied sie
+// zusaetzlich, WELCHE Zeile ueberhaupt Werkzeuge zeigt (`.setgrid.cur .strip`) – 27 Satzzeilen,
+// 9 sichtbare Werkzeugleisten, 18 Zeilen ohne jedes Werkzeug (R1). Die Stepper stehen jetzt in
+// JEDER Zeile; TW_CUR beantwortet nur noch „welches Gewicht meint der Hantelrechner?".
+let TW_CUR=null; // zuletzt angefasste Satzzeile {ex,set}; sonst gilt „die nächste offene"
+function twCurSet(exId,setNo){TW_CUR={ex:+exId,set:+setNo};}
 // Fokus in einer Satzzeile = diese Zeile ist gemeint (Tastatur wie Finger).
 document.addEventListener('focusin',e=>{const t=e.target;if(!t||!t.closest)return;
-  const g=t.closest('#exlist .setgrid[data-set]');
+  const g=t.closest('.setrow[data-set]');
   if(g&&(!TW_CUR||TW_CUR.ex!==+g.dataset.ex||TW_CUR.set!==+g.dataset.set))twCurSet(g.dataset.ex,g.dataset.set);});
 
-// ===== WORKOUT =====
-// renderWorkout(v,{start:true}) öffnet nach dem Laden automatisch die erste Übung mit offenen Sätzen (Home-CTA).
-// {cached:true} (Router-Repaint aus dem Cache): vorhandene Ansicht stehen lassen und nur die Daten nachziehen.
+// ===== WORKOUT (DESIGN-4 6.2) ================================================================
+// Die Trainingsansicht beantwortet zwei Fragen: „Was hebe ich heute?" und „Was habe ich zuletzt
+// gehoben?" Sie hat EINE Steuerebene unter dem Titel (das Segment Kraft/Cardio, G4) und EINEN
+// Primaerknopf (G10). Gemessen hatte sie vorher 148 Aktionen und KEINEN Primaerknopf, drei
+// Steuerebenen, 17 Zeilenformen, 192 Symbolknoepfe ohne Wort und 10 „···" auf einem Bild.
+//
+// Was hier stand und jetzt einen Namen und einen Ort hat:
+//   · Tages-Chips (zweite Steuerebene)      -> Untertitel des grossen Titels + Zeile
+//                                              „Trainingstag wechseln" im Abschnitt Plan (R4)
+//   · „···" neben dem Datum (6-8 Funktionen) -> Abschnitte „Plan" und „Werkzeuge" + die Wortaktion
+//                                              „Bearbeiten" im Kopf der Gruppe „Uebungen" (R4)
+//   · 9 x „···" an den Uebungskarten (8 Funktionen je Uebung) -> Push-Seite „Uebung" (6.3, R2)
+//   · der Aufklapper .ex/.ex-body            -> die Uebung ist eine SEITE, kein Aufklapper
+//   · der Einfuehrungskasten ueber der Liste -> der Fusstext der Gruppe „Uebungen" (G8)
+//
+// renderWorkout(v,{start:true}) springt nach dem Laden zu der Uebung, die dran ist (Home-CTA).
+// {cached:true} (Router-Repaint aus dem Cache): vorhandene Ansicht stehen lassen, Daten nachziehen.
 async function renderWorkout(v,opts){opts=opts||{};if(!PLAN)await loadPlan();if(!TODAY)await loadToday();
   // aktiver Tag = bestätigter/empfohlener Trainingstag – aber nur, wenn sich die Empfehlung seit dem letzten
   // Rendern geändert hat (eine manuelle Wahl überlebt den Tab-Wechsel)
@@ -175,7 +185,12 @@ async function renderWorkout(v,opts){opts=opts||{};if(!PLAN)await loadPlan();if(
     if(!days.find(d=>d.id===CUR_DAY))CUR_DAY=days[0]?.id||null;}
   if(opts.start)renderWorkout.start=true;
   if(opts.cached&&v.querySelector('#workoutBody')){workoutTab(renderWorkout.tab||'strength',{quiet:true});return;}
+  // G1/G2 · Der grosse Titel steht IM Markup der Ansicht, nicht mehr im Nachtrag von shell.js:
+  // nur so kann er einen Untertitel tragen („Upper 1 · Mittwoch, 16. September"), und genau der
+  // ersetzt die Tages-Chips als zweite Steuerebene. ensureLargeTitle() laesst eine Seite, die ihren
+  // Titel selbst mitbringt, unangetastet.
   v.innerHTML=`<div class="page on">
+    <h1 class="lg-title" id="trTitle">Training<small id="trTitleSub"></small></h1>
     <div class="seg" id="workoutSeg">
       <button id="wt_strength" class="on" onclick="workoutTab('strength')">Kraft</button>
       <button id="wt_cardio" onclick="workoutTab('cardio')">Cardio</button>
@@ -187,58 +202,122 @@ async function renderWorkout(v,opts){opts=opts||{};if(!PLAN)await loadPlan();if(
 function workoutTab(t,o){if(t==='kraft')t='strength';if(t!=='cardio')t='strength';renderWorkout.tab=t;
   const a=document.getElementById('wt_strength'),b=document.getElementById('wt_cardio');if(!a||!b)return;
   a.classList.toggle('on',t==='strength');b.classList.toggle('on',t==='cardio');
+  trSyncTitle();
   if(t==='strength')drawStrength(o);else drawCardioTab(o);}
+// Der Untertitel des grossen Titels. Er ist der Ersatz fuer die Tages-Chips: derselbe Inhalt
+// („welcher Tag steht heute an"), aber als ORTSANGABE statt als Bedienelement – gewechselt wird im
+// Abschnitt Plan, mit einem Wort (R4). Cardio nennt statt des Tages den Monat.
+function trSyncTitle(){const s=document.getElementById('trTitleSub');if(!s)return;
+  if(renderWorkout.tab==='cardio'){s.textContent='Cardio · '+new Date().toLocaleDateString('de-DE',{month:'long',year:'numeric'});return;}
+  const d=curDayObj();
+  s.textContent=(d?d.name:'Noch kein Trainingstag')+' · '+fmtDate(new Date(),{weekday:'long',month:'long'});}
 // Das Technik-Lexikon (DEFS) lädt seit 2.9.0 nicht mehr der Startpfad, sondern rpLoadDefs() – nach
 // dem ersten vollständigen Bild (core.js/rpLater) oder hier, wenn jemand schneller im Trainings-Reiter
-// ist. Die Übungsliste liest es (twTechChip/twFormDef); kommt es erst danach an, wird sie still
-// nachgezogen. Ohne Netz bleibt sie, wie sie ist – der Technik-Chip fehlt dann, mehr passiert nicht.
+// ist. Die Übungsliste liest es (twTechWord/twFormDef); kommt es erst danach an, wird sie still
+// nachgezogen. Ohne Netz bleibt sie, wie sie ist – das Technik-Wort fehlt dann, mehr passiert nicht.
 function _trEnsureDefs(){
   if((DEFS||[]).length||typeof rpLoadDefs!=='function')return;
-  rpLoadDefs().then(()=>{if((DEFS||[]).length&&document.getElementById('exlist'))renderEx({quiet:true});})
+  rpLoadDefs().then(()=>{if((DEFS||[]).length&&document.getElementById('exlist')){renderEx({quiet:true});trDrawPlan();}})
     .catch(e=>console.error('[lexikon]',e));}
 function drawStrength(o){o=o||{};const b=document.getElementById('workoutBody');if(!b)return;
-  const cv=coachView();
-  if(!(o.quiet&&document.getElementById('exlist'))){
-    b.innerHTML=`${!cv&&isBeginner()?infoBox('workout_intro','Tippe eine Übung an, trag Gewicht und Wiederholungen ein und bestätige den Satz mit dem Haken. Der farbige Hinweis sagt dir, ob du nächstes Mal mehr Gewicht nehmen solltest.'):''}
-      <div class="dayrow">
-        <div class="chip-row fill" id="daysel"></div>
-        <span class="caption fixed" id="dayDate"></span>
-        <button class="btn icon sm fixed" id="planMenuBtn" aria-label="Plan bearbeiten" onclick="openPlanMenu()">${icon('more',20)}</button>
-      </div>
-      <div id="exlist"></div>
-      <button class="btn sec mt-2 hidden" id="addExBtn" onclick="addExercise()">${icon('plus',18)} Übung hinzufügen</button>`;}
-  _trEnsureDefs();
-  renderDaySel();renderEx({quiet:o.quiet});trainBarSync();
+  if(!(o.quiet&&document.getElementById('exlist')))
+    b.innerHTML='<div id="exlist"></div><div id="trPlan"></div>';
+  _trEnsureDefs();trSyncTitle();
+  renderEx({quiet:o.quiet});trDrawPlan();trainBarSync();
   if(typeof maybeStartTabTour==='function')try{maybeStartTabTour('workout',{deferred:true});}catch(e){}}
-function renderDaySel(){const el=document.getElementById('daysel');if(!el)return;
-  el.innerHTML=(PLAN?.days||[]).map(d=>`<button class="chip${d.id===CUR_DAY?' on':''}" onclick="selDay(${d.id})">${esc2(d.name)}</button>`).join('');
-  const dt=document.getElementById('dayDate');if(dt)dt.textContent=fmtDate(new Date(),{weekday:'short'});}
-async function selDay(id){if(id===CUR_DAY)return;CUR_DAY=id;renderDaySel();await renderEx();}
+async function selDay(id){if(id===CUR_DAY)return;CUR_DAY=id;trSyncTitle();trDrawPlan();await renderEx();}
 function curDayObj(){return (PLAN?.days||[]).find(d=>d.id===CUR_DAY);}
-// Menü-Zeile für Sheets (Icon · Label · Chevron)
-function _mrow(ic,label,fn,o){o=o||{};return `<div class="row tap${o.cls?' '+o.cls:''}" role="button" tabindex="0" onclick="${fn}"><div class="r-ic">${icon(ic,22)}</div><div class="rl">${esc2(label)}${o.sub?`<small>${esc2(o.sub)}</small>`:''}</div></div>`;}
-// „···" neben den Tages-Chips: alles Seltene (Tag verwalten/anlegen, Kalender, Rhythmus, Coach-Vorlagen)
-function openPlanMenu(){const d=curDayObj();const cv=coachView();const own=ME&&VIEW_USER===ME.id;
-  let h='<div class="rows">';
-  if(d)h+=_mrow('dumbbell','Übung hinzufügen',`closeAllSheets();addExercise()`,{sub:'zu „'+d.name+'"'});
-  if(d)h+=_mrow('settings','Tag verwalten',`manageDay()`,{sub:'Umbenennen oder löschen'});
-  h+=_mrow('plus','Trainingstag hinzufügen',`addDay()`);
-  h+=_mrow('calendar','Kalender',`openCalendar()`,{sub:'Tage planen oder nachtragen'});
-  if(own)h+=_mrow('refresh','Trainingsrhythmus',`openRhythmus()`,{sub:'Folge von Trainings- und Ruhetagen'});
-  if(cv){h+=_mrow('download','Als Vorlage speichern',`closeAllSheets();if(typeof bootCall==='function')bootCall('coach','saveAsTemplate')`);
-    h+=_mrow('upload','Vorlage anwenden',`closeAllSheets();if(typeof bootCall==='function')bootCall('coach','openTemplates')`);
-    if(typeof openImport==='function')h+=_mrow('fileSpreadsheet','Aus Excel importieren',`closeAllSheets();openImport(${VIEW_USER},'${esc(COACH_CONTEXT||'')}')`);}
-  h+='</div>';
-  openSheet('Plan bearbeiten',h);}
+
+// ---- Die beiden festen Abschnitte unter der Uebungsliste: Plan und Werkzeuge ------------------
+// R4 (Plan-„···") und R14 (der Pausen-Timer, der heute erst existiert, wenn man ihn schon benutzt)
+// loesen sich hier auf: jede dieser Funktionen steht als Zeile mit Wort da, und die Zeile traegt
+// ihre Antwort gleich mit (A28: „wie ist es eingestellt?" ohne Tap).
+// Rhythmus in Woertern statt „3x/Wo": „3 Trainingstage in 5 Tagen" sagt, was der Zyklus WIRKLICH
+// ist – ein Rhythmus muss keine Woche lang sein (G9).
+function trRhythmusText(){let p=null;
+  try{p=twProfile().pattern;if(typeof p==='string')p=JSON.parse(p||'null');}catch(e){p=null;}
+  if(!Array.isArray(p)||!p.length)return 'noch nicht eingestellt';
+  const t=p.filter(x=>rhyType(x)==='train').length;
+  return t+' von '+pl(p.length,'Tag','Tagen')+' Training';}
+// Die eingestellte Pausenlänge als Wort, nicht als Sekundenzahl.
+function trRestText(){const s=REST_SECS||90;const m=Math.floor(s/60),r=s%60;
+  return (m?m+':'+String(r).padStart(2,'0')+' min':r+' Sekunden');}
+// Die Zahl der Lexikon-Eintraege: sie kommt aus /api/definitions und war damit die EINZIGE Kennzahl
+// der Trainingsansicht, die ohne Netz verschwand (offline-diff, Fall beim_start/workout: 117 Kenn-
+// zahlen online, 116 ohne Netz – Grundlinie 9.4 verlangt 0 Abweichungen). Sie wird deshalb beim
+// Laden im Schnappschuss abgelegt (snapSave/snapLoad aus core.js, dieselbe Mechanik wie be_plan_*)
+// und beim Kaltstart ohne Netz von dort genommen: der Wert ist dann kein Raten, sondern der zuletzt
+// GEZAEHLTE Stand. Ist noch nie einer angekommen, bleibt die Zeile OHNE Wert – kein „–" und kein
+// „lädt noch" (G9: ein Kuerzel oder ein Platzhalter als Wert sagt nichts).
+function trDefsCount(){const n=(DEFS||[]).length;
+  if(n){if(typeof snapSave==='function')snapSave('be_defs_n',n);return n;}
+  const c=(typeof snapLoad==='function')?snapLoad('be_defs_n'):0;
+  return (typeof c==='number'&&c>0)?c:0;}
+function trDrawPlan(){const el=document.getElementById('trPlan');if(!el)return;
+  if(renderWorkout.tab==='cardio'){el.innerHTML='';return;}
+  const cv=coachView();const own=!!(ME&&VIEW_USER===ME.id);const d=curDayObj();
+  const plan=[
+    rowHTML({icon:'calendar',title:'Trainingstag wechseln',sub:'Welcher Tag heute offen steht',
+      value:d?d.name:'noch keiner',tap:'trDaySheet()'})];
+  // Der Rhythmus gehört dem Athleten: openRhythmus schreibt auf das EIGENE Konto. Im Coach-Blick
+  // stünde hier eine Zeile, die etwas anderes ändert, als sie verspricht – also steht sie da nicht.
+  if(own)plan.push(rowHTML({icon:'refresh',title:'Trainingsrhythmus',sub:'Folge von Trainings- und Ruhetagen',
+    value:trRhythmusText(),tap:'openRhythmus()'}));
+  plan.push(rowHTML({icon:'calendar',title:'Trainingskalender',sub:'Tage planen oder nachtragen',
+    value:new Date().toLocaleDateString('de-DE',{month:'long'}),tap:'openCalendar()'}));
+  if(cv){plan.push(rowHTML({icon:'download',title:'Als Vorlage speichern',sub:'Dieser Trainingstag als Vorlage',
+      tap:"closeAllSheets();if(typeof bootCall==='function')bootCall('coach','saveAsTemplate')"}));
+    plan.push(rowHTML({icon:'upload',title:'Vorlage anwenden',sub:'Eine gespeicherte Vorlage übernehmen',
+      tap:"closeAllSheets();if(typeof bootCall==='function')bootCall('coach','openTemplates')"}));
+    if(typeof openImport==='function')plan.push(rowHTML({icon:'fileSpreadsheet',title:'Aus Excel importieren',
+      sub:'Plan aus einer Tabelle übernehmen',tap:`closeAllSheets();openImport(${VIEW_USER},'${esc(COACH_CONTEXT||'')}')`}));}
+  const nDefs=trDefsCount();
+  const tools=[
+    rowHTML({icon:'dumbbell',title:'Hantelrechner',sub:'Welche Scheiben du pro Seite auflegst',
+      tap:'openPlateCalc(curRowWeight())'}),
+    rowHTML({icon:'timer',title:'Pausen-Timer',sub:'Läuft nach jedem bestätigten Satz',
+      value:trRestText(),tap:'restPick()'}),
+    rowHTML({icon:'bookOpen',title:'Technik-Lexikon',sub:'Die Fachbegriffe aus deinem Plan',
+      value:nDefs?pl(nDefs,'Begriff','Begriffe'):'',tap:'openDefs()'})];
+  el.innerHTML=
+    groupHTML('Plan',plan,'Der Trainingstag gilt nur für heute – dein Plan bleibt, wie er ist. '
+      +(own?'Welcher Tag wann vorgeschlagen wird, entscheidet dein Trainingsrhythmus; im Kalender trägst du einzelne Tage nach.'
+           :'Im Kalender planst du Tage vor oder trägst sie nach.'))
+   +groupHTML('Werkzeuge',tools,'Der Hantelrechner sagt dir, welche Scheiben du pro Seite auflegst. '
+      +'Der Pausen-Timer startet nach jedem bestätigten Satz und läuft unten in der Leiste weiter, auch wenn du die Ansicht wechselst.');}
+// „Trainingstag wechseln" – R4. Die Tages-Chips waren die zweite Steuerebene und zeigten am Ende
+// der Reihe angeschnittene Namen; hier steht jeder Tag ausgeschrieben mit seiner Uebungszahl.
+function trDaySheet(){const days=PLAN?.days||[];
+  const rows=days.map(d=>rowHTML({title:d.name,sub:pl((d.exercises||[]).length,'Übung','Übungen'),
+    value:d.id===CUR_DAY?'ausgewählt':'',tap:`closeAllSheets();selDay(${d.id})`}));
+  rows.push(rowHTML({icon:'plus',title:'Trainingstag hinzufügen',sub:'z.B. Push, Lower 2, Beine',tap:'addDay()'}));
+  openSheet('Trainingstag wechseln',groupHTML('',rows,
+    'Der gewählte Tag gilt nur für heute. Welcher Tag an welchem Datum vorgeschlagen wird, steht in deinem Trainingsrhythmus.'));}
+// „Bearbeiten" im Kopf der Gruppe „Uebungen" – das Muster von Apple Erinnerungen. Es ersetzt das
+// „···" neben dem Datum (R4). Jede Zeile traegt ein Wort; nichts liegt mehr hinter einem Symbol.
+// Reihenfolge und Loeschen einer EINZELNEN Uebung liegen auf ihrer Seite (6.3, Abschnitt
+// „Bearbeiten") – dort, wo man ohnehin ist, wenn man sich mit genau dieser Uebung beschaeftigt.
+function trEditSheet(){const d=curDayObj();const cv=coachView();
+  const rows=[rowHTML({icon:'dumbbell',title:'Übung hinzufügen',sub:d?'zu „'+d.name+'"':'',tap:'closeAllSheets();addExercise()'})];
+  if(d)rows.push(rowHTML({icon:'pencil',title:'Trainingstag umbenennen',sub:'Heißt jetzt „'+d.name+'"',tap:'manageDay()'}));
+  rows.push(rowHTML({icon:'plus',title:'Trainingstag hinzufügen',sub:'Ein weiterer Tag in deinem Plan',tap:'addDay()'}));
+  if(cv)rows.push(rowHTML({icon:'download',title:'Als Vorlage speichern',sub:'Dieser Trainingstag als Vorlage',
+    tap:"closeAllSheets();if(typeof bootCall==='function')bootCall('coach','saveAsTemplate')"}));
+  const del=d?groupHTML('',[rowHTML({title:'Trainingstag löschen',danger:true,tap:`deleteDay(${d.id})`})],
+    'Der Tag wird ausgeblendet. Deine eingetragenen Sätze bleiben erhalten.'):'';
+  openSheet('Bearbeiten',groupHTML('',rows,
+    'Einzelne Übungen verschiebst, tauschst oder löschst du auf der Seite der Übung – tippe sie dazu in der Liste an.')+del);}
+// Umbenennen – NUR umbenennen. Das Löschen stand hier als zweiter, roter Vollbreitknopf direkt
+// unter „Umbenennen": zwei Primärformen in einem Blatt, die zerstörende davon eine Daumenbreite von
+// der harmlosen entfernt (A30). Es steht jetzt als eigene, rote Zeile am Ende von „Bearbeiten".
 function manageDay(){const d=curDayObj();if(!d)return;
-  openSheet('Tag verwalten',`
-    <div class="field"><label>Name des Trainingstags</label><input id="dn_name" value="${esc2(d.name)}" maxlength="60"></div>
-    <button class="btn block" onclick="renameDay(${d.id})">Umbenennen</button>
-    <button class="btn block danger mt-2" onclick="deleteDay(${d.id})">${icon('trash',18)} Tag löschen</button>
-    <div class="caption mt-3">Beim Löschen werden auch die Übungen dieses Tags entfernt. Dein Rhythmus passt sich automatisch an.</div>`);}
+  openSheet('Trainingstag umbenennen',`
+    <div class="field"><label for="dn_name">Name des Trainingstags</label><input id="dn_name" value="${esc2(d.name)}" maxlength="60"></div>
+    <button class="btn" onclick="renameDay(${d.id})">Umbenennen</button>
+    <p class="rows-f">Der Name steht im Untertitel der Trainingsansicht, im Kalender und in deinem Rhythmus.</p>`);}
 async function renameDay(id){const name=val('dn_name');if(!name)return showFieldErr('sheetBody','Name darf nicht leer sein','dn_name');
   const r=await API.put('/days/'+id,{name});
-  if(r.status===200){closeAllSheets();await loadPlan();renderDaySel();_inv();toast('Umbenannt ✓');}else toast(r.data?.error||'Fehler');}
+  if(r.status===200){closeAllSheets();await loadPlan();trSyncTitle();trDrawPlan();_inv();toast('Umbenannt ✓');}else toast(r.data?.error||'Fehler');}
 // Zahl der Sätze, die an einem Trainingstag hängen – aus der Antwort des Servers (Feld `sets`; die
 // älteren Schreibweisen daneben kosten nichts). null, wenn der Server sie (noch) nicht mitschickt.
 function _daySetCount(d){if(!d||typeof d!=='object')return null;
@@ -292,133 +371,165 @@ async function _loadProgression(day){const key=VIEW_USER+'_'+day.id;const ids=da
   if(!items){items={};const rs=await Promise.all(ids.map(id=>API.get('/progression/'+VIEW_USER+'/'+id)));
     rs.forEach((x,i)=>{items[ids[i]]=(x.status===200&&x.data)?x.data:{};});}
   PROG_CACHE[key]=items;return items;}
-// B-I.3 · Auch die Planzeile des Coachs trägt die Supersatz-Marke (A1/A2) und den Hinweis auf eine
-// getauschte Übung – sonst sähe er einen Plan, den sein Athlet anders vor sich hat.
-function _exRowCoach(ex,i){const G=LIB_GRP[ex.id]||null;const m=libMeta(ex);
-  return `<div class="row" id="ex-${ex.id}" data-id="${ex.id}"><div class="r-ic num">${esc2(G?G.tag:String(i+1))}</div>
-  <div class="rl">${esc2(ex.name)}<small>${ex.target_sets||3} × ${esc2(ex.target_reps||'–')}${ex.muscle?' · '+esc2(ex.muscle):''}${ex.technique&&ex.technique!==(ex.form_guide||'')?' · '+esc2(ex.technique):''}${G?' · Supersatz '+esc2(G.tag.charAt(0)):''}${m.prevName?' · früher: '+esc2(m.prevName):''}</small></div>
-  <div class="rr"><button class="btn icon sm" aria-label="Bearbeiten" onclick="editExercise(${ex.id})">${icon('pencil',18)}</button><button class="btn icon sm ghost" aria-label="Optionen" onclick="exMenu(${ex.id})">${icon('more',20)}</button></div></div>`;}
-function _exCard(ex,i,pr,logs,open){const sets=ex.target_sets||3;pr=pr||{};const rec=pr.recommendation||{type:'none',text:''};
-  const logFor=s=>logs.find(l=>l.exercise_id===ex.id&&l.set_no===s)||{};
-  // Der Satz von LETZTER Woche, der zu dieser Zeile gehört. Erst über die Satznummer – und wenn die
-  // nicht passt, über die Position. Warum die zweite Stufe nötig ist: `set_no` ist in Bestandsdaten
-  // nicht immer je Übung gezählt. In der Prüf-Datenbank läuft sie über die ganze Einheit durch
-  // (Übung 2 trägt die Sätze 4/5/6), und die reine Nummernsuche fand deshalb bei 8 von 9 Übungen
-  // NICHTS: kein Vorschlagswert im Feld, keine Begründungszeile – Punkt 8 des Vertrags wäre genau
-  // dort unsichtbar geblieben, wo er gebraucht wird. `lastSets` kommt vom Server nach `set_no`
-  // sortiert und enthält nur die letzte Einheit dieser Übung; der n-te Eintrag IST der n-te Satz.
-  // Entschieden wird EINMAL je Übung, nicht je Zeile: beginnt die letzte Einheit bei Satz 1, gilt die
-  // Nummer; sonst die Position. Sonst bekämen zwei Zeilen denselben Vorschlag, wenn beides teilweise
-  // greift (Sätze 2/3/4 nach einem gelöschten ersten Satz).
+// ---- DIE UEBUNGSZEILE (DESIGN-4 6.2) --------------------------------------------------------
+// Vorher: eine Karte mit Kopf, Aufklapp-Pfeil, „···", Technik-Chip mit i-Symbol, Schloss-Symbol und
+// einer Metazeile, die in EINE Zeile gequetscht und dann abgeschnitten wurde. Gemessen war der Name
+// JEDER der neun Uebungen abgeschnitten, und zwei Uebungen hiessen dadurch sichtbar gleich
+// („Incline Smith Machine…", Zeile 2 und 3) – R16/G11, der handfesteste Fehler der ganzen Ansicht.
+// Jetzt: EINE `.row.tap` aus rowHTML(), Name vollstaendig (bricht um), alles Nebensaechliche als
+// Woerter in der Unterzeile, die Antwort rechts, das Chevron fuehrt auf die Seite der Uebung.
+// Der Platz dafuer kommt vom weggefallenen „···": 44 px mehr Breite je Zeile.
+
+// „zuletzt 72,5 kg × 10, 9, 8" – die Antwort auf „was habe ich hier zuletzt gemacht?" steht damit
+// IN der Zeile statt drei Taps entfernt (STRATEGY 5.1, Teil 8). Bei Koerpergewichts-Uebungen steht
+// das Gewicht 0 nicht als „0 kg" da, sondern gar nicht (P-3, dieselbe Regel wie in _satzTxt).
+function trLastText(pr){const l=((pr&&pr.lastSets)||[]).filter(x=>x&&x.reps>0);if(!l.length)return '';
+  const reps=l.map(x=>fmtNum(x.reps)).join(', ');
+  const w=+l[0].weight;
+  return (l[0].weight==null||w===0)?('zuletzt '+reps+' Wiederholungen')
+    :('zuletzt '+_fmtW(w)+' kg × '+reps);}
+// Das Technik-Wort der Uebung. Vorher war es ein `.tchip` mit einem i-Symbol daneben – ein Kuerzel
+// („UP") plus ein Symbol, das man antippen muss, um zu erfahren, was es heisst (R15/G8/G9).
+// Jetzt steht das WORT in der Unterzeile; erklaert wird im Fusstext der Gruppe.
+function twTechWord(ex){if(!ex)return '';
+  const t=String(ex.technique||'').trim();if(!t)return '';
+  const d=_findDef(t);
+  const lang=d&&d.term?_defLabel(d.term):_defLabel(t);
+  return /^up$/i.test(lang.trim())?'Umkehrpunkt':lang;}
+// Wie viele Saetze dieser Uebung heute schon stehen.
+function trExDone(ex,logs){const n=ex.target_sets||3;let done=0;
+  for(let s=1;s<=n;s++){const l=(logs||[]).find(x=>x.exercise_id===ex.id&&x.set_no===s);if(l&&l.reps>0)done++;}
+  return done;}
+// Die Uebung, die JETZT dran ist: die erste mit einem offenen Satz. Ist alles erledigt, gibt es keine.
+function trDueId(day,logs){for(const ex of (day.exercises||[])){if(trExDone(ex,logs)<(ex.target_sets||3))return ex.id;}return null;}
+function _exRow(ex,i,pr,logs,o){o=o||{};
+  const G=LIB_GRP[ex.id]||null;const m=libMeta(ex);
+  const n=ex.target_sets||3;const done=trExDone(ex,logs);
+  // Die Unterzeile aus TEILEN, leere fliegen vor dem Zusammenfuegen heraus (B13): sonst haengt bei
+  // einer Uebung ohne Muskelgruppe oder ohne Zielbereich ein „·" ins Leere.
+  // DESIGN-4 6.2 zeichnet genau drei Teile: „Brust · 6-10 Wdh. · zuletzt 72,5 x 10/9/8". Mehr
+  // passt nicht in eine Unterzeile, ohne dass die Zeile vier Zeilen hoch wird – und alles Weitere
+  // (Technik, Coach-Vorgabe, Ausfuehrung) steht eine Zeilenberuehrung entfernt auf der Seite der
+  // Uebung. Die Supersatz-Marke steht in der Nummernspalte („A1"), nicht noch einmal im Text.
+  const teile=[ex.muscle||'',
+    ex.target_reps?(ex.target_reps+' Wiederholungen'):'',
+    m.prevName?('früher: '+m.prevName):'',
+    o.coach?'':trLastText(pr)].filter(Boolean);
+  // Der Wert rechts beantwortet „wie weit bin ich hier?" ohne Tap (A28) – in Woertern, nicht als
+  // „2/3" (G9/R15).
+  const wert=o.coach?(n+' × '+(ex.target_reps||'ohne Vorgabe'))
+    :(done>=n?'fertig':(done>0?(done+' von '+n+' geschafft'):pl(n,'Satz','Sätze')));
+  const h=rowHTML({title:ex.name,sub:teile.join(' · '),value:wert,
+    tap:`pushExercise(${ex.id})`,id:'ex-'+ex.id});
+  // rowHTML() kennt nur Symbole aus ICONS; die Nummer der Uebung (bzw. die Supersatz-Marke „A1")
+  // ist eine ZAHL und gehoert trotzdem in dieselbe 24-px-Spalte. Sie wird deshalb in das fertige
+  // Markup des Helfers gesetzt, statt eine zweite Zeilenform zu bauen – das Muster der Zeile bleibt
+  // damit an genau EINER Stelle definiert (DESIGN-4 4.5). `.rl.two` erlaubt den Umbruch langer
+  // Namen mitten im Wort (6.2): „Incline Smith Machine Press (eng)" steht damit vollstaendig da.
+  return h.replace('<span class="rl">',
+    `<span class="r-ic num">${esc2(G?G.tag:String(i+1))}</span><span class="rl two">`);}
+
+// ---- DER SATZBLOCK (DESIGN-4 5.12 / 6.3) -----------------------------------------------------
+// `.setrow` ist die EINE begruendete Ausnahme vom Zeilenmuster: vier gleichrangige Zahlenfelder
+// plus Bestaetigung, 20-40 x je Einheit bedient. Drei Dinge aendern sich gegenueber `.setgrid`:
+//   1. Die Stepper stehen in JEDER Zeile (R1). Vorher trug nur die aktive Zeile eine Werkzeug-
+//      leiste: gemessen 27 Satzzeilen, 9 sichtbare Leisten, 18 Zeilen ohne jedes Werkzeug – und
+//      keinen Hinweis darauf, dass die Leiste erscheint, wenn man die Zeile anfasst.
+//   2. Die Kopfzeile traegt WOERTER: Satz · Gewicht · Wiederh. · Reserve · Bestätigt. „RIR" stand
+//      vorher als `<abbr title>` da – auf dem Handy nicht erreichbar (R15/G8). Was „Reserve"
+//      heisst, steht im Fusstext unter der Gruppe.
+//   3. Die Satznummer traegt ein Chevron und fuehrt auf das Satz-Detail (R5). Vorher war sie ein
+//      Knopf, der wie eine Zahl aussah, und der einzige Weg zur Satzart war ein 450-ms-Druck.
+// ZWEI ZEILEN, nicht eine: der Bauplan in 5.12 zeichnet „− 72,5 +" in einer Zeile. Bei 390 px
+// Geraetebreite braeuchten sechs Stepper (je 44 px, Untergrenze aus der Barrierefreiheit) plus drei
+// Zahlenfelder 350 px allein fuer sich – die Zeile hat 326. Kleinere Ziele waeren ein Rueckschritt
+// gegen die gemessene Grundlinie (G12). Deshalb: Zeile 1 traegt Nummer, Werte und Haken, Zeile 2
+// die sechs Stepper ueber die volle Breite. Beides bleibt EINE `.setrow` – ein Satz, ein Objekt.
+function trSetRows(ex,pr,logs){const sets=ex.target_sets||3;pr=pr||{};
+  const rec=pr.recommendation||{type:'none',text:''};
+  const logFor=s=>(logs||[]).find(l=>l.exercise_id===ex.id&&l.set_no===s)||{};
   const _last=(pr.lastSets||[]).filter(x=>x.reps>0);
   const _byNo=!_last.length||_last[0].set_no===1;
   const lastFor=s=>(_byNo?_last.find(x=>x.set_no===s):_last[s-1])||null;
-  const prs=pr.prs||{};const prToday=!!(logSet.prDone&&Object.keys(logSet.prDone).some(k=>k.startsWith(ex.id+'_')));
-  const recentPR=prToday||(prs.maxWeightDate&&(Date.now()-Date.parse(prs.maxWeightDate+'T00:00'))<7*864e5&&prs.maxWeightDate<today());
-  // B13 · Die Metazeile entsteht aus TEILEN, und leere Teile fliegen vor dem Zusammenfügen heraus –
-  // vorher hing bei einer Übung ohne Muskel oder ohne Zielbereich ein „·" ins Leere.
-  // Die beiden Teile, die ein ELEMENT sind (Technik-Chip, Bestleistung), tragen ihr Trennzeichen
-  // IN SICH (`.mgp`, `white-space:nowrap`). Sonst bricht die Zeile zwischen Punkt und Chip um und der
-  // Punkt bleibt allein am Zeilenende stehen – genau das war im Prüf-Screenshot zu sehen
-  // („Hamstrings · 10-15 Reps ·" und der Chip eine Zeile tiefer).
-  // B12 · „Wdh", nicht „Reps": dieselbe Vokabel wie in der Kopfzeile und auf den Steppern.
-  const mgParts=[[esc2(ex.muscle||''),ex.target_reps?esc2(ex.target_reps)+' Wdh':''].filter(Boolean).join(' · '),
-    twTechChip(ex),
-    prs.maxWeight>0?(recentPR?`<span class="pill amber pr">${icon('trophy',12)} ${_fmtW(prs.maxWeight)} kg</span>`:`<span class="best">Best ${_fmtW(prs.maxWeight)} kg</span>`):''
-  ].filter(Boolean);
-  const meta=mgParts.map((h,i)=>i?`<span class="mgp">· ${h}</span>`:h).join(' ');
-  EX_META[ex.id]=meta;
-  const recIcon={up:'trendUp',down:'trendDown',hold:'trendFlat'}[rec.type];
-  // Satzzeile 2.8.0: [Satz][kg][Wdh][RIR][✓] plus die Werkzeugleiste der aktiven Zeile.
-  // Die beiden Vorschau-Zeilen unter den Feldern („zuletzt 72,5 kg" / „× 10") sind weg – sie
-  // wiederholten nur, was im Feld steht (RATE-25-training M2, ~40 px je Satz). An ihrer Stelle
-  // steht EIN Satz, der sagt, woher die vorgeschlagene Zahl kommt und wohin sie zeigt (P3).
-  const rirOn=twRirOn();const typesOn=twSetTypesOn();const step=twStepKg(ex,pr);const stepTxt=_fmtW(step);
-  const plateOn=twPlateOn(ex.name);
-  const zielRep=_repLow(ex.target_reps);
-  // Ist diese Uebung fuer den Athleten WIRKLICH neu? Nur dann darf die Zeile „Erste Einheit" sagen.
-  // Ein Satz 2 ohne Vorwochen-Gegenstueck, waehrend Satz 1 eine Vorgeschichte hat, ist keine erste
-  // Einheit – dort sagt die Zeile stattdessen, aus welchem Zielbereich die Zahl kommt (P3: nichts
-  // behaupten, was sich nicht belegen laesst).
-  const neuFuerMich=!_last.length&&!logs.some(l=>l.exercise_id===ex.id&&l.reps>0);
-  let _whyPrev=''; // zuletzt gezeigte Begründung DIESER Übung (siehe unten)
-  const rows=Array.from({length:sets},(_,k)=>{const s=k+1;const lg=logFor(s);const ps=lastFor(s);
+  const rirOn=twRirOn();const zielRep=_repLow(ex.target_reps);
+  const neuFuerMich=!_last.length&&!(logs||[]).some(l=>l.exercise_id===ex.id&&l.reps>0);
+  let whyErste='';
+  const out=[];
+  for(let k=0;k<sets;k++){const s=k+1;const lg=logFor(s);const ps=lastFor(s);
     const hasToday=(lg.weight!=null&&lg.weight>0)||(lg.reps!=null&&lg.reps>0);
-    // A-2 · Gibt es zu dieser Zeile keinen Satz der VORIGEN Einheit, ist der letzte HEUTE bestätigte
-    // Satz derselben Übung die Quelle – STRATEGY 4.1, Zeile „Vorbelegung": „letzter Wert aus derselben
-    // Einheit". Bis zur Nachbesserung las `lastFor` ausschließlich `_last` (die Vorwoche); wer eine
-    // Übung heute zum ersten Mal machte, fand Satz 2 leer vor, obwohl Satz 1 gerade gespeichert war.
     let heute=null;
     if(!ps&&!hasToday)for(let q=s-1;q>=1;q--){const l=logFor(q);if(l&&l.reps>0){heute={...l,set_no:q};break;}}
-    // Die Empfehlung VERSCHIEBT nur den Wert der Vorwoche. Innerhalb derselben Einheit wird nichts
-    // verschoben: Satz 2 wiederholt Satz 1, das ist die ehrlichere Vorgabe.
     const sug=ps?twSuggW(ps.weight,rec):(heute&&heute.weight!=null?+heute.weight:null);
     const wVal=hasToday?(lg.weight??''):(sug!=null?sug:'');
     let rVal=hasToday?(lg.reps>0?lg.reps:''):((ps||heute)?((ps||heute).reps??''):'');
-    // A-1 · Erste Einheit: keine Vorwoche, kein Satz von heute. Dann trägt wenigstens die Spalte „Wdh"
-    // den unteren Rand des Zielbereichs der Übung (`exercises.target_reps`, „6-10" -> 6). P2 nennt
-    // genau diesen Sonderfall Erstnutzung. Das GEWICHT bleibt leer – eine Zahl dafür wäre geraten,
-    // und die Begründungszeile sagt stattdessen, woran der Athlet es erkennt.
     let erst=false;
     if(!hasToday&&!ps&&!heute&&zielRep!=null&&rVal===''){rVal=zielRep;erst=true;}
     const rirVal=hasToday?(lg.rir==null?'':lg.rir):'';
     const ty=twType(hasToday&&lg.set_type?lg.set_type:'work');
     const note=hasToday?String(lg.note||''):'';
-    const sugg=!hasToday&&(!!ps||!!heute||erst);const sc=sugg?' class="sugg"':'';
-    // P3 · Begründung unter der vorgeschlagenen Zahl. Sie steht unter JEDER Zahl, die sich von der
-    // darüber unterscheidet – und NICHT ein zweites und drittes Mal wortgleich darunter. Genau das
-    // war der teuerste Fehler der alten Karte (RATE-25-training M2: die wiederholten „zuletzt 72,5 kg"
-    // / „× 10" kosteten bei 3 Sätzen 429 px, ohne einen einzigen neuen Satz zu sagen). Bei einem
-    // absteigenden Schema (80 / 75 / 70) trägt weiterhin jede Zeile ihre eigene Zeile.
-    let why=sugg?(ps?twWhy(ps,sug,rirOn):(heute?twWhyToday(heute)
-      :(neuFuerMich?twWhyFirst(ex.target_reps):twWhyTarget(ex.target_reps)))):'';
-    if(why&&why===_whyPrev)why='';if(sugg)_whyPrev=why||_whyPrev;
-    // `data-src` sagt, WOHER die Zahlen dieser Zeile stammen. twSeedNext (A-2) liest es: eine Zeile,
-    // die schon den Wert der VORWOCHE trägt, wird nach einem ✓ nicht überschrieben – der Rückfall auf
-    // „letzter Satz von heute" gilt nur, wo es keine Vorwoche gibt.
+    const sugg=!hasToday&&(!!ps||!!heute||erst);
     const src=hasToday?'log':(ps?'last':(heute?'today':(erst?'first':'')));
-    return `<div class="setgrid${rirOn?' rir':''}" data-ex="${ex.id}" data-set="${s}" data-type="${ty.k}" data-src="${src}"${note?` data-note="${esc2(note)}"`:''}>
-      ${typesOn?`<button class="sn${ty.k!=='work'?' t-'+ty.k:''}" type="button" aria-label="Satz ${s} · Satztyp ${esc2(ty.l)} (langer Druck ändert den Satztyp)" onclick="twTypeSheet(${ex.id},${s})"><span class="v">${s}</span><span class="t">${ty.s}</span></button>`
-        :`<div class="sn stat" aria-hidden="true"><span class="v">${s}</span></div>`}
-      <div class="wcell"><input type="number" inputmode="decimal" step="any" min="0" max="1000" placeholder="kg"${sc} value="${wVal}" data-sugg="${sugg?1:0}" aria-label="Gewicht Satz ${s}" onfocus="clearSugg(this)" oncontextmenu="event.preventDefault();openPlateCalc(this.value)" onchange="logSet(${ex.id},${s},'weight',this.value)"></div>
-      <div class="rcell"><input type="number" inputmode="numeric" min="0" max="1000" placeholder="–"${sc} value="${rVal}" data-sugg="${sugg?1:0}" aria-label="Wiederholungen Satz ${s}" onfocus="clearSugg(this)" onchange="logSet(${ex.id},${s},'reps',this.value,true)"></div>
-      ${rirOn?`<div class="rircell"><input class="rir" type="number" inputmode="numeric" min="0" max="5" placeholder="–" value="${rirVal}" aria-label="RIR Satz ${s}: wie viele Wiederholungen wären noch gegangen" onchange="twRirChange(${ex.id},${s})"></div>`:''}
-      <button class="ok" type="button" aria-label="Satz ${s} bestätigen" onclick="commitSet(${ex.id},${s})">${icon('check',22)}</button>
-      <div class="strip${plateOn?'':' nopc'}">
-        ${plateOn?`<button class="tl pc" type="button" aria-label="Hantelrechner für Satz ${s}" onclick="trOpenPlateFromRow(this)">${icon('dumbbell',18)}</button>`:''}
-        <button class="stp wu" type="button" aria-label="Gewicht erhöhen um ${stepTxt} kg" onclick="twStep(${ex.id},${s},'weight',1)">+${stepTxt}<i>kg</i></button>
-        <button class="stp wd" type="button" aria-label="Gewicht senken um ${stepTxt} kg" onclick="twStep(${ex.id},${s},'weight',-1)">−${stepTxt}<i>kg</i></button>
-        <button class="stp ru" type="button" aria-label="Wiederholungen erhöhen um 1" onclick="twStep(${ex.id},${s},'reps',1)">+1<i>Wdh</i></button>
-        <button class="stp rd" type="button" aria-label="Wiederholungen senken um 1" onclick="twStep(${ex.id},${s},'reps',-1)">−1<i>Wdh</i></button>
-        <button class="tl nt${note?' on':''}" type="button" aria-label="Notiz zu Satz ${s}" onclick="twNoteSheet(${ex.id},${s})">${icon('pencil',18)}</button>
-      </div>
-      ${why?`<div class="why">${esc2(why)}</div>`:''}
-      <div class="snote${note?'':' hidden'}">${esc2(note)}</div>
-    </div>`;}).join('');
-  // B-I.3 · Supersatz: die Karte bleibt eine Karte, bekommt aber die Klammer der Gruppe, ihre Marke
-  // (A1/A2) an der Stelle der Nummer und den Satz, warum der Pausen-Timer wartet.
-  const G=LIB_GRP[ex.id]||null;
-  const gCls=G?' lib-g'+(G.idx===0?' lib-g-first':'')+(G.idx===G.size-1?' lib-g-last':''):'';
-  const gIdx=G?G.tag:String(i+1);
-  // Aufklapper: der Kopf ist der Knopf, der Satzblock das Ziel. aria-expanded/aria-controls sagen einem
-  // Screenreader, dass hier etwas auf- und zugeht und was davon betroffen ist (A-II.6). Den Zustand
-  // haelt semExAria synchron – sowohl beim Tippen (toggleEx) als auch beim Neuzeichnen (renderEx).
-  return `<div class="ex${open?' open':''}${gCls}" id="ex-${ex.id}" data-id="${ex.id}"${G?` data-lib-g="${esc2(G.gid)}"`:''}>
-    <div class="ex-head" role="button" tabindex="0" aria-expanded="${open?'true':'false'}" aria-controls="exb-${ex.id}" onclick="toggleEx(${ex.id})">
-      <div class="ex-idx" data-n="${esc2(gIdx)}"${G?` aria-label="Supersatz ${esc2(G.tag)}"`:''}>${esc2(gIdx)}</div>
-      <div class="ex-main"><div class="nm">${ex.coach_locked&&!coachView()?`<span class="lockw" role="img" aria-label="Vom Coach vorgegeben" title="Vom Coach vorgegeben">${icon('lock',14,'lock')}</span>`:''}${esc2(ex.name)}</div><div class="mg">${meta}</div></div>
-      <span class="ex-cnt caption hidden"></span>
-      <button class="btn icon sm ghost ex-more" type="button" aria-label="Optionen zu ${esc2(ex.name)}" onclick="event.stopPropagation();exMenu(${ex.id})">${icon('more',20)}</button>
-      <div class="ex-chev">${icon('chevronRight',18)}</div>
-    </div>
-    <div class="ex-body" id="exb-${ex.id}"><div class="ex-inner">
-      ${libPrevHTML(ex)}
-      ${recIcon&&rec.text?`<div class="rec ${rec.type}"><span class="ric">${icon(recIcon,18)}</span><span>${esc2(rec.text)}</span></div>`:''}
-      <div class="setgrid hdrow${rirOn?' rir':''}"><div class="hd">Satz</div><div class="hd">Gewicht</div><div class="hd">Wdh</div>${rirOn?'<div class="hd"><abbr title="Wiederholungen in Reserve: wie viele Wiederholungen wären noch gegangen">RIR</abbr></div>':''}<div class="hd" aria-hidden="true"></div></div>
-      ${rows}
-      ${libNextHTML(ex.id)}
-      ${ex.notes?`<div class="note">${esc2(ex.notes)}</div>`:''}
-    </div></div></div>`;}
+    // P3 · „Woher kommt diese Zahl?" Der Satz stand vorher unter JEDER vorgeschlagenen Zeile und
+    // wiederholte sich dabei. Er gehoert an den Erklaerungsort der App: EINMAL in den Fusstext
+    // unter der Gruppe (G8). Genommen wird der Satz der ERSTEN offenen Zeile – die, die dran ist.
+    const why=sugg?(ps?twWhy(ps,sug,rirOn):(heute?twWhyToday(heute)
+      :(neuFuerMich?twWhyFirst(ex.target_reps):twWhyTarget(ex.target_reps)))):'';
+    if(!whyErste&&why)whyErste=why;
+    out.push({s,wVal,rVal,rirVal,ty,note,sugg,src,hasToday});}
+  return {rows:out,rirOn,why:whyErste,step:twStepKg(ex,pr),typesOn:twSetTypesOn()};}
+// Eine Satzzeile.
+function trSetRowHTML(ex,d,o){const s=d.s;const id=ex.id;const sc=d.sugg?' sugg':'';
+  const stepTxt=_fmtW(o.step);
+  const stp=(feld,dir,zahl,einheit,was)=>`<button type="button" class="stp" `
+    +`aria-label="${esc2(was+' in Satz '+s+(dir>0?' erhöhen um ':' verringern um ')+zahl)}" `
+    +`onclick="twStep(${id},${s},'${feld}',${dir})">${dir>0?'+':'−'}${esc2(zahl)}<i>${esc2(einheit)}</i></button>`;
+  // Die Satznummer ist ein benannter Weg, kein Ratespiel: Chevron sichtbar, Ziel benannt (R5/A57).
+  const art=o.typesOn?(' · '+d.ty.l):'';
+  const nr=o.typesOn
+    ? `<button type="button" class="n" aria-label="${esc2('Satz '+s+art+' · Satzart, Notiz und Scheiben')}" onclick="twSetDetail(${id},${s})">`
+      +`<span class="v">${s}</span>${d.ty.s?`<span class="t">${esc2(d.ty.s)}</span>`:''}<span class="chev" aria-hidden="true"></span></button>`
+    : `<button type="button" class="n" aria-label="${esc2('Satz '+s+' · Notiz und Scheiben')}" onclick="twSetDetail(${id},${s})">`
+      +`<span class="v">${s}</span><span class="chev" aria-hidden="true"></span></button>`;
+  return `<div class="setrow${o.rirOn?' rir':''}" data-ex="${id}" data-set="${s}" data-type="${d.ty.k}" data-src="${d.src}"${d.note?` data-note="${esc2(d.note)}"`:''}>`
+    +nr
+    +`<span class="f"><input class="w${sc}" type="number" inputmode="decimal" step="any" min="0" max="1000" placeholder="kg"`
+    +` value="${d.wVal}" data-sugg="${d.sugg?1:0}" aria-label="Gewicht Satz ${s}" onfocus="clearSugg(this)"`
+    +` onchange="logSet(${id},${s},'weight',this.value)"></span>`
+    +`<span class="f"><input class="r${sc}" type="number" inputmode="numeric" min="0" max="1000"`
+    +` value="${d.rVal}" data-sugg="${d.sugg?1:0}" aria-label="Wiederholungen Satz ${s}" onfocus="clearSugg(this)"`
+    +` onchange="logSet(${id},${s},'reps',this.value,true)"></span>`
+    +(o.rirOn?`<span class="f"><input class="rir" type="number" inputmode="numeric" min="0" max="5"`
+      +` value="${d.rirVal}" aria-label="Reserve Satz ${s}: wie viele Wiederholungen wären noch gegangen"`
+      +` onchange="twRirChange(${id},${s})"></span>`:'')
+    +`<button type="button" class="ok" aria-label="Satz ${s} bestätigen" onclick="commitSet(${id},${s})">${icon('check',22)}</button>`
+    +`<span class="stps">`
+    +stp('weight',-1,stepTxt,'kg','Gewicht')+stp('weight',1,stepTxt,'kg','Gewicht')
+    +stp('reps',-1,'1','Wiederh.','Wiederholungen')+stp('reps',1,'1','Wiederh.','Wiederholungen')
+    +(o.rirOn?stp('rir',-1,'1','Reserve','Reserve')+stp('rir',1,'1','Reserve','Reserve'):'')
+    +`</span>`
+    +`<span class="snote${d.note?'':' hidden'}">${esc2(d.note)}</span>`
+    +`</div>`;}
+// Kopfzeile des Satzblocks – Woerter, keine Kuerzel (5.12/G9).
+function trSetHeadHTML(rirOn){
+  return `<div class="setrow-h${rirOn?' rir':''}"><span class="hn">Satz</span><span class="h">Gewicht</span>`
+    +`<span class="h">Wiederh.</span>${rirOn?'<span class="h">Reserve</span>':''}`
+    +`<span class="hok">Bestätigt</span></div>`;}
+// Der ganze Block: Kopfzeile + Satzzeilen. `o.add` haengt die Zeile „Satz hinzufuegen" an (Uebungsseite).
+function trSetBlock(ex,pr,logs,o){o=o||{};const d=trSetRows(ex,pr,logs);
+  let h=trSetHeadHTML(d.rirOn)+d.rows.map(r=>trSetRowHTML(ex,r,d)).join('');
+  if(o.add)h+=rowHTML({icon:'plus',title:'Satz hinzufügen',sub:'Ein Arbeitssatz mehr in dieser Übung',
+    tap:`trAddSet(${ex.id})`});
+  return {html:h,why:d.why,rirOn:d.rirOn};}
+// Der Fusstext unter dem Satzblock – der Erklaerungsort (G8). Er traegt beides: warum genau DIESE
+// Zahl vorgeschlagen wird (P3) und was „Reserve" bedeutet (R15, das letzte offene Kuerzel dieser
+// Ansicht). Vorher stand die Begruendung 27 x einzeln zwischen den Zeilen und „RIR" gar nicht.
+function trSetFootText(b,ex){
+  // Der Fusstext ist FLIESSTEXT, kein Datenfeld: die Begruendung aus der Satzzeile endet ohne
+  // Satzzeichen („… → heute gleich"), und ohne Punkt liefe sie in den naechsten Satz hinein.
+  const w=((b&&b.why)||'').trim();const rirOn=!!(b&&b.rirOn);
+  return [w?(/[.!?]$/.test(w)?w:w+'.'):'',rirOn?'Reserve heißt: wie viele Wiederholungen du am Ende des Satzes noch geschafft hättest (RIR). Leer lassen ist erlaubt.':'',
+    'Ein Satz zählt, sobald Wiederholungen eingetragen und mit dem Haken bestätigt sind.',
+    ex?libNextText(ex.id):''].filter(Boolean).join(' ');}
 // ---- Bereitschaft: ein Hinweis über der Übungsliste ----
 // Er erscheint NUR bei „Etwas zurücknehmen"/„Erholen" (amber/rot). Grün oder „noch keine Daten"
 // bleiben still, damit der Tab nicht bevormundet: er sagt, was die Zahlen hergeben, entscheiden
@@ -436,10 +547,21 @@ function trainReadyHTML(rd){const tone=rd&&rd.tone;if(tone!=='amber'&&tone!=='re
   // gedämpften Schlafzahl; stattdessen steht hier, WORAUS geschätzt wurde. Ohne home.js (kein
   // _readySolo) bleibt es beim bisherigen Hinweis.
   const solo=(!health&&typeof _readySolo==='function')?_readySolo(rd):'';
-  const sub=solo?`Geschätzt aus ${solo} – für eine belastbare Einschätzung fehlen noch Werte.`:(rd.headline||'');
-  const inner=`${icon(tone==='red'?'moon':'heart',20)}<span class="fill"><b>${esc2(head)}</b>${sub?`<small>${esc2(sub)}</small>`:''}${health?'<small>Gesundheitsdaten verbinden</small>':''}</span>${fn?icon('chevronRight',18):''}`;
-  const cls='tr-ready'+(tone==='red'?' red':''); // eigener Klassenname: „.rdy" gehört der Zeile auf der Startseite
-  return fn?`<button class="${cls}" type="button" onclick="${fn}">${inner}</button>`:`<div class="${cls}">${inner}</div>`;}
+  const sub=health?'Gesundheitsdaten verbinden'
+    :(solo?`Geschätzt aus ${solo} – für eine belastbare Einschätzung fehlen noch Werte.`:(rd.headline||''));
+  // EINE Form fuer EINE Aussage (G6): derselbe Satz mit demselben Ziel (openReadiness) sah auf
+  // „Heute" grau und ohne Flaeche aus und hier als amber gefuellte Kachel mit 20-px-Symbol und
+  // 18-px-Chevron – der lauteste Gegenstand des Bildschirms, lauter als der einzige Primaerknopf.
+  // Die getoente Flaeche war zugleich der Grund, warum der Fokusring hier auf 1,49:1 fiel
+  // (a11y.mjs, Grundlinie 9.4: 4,65:1 – „Nicht anfassen"): der rote Ring stand auf --amber-tint.
+  // Ohne Flaeche steht er wieder auf dem Seitengrund (6,84:1). `hmWhyBtn()` wohnt in home.js und
+  // ist im Startbuendel, `.hm-why` in css/home.css und damit in /app.css – beides ist hier sicher
+  // da; der Rueckfall bleibt trotzdem stehen, weil dieses Modul nachgeladen wird.
+  // Kein Huell-DIV fuer den Abstand: der Abstand haengt an `#trReady` (css/training.css). Ein
+  // Kasten mit der Klasse `mb-3` waere 44 px hoch und volle Breite – und damit fuer sprache.mjs
+  // eine ZEILENFORM mehr in der Ansicht (K6), fuer nichts als 12 px Luft.
+  if(fn&&typeof hmWhyBtn==='function')return hmWhyBtn(head,sub,fn);
+  return `<p class="hm-why static">${esc2([head,sub].filter(Boolean).join(' – '))}</p>`;}
 // Höchstens ein Abruf je Nutzer und Tag (das Ergebnis ändert sich während des Trainings nicht) –
 // gemerkt an renderEx.readiness. Läuft bewusst NEBEN dem Rendern: eine langsame Antwort darf das
 // Satzraster nicht aufhalten. Gemalt wird über die ID, nie in das alte #exlist hinein.
@@ -474,117 +596,211 @@ function trDayHead(m){return m==='sick'?'Krank gemeldet':m==='rest'?'Heute ist R
 function trDaySub(m,done,total){
   if(m==='sick')return done>0?`${done} von ${total} Sätzen eingetragen – dein Tag steht auf „Krank".`:'Erhol dich – dein Plan wartet auf dich.';
   return done>0?`${done} von ${total} Sätzen eingetragen – dein Tag steht auf „Ruhetag".`:'Du kannst trotzdem etwas eintragen.';}
+// ---- Die Uebungsliste (DESIGN-4 6.2, Abschnitte 1 und 2) --------------------------------------
+// Abschnitt 1 „Heute": EIN neutraler Ring (ringHTML, 5.7 – der rote Ring war die einzige rot
+// gefuellte Fortschrittsflaeche der App), die Zahl in WOERTERN („27 Sätze geplant · 0 geschafft"
+// statt „0/27", G9) und darunter der EINE Primaerknopf dieses Bildschirms (G10).
+// Abschnitt 2 „Uebungen": je Uebung EINE `.row.tap` auf ihre Seite; die Uebung, die dran ist,
+// traegt ihren Satzblock direkt unter ihrer Zeile. Letzte Zeile: „Uebung hinzufuegen" (R4 – die
+// Kernaktion lag vorher ausschliesslich im „···").
+function trTodayCardHTML(done,total){const mode=trDayMode();
+  const pct=total?done/total:0;
+  const sub=mode!=='train'?trDaySub(mode,done,total)
+    :(total>0&&done>=total?'Alle Sätze geschafft – stark!'
+      :(pl(total,'Satz','Sätze')+' geplant · '+done+' geschafft'));
+  // Die Karte spricht dieselbe Sprache wie die Zeile: `.rl` traegt Titel und Unterzeile. Vorher
+  // waren es `.fill` + `.h3` + `.meta` – drei hauseigene Klassen fuer genau das, was `.rl` kann.
+  return `<div class="card tp" id="trainProg">${ringHTML(pct,64,'')}
+    <span class="rl" id="tpHead">${esc2(trDayHead(mode))}<small id="tpSub">${esc2(sub)}</small></span></div>`;}
+// DER Primaerknopf. Vorher hatte diese Ansicht 148 Aktionen und keinen einzigen (K10, R3.4).
+// Er wechselt seinen Zweck, nicht seine Form: vor dem ersten Satz startet er die Einheit, danach
+// schliesst er sie ab. „Abschliessen" lag vorher ausschliesslich in der Trainingsleiste – und wurde
+// dort, sobald eine Pause lief, vom Wort zum Pokal-Symbol (R14).
+// EINE Regel fuer beide Bildschirme (FIX-D5 D-1 · Befund 6): solange Saetze offen sind, heisst die
+// Hauptaktion „Weiter · N Sätze offen" – genauso wie einen Tipp vorher auf „Heute" (home.js, Jetzt-
+// Karte). Vorher stand dort „Weiter · 77 Sätze offen" und hier, bei denselben Daten in derselben
+// Sekunde, „Training abschließen": zwei Ansagen, die sich widersprechen. „Abschließen" ist bei
+// offenen Saetzen die zweitwichtigste Aktion und steht als leiser Wortknopf daneben; Primaeraktion
+// wird es erst, wenn nichts mehr offen ist. Es bleibt bei GENAU EINEM `.btn` ohne `.sec/.ghost`
+// je Bildschirm (G10/K10).
+function trPrimaryHTML(done,total){if(coachView())return '';
+  if(!total)return '';
+  const offen=total-done;
+  // „Weiter" nur an einem TRAININGSTAG – genau wie auf der Startseite (home.js: `s.isTrain`).
+  // Am Ruhe- oder Kranktag sagt die Karte darueber „Du kannst trotzdem etwas eintragen"; ein Knopf,
+  // der dort zum Weitermachen auffordert, waere eine Ansage gegen den eigenen Tagestyp.
+  if(done>0&&offen>0&&trDayMode()==='train')return `<button class="btn" onclick="trStart()">Weiter · ${pl(offen,'Satz','Sätze')} offen</button>`
+    +`<button class="btn ghost" onclick="openWorkoutSummary()">Training abschließen</button>`;
+  if(done>0)return `<button class="btn" onclick="openWorkoutSummary()">Training abschließen</button>`;
+  // Auch am Ruhe- und am Kranktag steht der Knopf da. Die Karte darueber sagt die Wahrheit ueber den
+  // Tag („Heute ist Ruhetag · Du kannst trotzdem etwas eintragen") – ein Bildschirm ohne Hauptaktion
+  // waere trotzdem ein Bildschirm ohne Antwort auf „und jetzt?" (G10/K10).
+  return `<button class="btn" onclick="trStart()">Einheit starten</button>`;}
+// „Einheit starten" · Der Tipp ist die Nutzergeste, auf die iOS fuer den Ton wartet, und der Moment,
+// ab dem der Bildschirm wach bleiben soll. Danach steht der Daumen im ersten offenen Satz.
+function trStart(){trAudioUnlock();trWakeLock.want=1;trWakeLock();
+  const g=document.querySelector('#exlist .setrow[data-set]');
+  if(!g){toast('Für heute ist nichts geplant');return;}
+  const w=g.querySelector('input.w');
+  try{g.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
+  if(w&&w.value==='')setTimeout(()=>{try{w.focus({preventScroll:true});}catch(e){}},260);}
+// `open` an der Gruppe, die den offenen Satzblock traegt. Die Klasse ist NICHT geschmueckt – sie
+// sagt aus, was sichtbar wahr ist: hier steht ein Satzblock offen da. Sie steht hier, weil
+// `tools/tapcount.mjs` (Welle 0, nicht dieses Paket) genau an ihr ablieste, ob die Satzzeile ohne
+// zusaetzlichen Tap erreichbar ist – ohne sie meldete die Abnahme eine Verschlechterung, die es
+// nicht gibt. groupHTML() kennt den Schalter nicht, deshalb wird er hier gesetzt statt den Helfer
+// in core.js (fremde Datei) zu erweitern.
+// A32 · Die Optionszeile. Sie ist dieselbe `.row` – nur ohne Chevron, weil sie nicht weiterfuehrt,
+// sondern etwas auswaehlt. Gebaut wird sie trotzdem von rowHTML(): EIN Zeilenmuster, eine Variante.
+function trOptionRow(o){return rowHTML(o)
+  .replace('class="row tap','class="row tap opt')
+  .replace('<span class="chev" aria-hidden="true"></span>','');}
+function trMarkOpen(html,on){return on?html.replace(/<div class="rows( inset)?">/,m=>m.replace('">',' open">')):html;}
 async function renderEx(o){o=o||{};const day=curDayObj();const el=document.getElementById('exlist');if(!el)return;
-  const addBtn=document.getElementById('addExBtn');if(addBtn)addBtn.classList.toggle('hidden',!(day&&day.exercises.length));
   if(!day){el.innerHTML=emptyState({icon:'calendar',title:'Noch kein Trainingstag',text:'Leg deinen ersten Tag an – z.B. Push, Lower 1 oder Beine.',btn:{label:'Ersten Trainingstag erstellen',onclick:'addDay()'}});trainBarSync();return;}
   if(!day.exercises.length){el.innerHTML=emptyState({icon:'dumbbell',title:'Noch keine Übungen',text:'Füg die erste Übung für diesen Tag hinzu.',btn:{label:'Übung hinzufügen',onclick:'addExercise()'}});trainBarSync();return;}
   const cv=coachView();const seq=(renderEx.seq=(renderEx.seq||0)+1);
-  const openId=el.querySelector('.ex.open')?.dataset.id;
   if(!o.quiet)el.innerHTML=(cv?'':skeleton(1,'lg'))+skeleton(3);
   const [tl,progs]=await Promise.all([_todayLogs(),cv?Promise.resolve({}):_loadProgression(day)]);
   if(seq!==renderEx.seq||document.getElementById('exlist')!==el)return; // inzwischen anderer Tag/Tab
-  // Letzter belastbarer Stand je Nutzer und Tag. Kam der Abruf nicht durch, wird NICHT mit einer leeren
-  // Liste gemalt: steht die Liste schon (stilles Neuzeichnen), bleibt sie stehen; sonst dient der
-  // gemerkte Stand als Grundlage. Sonst verschwindet dem Nutzer mitten im Training sein halbes Pensum.
   // Der Coach sieht dieselben Gruppen wie sein Athlet – deshalb wird LIB_GRP AUCH in seinem Blick
-  // gefüllt und nicht nur in der Satzansicht. Ohne diese Zeile stünde im „···"-Menü des Coachs noch
-  // die Gruppe des zuletzt angesehenen Athleten.
-  if(cv){libBuild(day);el.innerHTML=`<div class="rows plan-rows">${day.exercises.map((ex,i)=>_exRowCoach(ex,i)).join('')}</div>`;trainBarSync();return;}
+  // gefüllt und nicht nur in der Satzansicht.
+  const fuss='Tippe eine Übung an: dort trägst du Sätze ein, siehst den Verlauf, tauschst sie oder '
+    +'legst eine Notiz an. Der Haken in der Satzzeile bestätigt einen Satz mit einem Tipp.';
+  if(cv){libBuild(day);
+    el.innerHTML=groupHTML('Übungen',day.exercises.map((ex,i)=>_exRow(ex,i,null,[],{coach:true})),
+      'Tippe eine Übung an, um sie zu bearbeiten, zu tauschen oder zu verschieben. Die Sätze trägt dein Athlet selbst ein.',
+      {action:{label:'Bearbeiten',tap:'trEditSheet()'}});
+    trainBarSync();return;}
   const rlk=VIEW_USER+'|'+today();
   if(tl.ok)renderEx.logs={key:rlk,list:tl.logs};
-  if(!tl.ok&&el.querySelector('.ex')){trainBarSync();return;}
+  if(!tl.ok&&el.querySelector('.row')){trainBarSync();return;}
   const kept=(renderEx.logs&&renderEx.logs.key===rlk)?renderEx.logs.list:null;
   // Kaltstart ohne Netz und ohne Schnappschuss: der PLAN liegt vor (27 Sätze), die SÄTZE VON HEUTE nicht.
   // Mit logs=[] zu zeichnen hiesse behaupten, heute sei nichts eingetragen – Ring auf 0 %, jede Satzzeile
-  // auf „–" und „27 Sätze geplant – leg los" an einen Athleten, der sein Pensum vielleicht längst hinter
-  // sich hat. Dieselbe Lage, derselbe Satz wie bei Cardio (drawCardioTab) und auf der Startseite.
+  // auf „noch nicht eingetragen" und „27 Sätze geplant" an einen Athleten, der sein Pensum vielleicht
+  // längst hinter sich hat. Dieselbe Lage, derselbe Satz wie bei Cardio und auf der Startseite.
   if(!tl.ok&&!kept){el.innerHTML=stlNotLoaded('Sätze von heute',tl.status,'renderEx()');trainBarSync();return;}
   const logs=tl.ok?tl.logs:kept;
-  const banner=`<div class="card tp" id="trainProg">
-    <svg class="ring" width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
-      <circle cx="32" cy="32" r="27" fill="none" stroke="var(--surface3)" stroke-width="6"/>
-      <circle id="tpRing" class="ring-fg" cx="32" cy="32" r="27" fill="none" stroke="var(--red)" stroke-width="6" stroke-linecap="butt" stroke-dasharray="${(2*Math.PI*27).toFixed(2)}" stroke-dashoffset="${(2*Math.PI*27).toFixed(2)}" transform="rotate(-90 32 32)"/>
-      <text id="tpPct" x="32" y="32" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="700" fill="var(--ink)">0%</text></svg>
-    <div class="fill"><div class="h3" id="tpHead">${esc2(trDayHead(trDayMode()))}</div><div class="meta" id="tpSub"></div></div></div>`;
-  // Bereitschaft ganz oben: aus dem Cache sofort, sonst füllt _trReadiness() den Platzhalter nach.
-  // Ein fehlgeschlagener Abruf (offline, Route noch nicht da) darf es später nochmal versuchen.
   const rk=VIEW_USER+'|'+today();const rc=(renderEx.readiness&&renderEx.readiness.key===rk)?renderEx.readiness:null;
-  // P1/M1: Die Übung, die JETZT dran ist, steht offen da. Bis 2.7.0 startete jede Karte zugeklappt
-  // (app.css `.ex-body{max-height:0}`) – „einen Satz bestätigen" kostete deshalb 2 Taps statt 1 und
-  // ab der Startseite 3 (gemessen mit tapcount.mjs). Offen ist die erste Übung, in der noch ein Satz
-  // ohne Wiederholungen steht; ist alles erledigt, bleibt alles zu (dann gibt es nichts zu tippen).
-  const openIdx=day.exercises.findIndex(ex=>{const n=ex.target_sets||3;
-    for(let s=1;s<=n;s++){const l=logs.find(x=>x.exercise_id===ex.id&&x.set_no===s);if(!(l&&l.reps>0))return true;}
-    return false;});
   TW_CUR=null;
-  libBuild(day); // Supersatz-Gruppen dieses Tages VOR dem Zeichnen bestimmen (_exCard liest LIB_GRP)
-  el.innerHTML=`<div id="trReady">${rc?trainReadyHTML(rc.data):''}</div>`+libOverrideHTML()+banner+day.exercises.map((ex,i)=>_exCard(ex,i,progs[ex.id],logs,i===openIdx)).join('');
+  libBuild(day); // Supersatz-Gruppen dieses Tages VOR dem Zeichnen bestimmen (_exRow liest LIB_GRP)
+  const dueId=trDueId(day,logs);
+  let done=0,total=0;
+  day.exercises.forEach(ex=>{total+=(ex.target_sets||3);done+=trExDone(ex,logs);});
+  // P1/M1 · Die Uebung, die JETZT dran ist, traegt ihren Satzblock unter ihrer Zeile. Damit kostet
+  // „einen Satz bestaetigen" ab der Trainingsansicht weiterhin GENAU EINEN TAP (DESIGN-4 9.5, das
+  // Tap-Veto) – das ist die einzige Stelle, an der diese Datei vom Bild in 6.2 abweicht, und zwar
+  // bewusst: 6.2 zeichnet die Uebungsliste ohne Satzzeilen, 9.5 verlangt im selben Dokument 1 Tap.
+  // Zwei Taps waeren eine gemessene Verschlechterung (G12). Der Aufklapper ist trotzdem weg: es
+  // gibt nichts zu oeffnen und zu schliessen, die Liste zeigt immer genau EINEN offenen Satzblock.
+  let blockFuss='';
+  const zeilen=[];
+  day.exercises.forEach((ex,i)=>{
+    zeilen.push(_exRow(ex,i,progs[ex.id],logs));
+    if(ex.id===dueId){const b=trSetBlock(ex,progs[ex.id],logs);
+      zeilen.push(b.html);blockFuss=trSetFootText(b,ex);}});
+  zeilen.push(rowHTML({icon:'plus',title:'Übung hinzufügen',sub:'zu „'+day.name+'"',tap:'addExercise()'}));
+  el.innerHTML=`<div id="trReady">${rc?trainReadyHTML(rc.data):''}</div>`
+    +libOverrideHTML()
+    +trTodayCardHTML(done,total)
+    // Eigener Behaelter, weil die Hauptaktion seit FIX-D5 eine ZAHL traegt („Weiter · 77 Sätze
+    // offen"). Eine Zahl, die erst beim naechsten vollstaendigen Zeichnen nachzieht, waere eine
+    // falsche Zahl; updateTrainProgress patcht sie deshalb nach jedem bestaetigten Satz mit.
+    +`<div id="trPrim">${trPrimaryHTML(done,total)}</div>`
+    +trMarkOpen(groupHTML('Übungen',zeilen,[blockFuss,fuss].filter(Boolean).join(' '),
+      {action:{label:'Bearbeiten',tap:'trEditSheet()'}}),!!dueId);
   if(!rc||(!rc.data&&Date.now()-rc.at>6e4))_trReadiness(rk);
-  // Eine vom Nutzer offen gelassene Karte gewinnt gegen die Vorauswahl (stilles Neuzeichnen).
-  if(openId){const c=document.getElementById('ex-'+openId);
-    if(c&&!c.classList.contains('open')){el.querySelectorAll('.ex.open').forEach(x=>{x.classList.remove('open');semExAria(x);});
-      c.classList.add('open');semExAria(c);}}
-  updateTrainProgress();
-  // Von der Home gestartet: zur ersten Übung mit offenen Sätzen scrollen (sie ist bereits offen)
-  if(renderWorkout.start){renderWorkout.start=false;const first=[...el.querySelectorAll('.ex')].find(c=>!c.classList.contains('done'));
-    if(first){const nid=+first.dataset.id;
-      if(first.classList.contains('open'))setTimeout(()=>first.scrollIntoView({behavior:'smooth',block:'start'}),80);
-      else setTimeout(()=>toggleEx(nid),80);}}}
-// aria-expanded des Kartenkopfs dem Klassenzustand nachziehen. Ein Screenreader liest sonst dauerhaft
-// „eingeklappt", egal wie die Karte gerade steht (A-II.6). Nur ein Attribut – keine Logik.
-function semExAria(card){if(!card)return;const h=card.querySelector('.ex-head');
-  if(h)h.setAttribute('aria-expanded',card.classList.contains('open')?'true':'false');}
-function toggleEx(id){const el=document.getElementById('ex-'+id);if(!el)return;const wasOpen=el.classList.contains('open');
-  TW_CUR=null;
-  // Partner eines Supersatzes bleiben offen: der Sprung von A1 nach A2 darf die Zeile nicht zuklappen,
-  // in die gerade eingetragen wird (B-I.3).
-  document.querySelectorAll('.ex.open').forEach(x=>{if(x!==el&&!libSameGroup(+x.dataset.id,id)){x.classList.remove('open');semExAria(x);}});
-  el.classList.toggle('open',!wasOpen);semExAria(el);
-  if(!wasOpen)setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),60);}
+  updateTrainProgress();trPushRefresh();
+  // Von der Home gestartet: zum offenen Satzblock scrollen (er steht bereits da).
+  if(renderWorkout.start){renderWorkout.start=false;
+    const g=el.querySelector('.setrow[data-set]');
+    if(g)setTimeout(()=>{try{g.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}},80);}}
 
-// ---- Fortschritt (Ring, Karten-Status, Leiste) – reines DOM-Patchen, kein Re-Render ----
+// ---- Fortschritt (Ring, Zeilen-Status, Leiste) – reines DOM-Patchen, kein Re-Render ----
 // Ein Satz gilt als erledigt, wenn Reps > 0 eingetragen UND bestätigt sind (kein Vorschlag mehr) und der
 // letzte Speicherversuch nicht fehlgeschlagen ist (data-failed setzt setSaveStatus).
-// (Das Reps-Feld ist das ZWEITE Eingabefeld der Zeile – die RIR-Spalte steht dahinter und ist optional.)
-function _rowDone(g){const r=g.querySelector('.rcell input')||g.querySelectorAll('input')[1];
+function _rowDone(g){const r=g.querySelector('input.r')||g.querySelectorAll('input')[1];
   return !!(r&&r.value!==''&&parseFloat(r.value)>0&&r.dataset.sugg!=='1'&&g.dataset.failed!=='1');}
-function _countDone(){let done=0,total=0;document.querySelectorAll('#exlist .ex .setgrid[data-set]').forEach(g=>{total++;if(_rowDone(g))done++;});return {done,total};}
-function _paintCard(card){const rows=[...card.querySelectorAll('.setgrid[data-set]')];if(!rows.length)return;
-  const done=rows.filter(_rowDone).length,total=rows.length,all=done>=total;
-  rows.forEach(g=>{const ok=g.querySelector('.ok');if(ok)ok.classList.toggle('done',_rowDone(g));});
-  card.classList.toggle('done',all);
-  const cnt=card.querySelector('.ex-cnt');if(cnt){cnt.textContent=done>0&&!all?`${done}/${total}`:'';cnt.classList.toggle('hidden',!(done>0&&!all));}
-  const idx=card.querySelector('.ex-idx');if(idx)idx.innerHTML=all?icon('check',16):idx.dataset.n;
-  const mg=card.querySelector('.mg');const id=+card.dataset.id;
-  if(mg){if(all){const li=rows[rows.length-1].querySelectorAll('input');
-      // B13 · aus Teilen, leere raus: ohne Gewicht UND ohne Wiederholungen stand hier „3/3 · ".
-      const letzt=[li[0].value!==''?_fmtW(li[0].value)+' kg':'',li[1].value!==''?'× '+li[1].value:''].filter(Boolean).join(' ');
-      mg.textContent=[done+'/'+total,letzt].filter(Boolean).join(' · ');}
-    else if(EX_META[id]!=null&&mg.innerHTML!==EX_META[id])mg.innerHTML=EX_META[id];}
-  twMarkCur(card);}
+// Gezaehlt wird aus dem PLAN und den Feldern: die Liste zeigt nur EINEN Satzblock, die Zahl im Kopf
+// gilt aber fuer den ganzen Tag. `renderEx.plan` haelt deshalb die Summe der geplanten Saetze und
+// die der bereits gespeicherten Saetze AUSSERHALB des sichtbaren Blocks fest.
+function _countDone(){const day=curDayObj();const logs=(renderEx.logs&&renderEx.logs.key===VIEW_USER+'|'+today())?renderEx.logs.list:[];
+  let done=0,total=0;
+  for(const ex of ((day&&day.exercises)||[])){const n=ex.target_sets||3;total+=n;
+    for(let s=1;s<=n;s++){
+      const g=document.querySelector(`#exlist .setrow[data-ex="${ex.id}"][data-set="${s}"]`);
+      if(g){if(_rowDone(g))done++;continue;}
+      const l=logs.find(x=>x.exercise_id===ex.id&&x.set_no===s);if(l&&l.reps>0)done++;}}
+  return {done,total};}
+// Die sichtbaren Satzzeilen an ihren Zustand anpassen: gruener Haken, Nummern-Marke der Satzart.
+function _paintRows(){document.querySelectorAll('.setrow[data-set]').forEach(g=>{
+  const ok=g.querySelector('.ok');if(ok)ok.classList.toggle('on',_rowDone(g));});}
+// Den Wert rechts in der Uebungszeile nachziehen („2 von 3 geschafft"), ohne die Liste neu zu bauen.
+function _paintExRow(exId){const day=curDayObj();if(!day)return;
+  const ex=(day.exercises||[]).find(x=>x.id===exId);if(!ex)return;
+  const row=document.getElementById('ex-'+exId);if(!row)return;
+  const n=ex.target_sets||3;let done=0;
+  for(let s=1;s<=n;s++){const g=document.querySelector(`#exlist .setrow[data-ex="${exId}"][data-set="${s}"]`);
+    if(g&&_rowDone(g))done++;}
+  const rr=row.querySelector('.rr');
+  if(rr)rr.textContent=done>=n?'fertig':(done>0?(done+' von '+n+' geschafft'):pl(n,'Satz','Sätze'));}
 function updateTrainProgress(doneSets,totalSets){
-  document.querySelectorAll('#exlist .ex').forEach(_paintCard);
+  _paintRows();
   if(doneSets==null||totalSets==null){const c=_countDone();doneSets=c.done;totalSets=c.total;}
   const box=document.getElementById('trainProg');
-  if(box){const pct=totalSets?Math.round(doneSets/totalSets*100):0;const done=totalSets>0&&doneSets>=totalSets;const C=2*Math.PI*27;
-    const ring=document.getElementById('tpRing');if(ring){ring.style.strokeDashoffset=String(C*(1-(totalSets?doneSets/totalSets:0)));ring.setAttribute('stroke',done?'var(--green)':'var(--red)');
-      ring.setAttribute('stroke-linecap',doneSets>0?'round':'butt');} // bei 0 % zeichnet ein runder Cap sonst einen Punkt
-    const pctEl=document.getElementById('tpPct');if(pctEl)pctEl.textContent=pct+'%';
-    // Ruhe-/Kranktag: keine Aufforderung, kein „noch X" – die Kopfzeile sagt stattdessen, was heute gilt
+  if(box){const done=totalSets>0&&doneSets>=totalSets;
+    // EIN Ring, neutral, aus ringHTML() – nie rot (5.7/G10/K19). Der Umfang steht im Markup, er
+    // wird gelesen statt nachgerechnet: so haengt diese Zeile nicht an der Groesse des Rings.
+    const ring=box.querySelector('.ring-fg');
+    if(ring){const C=parseFloat(ring.getAttribute('stroke-dasharray'))||0;
+      ring.style.strokeDashoffset=String(C*(1-(totalSets?doneSets/totalSets:0)));
+      ring.setAttribute('stroke',done?'var(--green)':'var(--ink2)');}
     const mode=trDayMode();
-    const hd=document.getElementById('tpHead');if(hd)hd.textContent=trDayHead(mode);
+    const hd=document.getElementById('tpHead');
+    if(hd&&hd.firstChild&&hd.firstChild.nodeType===3)hd.firstChild.nodeValue=trDayHead(mode);
     const sub=document.getElementById('tpSub');if(sub){
       sub.textContent=mode!=='train'?trDaySub(mode,doneSets,totalSets)
-        :(done?'Alle Sätze geschafft – stark!':(doneSets>0?`${doneSets} / ${totalSets} Sätze · noch ${totalSets-doneSets}`:`${pl(totalSets,'Satz','Sätze')} geplant – leg los`));
+        :(done?'Alle Sätze geschafft – stark!'
+          :(pl(totalSets,'Satz','Sätze')+' geplant · '+doneSets+' geschafft'));
       sub.classList.toggle('tone-green',done&&mode==='train');}
   }
+  // Die Hauptaktion zaehlt mit: „Weiter · 77 Sätze offen" -> „… 76 …" -> „Training abschließen",
+  // sobald nichts mehr offen ist. Geschrieben wird nur, wenn sich der Text wirklich aendert – ein
+  // blindes innerHTML bei jedem Tastendruck wuerde den Knopf mitten im Druck austauschen.
+  const prim=document.getElementById('trPrim');
+  if(prim){const h=trPrimaryHTML(doneSets,totalSets);if(prim.innerHTML!==h)prim.innerHTML=h;}
   trainBarSync();}
 
 // ---- Satz loggen: ✓ pro Zeile ODER Änderung im Reps-Feld; Gewicht allein wird gespeichert, zählt aber nicht ----
-function _rowInputs(exId,setNo){const g=document.querySelector(`#exlist .setgrid[data-ex="${exId}"][data-set="${setNo}"]`);if(!g)return null;
+// DIESELBE Satzzeile kann zweimal im DOM stehen: in der Trainingsansicht (die Uebung, die dran ist)
+// und darueber auf der Push-Seite „Uebung" (6.3). Bedient wird immer die, die der Mensch gerade
+// sieht – also die oberste Ebene. `_trScope` beantwortet „welche ist das".
+function _trScope(){const p=document.getElementById('pushView');
+  return (p&&!p.hidden&&p.querySelector('.setrow[data-set]'))?p:document.getElementById('exlist');}
+function _rowInputs(exId,setNo){const s=_trScope();
+  const g=s&&s.querySelector(`.setrow[data-ex="${exId}"][data-set="${setNo}"]`);if(!g)return null;
   const ins=g.querySelectorAll('input');
-  return {grid:g,w:g.querySelector('.wcell input')||ins[0],r:g.querySelector('.rcell input')||ins[1],
+  return {grid:g,w:g.querySelector('input.w')||ins[0],r:g.querySelector('input.r')||ins[1],
     rir:g.querySelector('input.rir'),ok:g.querySelector('.ok')};}
+// …und weil sie zweimal dasteht, wird jede Aenderung in die Zwillingszeile gespiegelt. Ohne das
+// waere ein auf der Uebungsseite bestaetigter Satz nach dem Zurueckgehen wieder leer – die Zahl
+// stuende im Server, aber nicht auf dem Bildschirm, und genau solche Luecken sind der Grund,
+// warum man einer App nicht mehr glaubt (S#1).
+function twMirror(exId,setNo){
+  const alle=[...document.querySelectorAll(`.setrow[data-ex="${exId}"][data-set="${setNo}"]`)];
+  if(alle.length<2)return;
+  const src=_rowInputs(exId,setNo);if(!src)return;
+  for(const g of alle){if(g===src.grid)continue;
+    ['w','r','rir'].forEach(k=>{const a=src[k],b=g.querySelector('input.'+k);
+      if(!a||!b)return;b.value=a.value;b.dataset.sugg=a.dataset.sugg||'0';
+      b.classList.toggle('sugg',a.classList.contains('sugg'));});
+    g.dataset.type=src.grid.dataset.type||'work';
+    if(src.grid.dataset.note)g.dataset.note=src.grid.dataset.note;else delete g.dataset.note;
+    if(src.grid.dataset.failed==='1')g.dataset.failed='1';else delete g.dataset.failed;
+    const nb=g.querySelector('.snote');if(nb){nb.textContent=src.grid.dataset.note||'';
+      nb.classList.toggle('hidden',!src.grid.dataset.note);}
+    const ok=g.querySelector('.ok');if(ok)ok.classList.toggle('on',_rowDone(g));}}
 function _adopt(input){if(input&&input.dataset.sugg==='1'){input.dataset.sugg='0';input.classList.remove('sugg');}}
 // Fokus auf ein Vorschlagsfeld darf NUR die Kursivschrift nehmen. Das Vorschlags-Flag (data-sugg) räumen
 // ausschliesslich die Commit-Pfade (commitSet / logSet mit Reps > 0) per _adopt(), sonst würde blosses
@@ -615,6 +831,7 @@ function logSet(exId,setNo,field,value,autoTimer){const row=_rowInputs(exId,setN
 function _queueLog(exId,setNo,patch,now){const key=exId+'_'+setNo;logSet.cache=logSet.cache||{};
   logSet.cache[key]={...(logSet.cache[key]||{}),user_id:VIEW_USER,exercise_id:exId,date:today(),set_no:setNo,...patch};
   setSaveStatus(exId,'saving',setNo);
+  twMirror(exId,setNo);_paintExRow(exId);
   clearTimeout(logTimers[key]);
   if(now)_postLog(key);else logTimers[key]=setTimeout(()=>_postLog(key),500);}
 // Signatur eines Satzes: identische Werte werden kein zweites Mal geschrieben (Netz-Sicherung zusätzlich zum
@@ -678,17 +895,14 @@ function trainForgetSets(bodies){if(!Array.isArray(bodies)||!bodies.length)retur
     if(b.user_id!=null&&b.user_id!==VIEW_USER)return;
     if(_rowInputs(b.exercise_id,b.set_no)){setSaveStatus(b.exercise_id,'error',b.set_no);touched=true;}});
   if(touched)updateTrainProgress();}
-function _markPR(exId,w){const meta=EX_META[exId];if(meta==null)return;
-  // Der Bestleistungs-Teil ist IMMER der letzte und steckt seit B13 in einer eigenen `.mgp`-Gruppe
-  // (Trennzeichen inklusive). Der Technik-Chip davor beginnt mit `<button`, die Bestleistung mit
-  // `<span class="best"` bzw. `<span class="pill` – daran unterscheidet der Ausdruck die beiden.
-  const pill=` <span class="mgp">· <span class="pill amber pr">${icon('trophy',12)} ${_fmtW(w)} kg</span></span>`;
-  EX_META[exId]=meta.replace(/\s*<span class="mgp">· <span class="(?:best|pill)[\s\S]*$/,'')+pill;
-  const card=document.getElementById('ex-'+exId);if(card)_paintCard(card);}
-// A-2 (zweite Hälfte) · Das Neuzeichnen der Karte belegt Satz 2 aus Satz 1 – aber nach einem ✓ wird
-// die Karte NICHT neu gezeichnet (nur gepatcht, das ist der ganze Sinn von `_paintCard`). Ohne diese
-// Funktion stünde Satz 2 also weiter leer da, obwohl Satz 1 eine Sekunde zuvor gespeichert wurde
-// (gemessen: Zeile 2 auf placeholder „kg" / „–", Screenshot des Prüfers).
+// Ein neuer Rekord: der Toast meldet ihn, die Uebungszeile zieht ihren Wert nach, und der Verlauf
+// auf der Seite der Uebung traegt die neue Bestleistung beim naechsten Oeffnen. Die Bestleistung
+// stand vorher als `.pill` IN der Metazeile der Karte – zusammen mit Technik-Chip und Muskelgruppe
+// war das die Zeile, die als erste abgeschnitten wurde (R16).
+function _markPR(exId,w){_paintExRow(exId);_progInvalidate();}
+// A-2 (zweite Hälfte) · Das Neuzeichnen der Liste belegt Satz 2 aus Satz 1 – aber nach einem ✓ wird
+// nicht neu gezeichnet (nur gepatcht). Ohne diese Funktion stünde Satz 2 also weiter leer da,
+// obwohl Satz 1 eine Sekunde zuvor gespeichert wurde.
 // Belegt werden nur Felder, die LEER sind oder selbst noch Vorschlag – ein eingetippter Wert bleibt.
 // Das Belegte bleibt Vorschlag (`data-sugg=1`): gespeichert wird es erst mit dem nächsten ✓.
 function twSeedNext(exId,setNo,next){const cur=_rowInputs(exId,setNo);if(!cur||!next)return;
@@ -701,13 +915,9 @@ function twSeedNext(exId,setNo,next){const cur=_rowInputs(exId,setNo);if(!cur||!
   const a=set(next.w,w),b=set(next.r,r);
   if(!a&&!b)return;
   next.grid.dataset.src='today';
-  const txt=twWhyToday({set_no:setNo,weight:w===''?null:parseFloat(w),reps:parseFloat(r)});
-  let el=next.grid.querySelector('.why');
-  if(!el&&txt){el=document.createElement('div');el.className='why';
-    next.grid.insertBefore(el,next.grid.querySelector('.snote'));}
-  if(el)el.textContent=txt;}
+  twMirror(exId,setNo+1);}
 function _afterCommit(exId,setNo){
-  TW_CUR=null; // die Werkzeugleiste wandert zur nächsten offenen Zeile (der Fokus setzt sie gleich neu)
+  TW_CUR=null;
   // Der Tipp auf ✓ ist die Nutzergeste, auf die iOS für den Ton wartet – und der Moment, ab dem der
   // Bildschirm wach bleiben soll. Beides ist idempotent und kostet ab dem zweiten Satz nichts.
   trAudioUnlock();trWakeLock.want=1;trWakeLock();
@@ -717,42 +927,54 @@ function _afterCommit(exId,setNo){
   if(st.rest)startRest(REST_SECS);
   trainBarSync.dismissed=null;
   try{if(navigator.vibrate)navigator.vibrate(8);}catch(e){}
-  updateTrainProgress();
+  updateTrainProgress();_paintExRow(exId);
   if(st.goEx!==exId&&libJump(st.goEx,st.goSet))return; // ohne Pause direkt zur Partnerübung
-  const card=document.getElementById('ex-'+exId);const next=_rowInputs(exId,setNo+1);
+  const next=_rowInputs(exId,setNo+1);
   if(next){twSeedNext(exId,setNo,next);
-    setTimeout(()=>{next.w.scrollIntoView({block:'center',behavior:'smooth'});if(next.w.value==='')try{next.w.focus({preventScroll:true});}catch(e){}},80);}
-  else{ // letzter Satz der Übung: der Fokus darf nicht auf der gerade zugeklappten Zeile stehen bleiben,
-        // sonst steht die Tastatur über einem Feld, das der Nutzer nicht mehr sieht (und Tippen ändert es).
-    const act=document.activeElement;
-    if(act&&act.closest&&act.closest('#ex-'+exId))try{act.blur();}catch(e){}
-    if(card&&card.classList.contains('done')){ // Karte fertig -> nächste offene Karte aufklappen
-      let n=card.nextElementSibling;while(n&&!(n.classList.contains('ex')&&!n.classList.contains('done')))n=n.nextElementSibling;
-      if(n)setTimeout(()=>{const nid=+n.dataset.id;toggleEx(nid);
-        const nx=_rowInputs(nid,1);if(nx&&nx.w&&nx.w.value==='')try{nx.w.focus({preventScroll:true});}catch(e){}},250);}}}
+    setTimeout(()=>{next.w.scrollIntoView({block:'center',behavior:'smooth'});if(next.w.value==='')try{next.w.focus({preventScroll:true});}catch(e){}},80);
+    return;}
+  // Letzter Satz der Uebung. Der Fokus darf nicht auf einem Feld stehen bleiben, das gleich
+  // verschwindet, sonst steht die Tastatur ueber einem Feld, das der Nutzer nicht mehr sieht.
+  const act=document.activeElement;
+  if(act&&act.closest&&act.closest('.setrow[data-ex="'+exId+'"]'))try{act.blur();}catch(e){}
+  // Die naechste Uebung ist jetzt dran: die Liste zeichnet ihren Satzblock an die richtige Stelle.
+  // Auf der Push-Seite einer EINZELNEN Uebung passiert das nicht – dort bleibt man, wo man ist.
+  const pv=document.getElementById('pushView');
+  if(!(pv&&!pv.hidden)&&document.getElementById('exlist'))setTimeout(()=>renderEx({quiet:true}),300);}
 // Rückmeldung pro Zeile: ✓ wird grün (fertig), Felder blitzen 1 s grün nach dem Speichern
 function setSaveStatus(exId,state,setNo){const row=setNo?_rowInputs(exId,setNo):null;if(!row)return;
   const {grid,w,r,ok}=row;
-  // data-failed am Raster ist die Quelle für _rowDone – ein nicht gespeicherter Satz zählt nicht als erledigt
+  // data-failed an der Zeile ist die Quelle für _rowDone – ein nicht gespeicherter Satz zählt nicht als erledigt
   if(state==='error')grid.dataset.failed='1';else delete grid.dataset.failed;
   if(state==='saving'){if(ok){ok.classList.add('saving');ok.classList.remove('failed');}}
-  else if(state==='saved'){if(ok){ok.classList.remove('saving');ok.classList.remove('failed');}[w,r].forEach(i=>{i.classList.add('saved');clearTimeout(i._t);i._t=setTimeout(()=>i.classList.remove('saved'),1000);});}
-  else{if(ok){ok.classList.remove('saving');ok.classList.add('failed');}[w,r].forEach(i=>i.classList.remove('saved'));}}
+  else if(state==='saved'){if(ok){ok.classList.remove('saving');ok.classList.remove('failed');}[w,r].forEach(i=>{if(!i)return;i.classList.add('saved');clearTimeout(i._t);i._t=setTimeout(()=>i.classList.remove('saved'),1000);});}
+  else{if(ok){ok.classList.remove('saving');ok.classList.add('failed');}[w,r].forEach(i=>{if(i)i.classList.remove('saved');});}
+  twMirror(exId,setNo);}
 
-// ---- ± Stepper, Satzart, RIR und Satz-Notiz (A-IV.2) --------------------------------------
+// ---- ± Stepper, Satz-Detail (DESIGN-4 5.12 / 6.3 / R1 / R5) ---------------------------------
 // Ändern ohne Systemtastatur. Gemessen (tapcount.mjs `set_change`) kostete eine Gewichtsänderung
 // bis 2.7.0 NEUN Taps: Feld antippen, vier- bis sechsmal Rücktaste, neuen Wert tippen, bestätigen.
-// Mit dem Stepper sind es zwei: ein Tipp auf „+2,5", ein Tipp auf den Haken.
+// Mit dem Stepper sind es zwei: ein Tipp auf „+2,5", ein Tipp auf den Haken. NEU: die Stepper
+// stehen in JEDER Satzzeile, nicht nur in der gerade angefassten (R1).
 // Die Schrittweite kommt aus der Übung (`exercises.step_kg`) – bei 3-kg-Kurzhanteln wären 2,5 kg
-// eine Zahl, die es an der Hantelablage nicht gibt.
+// eine Zahl, die es an der Hantelablage nicht gibt. Reserve geht immer in Einer-Schritten, 0–5.
 function twStep(exId,setNo,field,dir){const row=_rowInputs(exId,setNo);if(!row)return;
-  const inp=field==='reps'?row.r:row.w;if(!inp)return;
-  const st=field==='reps'?1:twStepKg(_findEx(exId),(PROG_CACHE[VIEW_USER+'_'+CUR_DAY]||{})[exId]);
+  const inp=field==='reps'?row.r:(field==='rir'?row.rir:row.w);if(!inp)return;
+  const st=(field==='weight')?twStepKg(_findEx(exId),(PROG_CACHE[VIEW_USER+'_'+CUR_DAY]||{})[exId]):1;
+  const max=field==='rir'?5:1000;
   let v=parseFloat(inp.value);if(!isFinite(v))v=0;
-  v=Math.max(0,Math.min(1000,Math.round((v+dir*st)*100)/100));
+  v=Math.max(0,Math.min(max,Math.round((v+dir*st)*100)/100));
   if(String(v)===String(parseFloat(inp.value)))return; // bei 0 nach unten passiert nichts
   inp.value=String(v);_adopt(inp);
   twCurSet(exId,setNo);
+  // Die Reserve reist nur mit, wenn der Satz schon steht – sonst entstünde eine leere Satzzeile
+  // mit 0 Wiederholungen, nur weil jemand auf „+1 Reserve" getippt hat.
+  if(field==='rir'){
+    if(_rowDone(row.grid))_queueLog(exId,setNo,{weight:row.w.value===''?null:parseFloat(row.w.value),
+      reps:parseFloat(row.r.value)||0,..._rowExtra(row.grid)},false);
+    else twMirror(exId,setNo);
+    try{if(navigator.vibrate)navigator.vibrate(5);}catch(e){}
+    return;}
   const commit=(field==='reps'&&v>0);
   const patch={[field]:v,..._rowExtra(row.grid)};
   if(commit){_adopt(row.w);patch.weight=row.w.value===''?null:parseFloat(row.w.value);}
@@ -764,65 +986,86 @@ function twStep(exId,setNo,field,dir){const row=_rowInputs(exId,setNo);if(!row)r
     // gerade eine Zahl, er ist nicht fertig. Nur wenn noch gar keine Pause läuft, startet sie.
     // Im Supersatz gehört die Pause der GRUPPE: solange ein Partner noch dran ist, startet hier keine.
     if(!REST_END_AT&&libStep(exId,setNo).rest){trAudioUnlock();trWakeLock.want=1;trWakeLock();startRest(REST_SECS);}}
-  updateTrainProgress();
+  updateTrainProgress();_paintExRow(exId);
   try{if(navigator.vibrate)navigator.vibrate(5);}catch(e){}}
-// Satzart wählen. Der lange Druck auf die Satznummer ist die Geste aus dem Vertrag; ein kurzer Tipp
-// tut dasselbe, weil ein langer Druck mit der Tastatur nicht auslösbar wäre (P7 – sichtbar heißt
-// bedienbar). Der Knopf trägt die aktuelle Art in seinem aria-label.
-function twTypeSheet(exId,setNo){if(!twSetTypesOn())return; // A-5: Stufe 1 kennt keine Satzarten
-  const row=_rowInputs(exId,setNo);const cur=row?(row.grid.dataset.type||'work'):'work';
-  const ex=_findEx(exId);twCurSet(exId,setNo);
-  openSheet('Satz '+setNo+(ex?' · '+ex.name:''),`
-    <div class="note mb-3">Die Satzart entscheidet, ob der Satz in Volumen, e1RM und Bestleistung zählt. Aufwärmsätze zählen nicht mit – sie sollen deine Rekorde nicht verwässern.</div>
-    <div class="stack-sm">${TW_TYPES.map(t=>`<button class="rhy-opt tw-t${t.k===cur?' on':''}" type="button" aria-pressed="${t.k===cur?'true':'false'}" onclick="twSetType(${exId},${setNo},'${t.k}')"><span class="l">${esc2(t.l)}${t.k===cur?icon('check',18):''}</span><span class="s">${esc2(t.d)}</span></button>`).join('')}</div>
-    <div class="caption mt-3">Tipp: Ein langer Druck auf die Satznummer öffnet diese Auswahl direkt.</div>`);}
-function twSetType(exId,setNo,k){const row=_rowInputs(exId,setNo);if(!row){closeModal();return;}
-  const t=twType(k);row.grid.dataset.type=t.k;
-  const sn=row.grid.querySelector('.sn');
-  if(sn){sn.className='sn'+(t.k!=='work'?' t-'+t.k:'');
-    const tv=sn.querySelector('.t');if(tv)tv.textContent=t.s;
-    sn.setAttribute('aria-label','Satz '+setNo+' · Satztyp '+t.l+' (langer Druck ändert den Satztyp)');}
+
+// DAS SATZ-DETAIL (R5 · R1) · Die Satznummer war ein Knopf, der wie eine Zahl aussah: keine Kante,
+// kein Pfeil, kein Wort. Der einzige Weg zur Satzart war ein 450-ms-Druck darauf; gemessen 27 x
+// derselbe Handler, 0 x eine sichtbare Beschriftung. Der Langdruck ist ERSATZLOS GELÖSCHT – nicht,
+// weil er stört, sondern weil er nichts mehr erreicht, was die Nummer nicht selbst tut: sie trägt
+// jetzt ein Chevron und führt hierher. Eine Geste darf beschleunigen, nie gatekeepen (A57); eine
+// Geste, die nur wiederholt, was ein sichtbarer Weg schon kann, macht die Nummer bloß mehrdeutig.
+// Hier liegt zusammen, was vorher auf drei versteckte Orte verteilt war: Satzart (Langdruck),
+// Notiz (Stift-Symbol in der Werkzeugleiste NUR der aktiven Zeile) und Scheibenrechner (Rechtsklick
+// auf das Gewichtsfeld – auf dem iPhone überhaupt nicht auslösbar, R13).
+let TW_DETAIL=null; // {exId,setNo} – die Zeile, die das offene Satz-Detail meint
+function twSetDetail(exId,setNo){const row=_rowInputs(exId,setNo);if(!row)return;
+  const ex=_findEx(exId);const cur=row.grid.dataset.type||'work';
+  const note=String(row.grid.dataset.note||'');
+  const typesOn=twSetTypesOn();const rirOn=twRirOn();
+  TW_DETAIL={exId,setNo};twCurSet(exId,setNo);
+  const art=typesOn?groupHTML('Art des Satzes',
+    TW_TYPES.map(t=>trOptionRow({title:t.l,sub:t.d,value:t.k===cur?'ausgewählt':'',
+      tap:`twSetType(${exId},${setNo},'${t.k}')`})),
+    'Nur Arbeitssätze zählen in Volumen, geschätztes Maximum und Bestleistung. Ein Aufwärmsatz soll deine Rekorde nicht verwässern.'):'';
+  const ph='z.B. links zwickt es, mit Gurt, letzte Wiederholung abgefälscht';
+  const felder=`<div class="grid-2">
+      <div class="field"><label for="td_w">Gewicht in kg</label><input id="td_w" type="number" inputmode="decimal" step="any" min="0" max="1000" value="${esc2(row.w.value)}"></div>
+      <div class="field"><label for="td_r">Wiederholungen</label><input id="td_r" type="number" inputmode="numeric" min="0" max="1000" value="${esc2(row.r.value)}"></div>
+    </div>
+    ${rirOn?`<div class="field"><label for="td_rir">Reserve</label><input id="td_rir" type="number" inputmode="numeric" min="0" max="5" value="${esc2(row.rir?row.rir.value:'')}"></div>`:''}
+    <div class="field"><label for="td_note">Notiz zu diesem Satz</label><textarea id="td_note" rows="2" maxlength="300" placeholder="${esc2(ph)}">${esc2(note)}</textarea></div>`;
+  const werk=groupHTML('',[rowHTML({icon:'dumbbell',title:'Scheibenrechner',
+    sub:'Welche Scheiben du für dieses Gewicht pro Seite auflegst',
+    tap:`openPlateCalc(val('td_w'))`})],
+    rirOn?'Reserve heißt: wie viele Wiederholungen du am Ende noch geschafft hättest (RIR). Deine Notiz zu diesem Satz liest dein Coach mit.'
+        :'Deine Notiz zu diesem Satz liest dein Coach mit.');
+  // Der Titel bleibt kurz: „Satz 1 · Chest Supported Dumbbell Lateral Raise" draengte in der
+  // Kopfzeile des Blattes das Wort „Abbrechen" in einen Umbruch. Welche Uebung gemeint ist, steht
+  // eine Zeilenberuehrung darunter – man kommt ja aus genau dieser Zeile.
+  openSheet('Satz '+setNo,felder+art+werk,{done:{label:'Fertig',fn:twSetDetailSave}});}
+// Speichern heisst hier: die Werte in die Satzzeile zuruecktragen. Ob daraus ein Schreibvorgang
+// wird, entscheidet dieselbe Regel wie ueberall – ein Satz ohne Wiederholungen wird nicht gespeichert.
+function twSetDetailSave(){const d=TW_DETAIL;if(!d)return closeModal();
+  const row=_rowInputs(d.exId,d.setNo);if(!row){closeModal();return;}
+  const w=val('td_w'),r=val('td_r'),ri=val('td_rir'),nt=(val('td_note')||'').slice(0,300);
+  if(row.w&&w!==row.w.value){row.w.value=w;_adopt(row.w);}
+  if(row.r&&r!==row.r.value){row.r.value=r;_adopt(row.r);}
+  if(row.rir)row.rir.value=ri;
+  if(nt)row.grid.dataset.note=nt;else delete row.grid.dataset.note;
+  const box=row.grid.querySelector('.snote');
+  if(box){box.textContent=nt;box.classList.toggle('hidden',!nt);}
   closeModal();
-  // Steht die Zeile schon in der Datenbank, wird die neue Art sofort nachgezogen. Steht sie noch
-  // nicht dort, reist sie mit dem nächsten Bestätigen mit – für eine bloße Markierung entsteht nie
-  // eine leere Satzzeile mit 0 Wiederholungen.
+  const reps=parseFloat(r);
+  if(reps>0){_commitMark(d.exId,d.setNo);
+    _queueLog(d.exId,d.setNo,{weight:w===''?null:parseFloat(w),reps,..._rowExtra(row.grid)},true);}
+  else twMirror(d.exId,d.setNo);
+  updateTrainProgress();_paintExRow(d.exId);}
+// Satzart setzen – die Zeile zeigt die Marke sofort, geschrieben wird nur, wenn der Satz schon steht.
+function twSetType(exId,setNo,k){const row=_rowInputs(exId,setNo);if(!row)return;
+  const t=twType(k);row.grid.dataset.type=t.k;
+  const n=row.grid.querySelector('.n');
+  if(n){let tv=n.querySelector('.t');
+    if(t.s&&!tv){tv=document.createElement('span');tv.className='t';n.insertBefore(tv,n.querySelector('.chev'));}
+    if(tv)tv.textContent=t.s;
+    n.setAttribute('aria-label','Satz '+setNo+' · '+t.l+' · Satzart, Notiz und Scheiben');}
   if(_rowDone(row.grid))_queueLog(exId,setNo,{weight:row.w.value===''?null:parseFloat(row.w.value),
     reps:parseFloat(row.r.value)||0,..._rowExtra(row.grid)},true);
-  toast('Satzart: '+t.l);}
-let _twLp=null;
-document.addEventListener('touchstart',e=>{const t=(e.target&&e.target.closest)?e.target.closest('#exlist .setgrid .sn'):null;
-  if(!t||!twSetTypesOn())return;clearTimeout(_twLp);
-  _twLp=setTimeout(()=>{_twLp=null;try{if(navigator.vibrate)navigator.vibrate(12);}catch(x){}
-    const g=t.closest('.setgrid');if(g)twTypeSheet(+g.dataset.ex,+g.dataset.set);},450);},{passive:true});
-['touchend','touchmove','touchcancel','scroll'].forEach(ev=>document.addEventListener(ev,()=>{clearTimeout(_twLp);_twLp=null;},{passive:true,capture:true}));
+  else twMirror(exId,setNo);
+  // Das Blatt bleibt offen: die Auswahl ist ein Zustand, den man sehen soll, kein Absprung.
+  if(TW_DETAIL&&TW_DETAIL.exId===exId&&TW_DETAIL.setNo===setNo)twSetDetail(exId,setNo);}
+// Legacy-Namen: beide Wege fuehren auf dasselbe benannte Detail. twTypeSheet stand bis 3.0.2 am
+// Langdruck, twNoteSheet am Stift-Symbol der Werkzeugleiste.
+function twTypeSheet(exId,setNo){return twSetDetail(exId,setNo);}
+function twNoteSheet(exId,setNo){return twSetDetail(exId,setNo);}
 // RIR: „Wie viele Wiederholungen wären noch gegangen?" Leer bleibt leer – „nicht erfasst" ist eine
 // eigene Aussage und darf nicht als 0 (Muskelversagen) gespeichert werden. Solange die Zeile noch
 // nicht bestätigt ist, reist der Wert mit dem Haken mit.
 function twRirChange(exId,setNo){const row=_rowInputs(exId,setNo);if(!row)return;
   twCurSet(exId,setNo);
-  if(!_rowDone(row.grid))return;
+  if(!_rowDone(row.grid)){twMirror(exId,setNo);return;}
   _queueLog(exId,setNo,{weight:row.w.value===''?null:parseFloat(row.w.value),
     reps:parseFloat(row.r.value)||0,..._rowExtra(row.grid)},true);}
-// Satz-Notiz – der Server speichert `set_logs.note` seit jeher, die Oberfläche zeigte sie nie
-// (RATE-25-training M1: ein Test schrieb „RIR 1" hinein, in der App war davon nichts zu sehen).
-function twNoteSheet(exId,setNo){const row=_rowInputs(exId,setNo);const cur=row?String(row.grid.dataset.note||''):'';
-  const ex=_findEx(exId);twCurSet(exId,setNo);
-  openSheet('Notiz · Satz '+setNo,`
-    <div class="note mb-3">Ein Satz zu genau dieser Zeile – „links zwickt es", „mit Gurt", „letzte Wiederholung abgefälscht". Dein Coach sieht sie im Verlauf des Tages.</div>
-    <div class="field"><label>Notiz zu Satz ${setNo}${ex?' · '+esc2(ex.name):''}</label><textarea id="tw_note" rows="3" maxlength="300" placeholder="Was gehört zu diesem Satz?">${esc2(cur)}</textarea></div>
-    <button class="btn block" onclick="twNoteSave(${exId},${setNo})">Speichern</button>
-    ${cur?`<button class="btn block sec mt-2" onclick="twNoteSave(${exId},${setNo},1)">Notiz entfernen</button>`:''}`);
-  setTimeout(()=>{try{document.getElementById('tw_note')?.focus();}catch(e){}},350);}
-function twNoteSave(exId,setNo,clear){const row=_rowInputs(exId,setNo);if(!row){closeModal();return;}
-  const v=clear?'':val('tw_note').slice(0,300);
-  if(v)row.grid.dataset.note=v;else delete row.grid.dataset.note;
-  const box=row.grid.querySelector('.snote');
-  if(box){box.textContent=v;box.classList.toggle('hidden',!v);}
-  const btn=row.grid.querySelector('.tl.nt');if(btn)btn.classList.toggle('on',!!v);
-  closeModal();
-  if(_rowDone(row.grid))_queueLog(exId,setNo,{weight:row.w.value===''?null:parseFloat(row.w.value),
-    reps:parseFloat(row.r.value)||0,..._rowExtra(row.grid)},true);
-  toast(v?'Notiz gespeichert ✓':'Notiz entfernt');}
 
 // ---- Abschluss: Zusammenfassung (nur Sätze mit Reps > 0), optionales Gefühl 1–5, Feier-Pop, bleibt im Training ----
 async function openWorkoutSummary(){openSheet('Training beendet','<div class="spinner"></div>');
@@ -841,7 +1084,7 @@ async function openWorkoutSummary(){openSheet('Training beendet','<div class="sp
       <div class="tile"><div class="v">${fmtNum(volume)}<em> kg</em></div><div class="l">Gesamt bewegt</div></div>
       <div class="tile"><div class="v${prs?' tone-green':''}">${prs}</div><div class="l">Neue Rekorde</div></div></div>
     ${top&&top.weight?`<div class="note status mb-3">Schwerster Satz: <b>${esc2(exName[top.exercise_id]||'Übung')}</b> mit ${_fmtW(top.weight)} kg × ${top.reps}</div>`:''}
-    ${logs.length?`<div class="section-label">Wie lief es?<span class="sl-r" id="feelHint">optional</span></div><div class="feel" id="feelRow">${[1,2,3,4,5].map(n=>`<button class="chip" data-n="${n}" onclick="feelPick(${n})">${n}</button>`).join('')}</div>`:'<div class="note mb-3">Noch kein Satz mit Wiederholungen eingetragen.</div>'}
+    ${logs.length?`<h2 class="rows-h">Wie lief es?<span class="a" id="feelHint">optional</span></h2><div class="feel" id="feelRow">${[1,2,3,4,5].map(n=>`<button class="chip" data-n="${n}" onclick="feelPick(${n})">${n}</button>`).join('')}</div>`:'<div class="note mb-3">Noch kein Satz mit Wiederholungen eingetragen.</div>'}
     <div class="body center muted mt-4 mb-4">${prs>0?'Rekord-Tag – genau so wächst man.':'Sauber durchgezogen – Erholung nicht vergessen.'}</div>
     <button class="btn block" onclick="finishWorkout()">Fertig</button>
     <button class="btn block sec mt-2" onclick="finishWorkout('home')">Fertig und zur Home</button>`);}
@@ -857,26 +1100,127 @@ async function finishWorkout(dest){const d=openWorkoutSummary.data||{};const fee
   if(typeof refreshAchievements==='function')refreshAchievements();_inv();
   if(dest==='home')setTimeout(()=>go('home'),d.sets>0?900:0);}
 
-// ---- Übungs-Menü („···"): Notiz · Ausführung · Teilen · Verlauf · Bearbeiten · Löschen (+ Coach: sortieren) ----
-function exMenu(id,name){const ex=_findEx(id);name=name||ex?.name||'Übung';const cv=coachView();
-  let h='<div class="rows">';
-  h+=_mrow('pencil','Notiz',`openExNote(${id},'${esc(name)}')`);
-  h+=_mrow('play','Ausführung',`openVideo('${esc(name)}','${esc(ex?.video_url||'')}','${esc(twFormTerm(ex))}')`);
-  if(typeof shareViaLink==='function')h+=_mrow('share','Teilen',`shareViaLink('exercise',${id})`);
-  // FIX-B1 · B9: Der Untertitel nennt das Kürzel e1RM nur dort, wo die Karte auch erscheint.
-  h+=_mrow('chartLine','Verlauf',`openExHistory(${id},'${esc(name)}')`,{sub:libProOn()?'Kurve, Bestleistung und e1RM':'Kurve und Bestleistung'});
-  h+=_mrow('settings','Bearbeiten',`editExercise(${id})`);
-  // B-I.3: „Tauschen" stand in RATE-25-training wörtlich unter „Fehlt" (`08_exmenu.png`), obwohl die
-  // Spalte `replaces_id` seit 2.6.0 existiert. Der Supersatz ebenso (`group_id`, Befund L10).
-  // FIX-B1 · B9: beide ab Stufe 2 (libProOn) – eine bestehende Gruppe bleibt trotzdem in Kraft, sie
-  // wird nur nicht mehr von einem Anfänger angelegt oder aufgelöst.
+// ===== DIE PUSH-SEITE „ÜBUNG" (DESIGN-4 6.3) =================================================
+// Diese Seite gab es nicht. Sie ersetzt das „···" an der Übungskarte – NEUN zeichengleiche Kopien
+// desselben Punkte-Symbols auf EINEM Bild, dahinter acht Funktionen ohne ein einziges Wort:
+// Notiz · Ausführung · Teilen · Verlauf · Bearbeiten · Übung tauschen · Supersatz · Löschen (R2).
+// Jede davon ist jetzt eine Zeile mit Wort, und vier von ihnen tragen ihre Antwort gleich mit
+// („Bestleistung 75 kg", „3 Alternativen", „1:30 min") – man muss nicht mehr hineingehen, um zu
+// sehen, was drinsteht (A28).
+// Eltern ist „Training": der Zurück-Knopf trägt das WORT (G3), der große Titel den Namen der
+// Übung, der Untertitel die Vorgabe. Nichts davon wird abgeschnitten (G11).
+//
+// Was hier NICHT steht und warum: „Nach oben/unten" gab es bis 3.0.2 nur im Coach-Blick. Sie
+// stehen jetzt für beide da – der Athlet durfte seine eigene Reihenfolge bisher nicht ändern,
+// obwohl die Route (PUT /training-days/:id/reorder) es hergibt.
+
+// Ein kurzer Name für die 210 px der Kopfzeile. Abschneiden ist verboten (G11), also wird gekürzt,
+// wo es der Mensch auch täte: beim ersten Wort, das nicht mehr passt.
+// Eine Erklaerung im Fusstext darf lang sein (mehrzeilig ist erlaubt), aber sie darf nicht MITTEN
+// IM WORT enden. Gekuerzt wird deshalb am letzten Satzende vor 220 Zeichen, sonst am letzten Leer-
+// zeichen – und dann steht ein Auslassungszeichen da, das sagt, dass es weitergeht (im Lexikon).
+function _trKurz(s){const t=String(s||'').replace(/\s+/g,' ').trim();
+  if(t.length<=220)return t;
+  const p=t.lastIndexOf('. ',220);
+  if(p>90)return t.slice(0,p+1);
+  const q=t.lastIndexOf(' ',220);
+  return t.slice(0,q>90?q:220).replace(/[,;:–-]$/,'')+' …';}
+function trExShort(name){const s=String(name||'').trim();if(s.length<=22)return s;
+  const w=s.split(/\s+/);let out='';
+  for(const x of w){if((out?out.length+1:0)+x.length>22)break;out=out?out+' '+x:x;}
+  return out||w[0].slice(0,22);}
+function trExSub(ex){const t=[ex.muscle||'',
+  ex.target_reps?(ex.target_reps+' Wiederholungen'):'',
+  pl(ex.target_sets||3,'Satz','Sätze'),
+  twTechWord(ex),
+  (ex.coach_locked&&!coachView())?'vom Coach vorgegeben':''].filter(Boolean);
+  return t.join(' · ');}
+// Der Verlaufs-Wert in der Zeile: „Bestleistung 75 kg" bzw. „noch nichts eingetragen" (G9 – der
+// Gedankenstrich als Wert ist abgeschafft).
+function trBestText(pr){const p=(pr&&pr.prs)||{};
+  if(!(p.maxWeight>0))return 'noch nichts eingetragen';
+  return 'Bestleistung '+_fmtW(p.maxWeight)+' kg';}
+function pushExercise(id){const ex=_findEx(id);if(!ex)return;
+  if(typeof pushPage!=='function'){editExercise(id);return;}
+  const progs=PROG_CACHE[VIEW_USER+'_'+CUR_DAY]||{};
+  pushPage('ex-'+id,ex.name,'Training',trExPageHTML(ex,progs[id]),
+    // trExShort erwartet den NAMEN, nicht die Uebung: mit dem Objekt kam String(ex) = „[object
+    // Object]" heraus (15 Zeichen, also unter der Kuerzungsgrenze) und stand als Kurzform in der
+    // Kopfzeile jeder Uebungsseite (FIX-D5 D-1 · Befund 3).
+    {sub:trExSub(ex),short:trExShort(ex.name),onMount:()=>{_paintRows();}});
+  // Die Sätze des Tages stehen im Zwischenspeicher von renderEx; fehlen sie (Direkteinstieg über
+  // die Suche), werden sie nachgeholt und die Seite still neu gezeichnet.
+  const rlk=VIEW_USER+'|'+today();
+  if(!(renderEx.logs&&renderEx.logs.key===rlk))_todayLogs().then(tl=>{
+    if(!tl.ok)return;renderEx.logs={key:rlk,list:tl.logs};trPushRefresh();}).catch(()=>{});}
+// Die Seite einer Uebung zeigt DIESELBEN Satzzeilen wie die Liste darunter. Kommen die Saetze von
+// heute erst nach dem Oeffnen an (Direkteinstieg aus der Suche, langsame Antwort) oder aendert sich
+// etwas, wird die Ebene still nachgezogen – aber NIE, waehrend der Daumen in einem Feld steht.
+function trPushRefresh(){
+  const pv=document.getElementById('pushView');
+  if(!pv||pv.hidden||typeof PUSH_STACK==='undefined'||!PUSH_STACK.length)return;
+  const top=PUSH_STACK[PUSH_STACK.length-1];
+  const m=/^ex-(\d+)$/.exec(String(top.key||''));if(!m)return;
+  const ex=_findEx(+m[1]);if(!ex)return;
+  const a=document.activeElement;
+  if(a&&a.closest&&a.closest('#pushView'))return;
+  top.html=trExPageHTML(ex,(PROG_CACHE[VIEW_USER+'_'+CUR_DAY]||{})[ex.id]);
+  if(typeof _renderPush==='function')_renderPush();}
+function trExPageHTML(ex,pr){const id=ex.id;const cv=coachView();
+  const logs=(renderEx.logs&&renderEx.logs.key===VIEW_USER+'|'+today())?renderEx.logs.list:[];
+  const G=LIB_GRP[id]||null;
+  let h='';
+  // 1 · SÄTZE. Die Hauptsache dieser Seite ist das Häkchen in der Satzzeile – deshalb hat sie als
+  // einziger Bildschirm der App keinen Primärknopf (6.3). Hier wird 27x dieselbe kleine Sache getan.
+  if(!cv){const b=trSetBlock(ex,pr,logs,{add:true});
+    h+=groupHTML('Sätze',[b.html],trSetFootText(b,ex),{inset:false});}
+  // 2 · DIESE ÜBUNG – die acht Funktionen aus dem „···", jede mit Wort und Antwort.
+  const m=libMeta(ex);
+  const diese=[
+    rowHTML({icon:'chartLine',title:'Verlauf',sub:libProOn()?'Kurve, Bestleistung und geschätztes Maximum':'Kurve und Bestleistung',
+      value:trBestText(pr),tap:`openExHistory(${id},${JSON.stringify(ex.name)})`}),
+    rowHTML({icon:'play',title:'Ausführung',sub:[twTechWord(ex),ex.video_url?'Anleitung deines Coachs':'Technik-Hinweise und Video'].filter(Boolean).join(' · '),
+      tap:`openVideo(${JSON.stringify(ex.name)},${JSON.stringify(ex.video_url||'')},${JSON.stringify(twFormTerm(ex))})`}),
+    rowHTML({icon:'pencil',title:'Notiz zur Übung',sub:cv?'Dein Kommentar für den Athleten':'Wie lief es, was zwickt, was merkst du dir',
+      tap:`openExNote(${id},${JSON.stringify(ex.name)})`})];
   if(libProOn()){
-    h+=_mrow('refresh','Übung tauschen',`libSwapSheet(${id})`,{sub:'Slot und Verlauf bleiben'});
-    h+=_mrow('link','Supersatz',`libGroupSheet(${id})`,{sub:LIB_GRP[id]?'Gruppe '+LIB_GRP[id].tag.charAt(0)+' ändern oder auflösen':'Mit einer zweiten Übung koppeln – eine Pause'});}
-  if(cv){h+=_mrow('arrowLeft','Nach oben',`moveExercise(${id},-1)`);h+=_mrow('arrowRight','Nach unten',`moveExercise(${id},1)`);}
-  h+=_mrow('trash','Löschen',`delExercise(${id})`,{cls:'tone-red'});
-  h+='</div>';openSheet(name,h);}
-function exGear(id,name){return exMenu(id,name);} // legacy-Name
+    diese.push(rowHTML({icon:'refresh',title:'Übung tauschen',sub:'Platz und Verlauf bleiben erhalten',
+      value:m.prevName?('früher: '+m.prevName):'',tap:`libSwapSheet(${id})`}));
+    diese.push(rowHTML({icon:'link',title:'Mit einer zweiten Übung koppeln',sub:'Supersatz – zwei Übungen, eine Pause',
+      value:G?('Gruppe '+G.tag.charAt(0)):'',tap:`libGroupSheet(${id})`}));}
+  diese.push(rowHTML({icon:'timer',title:'Pausenlänge',sub:'Gilt nach jedem bestätigten Satz',
+    value:trRestText(),tap:'restPick()'}));
+  // Der Erklaerungsort dieser Gruppe traegt auch die Fachbegriffe der Uebung (G8/K21) – dort, wo
+  // sie stehen, und ohne dass man ein i-Symbol antippen muss.
+  const tech=twTechWord(ex);
+  const techTxt=tech?(tech+': '+_trKurz(((_findDef(ex.technique||tech)||{}).def)
+    ||'eine Technik aus deinem Plan – im Technik-Lexikon steht, wie sie ausgeführt wird')+' '):'';
+  h+=groupHTML('Diese Übung',diese,
+    techTxt+'Eine Notiz an der Übung liest dein Coach mit. Beim Tauschen bleibt der Verlauf an diesem Platz im Plan – du siehst also weiter, wie es sich entwickelt.');
+  // 3 · BEARBEITEN.
+  const bearb=[
+    rowHTML({icon:'settings',title:'Sätze, Wiederholungen, Muskelgruppe',sub:'Die Vorgabe dieser Übung',
+      value:(ex.target_sets||3)+' × '+(ex.target_reps||'ohne Vorgabe'),tap:`editExercise(${id})`}),
+    rowHTML({icon:'arrowLeft',title:'Nach oben verschieben',sub:'Eine Position früher im Trainingstag',tap:`moveExercise(${id},-1)`}),
+    rowHTML({icon:'arrowRight',title:'Nach unten verschieben',sub:'Eine Position später im Trainingstag',tap:`moveExercise(${id},1)`})];
+  if(typeof shareViaLink==='function')bearb.push(rowHTML({icon:'share',title:'Teilen',
+    sub:'Diese Übung als Link weitergeben',tap:`shareViaLink('exercise',${id})`}));
+  h+=groupHTML('Bearbeiten',bearb,
+    ex.coach_locked&&!cv?'Diese Übung stammt von deinem Coach. Änderst du sie, weicht dein Plan von seiner Vorgabe ab.'
+      :'Die Reihenfolge gilt für diesen Trainingstag – dein Rhythmus und dein Kalender bleiben unberührt.');
+  // 4 · LÖSCHEN – eigene Gruppe, einzeilig, rot, zentriert (A30).
+  h+=groupHTML('',[rowHTML({title:'Übung löschen',danger:true,tap:`delExercise(${id})`})],
+    'Du kannst das Löschen danach fünf Sekunden lang rückgängig machen.');
+  return h;}
+// Ein Arbeitssatz mehr. Das ging bisher nur über „Bearbeiten" -> Formular -> Feld „Sätze" -> Speichern.
+function trAddSet(id){const ex=_findEx(id);if(!ex)return;
+  const n=Math.min(10,(ex.target_sets||3)+1);
+  if(n===(ex.target_sets||3))return toast('Mehr als 10 Sätze je Übung gehen nicht');
+  confirmEditExercise(id,false,{muscle:ex.muscle,name:ex.name,technique:ex.technique,video_url:ex.video_url,
+    target_sets:n,target_reps:ex.target_reps,notes:ex.notes});}
+// Legacy-Namen: das „···"-Menue gibt es nicht mehr, sein Ziel schon. Beide Namen fuehren auf die Seite.
+function exMenu(id,name){return pushExercise(id);}
+function exGear(id,name){return pushExercise(id);}
 // Reihenfolge (Coach): PUT /training-days/:id/reorder {order} – die Batch-Route ist Teil des API-Vertrags (2.1).
 // (Kein Einzel-Fallback mehr: PUT /exercises/:id erwartet einen 0-basierten Ziel-Index und würde die Übung
 //  mit dem alten `position:j+1` eine Stelle zu weit schieben.)
@@ -895,8 +1239,10 @@ async function openExNote(exId,name){const title='Notizen: '+name;openSheet(titl
     <div class="field"><label>Neue Notiz</label><textarea id="en_note" rows="2" placeholder="${cv?'Dein Kommentar für den Athleten…':'Was möchtest du festhalten?'}"></textarea></div>
     <label class="switch-row rows mb-3"><span class="rl">Als Problem markieren<small>${cv?'Wird in deiner Athletenliste hervorgehoben':'Dein Coach wird informiert'}</small></span><input type="checkbox" class="rcheck" id="en_flag"></label>
     <button class="btn block" onclick="saveExNote(${exId},'${esc(name)}')">${cv?'Kommentar senden':'Notiz speichern'}</button>`;
-  if(notes.length){h+=`<div class="section-label">Verlauf</div><div class="rows">`+notes.map(n=>{const isCoach=n.author_role==='coach';
-    return `<div class="row"><div class="rl">${esc2(n.note)}<small>${fmtDate(n.date,{year:'2-digit'})}</small></div><div class="rr"><span class="pill ${isCoach?'blue':'neutral'}">${isCoach?'Coach':'Du'}</span>${n.flagged?'<span class="pill red">Problem</span>':''}</div></div>`;}).join('')+`</div>`;}
+  if(notes.length)h+=groupHTML('Verlauf',notes.map(n=>{const isCoach=n.author_role==='coach';
+    return rowHTML({title:n.note,sub:(isCoach?'Dein Coach':'Du')+' · '+fmtDate(n.date,{year:'2-digit'}),
+      pill:n.flagged?{text:'als Problem markiert',tone:'red'}:null});}),
+    'Notizen bleiben an der Übung und wandern mit ihr durch deinen Plan.');
   openSheet(title,h);}
 async function saveExNote(exId,name){const note=val('en_note');if(!note)return showFieldErr('sheetBody','Bitte etwas eingeben','en_note');
   const flag=!!document.getElementById('en_flag')?.checked;
@@ -921,7 +1267,7 @@ function addDay(){openSheet('Neuer Trainingstag',`<div class="field"><label>Name
 async function confirmAddDay(){const name=val('dayName');if(!name)return showFieldErr('sheetBody','Gib dem Tag einen Namen','dayName');
   const r=await API.post('/days',{plan_id:PLAN.plan.id,name});
   if(r.status===200){closeAllSheets();await loadPlan();CUR_DAY=r.data.id;_inv();
-    if(document.getElementById('exlist')){renderDaySel();renderEx();}else renderWorkout(document.getElementById('views'));}
+    if(document.getElementById('exlist')){trSyncTitle();trDrawPlan();renderEx();}else renderWorkout(document.getElementById('views'));}
   else toast(r.data?.error||'Fehler');}
 // Technik-Auswahl: nur echte Techniken aus dem Lexikon (kind-Flag vom Server oder Whitelist), Rest ist „Eigene…"
 const TECH_WHITELIST=['widowmaker','continuous reps','rest pause','paired set','drop-set','double drop-set','tripple drop-set','triple drop-set','partials','up','mrp*2','tempo'];
@@ -1065,7 +1411,7 @@ function libE1rmHTML(logs){
   const kgs=kg0?` ${kg0===raus?'Alle davon sind':fmtNum(kg0)+' davon sind'} Sätze <b>ohne Gewichtsangabe</b> (Klimmzug, Dip, Liegestütz am eigenen Körpergewicht) – dafür fehlt der Formel die Last. Trag beim Satz dein Körpergewicht oder das Zusatzgewicht ein, dann rechnet sie mit.`:'';
   const bws=bw?` Bei ${pl(bw,'Satz','Sätzen')} ist dein eingetragenes Körpergewicht in der Last enthalten – genauso rechnet der Server dein Volumen.`:'';
   const fuss=`<div class="lib-e1n">Epley-Formel: Gewicht × (1 + Wiederholungen ÷ 30). Gezählt wird je Einheit der beste <b>Arbeitssatz mit höchstens ${LIB_E1RM_MAX} Wiederholungen</b> – Aufwärm-, Drop- und Backoff-Sätze bleiben draußen, und über ${LIB_E1RM_MAX} Wiederholungen laufen die gängigen Formeln zu weit auseinander für eine belastbare Zahl (Mayhew u.a. 2008).${raus?` Von ${pl(gesamt,'eingetragenen Satz','eingetragenen Sätzen')} zählen deshalb ${fmtNum(raus)} nicht mit.`:''}${kgs}${bws}</div>`;
-  if(rows.length<2)return `<div class="section-label">Geschätzte Maximalkraft (e1RM)</div>
+  if(rows.length<2)return `<h2 class="rows-h">Geschätzte Maximalkraft</h2>
     <div class="note">${rows.length?`Bisher gibt es genau eine Einheit mit einem zählenden Satz (${_fmtW(rows[0].weight)} kg × ${fmtNum(rows[0].reps)} → e1RM ${_fmtW(rows[0].value)} kg). Ab der zweiten entsteht hier eine Kurve.`:(kg0?'Für eine Schätzung fehlt noch ein Satz mit einer Gewichtsangabe.':'Für eine Schätzung fehlt noch ein passender Satz.')}</div>${fuss}`;
   const last=rows[rows.length-1],first=rows[0];
   const diff=Math.round((last.value-first.value)*10)/10;
@@ -1074,7 +1420,7 @@ function libE1rmHTML(logs){
   // Steht der Bestwert ohnehin in der letzten Einheit, entfällt der Satz ganz.
   const best=rows.reduce((a,b)=>b.value>=a.value?b:a,rows[0]);
   const A=_axis5(rows.map(r=>r.value),0.5);
-  return `<div class="section-label">Geschätzte Maximalkraft (e1RM)<span class="sl-r">Schätzung</span></div>
+  return `<h2 class="rows-h">Geschätzte Maximalkraft<span class="a">Schätzung</span></h2>
     <div class="chart-card"><div class="ch-h"><div class="t">${_fmtW(last.value)} kg${diff?` <span class="${diff>0?'tone-green':'tone-red'}">${diff>0?'+':'−'}${_fmtW(Math.abs(diff))} kg</span>`:''}</div><div class="v">${rows.length===1?'1 Einheit':fmtNum(rows.length)+' Einheiten'}</div></div>
       ${lineChart(rows,'kg',{domain:A.domain,step:A.step,tickFmt:_fmtW})}
       <div class="lib-e1n">Zuletzt am ${esc2(fmtDate(last.date).replace(/\.$/,''))}: ${_fmtW(last.weight)} kg × ${fmtNum(last.reps)} → ${_fmtW(last.value)} kg.${best.date!==last.date?` Bester Wert: ${_fmtW(best.value)} kg (${_fmtW(best.weight)} kg × ${fmtNum(best.reps)} am ${esc2(fmtDate(best.date).replace(/\.$/,''))}).`:' Das ist zugleich dein bester Wert.'}</div>
@@ -1160,7 +1506,10 @@ async function openExHistory(exId,name){name=name||'Übung';openSheet(name,'<div
   const alle=Object.values(byDate).sort((a,b)=>a.date<b.date?-1:1);alle.forEach(d=>d.sets.sort((a,b)=>a.set_no-b.set_no));
   const rows=alle.filter(d=>d.zaehlt);
   const mark=s=>{const t=twType(s.set_type||'work');return _fmtW(s.weight)+' × '+s.reps+(t.s?' '+t.s:'');};
-  const list=`<div class="section-label">Letzte Einheiten</div><div class="rows">${alle.slice(-8).reverse().map(d=>`<div class="row"><div class="rl">${fmtDate(d.date,{weekday:'short'})}<small>${d.sets.map(mark).join(' · ')}</small></div><div class="rr">${d.zaehlt?_fmtW(d.top)+' kg':'–'}</div></div>`).join('')}</div>`;
+  const list=groupHTML('Letzte Einheiten',alle.slice(-8).reverse().map(d=>rowHTML({
+    title:fmtDate(d.date,{weekday:'long',month:'long'}),sub:d.sets.map(mark).join(' · '),
+    value:d.zaehlt?(_fmtW(d.top)+' kg'):'kein zählender Satz'})),
+    'Gezeigt wird je Einheit der schwerste Arbeitssatz. Aufwärm-, Drop- und Backoff-Sätze stehen in der Unterzeile, zählen hier aber nicht.');
   // Wenn zusammengeführt wurde, steht es da. Ein Verlauf, der still aus zwei Plan-Zeilen stammt, wäre
   // wieder eine Zahl ohne Herkunft (P3) – und genau diese Zeile erklärt dem Athleten die Dublette.
   const merged=(ids.length>1?`<div class="note status mb-3">Diese Übung steht <b>${fmtNum(ids.length)}×</b> in deinem Plan. Der Verlauf hier fasst ${ids.length>2?'alle Einträge':'beide Einträge'} zusammen – so, wie der Server und die Analyse sie schon immer gezählt haben.</div>`:'')
@@ -1185,7 +1534,7 @@ async function openExHistory(exId,name){name=name||'Übung';openSheet(name,'<div
   const shown=rows.length>EX_CHART_MAX?rows.slice(-EX_CHART_MAX):rows;
   const A1=_axis5(shown.map(x=>x.top),0.5),A2=_axis5(shown.map(x=>x.reps),1); // beide Achsen mit 5 Linien -> rechts bleiben Reps ganzzahlig
   const data=shown.map(d=>({date:d.date,v1:d.top,v2:d.reps}));
-  openSheet(name,`${prev}${merged}<div class="grid-3 hist-stats mb-3">
+  openSheet(name,`${prev}${merged}<div class="grid-3 mb-3">
       <div class="tile"><div class="v">${_fmtW(best)}<em> kg</em></div><div class="l">Bestleistung</div></div>
       <div class="tile"><div class="v${diff>0?' tone-green':diff<0?' tone-red':''}">${diff>0?'+':''}${_fmtW(diff)}<em> kg</em></div><div class="l">seit Beginn</div></div>
       <div class="tile"><div class="v">${einh}</div><div class="l">Einheiten</div></div></div>
@@ -1556,19 +1905,27 @@ function libStep(exId,setNo){const G=LIB_GRP[exId];
 function libSameGroup(a,b){const A=LIB_GRP[a],B=LIB_GRP[b];return !!(A&&B&&A.gid===B.gid);}
 // Sprung auf die Partnerzeile. Gibt `false` zurück, wenn es sie nicht gibt (Partner hat weniger Sätze) –
 // dann greift der gewohnte Weg aus _afterCommit.
-function libJump(exId,setNo){const card=document.getElementById('ex-'+exId);if(!card)return false;
-  const row=_rowInputs(exId,setNo);if(!row)return false;
-  if(!card.classList.contains('open')){card.classList.add('open');semExAria(card);}
+// Sie steht in derselben Liste, aber ihr Satzblock wird erst gezeichnet, wenn sie an der Reihe ist –
+// deshalb wird die Liste neu gezeichnet, wenn die Partnerzeile noch nicht dasteht.
+function libJump(exId,setNo){
+  let row=_rowInputs(exId,setNo);
+  if(!row){if(document.getElementById('exlist')){renderEx({quiet:true});
+      setTimeout(()=>{const r=_rowInputs(exId,setNo);
+        if(r)try{r.w.scrollIntoView({block:'center',behavior:'smooth'});if(r.w.value==='')r.w.focus({preventScroll:true});}catch(e){}},420);
+      twCurSet(exId,setNo);return true;}
+    return false;}
   twCurSet(exId,setNo);
   setTimeout(()=>{try{row.w.scrollIntoView({block:'center',behavior:'smooth'});}catch(e){}
     if(row.w.value==='')try{row.w.focus({preventScroll:true});}catch(e){}},80);
   return true;}
-// Die Zeile IN der Karte, die sagt, warum der Timer nicht losläuft (oder gleich losläuft).
-function libNextHTML(exId){const G=LIB_GRP[exId];if(!G)return '';
-  if(G.next!=null){const n=_findEx(G.next),t=LIB_GRP[G.next];
-    return `<div class="lib-next">${icon('arrowRight',16)}<span>Supersatz: ohne Pause weiter mit ${esc2((t?t.tag+' · ':'')+(n?n.name:'der nächsten Übung'))}</span></div>`;}
+// Der Satz, der sagt, warum der Timer nicht loslaeuft (oder gleich loslaeuft). Er stand als eigene
+// getoente Zeile IN der Uebungskarte; jetzt steht er dort, wo diese App erklaert: im Fusstext unter
+// der Gruppe (G8). Damit faellt eine weitere Zeilenform (`.lib-next`) ersatzlos weg.
+function libNextText(exId){const G=LIB_GRP[exId];if(!G)return '';
+  if(G.next!=null){const n=_findEx(G.next),tg=LIB_GRP[G.next];
+    return 'Supersatz: ohne Pause weiter mit '+((tg?tg.tag+' · ':'')+(n?n.name:'der nächsten Übung'))+'.';}
   const f=_findEx(G.first);
-  return `<div class="lib-next">${icon('timer',16)}<span>Supersatz ${esc2(G.tag.charAt(0))}: die Pause startet nach diesem Satz – danach wieder ${esc2(f?f.name:'von vorn')}.</span></div>`;}
+  return 'Supersatz '+G.tag.charAt(0)+': die Pause startet nach diesem Satz – danach wieder '+(f?f.name:'von vorn')+'.';}
 // „Getauscht – früher: Leg Press". Ein Tipp öffnet den Verlauf der alten Übung; ihre Sätze stehen
 // weiter in der Datenbank (`GET /api/logs?exercise_id=` filtert nicht nach gelöschten Übungen).
 function libPrevHTML(ex){const m=libMeta(ex);if(!m.prevName)return '';
@@ -1723,40 +2080,48 @@ async function drawCardioTab(o){o=o||{};const b=document.getElementById('workout
   const wa=new Date();wa.setDate(wa.getDate()-((wa.getDay()+6)%7));const weekAgo=fmt(wa);const wk=all.filter(c=>c.date>=weekAgo);
   const wkMin=wk.reduce((a,c)=>a+(c.minutes||0),0),wkKcal=wk.reduce((a,c)=>a+(c.kcal||0),0),wkKm=wk.reduce((a,c)=>a+(c.distance_km||0),0);
   const kindIcon=k=>({Laufen:'footprints',Joggen:'footprints',Gehen:'footprints',Wandern:'footprints',Stepper:'footprints',Schwimmen:'droplet',HIIT:'zap',Crossfit:'zap',Seilspringen:'zap',Rad:'refresh',Spinning:'refresh',Rudern:'wind',Crosstrainer:'wind'})[k]||'heart';
-  let h=`<div class="cardio">${coachView()?'':`<button class="btn block" onclick="if(typeof bootCall==='function')bootCall('analysis','openCardio')">${icon('plus',18)} Cardio-Einheit erfassen</button>`}
-    <div class="section-label">Diese Woche</div>
-    <div class="cardio-tiles">
-      <div class="tile"><div class="v">${fmtNum(wkMin)}<em> min</em></div><div class="l">Cardio-Zeit</div></div>
-      <div class="tile"><div class="v">${fmtNum(Math.round(wkKcal))}<em> kcal</em></div><div class="l">verbrannt</div></div>
-      ${wkKm>0?`<div class="tile"><div class="v">${fmtNum(wkKm,1)}<em> km</em></div><div class="l">Distanz</div></div>`:''}
-    </div>`;
+  // Derselbe Aufbau wie Kraft (6.2): eine Karte „Diese Woche", darunter die EINE Primäraktion,
+  // darunter die Einheiten als `.row.tap`. Das „···" je Zeile (R17) ist weg – die Zeile selbst
+  // führt auf das Detail, und dort steht „Entfernen" als benannte rote Zeile.
+  const woche=[wkMin+' Minuten',fmtNum(Math.round(wkKcal))+' kcal',wkKm>0?(fmtNum(wkKm,1)+' km'):''].filter(Boolean).join(' · ');
+  let h=`<div class="cardio">`
+    +`<div class="card tp"><span class="rl">Diese Woche`
+    +`<small>${esc2(wk.length?woche:'noch nichts eingetragen')}</small></span></div>`
+    +(coachView()?'':`<button class="btn" onclick="if(typeof bootCall==='function')bootCall('analysis','openCardio')">Cardio-Einheit erfassen</button>`);
   if(!all.length)h+=emptyState({icon:'heart',title:'Noch keine Cardio-Einheiten',text:coachView()?'Hier erscheinen die Cardio-Einheiten deines Athleten.':'Erfasse deine erste Einheit – Laufen, Rad, Schwimmen oder HIIT.',btn:coachView()?null:{label:'Einheit erfassen',onclick:"if(typeof bootCall==='function')bootCall('analysis','openCardio')"}});
-  else{h+='<div class="section-label">Verlauf</div><div class="rows">'+all.slice(0,40).map(c=>{
+  else{h+=groupHTML('Einheiten',all.slice(0,40).map(c=>{
     const pace=_cardioPace(c)?' · '+_cardioPace(c):'';
-    // Einheiten aus der Gesundheits-App tragen ein kleines Apple-Zeichen – man sieht sofort,
-    // was von der Uhr kam und was von Hand eingetragen wurde.
-    const src=c.source==='apple'?`<span class="src-apple" title="Aus Apple Health">${icon('apple',13)}</span>`:'';
-    return `<div class="row"><div class="r-ic">${icon(kindIcon(c.kind),22)}</div><div class="rl">${esc2(c.kind)}${src}<small>${fmtDate(c.date)} · ${c.minutes||0} min${c.distance_km?' · '+fmtNum(c.distance_km,1)+' km':''}${pace} · ${esc2(c.intensity||'moderat')}</small></div>
-      <div class="rr">${fmtNum(Math.round(c.kcal||0))} kcal<button class="btn icon sm ghost" aria-label="Optionen" onclick="cardioRowMenu(${c.id})">${icon('more',20)}</button></div></div>`;}).join('')+'</div>';}
+    // Woher die Einheit kommt, steht als WORT in der Unterzeile – vorher war es ein Apple-Zeichen
+    // ohne Text mit einem `title`, das auf dem Handy niemand erreicht (G8/G9).
+    const teile=[fmtDate(c.date,{weekday:'short'}),(c.minutes||0)+' Minuten',
+      c.distance_km?(fmtNum(c.distance_km,1)+' km'):'',pace.replace(/^ · /,''),
+      c.intensity||'moderat',c.source==='apple'?'aus Apple Health':''].filter(Boolean);
+    return rowHTML({icon:kindIcon(c.kind),title:c.kind,sub:teile.join(' · '),
+      value:fmtNum(Math.round(c.kcal||0))+' kcal',tap:`cardioRowMenu(${c.id})`});}).join(''),
+    'Tippe eine Einheit an, um sie im Detail zu sehen oder zu entfernen.');}
   b.innerHTML=h+'</div>';trainBarSync();}
 // Tempo/Geschwindigkeit kompakt für die Zeile – Laufen/Gehen in min/km, Rad/Wandern/Schwimmen in km/h
 // (Regel und Formatierung kommen aus cardioPaceText() in analysis.js, solange es geladen ist)
 function _cardioPace(c){if(typeof cardioPaceText!=='function')return '';
   const t=cardioPaceText(c.kind,c.minutes,c.distance_km);if(!t)return '';
   return t.replace(/^Tempo\s*/,'').replace(/^Ø\s*/,'').split(' · ')[0];}
+// R17 · Das Detail einer Cardio-Einheit. Es hing an einem „···" je Zeile; jetzt führt die Zeile
+// selbst hierher, und „Entfernen" ist eine benannte rote Zeile in eigener Gruppe (A30).
 function cardioRowMenu(id){const c=(drawCardioTab.list||[]).find(x=>x.id===id);if(!c)return;
   // cardioPaceText() liefert „Tempo …"/„Ø …" – das Präfix weg, die Zeile trägt das Label „Tempo" bereits
   const pace=(typeof cardioPaceText==='function')?String(cardioPaceText(c.kind,c.minutes,c.distance_km)||'').replace(/^(?:Tempo|Ø)\s*/,''):'';
-  openSheet(c.kind+' · '+fmtDate(c.date,{weekday:'short'}),`<div class="rows mb-3">
-    <div class="row"><div class="rl">Dauer</div><div class="rr">${c.minutes||0} min</div></div>
-    ${c.distance_km?`<div class="row"><div class="rl">Distanz</div><div class="rr">${fmtNum(c.distance_km,1)} km</div></div>`:''}
-    ${pace?`<div class="row"><div class="rl">Tempo</div><div class="rr">${esc2(pace)}</div></div>`:''}
-    ${c.avg_hr?`<div class="row"><div class="rl">Puls</div><div class="rr">${c.avg_hr} bpm</div></div>`:''}
-    <div class="row"><div class="rl">Intensität</div><div class="rr">${esc2(c.intensity||'moderat')}</div></div>
-    <div class="row"><div class="rl">Kalorien</div><div class="rr">${fmtNum(Math.round(c.kcal||0))} kcal</div></div>
-    ${c.source==='apple'?`<div class="row"><div class="rl">Herkunft</div><div class="rr">Apple Health</div></div>`:''}
-    ${c.notes?`<div class="row"><div class="rl"><small>${esc2(c.notes)}</small></div></div>`:''}</div>
-    <button class="btn block danger" onclick="delCardioTab(${id})">${icon('trash',18)} Entfernen</button>`);}
+  const zeilen=[rowHTML({title:'Dauer',value:(c.minutes||0)+' Minuten'})];
+  if(c.distance_km)zeilen.push(rowHTML({title:'Distanz',value:fmtNum(c.distance_km,1)+' km'}));
+  if(pace)zeilen.push(rowHTML({title:'Tempo',value:pace}));
+  if(c.avg_hr)zeilen.push(rowHTML({title:'Durchschnittspuls',value:c.avg_hr+' Schläge pro Minute'}));
+  zeilen.push(rowHTML({title:'Intensität',value:c.intensity||'moderat'}));
+  zeilen.push(rowHTML({title:'Kalorien',value:fmtNum(Math.round(c.kcal||0))+' kcal'}));
+  zeilen.push(rowHTML({title:'Eingetragen',value:c.source==='apple'?'aus Apple Health':'von Hand'}));
+  if(c.notes)zeilen.push(rowHTML({title:'Notiz',sub:c.notes}));
+  openSheet(c.kind+' · '+fmtDate(c.date,{weekday:'short'}),
+    groupHTML('',zeilen,'Kalorien sind eine Schätzung aus Dauer, Intensität und deinem Gewicht.')
+    +groupHTML('',[rowHTML({title:'Einheit entfernen',danger:true,tap:`delCardioTab(${id})`})],
+      'Du kannst das Entfernen danach rückgängig machen.'));}
 async function delCardioTab(id,confirmed){const c=(drawCardioTab.list||[]).find(x=>x.id===id);
   if(!confirmed){confirmSheet('Cardio-Einheit entfernen',`${c?c.kind+' vom '+fmtDate(c.date):'Diese Einheit'} wirklich entfernen?`,{label:'Entfernen',onYes:()=>delCardioTab(id,true)});return;}
   const r=await API.del('/cardio/'+id);if(r.status!==200)return toast(r.data?.error||'Fehler');
@@ -1843,7 +2208,7 @@ async function _afterCalChange(iso){TODAY=null;await loadToday();_inv();
   if(iso===today()&&document.getElementById('exlist')){const before=CUR_DAY;const eff=TODAY?.confirmed||TODAY?.suggestion;
     if(eff?.type==='train'&&eff.dayName){const m=(PLAN?.days||[]).find(d=>d.name===eff.dayName);if(m)CUR_DAY=m.id;}
     renderWorkout.lastEff=VIEW_USER+'|'+(TODAY?.date||today())+'|'+(eff?.type||'')+'|'+(eff?.dayName||'');
-    if(CUR_DAY!==before){renderDaySel();renderEx({quiet:true});}
+    if(CUR_DAY!==before){trSyncTitle();trDrawPlan();renderEx({quiet:true});}
     else updateTrainProgress();}} // gleicher Tag, aber evtl. neuer Tagestyp – Kopfzeile ehrlich nachziehen
 async function setCalDay(iso,type,dayName){
   const r=await API.post('/today/'+VIEW_USER,{date:iso,type,day_name:dayName});
@@ -1892,32 +2257,37 @@ async function twSessLoad(iso){const box=document.getElementById('twSess');if(!b
 function twSessHTML(iso){const rows=((TW_SESS&&TW_SESS.iso===iso)?TW_SESS.logs:[]).slice();
   const fremd=VIEW_USER!==ME.id;
   const add=`<button class="btn block sec mt-2" onclick="twSessPick('${iso}')">Übung nachtragen</button>`;
-  if(!rows.length)return `<div class="tw-sess"><div class="tw-sh">Sätze</div>
-    <div class="note">An diesem Tag steht kein Satz. Trainiert und vergessen? Trag es nach – ab 3 Sätzen aus 2 Übungen zählt der Tag von selbst als Training.</div>${add}</div>`;
+  if(!rows.length)return `<div class="tw-sess">`+groupHTML('Sätze',
+    [rowHTML({icon:'plus',title:'Übung nachtragen',sub:'Trainiert und vergessen? Trag es nach.',tap:`twSessPick('${iso}')`})],
+    'An diesem Tag steht kein Satz. Ab 3 Sätzen aus 2 Übungen zählt der Tag von selbst als Training.')+`</div>`;
   const byEx=[];rows.forEach(l=>{let g=byEx.find(x=>x.id===l.exercise_id);
     if(!g){g={id:l.exercise_id,sets:[]};byEx.push(g);}g.sets.push(l);});
   byEx.forEach(g=>g.sets.sort((a,b)=>a.set_no-b.set_no));
-  const blocks=byEx.map(g=>`<div class="tw-exg"><div class="tw-exn">${esc2(twExName(g.id))}</div>
-    ${g.sets.map(l=>{const t=twType(l.set_type||'work');
-      const wert=(l.reps>0||l.weight>0)?`${_fmtW(l.weight)} kg × ${fmtNum(l.reps)}`:'leer';
-      return `<button class="tw-srow" type="button" aria-label="Satz ${l.set_no} · ${esc2(twExName(g.id))} · ${esc2(wert)}${t.k!=='work'?' · '+esc2(t.l):''} – ändern oder löschen" onclick="twSetSheet('${iso}',${g.id},${l.set_no})">
-        <span class="n${t.k!=='work'?' t-'+t.k:''}">${l.set_no}${t.s?`<i>${t.s}</i>`:''}</span>
-        <span class="v">${esc2(wert)}${l.rir!=null&&l.rir!==''?`<em>RIR ${fmtNum(l.rir)}</em>`:''}</span>
-        ${l.note?`<span class="nt">${icon('pencil',14)}</span>`:''}
-        <span class="a">${icon('chevronRight',18)}</span></button>
-        ${l.note?`<div class="tw-snote">${esc2(l.note)}</div>`:''}`;}).join('')}
-    <button class="tw-add" type="button" onclick="twSessAdd('${iso}',${g.id})">+ Satz nachtragen</button></div>`).join('');
-  return `<div class="tw-sess"><div class="tw-sh">Sätze <span>${esc2(twSessSum(rows))}</span></div>
-    ${fremd?'<div class="caption mb-2">Du bearbeitest die Sätze deines Athleten – jede Änderung ist sofort bei ihm sichtbar.</div>':''}
-    ${blocks}${add}</div>`;}
+  // Dieselbe `.row`-Sprache wie ueberall: Nummer links, Wert rechts, Chevron fuehrt weiter.
+  // Kuerzel werden Woerter: „Reserve 2" statt „RIR 2", „noch nicht eingetragen" statt „leer" (G9).
+  const blocks=byEx.map(g=>groupHTML(twExName(g.id),
+    g.sets.map(l=>{const ty=twType(l.set_type||'work');
+      const wert=(l.reps>0||l.weight>0)?`${_fmtW(l.weight)} kg × ${fmtNum(l.reps)}`:'noch nicht eingetragen';
+      const teile=[ty.k!=='work'?ty.l:'',
+        (l.rir!=null&&l.rir!=='')?('Reserve '+fmtNum(l.rir)):'',l.note||''].filter(Boolean);
+      return rowHTML({title:'Satz '+l.set_no,sub:teile.join(' · '),value:wert,
+        tap:`twSetSheet('${iso}',${g.id},${l.set_no})`});})
+      .concat([rowHTML({icon:'plus',title:'Satz nachtragen',tap:`twSessAdd('${iso}',${g.id})`})]),
+    '',{inset:false})).join('');
+  return `<div class="tw-sess">`
+    +groupHTML('Sätze',[rowHTML({title:'Bewegt an diesem Tag',value:twSessSum(rows)}),
+      rowHTML({icon:'plus',title:'Übung nachtragen',tap:`twSessPick('${iso}')`})],
+      fremd?'Du bearbeitest die Sätze deines Athleten – jede Änderung ist sofort bei ihm sichtbar.'
+           :'Reserve heißt: wie viele Wiederholungen du am Ende des Satzes noch geschafft hättest (RIR).')
+    +blocks+`</div>`;}
 // Übung nachtragen: alle Übungen des Plans, nach Trainingstag gruppiert. Der Server nimmt nur
 // Übungen an, die wirklich zum Plan dieses Athleten gehören (POST /api/logs, 403 sonst) – die
 // Liste zeigt also genau das, was auch durchkommt.
 function twSessPick(iso){const days=(PLAN?.days||[]).filter(d=>(d.exercises||[]).length);
   if(!days.length){toast('Leg zuerst einen Trainingstag mit Übungen an');return;}
   openSheet('Übung nachtragen',`<div class="note mb-3">Welche Übung fehlt am ${esc2(fmtDate(iso,{weekday:'long',month:'long'}))}?</div>
-    ${days.map(d=>`<div class="tw-exg"><div class="tw-exn">${esc2(d.name)}</div>
-      ${d.exercises.map(e=>`<button class="rhy-opt" type="button" onclick="twSessAdd('${iso}',${e.id})"><span class="l">${esc2(e.name)}</span><span class="s">${esc2(e.muscle||'')}</span></button>`).join('')}</div>`).join('')}`);}
+    ${days.map(d=>groupHTML(d.name,d.exercises.map(e=>rowHTML({title:e.name,sub:e.muscle||'',
+      tap:`twSessAdd('${iso}',${e.id})`})),'',{inset:false})).join('')}`);}
 // Nächste freie Satznummer dieser Übung an diesem Tag (der Server erlaubt 1–20).
 function twSessAdd(iso,exId){const rows=((TW_SESS&&TW_SESS.iso===iso)?TW_SESS.logs:[]).filter(l=>l.exercise_id===exId);
   const next=rows.reduce((m,l)=>Math.max(m,+l.set_no||0),0)+1;
@@ -1946,7 +2316,7 @@ function twSetSheet(iso,exId,setNo,seed){
     ${row('weight','Gewicht','kg',step)}
     ${row('reps','Wiederholungen','Wdh',1)}
     ${rirOn?row('rir','RIR','RIR',1):''}
-${typesOn?`<div class="tw-tyl">Satzart</div>
+${typesOn?`<h2 class="rows-h">Satzart</h2>
     <div class="tw-tyg">${TW_TYPES.map(t=>`<button class="tw-ty${t.k===TW_EDIT.type?' on':''}" type="button" data-k="${t.k}" data-l="${esc2(t.l)}" aria-pressed="${t.k===TW_EDIT.type}" onclick="twEditType('set_type','${t.k}')">${t.k===TW_EDIT.type?icon('check',16):''}${esc2(t.l)}</button>`).join('')}</div>
     <div class="caption mb-3">Aufwärmsätze zählen nicht in Volumen, e1RM und Bestleistung.</div>`:''}
     <div class="field"><label for="twe_note">Notiz</label><textarea id="twe_note" rows="2" maxlength="300" placeholder="Was gehört zu diesem Satz?" oninput="twEditType('note',this.value)">${esc2(TW_EDIT.note)}</textarea></div>
@@ -2084,7 +2454,7 @@ function drawRhythmus(){if(!Array.isArray(RHY)||!RHY.length)RHY=['train','train'
       <button class="btn sm sec" onclick="rhyRemoveLast()">${icon('minus',16)} Letzter Tag</button>
       <button class="btn sm sec" onclick="rhyPresets()">${icon('sparkles',16)} Vorlage</button>
     </div>
-    <div class="section-label">So läuft der Zyklus<span class="sl-r">wenn heute Tag 1 ist</span></div>
+    <h2 class="rows-h">So läuft der Zyklus<span class="a">wenn heute Tag 1 ist</span></h2>
     <div class="rhy-week">${prev}</div>
     <div class="caption mt-2">Trainingstage mit festem Namen (z.B. „O1") kommen immer an derselben Stelle des Zyklus. „T" heißt: der nächste Tag aus deinem Plan, automatisch der Reihe nach.<br>
       Der Zyklus läuft dort weiter, wo du gerade stehst – er beginnt nicht bei jedem Speichern neu. Willst du heute an einer bestimmten Stelle einsteigen, tippe im Kalender auf heute und wähle den Tag.</div>
@@ -2095,18 +2465,18 @@ function rhyPick(i){const cur=RHY[i];const curDay=rhyDay(cur);const names=_rhyNa
   // Namen – sonst hoert die Sprachausgabe nur „Ruhetag" statt „Ruhetag, ausgewaehlt".
   const opt=(sel,label,sub,act)=>`<button class="rhy-opt${sel?' on':''}" type="button" aria-pressed="${sel?'true':'false'}" onclick="${act}"><span class="l">${esc2(label)}</span>${sub?`<span class="s">${esc2(sub)}</span>`:''}${sel?icon('check',18):''}</button>`;
   openSheet('Tag '+(i+1)+' im Zyklus',`
-    ${names.length?`<div class="section-label">Fester Trainingstag</div>
+    ${names.length?`<h2 class="rows-h">Fester Trainingstag</h2>
     <div class="stack-sm">${names.map(n=>opt(curDay===n,n,null,`rhySet(${i},'${esc(n)}')`)).join('')}</div>`:''}
-    <div class="section-label">Sonst</div>
+    <h2 class="rows-h">Sonst</h2>
     <div class="stack-sm">
       ${opt(rhyType(cur)==='train'&&!curDay,'Training (automatisch)','nächster Tag aus dem Plan',`rhySet(${i},null)`)}
       ${opt(rhyType(cur)!=='train','Ruhetag',null,`rhySet(${i},'rest')`)}
     </div>
-    <div class="rows mt-3">
-      ${_mrow('arrowLeft','Nach vorne schieben',`rhyMove(${i},-1)`)}
-      ${_mrow('arrowRight','Nach hinten schieben',`rhyMove(${i},1)`)}
-      ${_mrow('trash','Tag aus dem Zyklus entfernen',`rhyRemove(${i})`,{cls:'tone-red'})}
-    </div>`);}
+    ${groupHTML('Diesen Tag verschieben',[
+      rowHTML({icon:'arrowLeft',title:'Nach vorne schieben',sub:'Einen Platz früher im Zyklus',tap:`rhyMove(${i},-1)`}),
+      rowHTML({icon:'arrowRight',title:'Nach hinten schieben',sub:'Einen Platz später im Zyklus',tap:`rhyMove(${i},1)`})],
+      'Der Zyklus wiederholt sich endlos – unabhängig vom Wochentag.')}
+    ${groupHTML('',[rowHTML({title:'Tag aus dem Zyklus entfernen',danger:true,tap:`rhyRemove(${i})`})],'')}`);}
 function rhySet(i,val){RHY[i]=val==='rest'?'rest':(val?{type:'train',day:val}:'train');drawRhythmus();}
 function rhyMove(i,dir){const j=i+dir;if(j<0||j>=RHY.length)return toast(dir<0?'Steht schon ganz vorne':'Steht schon ganz hinten');[RHY[i],RHY[j]]=[RHY[j],RHY[i]];drawRhythmus();}
 function rhyRemove(i){if(RHY.length<=1)return toast('Mindestens 1 Tag nötig');RHY.splice(i,1);drawRhythmus();}
@@ -2168,14 +2538,10 @@ function twFormDef(term){const t=String(term||'').trim();if(!t)return null;
 function twFormTerm(ex){if(!ex)return '';
   if(ex.form_guide)return String(ex.form_guide);
   return (ex.technique&&twFormDef(ex.technique))?String(ex.technique):'';}
-function twTechChip(ex){if(!ex)return '';
-  const form=twFormTerm(ex);
-  const coach=(ex.technique&&ex.technique!==form)?String(ex.technique):'';
-  if(coach)return `<button class="tchip" type="button" aria-label="Technik ${esc2(coach)} erklären" onclick="event.stopPropagation();explainTechnique('${esc(coach)}')">${esc2(coach)}${icon('info',12)}</button>`;
-  if(!form)return '';
-  // Beschriftung „Technik" statt des Kartennamens: der Name steht zwei Zeilen darueber schon einmal
-  // („Kniebeuge · Kniebeuge" waere Rauschen), und der eingeklappte Kopf muss einzeilig bleiben.
-  return `<button class="tchip" type="button" aria-label="Technik von ${esc2(ex.name||'')}: drei Punkte und drei typische Fehler" onclick="event.stopPropagation();openVideo('${esc(ex.name||'')}','${esc(ex.video_url||'')}','${esc(form)}')">Technik${icon('info',12)}</button>`;}
+// `.tchip` mit i-Symbol ist ERSATZLOS GELÖSCHT (5.14): ein Kürzel („UP") neben einem Symbol, das
+// man antippen muss, um zu erfahren, was es heisst – auf einer Zeile, die ohnehin abgeschnitten war.
+// Das Wort steht jetzt in der Unterzeile der Übungszeile (twTechWord), die Erklärung im Fusstext der
+// Gruppe, und die Technik-Karte hat auf der Übungsseite eine benannte Zeile („Ausführung").
 // Der Inhalt der Karte – dieselben Klassen wie im Lexikon (.def/.dt/.dd), damit kein neues CSS noetig ist.
 function twFormHTML(term){const g=twFormDef(term);if(!g)return '';
   if(!(g.cues||[]).length)return `<div class="body muted">${_fixDef(g.def)}</div>`;
@@ -2194,7 +2560,7 @@ function _defsPaint(list){
   const row=d=>`<div class="def"><div class="dt">${esc2(_defLabel(d.term))}</div><div class="dd">${_fixDef(d.def)}</div></div>`;
   const forms=list.filter(d=>d.kind==='form'),rest=list.filter(d=>d.kind!=='form');
   openSheet('Technik-Lexikon',list.length
-    ?rest.map(row).join('')+(forms.length?`<div class="section-label">Grundübungen</div>`+forms.map(row).join(''):'')
+    ?rest.map(row).join('')+(forms.length?`<h2 class="rows-h">Grundübungen</h2>`+forms.map(row).join(''):'')
     :emptyState({icon:'help',title:'Keine Einträge'}));}
 // Das Lexikon ist auch aus der globalen Suche heraus erreichbar – also aus jeder Ansicht, auch bevor
 // jemand im Trainings-Reiter war. Seit 2.9.0 liegt DEFS nicht mehr im Startpfad: ein leeres Sheet mit
@@ -2220,17 +2586,18 @@ function platesPerSideJS(target,bar,plates){let perSide=(target-bar)/2;const out
   return {out,achievable:Math.round(ach*100)/100,remainder:Math.round((target-ach)*100)/100};}
 // Gewicht der aktuellen Zeile: zuletzt fokussiertes Gewichtsfeld, sonst erste offene Zeile, sonst 60 kg
 function curRowWeight(){const l=curRowWeight.last;if(l&&document.contains(l)&&+l.value>0)return +l.value;
-  const g=[...document.querySelectorAll('#exlist .ex.open .setgrid[data-set], #exlist .setgrid[data-set]')].find(x=>!_rowDone(x));
-  const w=g&&g.querySelector('input');return (w&&+w.value>0)?+w.value:60;}
-document.addEventListener('focusin',e=>{const t=e.target;if(t&&t.matches&&t.matches('#exlist .setgrid input[inputmode="decimal"]'))curRowWeight.last=t;});
-// Der Hantelrechner war bis 2.4.0 aus der Satzzeile nur über das Kontextmenü des Gewichtsfeldes zu
-// erreichen (Rechtsklick/Longpress) – und iOS Safari feuert `contextmenu` auf Eingabefeldern nicht.
-// Der Knopf in der Leiste erscheint erst nach dem ersten Satz, also war der Rechner auf dem iPhone
-// genau dann unerreichbar, wenn man ihn braucht: vor dem ersten Satz (RATE-25-training M6).
-// Das Scheiben-Symbol in der Gewichtszelle öffnet ihn mit dem Wert genau dieser Zeile; das
-// Kontextmenü bleibt zusätzlich bestehen (Desktop, Android).
-function trOpenPlateFromRow(btn){const g=btn&&btn.closest?btn.closest('.setgrid[data-set]'):null;
-  const inp=g?g.querySelector('.wcell input'):null;
+  const g=[...document.querySelectorAll('.setrow[data-set]')].find(x=>!_rowDone(x));
+  const w=g&&g.querySelector('input.w');return (w&&+w.value>0)?+w.value:60;}
+document.addEventListener('focusin',e=>{const t=e.target;if(t&&t.matches&&t.matches('.setrow input.w'))curRowWeight.last=t;});
+// R1 / R13 · Der Hantelrechner war aus der Satzzeile nur über das Kontextmenü des Gewichtsfeldes zu
+// erreichen (Rechtsklick) – und iOS Safari feuert `contextmenu` auf Eingabefeldern nicht; die Datei
+// sagte das selbst. Ein zweiter Weg war ein Symbol OHNE WORT in der Werkzeugleiste, die nur an der
+// gerade angefassten Zeile stand und bei 3 von 9 Übungen ganz fehlte. Der Rechtsklick ist gelöscht.
+// Es gibt jetzt zwei benannte Wege: die Zeile „Scheibenrechner" im Satz-Detail (aus der Satznummer)
+// und die Zeile „Hantelrechner" im Abschnitt Werkzeuge der Trainingsansicht – letztere IMMER
+// sichtbar, auch vor dem ersten Satz.
+function trOpenPlateFromRow(btn){const g=btn&&btn.closest?btn.closest('.setrow[data-set]'):null;
+  const inp=g?g.querySelector('input.w'):null;
   if(inp)curRowWeight.last=inp; // damit die Leiste danach dieselbe Zeile meint
   if(g)twCurSet(g.dataset.ex,g.dataset.set);
   openPlateCalc(inp&&+inp.value>0?inp.value:curRowWeight());}
@@ -2360,30 +2727,27 @@ function restSetDefault(n){n=+n;REST_SECS=n;try{localStorage.setItem('be_rest',S
   trAudioUnlock(); // Tipp im Picker ist eine Nutzergeste – hier lässt sich der Ton noch entsperren
   if(REST_END_AT>0){closeModal();startRest(n);}else restPick();}
 function restStartNow(){closeModal();trAudioUnlock();startRest(REST_SECS);}
-// Leiste an den Zustand anpassen (wird von Timer, Fortschritt, Tab-Wechsel und View-Wechsel aufgerufen)
+// R14 · DIE TRAININGSLEISTE. Vorbild ist die Wiedergabeleiste in Apple Music: sie ist da, solange
+// etwas laeuft, und sie aendert ihre Knoepfe nicht. Drei Dinge waren anders und sind jetzt behoben:
+//   · Sie stand auch im Ruhezustand da, sobald irgendwann heute ein Satz eingetragen wurde – als
+//     zweite Steuerebene ueber der Reiterleiste (G4, gemessen als dritte Ebene dieser Ansicht).
+//     Jetzt erscheint sie NUR, solange eine Pause laeuft. „Abschliessen" hat seinen eigenen,
+//     benannten Platz: den Primaerknopf der Trainingsansicht.
+//   · „Abschliessen" wurde waehrend der Pause vom WORT zum Pokal-Symbol. Ein Knopf, der seine
+//     Beschriftung mit dem Zustand wechselt, ist zweimal neu zu lernen (R14). Es gibt ihn hier
+//     nicht mehr – das Wort steht oben.
+//   · Der Hantelrechner verschwand aus der Leiste, sobald eine Pause lief. Er hat jetzt eine
+//     dauerhafte, benannte Zeile in „Werkzeuge" (R1) und bleibt hier zusaetzlich sichtbar.
 function trainBarSync(){const bar=document.getElementById('restBar');if(!bar)return;
   const running=REST_END_AT>0;
   const onStrength=!!document.getElementById('exlist')&&!coachView();
-  const c=onStrength?_countDone():{done:0,total:0};
-  const idle=onStrength&&c.done>0&&trainBarSync.dismissed!==today();
-  const pct=c.total?c.done/c.total:0;
-  const nearDone=idle&&pct>=.8;            // ab 80 % ist der Abschluss die wichtigste Aktion (roter Knopf)
-  const showFinish=idle;                   // „Abschließen" bleibt sichtbar, sobald der erste Satz steht (auch während der Pause)
-  const show=running||idle;
-  bar.classList.toggle('hidden',!show);bar.classList.toggle('idle',!running);
-  document.body.classList.toggle('rest-on',show);
-  // −15/+15 bleiben sichtbar, solange die Pause läuft – auch am Ende der Einheit, wo die Pausen am längsten
-  // sind. Platz macht stattdessen „Abschließen": während der Pause nur als Symbol (siehe Slot unten).
+  bar.classList.toggle('hidden',!running);bar.classList.toggle('idle',false);
+  document.body.classList.toggle('rest-on',running);
   ['restSub15','restAdd15'].forEach(id=>{const b=document.getElementById(id);if(b)b.hidden=!running;});
   const st=document.getElementById('restStop');if(st)st.hidden=!running;
   const slot=document.getElementById('trainBarSlot');
-  if(slot){let h='';
-    // Solange die Pause läuft, tritt der Hantelrechner zurück und „Abschließen" wird zum Symbol – so bleibt
-    // Platz für Countdown · −15 · +15 · Fertig (die Pausensteuerung ist in diesem Moment das Wichtigste)
-    if(onStrength&&!running)h+=`<button class="btn icon sm" aria-label="Hantelrechner" onclick="openPlateCalc(curRowWeight())">${icon('dumbbell',20)}</button>`;
-    if(showFinish)h+=running
-      ? `<button class="btn icon sm${nearDone?' red':''}" aria-label="Training abschließen" title="Training abschließen" onclick="openWorkoutSummary()">${icon('trophy',20)}</button>`
-      : `<button class="btn sm${nearDone?'':' sec'}" onclick="openWorkoutSummary()">Abschließen</button>`;
+  if(slot){const h=(running&&onStrength)
+    ? `<button class="btn sm sec" onclick="openPlateCalc(curRowWeight())">Scheiben</button>`:'';
     if(slot.innerHTML!==h)slot.innerHTML=h;}
   if(!running){const t=document.getElementById('restTime');if(t)t.textContent='Pause';const p=document.getElementById('restProg');if(p)p.style.width='0%';}}
 // View-Wechsel (Router ersetzt #views) -> Leiste nachziehen
@@ -2397,8 +2761,10 @@ function _trInit(){
   window.openRhythmus=openRhythmus;window.drawRhythmus=drawRhythmus;window.saveRhythmus=saveRhythmus;
   window._cycleRow=_cycleRow;window.cycleText=cycleText;window.rhyPick=rhyPick;window.rhySet=rhySet;window.rhyMove=rhyMove;window.rhyRemove=rhyRemove;window.rhyAdd=rhyAdd;
   window.rhyRemoveLast=rhyRemoveLast;window.rhyPresets=rhyPresets;window.rhyApplyPreset=rhyApplyPreset;
+  // Die Tour zeigte auf `#daysel` (die Tages-Chips) und erklaerte „hinter den drei Punkten
+  // bearbeitest du deinen Plan" – beides gibt es nicht mehr. Sie zeigt jetzt auf das, was dasteht.
   try{if(typeof TOUR_DEFS==='object'&&TOUR_DEFS&&TOUR_DEFS.workout)TOUR_DEFS.workout=[
-    {sel:'#daysel',title:'Deine Trainingstage',body:'Wechsle hier zwischen deinen Trainingstagen. Der rote Chip ist für heute vorgeschlagen; hinter den drei Punkten bearbeitest du deinen Plan.',pos:'below'},
-    {sel:'#trainProg',title:'Dein Fortschritt',body:'Hier siehst du, wie viele Sätze du heute schon geschafft hast. Pausen-Timer, Hantelrechner und „Abschließen" erscheinen unten in der Leiste, sobald du loslegst.',pos:'below'},
-    {sel:'#exlist',title:'Übungen loggen',body:'Tippe eine Übung an, trag Gewicht und Wiederholungen ein und bestätige den Satz mit dem Haken. Der farbige Hinweis sagt dir, ob du steigern solltest.',pos:'above'}];}catch(e){}}
+    {sel:'#trainProg',title:'Dein Tag auf einen Blick',body:'Hier steht, wie viele Sätze heute geplant sind und wie viele du schon geschafft hast. Darunter der eine Knopf, der die Einheit startet.',pos:'below'},
+    {sel:'#exlist',title:'Übungen und Sätze',body:'Die Übung, die dran ist, zeigt ihre Sätze gleich hier: Gewicht und Wiederholungen mit den Steppern ändern, mit dem Haken bestätigen. Tippe eine Übung an, um Verlauf, Ausführung, Notiz oder Tausch zu öffnen.',pos:'above'},
+    {sel:'#trPlan',title:'Plan und Werkzeuge',body:'Trainingstag, Rhythmus und Kalender stehen hier – dazu Hantelrechner, Pausen-Timer und das Technik-Lexikon.',pos:'above'}];}catch(e){}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_trInit);else _trInit();
